@@ -45,7 +45,8 @@
 #' @return list with `strength` (named, scaled to geometric mean one), `log_strength`,
 #'   `se` (from the diagonal of the observed information, so it ignores the correlation
 #'   between competitors and is optimistic when contests are few), `wins`, `contests`,
-#'   `exposure_total`, `loglik`, `converged`, `iters`, and `n_zero_wins`
+#'   `exposure_total`, `loglik`, `converged`, `iters`, `delta` (the last change in the
+#'   log-strengths) and `n_zero_wins`
 #' @export
 competition_strength <- function(wins, group, competitor, exposure = NULL,
                                  prior = 0.5, tol = 1e-10, maxiter = 1000L) {
@@ -74,24 +75,42 @@ competition_strength <- function(wins, group, competitor, exposure = NULL,
   n_contests <- as.numeric(table(factor(ai, levels = seq_len(na))))
   expo_tot <- as.numeric(tapply(exposure, ai, sum)[as.character(seq_len(na))])
 
+  # One MM round, as a fixed-point map on the strengths. rowsum() is the C-level grouped
+  # sum; tapply here cost more than the arithmetic it wrapped.
+  passo <- function(lam) {
+    D <- as.vector(rowsum(exposure * lam[ai], gi))
+    novo <- (W + prior) / (as.vector(rowsum(N[gi] * exposure / D[gi], ai)) + prior)
+    pos <- novo > 0
+    if (!any(pos)) stop("every competitor has zero strength: no contest was won")
+    novo / exp(mean(log(novo[pos])))
+  }
+  vero <- function(lam) {
+    D <- as.vector(rowsum(exposure * lam[ai], gi))
+    p <- exposure * lam[ai] / D[gi]
+    sum(wins[wins > 0] * log(p[wins > 0]))
+  }
+
+  # MM is monotone but linear, and on a real panel it crawls. SQUAREM (Varadhan and
+  # Roland 2008) extrapolates through two MM steps at the cost of nothing but a
+  # likelihood check, and falls back to the plain double step whenever the extrapolation
+  # would not improve — so it never trades convergence for speed.
   lam <- rep(1, na)
   convergiu <- FALSE
   it <- 0L
   for (it in seq_len(maxiter)) {
-    D <- as.numeric(tapply(exposure * lam[ai], gi, sum)[as.character(seq_len(nc))])
-    # each competitor's share of the opportunity, summed over his contests
-    denom <- as.numeric(tapply(N[gi] * exposure / D[gi], ai, sum)[as.character(seq_len(na))])
-    denom[is.na(denom)] <- 0
-    novo <- (W + prior) / (denom + prior)
-    # identifiable only up to a scale; anchor on the geometric mean of the strengths
-    # that are actually positive, so a zero-win competitor under prior = 0 (whose
-    # maximum-likelihood strength IS zero) does not take the anchor to minus infinity
-    pos <- novo > 0
-    if (!any(pos)) stop("every competitor has zero strength: no contest was won")
-    novo <- novo / exp(mean(log(novo[pos])))
-    fin <- pos & lam > 0
-    delta <- if (any(fin)) max(abs(log(novo[fin]) - log(lam[fin]))) else 0
-    lam <- novo
+    l1 <- passo(lam)
+    l2 <- passo(l1)
+    delta <- max(abs(log(l2[l2 > 0]) - log(l1[l1 > 0 & l2 > 0])))
+    r <- log(l1) - log(lam)
+    v <- log(l2) - log(l1) - r
+    fin <- is.finite(r) & is.finite(v)
+    alfa <- if (any(fin) && sum(v[fin]^2) > 0)
+      -sqrt(sum(r[fin]^2) / sum(v[fin]^2)) else -1
+    alfa <- min(alfa, -1)
+    cand <- exp(log(lam) - 2 * alfa * r + alfa^2 * v)
+    lam <- if (all(is.finite(cand)) && all(cand >= 0) &&
+               isTRUE(vero(cand / exp(mean(log(cand[cand > 0])))) >= vero(l2)))
+      cand / exp(mean(log(cand[cand > 0]))) else l2
     if (is.finite(delta) && delta < tol) { convergiu <- TRUE; break }
   }
 
@@ -109,7 +128,7 @@ competition_strength <- function(wins, group, competitor, exposure = NULL,
                  wins = stats::setNames(W, nomes),
                  contests = stats::setNames(n_contests, nomes),
                  exposure_total = stats::setNames(expo_tot, nomes),
-                 loglik = ll, converged = convergiu, iters = it,
+                 loglik = ll, converged = convergiu, iters = it, delta = delta,
                  n_zero_wins = sum(W == 0), prior = prior),
             class = "breeding_competition")
 }

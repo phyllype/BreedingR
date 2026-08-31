@@ -37,7 +37,8 @@ likelihood (which diverges for a competitor with no wins)}
 list with `strength` (named, scaled to geometric mean one), `log_strength`,
   `se` (from the diagonal of the observed information, so it ignores the correlation
   between competitors and is optimistic when contests are few), `wins`, `contests`,
-  `exposure_total`, `loglik`, `converged`, `iters`, and `n_zero_wins`
+  `exposure_total`, `loglik`, `converged`, `iters`, `delta` (the last change in the
+  log-strengths) and `n_zero_wins`
 }
 \description{
 Estimates each competitor's strength from counts of outcomes won inside groups, with
