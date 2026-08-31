@@ -170,19 +170,25 @@ decompoe_formula <- function(expr) {
   anda(expr)
   nomes <- vapply(partes, function(t) t$nome, character(1))
   cols <- vapply(partes, function(t) t$column, character(1))
-  # a genuine double declaration is the same name over the SAME column; the same default
-  # name over DIFFERENT columns is a legitimate model (pe(id) + pe(dam) is Willham's
-  # full maternal model) and gets disambiguated by the column: pe(id), pe(dam)
-  chave <- paste(nomes, cols)
-  if (anyDuplicated(chave))
-    stop("term declared twice: ", paste(unique(nomes[duplicated(chave)]), collapse = ", "))
-  dup <- nomes %in% nomes[duplicated(nomes)]
-  for (i in which(dup)) {
-    partes[[i]]$nome <- paste0(nomes[i], "(", cols[i], ")")
-    nomes[i] <- partes[[i]]$nome
+  # A NAME IS A FUNCTION OF ITS OWN TERM, never of which other terms happen to be there.
+  #
+  # An earlier version disambiguated duplicated markers by appending the column, so a
+  # model with one pe() reported var(pe) and the same model with a second pe() reported
+  # var(pe(id)) and var(pe(dam)) — the FIRST term silently renamed because a second one
+  # was added. Code indexing components by name then broke without a word. Two terms of
+  # the same marker now require an explicit name, which keeps every name stable and turns
+  # the collision into a message instead of a rename.
+  if (anyDuplicated(paste(nomes, cols)))
+    stop("term declared twice: ",
+         paste(unique(nomes[duplicated(paste(nomes, cols))]), collapse = ", "))
+  if (anyDuplicated(nomes)) {
+    rep_nome <- unique(nomes[duplicated(nomes)])
+    quais <- cols[nomes %in% rep_nome]
+    stop("two terms would both be called '", rep_nome[1], "' (columns ",
+         paste(quais, collapse = ", "), "). Name them, so the component names do not ",
+         "depend on how many terms the model has: ",
+         rep_nome[1], "(", quais[1], ", nome = \"", rep_nome[1], "_", quais[1], "\")")
   }
-  if (anyDuplicated(nomes))
-    stop("term declared twice: ", paste(unique(nomes[duplicated(nomes)]), collapse = ", "))
   partes
 }
 

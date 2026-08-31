@@ -95,7 +95,8 @@ d5 <- d3
 d5$dam <- s$pedigree$dam[match(d5$id, s$pedigree$id)]
 d5 <- d5[d5$dam != "0", ]
 f5 <- model(y ~ cg + animal(id, group = "g") + maternal(dam, group = "g") +
-              pe(id) + pe(dam), d5, s$pedigree, missing_code = -999)
+              pe(id, nome = "pe_animal") + pe(dam, nome = "pe_dam"),
+            d5, s$pedigree, missing_code = -999)
 names(f5$theta)
 ```
 

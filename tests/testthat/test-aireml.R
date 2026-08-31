@@ -96,30 +96,50 @@ test_that("Willham's full maternal model fits in one formula: two pe() disambigu
   d$dam <- s$pedigree$dam[match(d$id, s$pedigree$id)]
   d <- d[d$dam != "0", ]
   d$y <- d$y + rnorm(nrow(d), 0, 0.4)
-  f <- y ~ cg + animal(id, group = "g") + maternal(dam, group = "g") + pe(id) + pe(dam)
+  # two pe() terms must be named: the package refuses to let a component's name depend
+  # on how many terms the model happens to have
+  expect_error(model(y ~ cg + pe(id) + pe(dam), d, s$pedigree), "Name them")
+  f <- y ~ cg + animal(id, group = "g") + maternal(dam, group = "g") +
+       pe(id, nome = "pe_animal") + pe(dam, nome = "pe_dam")
   r <- model(f, d, s$pedigree)
   expect_true(r$converged)
   expect_length(r$theta, 6L)
   expect_setequal(names(r$theta),
                   c("var(animal)", "cov(maternal,animal)", "var(maternal)",
-                    "var(pe(id))", "var(pe(dam))", "var(residual)"))
+                    "var(pe_animal)", "var(pe_dam)", "var(residual)"))
   # the two permanent environments are distinct groups with distinct levels
-  expect_false(identical(names(ebv(r, "pe(id)")), names(ebv(r, "pe(dam)"))))
+  expect_false(identical(names(ebv(r, "pe_animal")), names(ebv(r, "pe_dam"))))
   # and the combined design still satisfies the MME <-> V-form identity
   th <- c(0.4, -0.1, 0.1, 0.3, 0.1, 0.2)
   a <- eval_internal(f, d[1:80, ], s$pedigree, theta = th)
   expect_equal(a$neg2logl, a$neg2logl_V, tolerance = 1e-8)
 })
 
-test_that("a genuine double declaration still errors; different columns do not", {
+test_that("component names do not depend on which other terms are present", {
+  # The failure this gate exists for: a model with one random() reported var(random),
+  # and adding a second one renamed the FIRST to var(random(cg)) — so code indexing a
+  # component by name broke by the mere arrival of another term. Names are now a
+  # function of their own term, and a collision is a message.
   set.seed(2)
-  s <- simulate_breeding(n_founders = 20, n_generations = 1,
-                         offspring_per_generation = 20, h2 = 0.4, seed = 2)
-  expect_error(model(y ~ cg + pe(id) + pe(id), s$data, s$pedigree), "twice")
+  s <- simulate_breeding(n_founders = 25, n_generations = 1,
+                         offspring_per_generation = 40, h2 = 0.4, seed = 2)
   d <- s$data
-  d$lot <- sample(c("l1", "l2"), nrow(d), TRUE)
-  r <- model(y ~ cg + random(cg) + random(lot) + animal(id), d, s$pedigree)
-  expect_true(any(grepl("random(lot)", names(r$theta), fixed = TRUE)))
+  d$lot <- sample(c("l1", "l2", "l3"), nrow(d), TRUE)
+
+  um <- model(y ~ cg + random(lot) + animal(id), d, s$pedigree)
+  expect_true("var(random)" %in% names(um$theta))
+
+  # adding a second term of the same marker is refused until they are named, and the
+  # message says exactly what to write
+  expect_error(model(y ~ random(cg) + random(lot) + animal(id), d, s$pedigree),
+               "Name them")
+  dois <- model(y ~ random(cg, nome = "cg_r") + random(lot) + animal(id), d, s$pedigree)
+  # the term that was already there keeps the name it had
+  expect_true("var(random)" %in% names(dois$theta))
+  expect_true("var(cg_r)" %in% names(dois$theta))
+
+  # and the same term declared twice is still an error
+  expect_error(model(y ~ cg + pe(id) + pe(id), s$data, s$pedigree), "twice")
 })
 
 test_that("NA in the observation is missing, with or without a declared code", {

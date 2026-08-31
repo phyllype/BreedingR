@@ -39,7 +39,7 @@ An unmarked term is a fixed class effect. Marked terms:
 | `animal(id)` | additive genetic, over A (or H with `genotypes=`) |
 | `maternal(dam)` | maternal genetic |
 | `sire(sire)` | sire model |
-| `pe(id)` | permanent environment; two `pe()` on different columns are allowed |
+| `pe(id)` | permanent environment. Two `pe()` in one model must be NAMED (`nome=`): a component's name never depends on how many terms the model has |
 | `random(litter)` | iid random (litter, batch, pen, technician) |
 | `rn(id, base = c("phi0","phi1"))` | random regression / reaction norm |
 | `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel) |
@@ -49,7 +49,8 @@ An unmarked term is a fixed class effect. Marked terms:
 model(weight ~ cg + cov(age) + animal(id), data, pedigree = ped)          # animal model
 model(weight ~ cg + animal(id) + pe(id), data, ped)                       # repeatability
 model(y ~ cg + animal(id, group="g") + maternal(dam, group="g"), d, ped)  # direct-maternal
-model(y ~ cg + animal(id,group="g") + maternal(dam,group="g") + pe(id) + pe(dam), d, ped)
+model(y ~ cg + animal(id,group="g") + maternal(dam,group="g") +
+        pe(id, nome="pe_animal") + pe(dam, nome="pe_dam"), d, ped)   # Willham, full
 model(y ~ cg + rn(id, base=c("phi0","phi1")) + pe(id), d2, ped)           # reaction norm
 model(y ~ cg + animal(id,group="g") + indirect(id,pen="pen",group="g"), d, ped)
 model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped)                         # multi-trait
@@ -149,7 +150,10 @@ wrong without warning:
 - two records of the same subject at the same time in `model_ar1()` is an error — with
   AR(1) the time identifies the record; simultaneous repetition wants `pe()`;
 - an inadmissible theta (a covariance that is not positive-definite) stops the fit;
-- a fit that did not converge says so in the print, the message and the object.
+- a fit that did not converge says so in the print, the message and the object;
+- two terms that would carry the same name is an error, not a silent rename — otherwise
+  adding a term would quietly change the name of one already there, and code indexing
+  components by name would break without a word.
 
 ## Diagnosing a fit
 

@@ -93,8 +93,9 @@ model(weight ~ cg + cov(age) + animal(id), data, pedigree = ped)
 model(weight ~ cg + animal(id) + pe(id), data, ped)
 
 # direct-maternal, with the correlation BETWEEN the two estimated; adding
-# pe(id) + pe(dam) makes it Willham's FULL maternal model (two permanent
-# environments, disambiguated by column in the component names)
+# adding pe(id, nome=) + pe(dam, nome=) makes it Willham's FULL maternal model;
+# two terms of one marker must be named, so no component is ever renamed by the
+# arrival of another term
 model(weight ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), data, ped)
 
 # reaction norm on a Legendre basis
