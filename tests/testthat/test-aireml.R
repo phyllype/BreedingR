@@ -164,3 +164,58 @@ test_that("a fixed level whose records are all missing is dropped, not left as a
   f2 <- model(y ~ cg + animal(id), d2, s$pedigree, missing_code = -999)
   expect_equal(unname(f2$theta), unname(ref$theta), tolerance = 1e-8)
 })
+
+test_that("weights of one change nothing, and a two-step recovers the simulated variance", {
+  s <- simulate_breeding(n_founders = 40, n_generations = 2,
+                         offspring_per_generation = 90, h2 = 0.4, seed = 64)
+  # the identity: a weight of one on every record is no weight at all
+  d1 <- s$data; d1$w <- 1
+  expect_equal(unname(model(y ~ cg + animal(id), d1, s$pedigree, weights = "w")$theta),
+               unname(model(y ~ cg + animal(id), s$data, s$pedigree)$theta),
+               tolerance = 1e-10)
+
+  # and the use the argument exists for: records that are means of k observations carry
+  # weight k. The means DISCARD the within-animal variation, so this is not an algebraic
+  # identity with the individual-record fit — it is a statistical claim, and what it must
+  # deliver is the simulated genetic variance back.
+  set.seed(64)
+  k <- sample(2:8, nrow(s$data), TRUE)
+  ind <- s$data[rep(seq_len(nrow(s$data)), k), ]
+  ind$y <- 10 + s$tbv[ind$id] + rnorm(nrow(ind), 0, 0.7)
+  medias <- data.frame(id = s$data$id,
+                       y = as.vector(tapply(ind$y, factor(ind$id, levels = s$data$id), mean)),
+                       k = as.vector(table(factor(ind$id, levels = s$data$id))),
+                       stringsAsFactors = FALSE)
+  f <- model(y ~ animal(id), medias, s$pedigree, weights = "k")
+  expect_true(f$converged)
+  expect_gt(f$theta[["var(animal)"]], 0.25)      # the truth is 0.40
+  expect_lt(f$theta[["var(animal)"]], 0.60)
+  expect_gt(f$theta[["var(residual)"]], 0.25)    # the within-animal truth is 0.49
+  expect_lt(f$theta[["var(residual)"]], 0.85)
+  # ignoring the weights instead biases the residual: every mean is treated as one
+  # observation of equal precision, and the k that produced it is thrown away
+  sem <- model(y ~ animal(id), medias, s$pedigree)
+  expect_gt(abs(sem$theta[["var(residual)"]] - 0.49),
+            abs(f$theta[["var(residual)"]] - 0.49))
+})
+
+test_that("a constant weight c scales the residual by c and leaves the genetic variance", {
+  s <- simulate_breeding(n_founders = 30, n_generations = 1,
+                         offspring_per_generation = 70, h2 = 0.4, seed = 65)
+  f1 <- model(y ~ cg + animal(id), s$data, s$pedigree)
+  d4 <- s$data; d4$w <- 4
+  f4 <- model(y ~ cg + animal(id), d4, s$pedigree, weights = "w")
+  expect_equal(f4$theta[["var(residual)"]], 4 * f1$theta[["var(residual)"]], tolerance = 1e-6)
+  expect_equal(f4$theta[["var(animal)"]], f1$theta[["var(animal)"]], tolerance = 1e-6)
+  expect_equal(unname(ebv(f4)), unname(ebv(f1)), tolerance = 1e-8)
+})
+
+test_that("a weight that is not positive is a declared error", {
+  s <- simulate_breeding(n_founders = 20, n_generations = 1,
+                         offspring_per_generation = 30, h2 = 0.4, seed = 92)
+  d <- s$data
+  d$w <- 1; d$w[3] <- 0
+  expect_error(model(y ~ cg + animal(id), d, s$pedigree, weights = "w"), "positive")
+  expect_error(model(y ~ cg + animal(id), d, s$pedigree, weights = "nope"), "no column")
+  expect_error(model(y ~ cg + animal(id), d, s$pedigree, weights = rep(1, 3)), "length")
+})

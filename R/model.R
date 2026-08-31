@@ -39,6 +39,11 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 #'   conv_crit equals this tol squared (their 1e-10 is tol = 1e-5 here; this 1e-8
 #'   default is 1e-16 on their scale)
 #' @param n_em EM iterations before the AI, to land in the right basin
+#' @param weights a column of `data`, or a numeric vector: a record of weight w has
+#'   residual variance `s2e / w`. Weights enter as a row scaling by sqrt(w), so the
+#'   normal equations solved are the weighted ones. Use them when records are means of
+#'   different sizes, or estimates that carry their own precision — a two-step analysis,
+#'   a de-regressed proof
 #' @param verbose print the fit as it walks: one line per AI iteration with the
 #'   -2logL and the relative step (the convergence criterion itself), so a long fit
 #'   is a progress report instead of silence. Defaults to interactive() — live in a
@@ -53,7 +58,8 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 #' @export
 model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                   apy_core = NULL, vecchia_k = NULL, missing_code = NULL, maxiter = 100L, tol = 1e-8,
-                  n_em = 4L, metafounders = NULL, gamma = NULL, verbose = interactive()) {
+                  n_em = 4L, metafounders = NULL, gamma = NULL, verbose = interactive(),
+                  weights = NULL) {
   if (!inherits(formula, "formula")) stop("expected a formula, like peso ~ cg + animal(id)")
   if (length(formula) != 3L) stop("the formula needs a left-hand side: peso ~ ...")
   trait <- deparse(formula[[2]])
@@ -85,6 +91,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   }
 
   g <- valida_genotipos(genotypes)
+  w <- valida_pesos(weights, data)
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_ajustar,
@@ -105,7 +112,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
              isTRUE(verbose),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
-             if (is.null(gamma)) numeric(0) else as.double(gamma))
+             if (is.null(gamma)) numeric(0) else as.double(gamma), w)
   r$seconds <- proc.time()[["elapsed"]] - t0
   r$formula <- formula
   r$trait <- trait
@@ -130,6 +137,21 @@ valida_genotipos <- function(genotypes) {
     storage.mode(gm) <- "double"
   }
   list(gid = gid, gm = gm)
+}
+
+# Weights: a column name or a vector, validated finite and positive. Empty means none.
+valida_pesos <- function(weights, data) {
+  if (is.null(weights)) return(numeric(0))
+  w <- if (is.character(weights) && length(weights) == 1L) {
+    if (!weights %in% names(data)) stop("no column '", weights, "' in the data")
+    data[[weights]]
+  } else weights
+  w <- as.double(w)
+  if (length(w) != nrow(data))
+    stop("weights of length ", length(w), " for ", nrow(data), " record(s)")
+  if (any(!is.finite(w)) || any(w <= 0))
+    stop("every weight must be finite and positive")
+  w
 }
 
 decompoe_formula <- function(expr) {
@@ -219,10 +241,11 @@ interpreta_termo <- function(e) {
 #' @param with_dense TRUE also computes the dense V form, which only handles a small problem
 #' @param metafounders as in [model()]
 #' @param gamma as in [model()]
+#' @param weights as in [model()]
 #' @export
 eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = NULL,
                             with_dense = TRUE,
-                          metafounders = NULL, gamma = NULL) {
+                          metafounders = NULL, gamma = NULL, weights = NULL) {
   trait <- deparse(formula[[2]])
   terms <- decompoe_formula(formula[[3]])
   used_columns <- unique(c(trait, vapply(terms, function(t) t$column, character(1)),
@@ -251,7 +274,8 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
         if (is.null(missing_code)) 0.0 else as.double(missing_code), !is.null(missing_code),
         as.double(theta), isTRUE(with_dense),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
-             if (is.null(gamma)) numeric(0) else as.double(gamma))
+             if (is.null(gamma)) numeric(0) else as.double(gamma),
+             valida_pesos(weights, data))
 }
 
 #' @export

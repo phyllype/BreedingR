@@ -18,7 +18,8 @@ model(
   n_em = 4L,
   metafounders = NULL,
   gamma = NULL,
-  verbose = interactive()
+  verbose = interactive(),
+  weights = NULL
 )
 }
 \arguments{
@@ -72,6 +73,12 @@ unknown parent}
 -2logL and the relative step (the convergence criterion itself), so a long fit
 is a progress report instead of silence. Defaults to interactive() — live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
+
+\item{weights}{a column of `data`, or a numeric vector: a record of weight w has
+residual variance `s2e / w`. Weights enter as a row scaling by sqrt(w), so the
+normal equations solved are the weighted ones. Use them when records are means of
+different sizes, or estimates that carry their own precision — a two-step analysis,
+a de-regressed proof}
 }
 \description{
 Fit a mixed model by AI-REML

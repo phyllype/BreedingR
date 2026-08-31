@@ -12,7 +12,8 @@ eval_internal(
   missing_code = NULL,
   with_dense = TRUE,
   metafounders = NULL,
-  gamma = NULL
+  gamma = NULL,
+  weights = NULL
 )
 }
 \arguments{
@@ -31,6 +32,8 @@ eval_internal(
 \item{metafounders}{as in [model()]}
 
 \item{gamma}{as in [model()]}
+
+\item{weights}{as in [model()]}
 }
 \description{
 This exists for the tests: the MME identity against the V form, and the score against

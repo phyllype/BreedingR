@@ -79,6 +79,11 @@ struct Desenho {
   std::vector<double> y;
   std::vector<char> usa;
   std::size_t nlin = 0;
+  // Pesos: um registro de peso w tem residual s2e/w. Entram como ESCALA DE LINHA por
+  // sqrt(w) em y, X e Z — as equacoes normais da tabela escalada SAO as equacoes
+  // ponderadas, entao score, AI e inversa seletiva continuam valendo sem uma linha de
+  // mudanca. So a verossimilhanca precisa do jacobiano, que e esta constante.
+  double logdet_peso = 0.0;
 
   std::size_t n_usadas() const {
     std::size_t s = 0;
@@ -146,7 +151,8 @@ struct Ajuste {
   std::string mensagem;
   std::size_t fora_do_padrao = 0;
 };
-Desenho monta_desenho(const Modelo&, const Tabela&, const Pedigree*);
+Desenho monta_desenho(const Modelo&, const Tabela&, const Pedigree*,
+                      const std::vector<double>* = nullptr);
 
 // ---- genomica.cpp
 struct RelatorioG {

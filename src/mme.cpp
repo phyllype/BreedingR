@@ -192,7 +192,8 @@ Neg2LogL neg2logl_esparsa(const Desenho& d, const std::vector<double>& theta) {
   // log|K|, nao log|K^-1| — a diferenca e constante em theta, entao o OTIMO nao se move e so
   // o VALOR sai errado, o que arruina qualquer comparacao com outro programa sem arruinar as
   // estimativas. Invisivel num teste de recuperacao, fatal num de -2logL.
-  r.valor = (n - p) * std::log(M.s2e) + M.logdet_g + r.logdet_c + (yy - bry) / M.s2e;
+  r.valor = (n - p) * std::log(M.s2e) + M.logdet_g + r.logdet_c + (yy - bry) / M.s2e
+            - d.logdet_peso;
   r.perm = std::move(perm);
   r.L = std::move(L);
   r.ok = true;
@@ -324,7 +325,8 @@ double neg2logl_densa_V(const Desenho& d, const std::vector<double>& theta) {
 // travessia: e logica com decisao numerica (posto completo, exclusao de linha) e tem de
 // estar debaixo dos mesmos gates que o resto.
 
-Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped) {
+Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
+                      const std::vector<double>* peso) {
   Desenho d;
   d.modelo = m;
   d.nlin = t.nlin;
@@ -407,6 +409,32 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped) {
     for (std::size_t i = 0; i < d.nlin; i++)
       if (!a.casou[i]) d.usa[i] = 0;
   if (d.n_usadas() == 0) throw Erro("no row enters the analysis");
+
+  // PESOS, como escala de linha por sqrt(w). Um registro de peso w tem residual s2e/w;
+  // multiplicar a linha inteira (y, X e cada Z) por sqrt(w) transforma o modelo
+  // ponderado no modelo homocedastico das mesmas equacoes normais. A verossimilhanca do
+  // modelo ORIGINAL difere da escalada pelo jacobiano soma(log w), constante em theta:
+  // nao move o otimo, mas e guardada para o -2logL sair no valor certo.
+  if (peso) {
+    if (peso->size() != d.nlin) throw Erro("weights with the wrong length");
+    for (std::size_t i = 0; i < d.nlin; i++) {
+      if (!d.usa[i]) continue;
+      const double w = (*peso)[i];
+      if (!(w > 0.0) || !std::isfinite(w))
+        throw Erro("weight that is not finite and positive at row " + std::to_string(i + 1));
+      d.logdet_peso += std::log(w);
+    }
+    for (std::size_t i = 0; i < d.nlin; i++) {
+      const double r = d.usa[i] ? std::sqrt((*peso)[i]) : 1.0;
+      if (r == 1.0) continue;
+      d.y[i] *= r;
+      for (std::size_t j = 0; j < xfull.ncol; j++) xfull.at(i, j) *= r;
+      for (DesenhoTermo& a : d.aleatorios)
+        for (std::size_t c = 0; c < a.z.ncol; c++)
+          for (std::size_t k = a.z.colptr[c]; k < a.z.colptr[c + 1]; k++)
+            if (a.z.linha[k] == i) a.z.valor[k] *= r;
+    }
+  }
 
   // POSTO DE X SOBRE AS LINHAS QUE ENTRAM, nao sobre a tabela inteira.
   //

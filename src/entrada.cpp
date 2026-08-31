@@ -361,7 +361,7 @@ static br::Tabela tabela_do_R(SEXP dados, SEXP nomes) {
 // a identidade MME <-> forma V, e o score contra diferencas finitas centrais.
 SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
-               SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx) {
+               SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx, SEXP pesos) {
   GUARDA(
     br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente);
     br::Tabela t = tabela_do_R(dados, nomes);
@@ -374,7 +374,9 @@ SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
       ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
       pp = &ped;
     }
-    br::Desenho d = br::monta_desenho(m, t, pp);
+    std::vector<double> pw;
+    if (XLENGTH(pesos) > 0) pw.assign(REAL(pesos), REAL(pesos) + XLENGTH(pesos));
+    br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw);
     std::vector<double> th(REAL(theta), REAL(theta) + XLENGTH(theta));
     if (th.size() != m.ntheta) Rf_error("theta with %d entries; the layout asks for %d",
                                         (int) th.size(), (int) m.ntheta);
@@ -455,7 +457,7 @@ std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& pe
 SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
                SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP maxiter, SEXP tol, SEXP n_em,
-               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx) {
+               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP pesos) {
   GUARDA(
     br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente);
     br::Tabela t = tabela_do_R(dados, nomes);
@@ -468,7 +470,9 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
       ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
       pp = &ped;
     }
-    br::Desenho d = br::monta_desenho(m, t, pp);
+    std::vector<double> pw;
+    if (XLENGTH(pesos) > 0) pw.assign(REAL(pesos), REAL(pesos) + XLENGTH(pesos));
+    br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw);
 
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
 
@@ -1104,8 +1108,8 @@ static const R_CallMethodDef metodos[] = {
   {"R_chol_esparsa", (DL_FUNC) &R_chol_esparsa, 5},
   {"R_inv_seletiva", (DL_FUNC) &R_inv_seletiva, 5},
   {"R_resolve",      (DL_FUNC) &R_resolve,      5},
-  {"R_avaliar",      (DL_FUNC) &R_avaliar,     20},
-  {"R_ajustar",      (DL_FUNC) &R_ajustar,     27},
+  {"R_avaliar",      (DL_FUNC) &R_avaliar,     21},
+  {"R_ajustar",      (DL_FUNC) &R_ajustar,     28},
   {"R_a22_inversa",  (DL_FUNC) &R_a22_inversa,  4},
   {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  20},
   {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  26},
