@@ -17,6 +17,37 @@ install.packages(".", repos = NULL, type = "source")
 library(BreedingR)
 ```
 
+## What it does
+
+A genetic evaluation is the same chain every time, and the package covers it end to end.
+The pedigree becomes the relationship matrix `A` and its sparse inverse by Henderson's
+rules, with inbreeding by the Meuwissen-Luo trace and, where the base population is not
+one homogeneous pool, metafounders. The model is written as a formula; the mixed model
+equations are assembled sparse, one record at a time, and factored by a sparse Cholesky
+whose symbolic analysis is computed once and reused. The variance components come from
+AI-REML — analytic score, average information, EM warm-up, a damped step, and convergence
+judged on the RELATIVE change of the components. Breeding values fall out of the same
+solution, and their accuracy out of the selected inverse.
+
+Genotypes enter as an argument, not a different program: `G` by VanRaden, brought to the
+scale of `A22` by an affine adjustment and a blend, and the single-step `H^-1` built as
+`A^-1` plus a correction on the genotyped block. When the genotyped set is large enough
+that inverting `G*` hurts, the same fit accepts APY with a core, the Vecchia recursion
+with per-animal conditioning sets, or `snp_blup()`, which never builds `G` at all and
+solves the marker equations by conjugate gradients.
+
+The models that usually need their own software are formula terms here, because the unit
+of layout is the covariance group rather than the term: direct-maternal, reaction norms
+on an environmental gradient, indirect genetic effects among pen mates, multi-trait with
+a full residual covariance, and an AR(1)/CAR(1) residual for repeated measures. The same
+models can be sampled instead of maximized, through a block Gibbs sampler over the same
+equations.
+
+**Where to read next.** The vignette *Theory and practice* walks a full evaluation in
+order, explaining each matrix, each algorithm and each iteration alongside the code that
+runs it. *Hands-on* exercises every exported function step by step.
+[FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
+
 ## Quick start
 
 A complete run on data the package simulates itself — paste and go:

@@ -1,0 +1,424 @@
+---
+title: "Theory and practice: a genetic evaluation from end to end"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Theory and practice: a genetic evaluation from end to end}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+set.seed(2026)
+library(BreedingR)
+```
+
+This document follows a genetic evaluation in the order it actually happens, and at each
+step it says three things: what the matrices are and what they mean, what the algorithm
+does with them, and which function runs it. The formulas are the ones the package
+computes, not the textbook version they descend from — where the implementation makes a
+choice, the choice is stated.
+
+The data for every example is simulated here, so each result has its truth beside it.
+
+```{r}
+s <- simulate_breeding(n_founders = 60, n_generations = 3,
+                       offspring_per_generation = 150, h2 = 0.4,
+                       n_markers = 600, seed = 1)
+str(s, max.level = 1)
+```
+
+## 1. The model
+
+Every fit in this package is a linear mixed model,
+
+```
+y = X b + Z u + e,     u ~ N(0, G),     e ~ N(0, R)
+```
+
+where `y` holds the observations, `b` the fixed effects, `u` all the random effects
+stacked, and `X` and `Z` their incidence matrices. What separates one model from another
+is not the algebra but the shape of `G` and `R`: an animal model puts the pedigree
+relationship matrix inside `G`, a repeatability model adds a second block, a multi-trait
+model gives `R` a full covariance between traits, a reaction norm gives each animal a
+vector of coefficients instead of a scalar.
+
+The package writes all of that in one formula. Fixed terms are bare, `cov()` marks a
+fixed covariate, and the marked terms are random: `animal()`, `maternal()`, `sire()`
+carry a relationship matrix, `pe()` and `random()` are independent, `rn()` is a random
+regression, `indirect()` is the associative effect of pen mates.
+
+**The unit of layout is the covariance group, not the term.** Two terms that share
+`group =` go into ONE covariance matrix with the covariance between them estimated:
+
+```
+Var(u_g) = C_g (x) K_g
+```
+
+where `C_g` is the small covariance among the terms of the group and `K_g` is the
+relationship matrix among their levels. This is why direct-maternal, the reaction norm
+and the associative model have no dedicated fitter — they are the same engine with a
+different incidence and the same penalty.
+
+## 2. The pedigree: A, F, and A inverse
+
+The additive relationship matrix `A` holds twice the kinship between every pair of
+animals. It is never built. What the equations need is its inverse, and Henderson (1976)
+showed that the inverse has a closed form: for each animal `i` with Mendelian sampling
+variance `d_i`,
+
+```
+A^-1 = sum_i (1/d_i) v_i v_i',    v_i = +1 at i, -1/2 at sire, -1/2 at dam
+```
+
+so `A^-1` is built by adding one small outer product per animal — sparse from the start,
+never through a dense `A`. The Mendelian variance depends on how much of the parents'
+ancestry is already shared:
+
+```
+d_i = 1/2  - 1/4 (F_sire + F_dam)   both parents known
+d_i = 3/4  - 1/4 F_known            one parent known
+d_i = 1                             neither
+```
+
+`F` is the inbreeding coefficient, computed by the Meuwissen and Luo (1992) trace: for
+animal `i`, walk the ancestors in decreasing index order accumulating `l_j` contributions,
+and `F_i = sum_j l_j^2 d_j - 1`. A max-heap over the ancestors is what makes a single
+pass correct — every descendant of an ancestor has a larger index and has therefore
+already deposited its share.
+
+```{r}
+p <- pedigree(s$pedigree)
+head(p, 3)
+ai <- a_inverse(s$pedigree)      # i, j, x, n: the lower triangle in triplets
+c(animals = ai$n, nonzeros = length(ai$x), mean_F = round(mean(p$F), 4))
+```
+
+Two details in the implementation are worth knowing because they are silent when wrong.
+A parent that is cited but has no line of its own is an error, not a new founder. And
+when sire and dam are the same animal, the coefficients are merged BEFORE the outer
+product, which puts `1/d` on that parent's diagonal; emitting the terms one by one into a
+half-stored triangle would give `3/4 d^-1` and no error message.
+
+**Metafounders.** When the base population is not one homogeneous unrelated pool —
+different lines, different years, animals whose parents are simply unknown — Legarra et
+al. (2015) replace the unknown parents with *metafounders*: virtual base animals with a
+self-relationship `gamma` that measures how related that base actually was. The
+implementation reduces to one line: a metafounder row is preloaded with
+`F = gamma - 1` and `d = gamma`, and because every formula above reads only the parents'
+`F`, the whole generalization propagates through the Mendelian variances, the trace and
+`A^-1` with no special case. `gamma` must be strictly inside `(0, 2)`; that bound is
+exactly what keeps `d > 0` for the offspring of two copies of the same metafounder.
+
+```{r}
+ped_mf <- s$pedigree
+ped_mf$sire[ped_mf$sire == "0"] <- "L1"
+ped_mf$dam[ped_mf$dam == "0"] <- "L1"
+p_mf <- pedigree(ped_mf, metafounders = "L1", gamma = 0.7)
+round(mean(p_mf$F[p_mf$id %in% s$pedigree$id]), 4)   # base relatedness now shows up as F
+```
+
+## 3. The mixed model equations
+
+Henderson's equations solve for `b` and `u` at once. Writing `W = [X Z]`, the package
+assembles
+
+```
+C_s = W'W + blockdiag_g [ kron(s2e * C_g^-1, K_g^-1) ],     rhs = W'y
+```
+
+and solves `C_s sol = rhs`. Two conventions matter. The system is scaled by the residual
+variance — the penalty carries `s2e * C_g^-1`, not `C_g^-1` — so the solution is the same
+BLUP but the matrix is in units of `s2e`. And inside a term, the column of `Z` for
+coefficient `a` and level `l` is `a * n_levels + l`: the **level varies fastest**.
+Reversing that convention does not break anything visibly — the model still assembles and
+converges, and estimates something else.
+
+`W'W` is accumulated one record at a time. Each record touches a handful of columns and
+contributes a small clique among them, so the cost is the sum of squared row-lengths, not
+anything quadratic in the number of columns. The penalty is added afterwards into the
+same triplet list, and the triplet-to-sparse conversion **sums duplicates** — which is
+not a convenience but a requirement: in `A^-1` the mate-mate term arrives once per
+offspring, and a build where the last write wins would silently discard part of the
+matrix.
+
+The restricted likelihood, in the form the MME give:
+
+```
+-2logL = (n - p) log s2e + log|G*| + log|C_s| + (y'y - sol'rhs) / s2e
+```
+
+The package computes the same quantity a second way, through the dense
+`V = Z G Z' + R`, and the tests demand the two agree. They share nothing but the model,
+so agreement is evidence; a single path checked against itself would be none.
+
+```{r}
+d <- s$data
+ev <- eval_internal(y ~ cg + animal(id), d, s$pedigree, theta = c(0.4, 0.6))
+c(mme = ev$neg2logl, dense_V = ev$neg2logl_V, difference = abs(ev$neg2logl - ev$neg2logl_V))
+```
+
+## 4. Solving: sparse Cholesky and the selected inverse
+
+`C_s` is factored as `L L'` by an up-looking sparse Cholesky, preceded by a minimum
+degree ordering that reduces fill-in and by a symbolic analysis that computes the pattern
+of `L` once. The symbolic factorization is cached across REML iterations, which is sound
+only because the pattern of `C_s` does not depend on the variance components: the
+assembly pushes the same slots every time, explicit zeros included.
+
+Prediction error variances need the diagonal of `C_s^-1`, and the full inverse of a
+sparse matrix is dense — for a pedigree of any size, unaffordable. Takahashi's identity
+gives exactly the elements of the inverse that sit on the pattern of `L`, which is all
+the diagonal needs:
+
+```{r}
+ch <- sparse_chol(ai)
+si <- selected_inverse(ai)
+c(logdet = round(ch$logdet, 4), dense_block = ch$bloco)
+```
+
+A position outside the pattern is not zero — it is unknown. The function returns only
+what it computed.
+
+## 5. Estimating the variance components
+
+REML maximizes the likelihood of error contrasts, which removes the bias that maximum
+likelihood carries for the fixed effects (Patterson and Thompson, 1971). The package
+maximizes it by average information REML (Gilmour, Thompson and Cullis, 1995), which
+needs three ingredients per iteration.
+
+**The score.** For a covariance group with matrix `C_g`, define the quadratic of the
+solution and the trace from the selected inverse,
+
+```
+Q[a,b] = u_a' K^-1 u_b
+T[a,b] = s2e * tr( K^-1 [C_s^-1]_{a,b} )
+M_g    = nl * C_g^-1 - C_g^-1 (Q + T) C_g^-1
+```
+
+and the derivative of `-2logL` with respect to the element `(i,j)` of `C_g` is `M_g[i,i]`
+on the diagonal and `M_g[i,j] + M_g[j,i]` off it, because a symmetric element appears
+twice. For the residual,
+
+```
+d(-2logL)/ds2e = (n - p - q + trpen)/s2e - e'e/s2e^2
+```
+
+where `q` is the number of random columns and `trpen` the trace of the penalty against
+`C_s^-1`. The `- q + trpen` is not decoration: the random effects absorb degrees of
+freedom too, and a version without it still converges — to the wrong place, reporting
+convergence. That is the worst failure mode available, which is why the score is checked
+against central finite differences on every parameter.
+
+**The step.** The average information matrix is the average of the observed and expected
+information, cheap because it needs no second derivatives, and the step is
+`theta <- theta - (AI + lambda diag(AI))^-1 score`. The damping `lambda` starts at 1e-3,
+multiplies by ten whenever a candidate is rejected — inadmissible covariance, singular
+damped matrix, or a likelihood that got worse — and divides by ten when one is accepted.
+Before the AI loop, a few EM rounds run: EM is monotone and stays inside the cone, so it
+costs little and lands the search in the right basin.
+
+**Stopping.** Convergence is judged on the relative change of the components,
+`sqrt(sum(dtheta^2)/sum(theta^2)) < tol`, never on an absolute threshold on the score,
+whose norm grows with the number of records. Standard errors come from the inverse of the
+AI matrix, `SE_k = sqrt(2 [AI^-1]_kk)`.
+
+```{r}
+fit <- model(y ~ cg + animal(id), d, s$pedigree)
+fit
+```
+
+Two rules protect the result. A covariance that stops being positive-definite ends the
+fit rather than being nudged back, and the starting point always comes from `var(y)`, so
+no run inherits a neighbour's answer.
+
+## 6. Genomics: from markers to H
+
+**G.** VanRaden (2008) builds the genomic relationship matrix from centred marker
+dosages. With `p_j` the allele frequency at marker `j` and `Z = M - 2p`,
+
+```
+G = Z Z' / (2 sum_j p_j (1 - p_j))
+```
+
+Missing genotypes are imputed with the marker mean and never with zero — zero is a valid
+genotype, and confusing the two changes both the frequencies and every element of `G`
+with no error to notice. Markers that are fixed or entirely missing are dropped and
+counted.
+
+**A22, and the trap.** The single step needs the pedigree relationships *among the
+genotyped animals*, `A22`. That is the inverse of the genotyped block of the inverse, not
+the genotyped block of `A^-1` — two matrices of the same shape, both symmetric, only one
+correct. The package computes it by a sparse Schur complement,
+
+```
+A22^-1 = B22 - B21 B11^-1 B12
+```
+
+where `B11` is the non-genotyped block. `B11^-1` is never formed: one sparse
+factorization and one triangular solve per genotyped animal do the same work.
+
+**H.** Genomic and pedigree information describe the same animals on two different
+scales, so `G` is first brought to the scale of `A22` by an affine adjustment that
+matches both the mean diagonal and the mean off-diagonal, then blended:
+
+```
+b = (mean_diag(A22) - mean_off(A22)) / (mean_diag(G) - mean_off(G))
+a = mean_off(A22) - b * mean_off(G)
+G* = (1 - w) (a + b G) + w A22
+```
+
+The blend `w` (5 percent by default) keeps `G*` invertible and admits that markers are
+not the whole truth. Then the single-step inverse of Aguilar et al. (2010) and
+Christensen and Lund (2010) says the whole relationship matrix `H` has an inverse that
+differs from `A^-1` only in the genotyped block:
+
+```
+H^-1 = A^-1 + [ 0        0            ]
+              [ 0   G*^-1 - A22^-1    ]
+```
+
+This is the identity that makes the single step practical: nothing dense is needed for
+the non-genotyped animals, and the correction is a small block added to a sparse matrix.
+It is also self-checking — with `blend = 1`, `G*` becomes `A22` exactly, the correction
+block vanishes, and `H^-1` must equal `A^-1` through the whole fit. That collapse is one
+of the package's tests.
+
+```{r}
+gen <- list(ids = s$genotypes$ids, m = s$genotypes$m)
+f_ss <- model(y ~ cg + animal(id), d, s$pedigree, genotypes = gen)
+f_id <- model(y ~ cg + animal(id), d, s$pedigree, genotypes = gen, blend = 1)
+c(single_step = f_ss$neg2logl, blend_one = f_id$neg2logl, pedigree = fit$neg2logl)
+```
+
+**Inverting G\* without paying the cube.** Two approximations are available, and they are
+the same idea at different granularity. APY (Misztal, Legarra and Aguilar, 2014) splits
+the genotyped into a core and the rest; every non-core animal is regressed on the core,
+and what is left is a scalar Mendelian residual:
+
+```
+P   = Gcc^-1 Gcn
+m_j = g_jj - g_jc P_j
+G_APY^-1 = [ Gcc^-1 + P Mnn^-1 P'   -P Mnn^-1 ]
+           [ -Mnn^-1 P'              Mnn^-1   ]
+```
+
+The Vecchia recursion generalizes it: each animal conditions on its own `k` nearest
+relatives among the previous ones rather than on one shared core. Henderson's `A^-1` is
+this same recursion with the parents as the conditioning set — exact there, because a
+pedigree is Markovian. Schafer, Katzfuss and Owhadi (2021) prove the factor is optimal in
+Kullback-Leibler divergence given the pattern, and that enlarging the sets never hurts.
+
+An honest limit: both approximations cut arithmetic, not memory. `G*^-1` is a dense
+matrix of the genotyped animals on all three paths.
+
+```{r}
+gid <- gen$ids
+f_apy <- model(y ~ cg + animal(id), d, s$pedigree, genotypes = gen,
+               apy_core = gid[seq(1, length(gid), by = 3)])
+f_vec <- model(y ~ cg + animal(id), d, s$pedigree, genotypes = gen, vecchia_k = 60)
+round(c(apy = cor(ebv(f_ss, "animal"), ebv(f_apy, "animal")),
+        vecchia = cor(ebv(f_ss, "animal"), ebv(f_vec, "animal"))), 4)
+```
+
+**Markers as equations.** The other route never forms `G` at all. Liu et al. (2014) write
+the equivalent model with the marker effects as unknowns, `u_g = Z g + p_g`, and the
+joint precision turns the Schur term into blocks of `A^-1`, so most of the system is the
+same sparse matrix the pedigree already gives. `snp_blup()` solves it by preconditioned
+conjugate gradients, which need only matrix-vector products, and every application of
+`A22^-1` uses the matrix-free identity of Vandenplas et al. (2018):
+
+```
+A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v
+```
+
+one sparse factorization of the non-genotyped block, one triangular solve per iteration.
+Nothing dense is ever built. The variance components are given rather than estimated:
+this is the solver of routine evaluation, where components come from a periodic REML run.
+
+## 7. What the formula can say
+
+With the covariance group as the unit, several classical models are incidences rather
+than fitters.
+
+*Direct-maternal* (Willham, 1972): the animal's own genes and its dam's maternal ability
+in one 2x2 matrix, with the direct-maternal covariance — usually negative, and the number
+the model exists for.
+
+*Reaction norm* (Kirkpatrick, Lofsvold and Bulmer, 1990): each animal gets a vector of
+coefficients on an environmental gradient through `rn(id, base = ...)`, with
+`legendre()` building the orthogonal basis. The genetic variance becomes a function of
+the environment, which `h2_curve()` reads.
+
+*Indirect genetic effects* (Muir and Schinckel, 2002; Bijma, Muir and Van Arendonk,
+2007): the incidence of a record marks the animal's PEN MATES, so a phenotype carries its
+own genes plus the associative effects of those it lives with. Direct and indirect share
+a group, and their correlation is the parameter that decides whether selecting on own
+performance damages the group.
+
+*Multi-trait*: `cbind()` on the left, a full residual covariance between traits, and
+missingness handled by the pattern of each record rather than by dropping it.
+
+*AR(1)/CAR(1) residual*: for repeated measures along time, the residual correlation
+decays as `rho^|dt|`. The inverse of that correlation matrix is tridiagonal — the
+classical Markov result — so the model costs no more than the iid one, and `rho` comes
+out with its standard error.
+
+```{r, eval = FALSE}
+model(weight ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), d, ped)
+model(y ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d2, ped)
+model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "pen", group = "g"), d, ped)
+model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped)
+model_ar1(y ~ cg + animal(id) + pe(id), d, ped, subject = "id", time = "day")
+```
+
+## 8. Reading the evaluation
+
+The solution of the MME gives the breeding values directly. Their reliability comes from
+the prediction error variance, which is where the selected inverse pays off, and the
+accuracy of an animal's EBV is
+
+```
+acc = sqrt( 1 - PEV / ((1 + F) sigma2_a) )
+```
+
+with the inbreeding coefficient in the denominator because an inbred animal has more
+additive variance to predict.
+
+```{r}
+e <- ebv(fit)
+a <- accuracy(fit, s$pedigree)
+round(c(cor_with_truth = cor(e[names(s$tbv)], s$tbv),
+        mean_accuracy = mean(a), h2 = fit$theta[[1]] / sum(fit$theta)), 3)
+```
+
+From there the decisions: `selection_index()` combines traits with economic weights, and
+`rank_drift()` answers what an updated evaluation actually changed.
+
+## 9. The Bayesian alternative
+
+The same models can be sampled instead of maximized. `gibbs()` draws all locations in one
+block through the same sparse Cholesky, then draws each covariance from its conjugate
+inverse-Wishart and the residual from a scaled inverse chi-square, under reference priors.
+Where REML gives a point and a standard error from the information matrix, the sampler
+gives the whole posterior — worth the cost when a component sits near a boundary, where
+the normal approximation behind the standard error is least trustworthy.
+
+```{r}
+g <- gibbs(y ~ cg + animal(id), d, s$pedigree, n_iter = 2000, burnin = 400, thin = 4)
+data.frame(component = colnames(g$samples),
+           posterior_mean = round(unname(g$mean), 3),
+           reml = round(unname(fit$theta), 3))
+```
+
+## References
+
+The complete list is in the package README. The works this walkthrough leans on directly:
+Henderson (1976) for `A^-1`; Meuwissen and Luo (1992) for inbreeding; Patterson and
+Thompson (1971) and Gilmour, Thompson and Cullis (1995) for REML and average information;
+Legarra et al. (2015) for metafounders; VanRaden (2008), Aguilar et al. (2010) and
+Christensen and Lund (2010) for the single step; Misztal, Legarra and Aguilar (2014) and
+Schafer, Katzfuss and Owhadi (2021) for the approximate inverses; Liu et al. (2014) and
+Vandenplas et al. (2018) for markers as equations; Takahashi, Fagan and Chen (1973) for
+the selected inverse; Willham (1972), Kirkpatrick et al. (1990) and Muir and Schinckel
+(2002) for the models of section 7.
