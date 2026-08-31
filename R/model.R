@@ -39,6 +39,9 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 #'   conv_crit equals this tol squared (their 1e-10 is tol = 1e-5 here; this 1e-8
 #'   default is 1e-16 on their scale)
 #' @param n_em EM iterations before the AI, to land in the right basin
+#' @param start starting values for the components, in the order the fit reports them.
+#'   Use it to warm-start from a submodel, or to check that the optimum does not depend
+#'   on where the search began. Without it the start comes from `var(y)`
 #' @param weights a column of `data`, or a numeric vector: a record of weight w has
 #'   residual variance `s2e / w`. Weights enter as a row scaling by sqrt(w), so the
 #'   normal equations solved are the weighted ones. Use them when records are means of
@@ -59,7 +62,7 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                   apy_core = NULL, vecchia_k = NULL, missing_code = NULL, maxiter = 100L, tol = 1e-8,
                   n_em = 4L, metafounders = NULL, gamma = NULL, verbose = interactive(),
-                  weights = NULL) {
+                  weights = NULL, start = NULL) {
   if (!inherits(formula, "formula")) stop("expected a formula, like peso ~ cg + animal(id)")
   if (length(formula) != 3L) stop("the formula needs a left-hand side: peso ~ ...")
   trait <- deparse(formula[[2]])
@@ -112,7 +115,8 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
              isTRUE(verbose),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
-             if (is.null(gamma)) numeric(0) else as.double(gamma), w)
+             if (is.null(gamma)) numeric(0) else as.double(gamma), w,
+             if (is.null(start)) numeric(0) else as.double(start))
   r$seconds <- proc.time()[["elapsed"]] - t0
   r$formula <- formula
   r$trait <- trait
@@ -242,10 +246,17 @@ interpreta_termo <- function(e) {
 #' @param metafounders as in [model()]
 #' @param gamma as in [model()]
 #' @param weights as in [model()]
+#' @param genotypes as in [model()]: the single-step path is available here too, so a
+#'   likelihood loop written outside the package can walk the genomic model
+#' @param blend as in [model()]
+#' @param apy_core as in [model()]
+#' @param vecchia_k as in [model()]
 #' @export
 eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = NULL,
                             with_dense = TRUE,
-                          metafounders = NULL, gamma = NULL, weights = NULL) {
+                          metafounders = NULL, gamma = NULL, weights = NULL,
+                          genotypes = NULL, blend = 0.05, apy_core = NULL,
+                          vecchia_k = NULL) {
   trait <- deparse(formula[[2]])
   terms <- decompoe_formula(formula[[3]])
   used_columns <- unique(c(trait, vapply(terms, function(t) t$column, character(1)),
@@ -275,7 +286,10 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
         as.double(theta), isTRUE(with_dense),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
-             valida_pesos(weights, data))
+             valida_pesos(weights, data),
+        valida_genotipos(genotypes)$gid, valida_genotipos(genotypes)$gm, as.double(blend),
+        if (is.null(apy_core)) character(0) else as.character(apy_core),
+        if (is.null(vecchia_k)) 0L else as.integer(vecchia_k))
 }
 
 #' @export

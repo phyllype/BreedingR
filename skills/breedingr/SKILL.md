@@ -158,8 +158,8 @@ and the relative step, which IS the convergence criterion. Ctrl+C interrupts any
 
 | symptom | usual cause |
 |---|---|
-| `did not converge` | components at a boundary; check `fit$reldelta` and the print |
-| a variance pinned at ~0 | the effect is not identifiable from this design (e.g. pe with one record per animal) |
+| `did not converge` | check `fit$score` — at a true optimum it is ~0 for every FREE component; a component held at the zero boundary keeps a nonzero score, and the message says so |
+| a variance pinned at ~0 | the effect is not identifiable from this design; the fit freezes it at the boundary and optimizes the rest conditional on that, and says so in the message |
 | `theta INADMISSIBLE` | starting covariance not positive-definite, or a group with a correlation forced to +/-1 |
 | a correlation of exactly -1 | a compositional phenotype — see the contest model above |
 | fixed columns in `dropped_x` | linear dependence, including levels whose records are all missing |

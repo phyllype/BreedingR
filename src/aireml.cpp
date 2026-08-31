@@ -413,10 +413,24 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
 
   if (verboso && n_em > 0)
     Rprintf("EM warm-up (%d round(s)): -2logL %.6f\n", (int) n_em, cur.neg2logl);
+  // CONJUNTO ATIVO. Uma variancia tem piso em zero, e o otimo REML pode estar EM cima
+  // dele. Sem tratar isso, a componente encosta no piso, o passo passa a apontar para
+  // fora do espaco, cada tentativa e rejeitada, o amortecimento explode e o ajuste
+  // queima as iteracoes no lugar — terminando num -2logL PIOR que o do submodelo
+  // aninhado, o que e impossivel num otimo. Congelando quem esta no piso com o gradiente
+  // empurrando para fora, o resto e otimizado CONDICIONALMENTE a isso, que e a solucao
+  // correta do problema com restricao.
+  std::vector<char> congelado(theta.size(), 0);
   double lambda = 1e-3;
   for (std::size_t it = 1; it <= maxiter; it++) {
     R.iters = it;
     R_CheckUserInterrupt();
+    const double piso = 1e-10 * std::max(1.0, theta[d.modelo.offset_residual]);
+    for (const Grupo& gr : d.modelo.grupos)
+      for (std::size_t i = 0; i < gr.dim; i++) {
+        const std::size_t k = gr.theta_idx(i, i);       // so as VARIANCIAS tem piso
+        congelado[k] = (theta[k] <= piso && cur.score[k] > 0.0) ? 1 : 0;
+      }
     bool aceitou = false;
     for (int tent = 0; tent < 30; tent++) {
       Densa m = cur.ai;
@@ -424,12 +438,22 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
         const double di = m.at(i, i);
         m.at(i, i) = (di == 0.0) ? lambda : di * (1.0 + lambda);
       }
+      // congelado: linha e coluna viram identidade e o score sai — e o sistema REDUZIDO
+      // dos que ainda podem andar, sem que o bloqueado contamine a direcao dos outros
+      std::vector<double> sc = cur.score;
+      for (std::size_t i = 0; i < m.nlin; i++)
+        if (congelado[i]) {
+          sc[i] = 0.0;
+          for (std::size_t j = 0; j < m.ncol; j++) { m.at(i, j) = 0.0; m.at(j, i) = 0.0; }
+          m.at(i, i) = 1.0;
+        }
       Densa minv;
       try { minv = inv_geral(m); } catch (const Erro&) { lambda *= 10.0; continue; }
       std::vector<double> cand = theta;
       for (std::size_t i = 0; i < cand.size(); i++) {
+        if (congelado[i]) continue;
         double passo = 0.0;
-        for (std::size_t j = 0; j < cand.size(); j++) passo += minv.at(i, j) * cur.score[j];
+        for (std::size_t j = 0; j < cand.size(); j++) passo += minv.at(i, j) * sc[j];
         cand[i] -= passo;
       }
       Avaliacao prox = avalia(d, cand, &cs);
@@ -453,22 +477,64 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     if (verboso)
       Rprintf("iter %3d  -2logL %.6f  relDelta %.3e\n",
               (int) it, cur.neg2logl, R.reldelta);
-    if (R.reldelta < tol) { R.convergiu = true; break; }
+    if (R.reldelta < tol) {
+      // O PASSO PEQUENO NAO PROVA OTIMO. Com uma componente encostada no zero a AI fica
+      // quase singular naquela direcao, o amortecimento cresce, o passo encolhe — e um
+      // criterio que olha so o tamanho do passo declara convergencia com o score longe
+      // de zero. O sintoma observado foi um modelo MAIOR parando com -2logL pior que o
+      // submodelo aninhado dele, o que e impossivel no otimo.
+      //
+      // Antes de declarar, tenta um passo EM: ele e multiplicativo, fica dentro do cone
+      // e NAO encolhe na fronteira, entao consegue andar exatamente onde o passo AI
+      // travou. Se a verossimilhanca ainda melhora ali, nao havia convergencia nenhuma.
+      Avaliacao pem = avalia(d, cur.em_theta, &cs);
+      if (pem.ok && pem.neg2logl < cur.neg2logl - 1e-8) {
+        double num = 0.0, den = 0.0;
+        for (std::size_t i = 0; i < theta.size(); i++) {
+          const double dlt = cur.em_theta[i] - theta[i];
+          num += dlt * dlt;
+          den += cur.em_theta[i] * cur.em_theta[i];
+        }
+        R.reldelta = std::sqrt(num / std::max(den, 1e-300));
+        theta = cur.em_theta;
+        cur = std::move(pem);
+        if (verboso)
+          Rprintf("      EM rescue: -2logL %.6f (the AI step had stalled)\n", cur.neg2logl);
+        continue;
+      }
+      R.convergiu = true;
+      break;
+    }
   }
+  // norma do score no ponto final, para quem quiser conferir que ele de fato zerou:
+  // e a evidencia direta de otimo, que o tamanho do passo nao da.
+  R.score = cur.score;
   if (verboso)
     Rprintf("%s at iter %d, -2logL %.6f\n",
             R.convergiu ? "converged" : "STOPPED", (int) R.iters, cur.neg2logl);
 
-  // erros padrao: 2 [AI^-1]_kk
+  // erros padrao: 2 [AI^-1]_kk. A matriz inteira tambem sai: 2 AI^-1 e a covariancia
+  // amostral das componentes, e sem ela nao ha metodo delta para h2, r ou T.
   R.se.assign(d.modelo.ntheta, std::nan(""));
+  R.vcov.assign(d.modelo.ntheta * d.modelo.ntheta, std::nan(""));
   try {
     Densa inv = inv_geral(cur.ai);
     for (std::size_t k = 0; k < d.modelo.ntheta; k++) {
       const double v = 2.0 * inv.at(k, k);
       if (v > 0.0) R.se[k] = std::sqrt(v);
+      for (std::size_t j = 0; j < d.modelo.ntheta; j++)
+        R.vcov[k * d.modelo.ntheta + j] = 2.0 * inv.at(k, j);
     }
   } catch (const Erro&) {}
 
+  {
+    std::size_t nfix = 0;
+    for (char c : congelado) nfix += c;
+    if (nfix > 0)
+      R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + std::to_string(nfix) +
+          " component(s) at the zero boundary, fixed there while the others were "
+          "optimized conditional on that";
+  }
   if (!R.convergiu && R.mensagem.empty())
     R.mensagem = "parou em " + std::to_string(maxiter) + " iteracoes sem atingir a tolerancia relativa";
   if (cur.fora_do_padrao > 0)

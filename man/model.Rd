@@ -19,7 +19,8 @@ model(
   metafounders = NULL,
   gamma = NULL,
   verbose = interactive(),
-  weights = NULL
+  weights = NULL,
+  start = NULL
 )
 }
 \arguments{
@@ -79,6 +80,10 @@ residual variance `s2e / w`. Weights enter as a row scaling by sqrt(w), so the
 normal equations solved are the weighted ones. Use them when records are means of
 different sizes, or estimates that carry their own precision — a two-step analysis,
 a de-regressed proof}
+
+\item{start}{starting values for the components, in the order the fit reports them.
+Use it to warm-start from a submodel, or to check that the optimum does not depend
+on where the search began. Without it the start comes from `var(y)`}
 }
 \description{
 Fit a mixed model by AI-REML

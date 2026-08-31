@@ -13,7 +13,11 @@ eval_internal(
   with_dense = TRUE,
   metafounders = NULL,
   gamma = NULL,
-  weights = NULL
+  weights = NULL,
+  genotypes = NULL,
+  blend = 0.05,
+  apy_core = NULL,
+  vecchia_k = NULL
 )
 }
 \arguments{
@@ -34,6 +38,15 @@ eval_internal(
 \item{gamma}{as in [model()]}
 
 \item{weights}{as in [model()]}
+
+\item{genotypes}{as in [model()]: the single-step path is available here too, so a
+likelihood loop written outside the package can walk the genomic model}
+
+\item{blend}{as in [model()]}
+
+\item{apy_core}{as in [model()]}
+
+\item{vecchia_k}{as in [model()]}
 }
 \description{
 This exists for the tests: the MME identity against the V form, and the score against

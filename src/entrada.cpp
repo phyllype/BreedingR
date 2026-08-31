@@ -357,65 +357,6 @@ static br::Tabela tabela_do_R(SEXP dados, SEXP nomes) {
   return t;
 }
 
-// Avalia -2logL pelas DUAS vias, mais score, AI e EM num theta dado. Existe para os gates:
-// a identidade MME <-> forma V, e o score contra diferencas finitas centrais.
-SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
-               SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
-               SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx, SEXP pesos) {
-  GUARDA(
-    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente);
-    br::Tabela t = tabela_do_R(dados, nomes);
-    br::Pedigree ped;
-    const br::Pedigree* pp = nullptr;
-    if (XLENGTH(pid) > 0) {
-      auto i = textos(pid, "id");
-      auto p = textos(ppai, "sire");
-      auto ma = textos(pmae, "dam");
-      ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
-      pp = &ped;
-    }
-    std::vector<double> pw;
-    if (XLENGTH(pesos) > 0) pw.assign(REAL(pesos), REAL(pesos) + XLENGTH(pesos));
-    br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw);
-    std::vector<double> th(REAL(theta), REAL(theta) + XLENGTH(theta));
-    if (th.size() != m.ntheta) Rf_error("theta with %d entries; the layout asks for %d",
-                                        (int) th.size(), (int) m.ntheta);
-
-    br::Avaliacao a = br::avalia(d, th);
-    if (!a.ok) Rf_error("theta INADMISSIBLE: some covariance is not positive-definite");
-    const double dv = Rf_asLogical(com_densa) == TRUE ? br::neg2logl_densa_V(d, th)
-                                                      : std::nan("");
-
-    const std::size_t nt2 = m.ntheta;
-    SEXP score = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) nt2));
-    SEXP em    = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) nt2));
-    SEXP ai    = PROTECT(Rf_allocMatrix(REALSXP, (int) nt2, (int) nt2));
-    for (std::size_t k = 0; k < nt2; k++) {
-      REAL(score)[k] = a.score[k];
-      REAL(em)[k] = a.em_theta[k];
-      for (std::size_t j = 0; j < nt2; j++)
-        REAL(ai)[j * nt2 + k] = a.ai.at(k, j);
-    }
-    const char* campos[] = {"neg2logl", "neg2logl_V", "score", "em", "ai", "off_pattern"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 6));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 6));
-    for (int q = 0; q < 6; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
-    SET_VECTOR_ELT(out, 0, Rf_ScalarReal(a.neg2logl));
-    SET_VECTOR_ELT(out, 1, Rf_ScalarReal(dv));
-    SET_VECTOR_ELT(out, 2, score);
-    SET_VECTOR_ELT(out, 3, em);
-    SET_VECTOR_ELT(out, 4, ai);
-    SET_VECTOR_ELT(out, 5, Rf_ScalarInteger((int) a.fora_do_padrao));
-    Rf_setAttrib(out, R_NamesSymbol, nms);
-    UNPROTECT(5);
-    return out;
-  )
-}
-
-// Conversao + aplicacao da genomica, comum aos tres ajustadores (o desenho e template
-// porque uni, multi e AR carregam os mesmos campos que o passo unico toca). Devolve a
-// nota do relatorio, vazia sem genotipos. O extern "C++" existe porque este arquivo vive
-// num bloco extern "C" — e template nao tem linkage de C.
 extern "C++" {
 template <class DES>
 std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& ped,
@@ -454,10 +395,71 @@ std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& pe
 }
 }  // extern "C++"
 
+// Avalia -2logL pelas DUAS vias, mais score, AI e EM num theta dado. Existe para os gates:
+// a identidade MME <-> forma V, e o score contra diferencas finitas centrais.
+SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
+               SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
+               SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx, SEXP pesos, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk) {
+  GUARDA(
+    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente);
+    br::Tabela t = tabela_do_R(dados, nomes);
+    br::Pedigree ped;
+    const br::Pedigree* pp = nullptr;
+    if (XLENGTH(pid) > 0) {
+      auto i = textos(pid, "id");
+      auto p = textos(ppai, "sire");
+      auto ma = textos(pmae, "dam");
+      ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
+      pp = &ped;
+    }
+    std::vector<double> pw;
+    if (XLENGTH(pesos) > 0) pw.assign(REAL(pesos), REAL(pesos) + XLENGTH(pesos));
+    br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw);
+    std::vector<double> th(REAL(theta), REAL(theta) + XLENGTH(theta));
+    if (th.size() != m.ntheta) Rf_error("theta with %d entries; the layout asks for %d",
+                                        (int) th.size(), (int) m.ntheta);
+
+    genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
+    br::Avaliacao a = br::avalia(d, th);
+    if (!a.ok) Rf_error("theta INADMISSIBLE: some covariance is not positive-definite");
+    const double dv = Rf_asLogical(com_densa) == TRUE ? br::neg2logl_densa_V(d, th)
+                                                      : std::nan("");
+
+    const std::size_t nt2 = m.ntheta;
+    SEXP score = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) nt2));
+    SEXP em    = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) nt2));
+    SEXP ai    = PROTECT(Rf_allocMatrix(REALSXP, (int) nt2, (int) nt2));
+    for (std::size_t k = 0; k < nt2; k++) {
+      REAL(score)[k] = a.score[k];
+      REAL(em)[k] = a.em_theta[k];
+      for (std::size_t j = 0; j < nt2; j++)
+        REAL(ai)[j * nt2 + k] = a.ai.at(k, j);
+    }
+    const char* campos[] = {"neg2logl", "neg2logl_V", "score", "em", "ai", "off_pattern"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 6));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 6));
+    for (int q = 0; q < 6; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    SET_VECTOR_ELT(out, 0, Rf_ScalarReal(a.neg2logl));
+    SET_VECTOR_ELT(out, 1, Rf_ScalarReal(dv));
+    SET_VECTOR_ELT(out, 2, score);
+    SET_VECTOR_ELT(out, 3, em);
+    SET_VECTOR_ELT(out, 4, ai);
+    SET_VECTOR_ELT(out, 5, Rf_ScalarInteger((int) a.fora_do_padrao));
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(5);
+    return out;
+  )
+}
+
+// Conversao + aplicacao da genomica, comum aos tres ajustadores (o desenho e template
+// porque uni, multi e AR carregam os mesmos campos que o passo unico toca). Devolve a
+// nota do relatorio, vazia sem genotipos. O extern "C++" existe porque este arquivo vive
+// num bloco extern "C" — e template nao tem linkage de C.
+
 SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
                SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP maxiter, SEXP tol, SEXP n_em,
-               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP pesos) {
+               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP pesos, SEXP inicio) {
   GUARDA(
     br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente);
     br::Tabela t = tabela_do_R(dados, nomes);
@@ -476,7 +478,13 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
 
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
 
-    br::Ajuste r = br::ajusta(d, nullptr, (std::size_t) Rf_asInteger(n_em),
+    std::vector<double> th0;
+    if (XLENGTH(inicio) > 0) {
+      th0.assign(REAL(inicio), REAL(inicio) + XLENGTH(inicio));
+      if (th0.size() != m.ntheta)
+        Rf_error("start with %d entries; the layout asks for %d", (int) th0.size(), (int) m.ntheta);
+    }
+    br::Ajuste r = br::ajusta(d, th0.empty() ? nullptr : &th0, (std::size_t) Rf_asInteger(n_em),
                               (std::size_t) Rf_asInteger(maxiter), Rf_asReal(tol),
                               Rf_asLogical(verb) == TRUE);
     if (!nota.empty()) r.mensagem = r.mensagem.empty() ? nota : nota + "; " + r.mensagem;
@@ -531,11 +539,20 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     Rf_setAttrib(ebv, R_NamesSymbol, ebv_nomes);
     Rf_setAttrib(pev, R_NamesSymbol, Rf_duplicate(ebv_nomes));
 
+    SEXP sc = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) nt2));
+    SEXP vc = PROTECT(Rf_allocMatrix(REALSXP, (int) nt2, (int) nt2));
+    for (std::size_t k = 0; k < nt2; k++) {
+      REAL(sc)[k] = r.score.empty() ? NA_REAL : r.score[k];
+      for (std::size_t j = 0; j < nt2; j++)
+        REAL(vc)[j * nt2 + k] = r.vcov.empty() ? NA_REAL : r.vcov[k * nt2 + j];
+    }
+    Rf_setAttrib(sc, R_NamesSymbol, Rf_duplicate(nms_t));
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
-                            "message", "n_used", "n_columns", "ebv", "dropped_x", "pev"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 12));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 12));
-    for (int q = 0; q < 12; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "message", "n_used", "n_columns", "ebv", "dropped_x", "pev",
+                            "score", "vcov"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 14));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 14));
+    for (int q = 0; q < 14; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
     for (std::size_t k = 0; k < d.saiu_x.size(); k++)
       SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
@@ -551,8 +568,10 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     SET_VECTOR_ELT(out, 9, ebv);
     SET_VECTOR_ELT(out, 10, saiu);
     SET_VECTOR_ELT(out, 11, pev);
+    SET_VECTOR_ELT(out, 12, sc);
+    SET_VECTOR_ELT(out, 13, vc);
     Rf_setAttrib(out, R_NamesSymbol, nms);
-    UNPROTECT(9);
+    UNPROTECT(11);
     return out;
   )
 }
@@ -1108,8 +1127,8 @@ static const R_CallMethodDef metodos[] = {
   {"R_chol_esparsa", (DL_FUNC) &R_chol_esparsa, 5},
   {"R_inv_seletiva", (DL_FUNC) &R_inv_seletiva, 5},
   {"R_resolve",      (DL_FUNC) &R_resolve,      5},
-  {"R_avaliar",      (DL_FUNC) &R_avaliar,     21},
-  {"R_ajustar",      (DL_FUNC) &R_ajustar,     28},
+  {"R_avaliar",      (DL_FUNC) &R_avaliar,     26},
+  {"R_ajustar",      (DL_FUNC) &R_ajustar,     29},
   {"R_a22_inversa",  (DL_FUNC) &R_a22_inversa,  4},
   {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  20},
   {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  26},

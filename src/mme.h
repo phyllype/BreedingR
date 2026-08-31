@@ -148,6 +148,8 @@ struct Ajuste {
   double neg2logl = 0.0;
   std::vector<double> theta, se, solucao;
   std::vector<double> pev;   // diagonal de [C_s^-1] vezes s2e, na numeracao das colunas
+  std::vector<double> score; // score no ponto final: a evidencia de otimo
+  std::vector<double> vcov;  // 2 AI^-1, a covariancia amostral das componentes
   std::string mensagem;
   std::size_t fora_do_padrao = 0;
 };
