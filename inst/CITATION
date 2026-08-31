@@ -1,0 +1,19 @@
+citHeader("To cite BreedingR in publications, use:")
+
+bibentry(
+  bibtype = "Manual",
+  title   = "BreedingR: variance components and breeding values by AI-REML and single step",
+  author  = person("Felipe Andre Oliveira", "Freitas"),
+  year    = "2026",
+  note    = "R package version 0.1.0",
+  url     = "https://github.com/phyllype/BreedingR",
+  textVersion = paste(
+    "Freitas, F. A. O. (2026). BreedingR: variance components and breeding values",
+    "by AI-REML and single step. R package version 0.1.0.",
+    "https://github.com/phyllype/BreedingR")
+)
+
+citFooter(paste(
+  "Developed during doctoral research at ESALQ/USP with support from the",
+  "Sao Paulo Research Foundation (FAPESP), grants #2024/15502-6 and #2025/02949-5 (BEPE).",
+  "Please carry this acknowledgement in work that uses the package."))

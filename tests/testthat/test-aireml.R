@@ -1,0 +1,143 @@
+# GATES of the estimator. The validation chain, no link checked against itself:
+#
+#   central finite differences  ==  analytical score
+#   dense V form                ==  -2logL of the sparse MME
+#   simulated truth             ==  recovered components, within their standard errors
+
+simula <- function(n = 300, seed = 42, va = 0.4, ve = 0.6) {
+  set.seed(seed)
+  id <- sprintf("a%04d", 1:n)
+  pa <- ma <- rep("0", n)
+  for (i in 31:n) { pa[i] <- id[sample(1:30, 1)]; ma[i] <- id[sample(1:(i-1), 1)] }
+  ped <- data.frame(id = id, sire = pa, dam = ma, stringsAsFactors = FALSE)
+  p <- pedigree(ped)
+  # genetic value by recursion, NEVER via Cholesky of A (it would share a tested path)
+  a <- numeric(n)
+  for (i in 1:n) {
+    s <- p$sire[i]; d <- p$dam[i]
+    di <- if (!is.na(s) && !is.na(d)) 0.5 - 0.25 * (p$F[s] + p$F[d])
+          else if (!is.na(s) || !is.na(d)) 0.75 else 1
+    base <- 0
+    if (!is.na(s)) base <- base + 0.5 * a[s]
+    if (!is.na(d)) base <- base + 0.5 * a[d]
+    a[i] <- base + sqrt(di * va) * rnorm(1)
+  }
+  cg <- sample(sprintf("g%02d", 1:6), n, replace = TRUE)
+  ef <- setNames(rnorm(6, 0, 1), sprintf("g%02d", 1:6))
+  data <- data.frame(id = p$id, cg = cg,
+                      y = 10 + ef[cg] + a + sqrt(ve) * rnorm(n),
+                      stringsAsFactors = FALSE)
+  list(data = data, ped = ped)
+}
+
+test_that("the -2logL of the sparse MME matches the dense V form", {
+  s <- simula(200)
+  for (theta in list(c(0.4, 0.6), c(0.2, 1.1), c(0.9, 0.3))) {
+    a <- eval_internal(y ~ cg + animal(id), s$data, s$ped, theta = theta)
+    expect_equal(a$neg2logl, a$neg2logl_V, tolerance = 1e-8)
+  }
+})
+
+test_that("the analytical score matches central finite differences", {
+  s <- simula(150)
+  theta <- c(0.5, 0.8)
+  a <- eval_internal(y ~ cg + animal(id), s$data, s$ped, theta = theta, with_dense = FALSE)
+  for (k in seq_along(theta)) {
+    h <- 1e-5 * max(abs(theta[k]), 1)
+    tp <- theta; tp[k] <- tp[k] + h
+    tm <- theta; tm[k] <- tm[k] - h
+    fd <- (eval_internal(y ~ cg + animal(id), s$data, s$ped, theta = tp, with_dense = FALSE)$neg2logl -
+           eval_internal(y ~ cg + animal(id), s$data, s$ped, theta = tm, with_dense = FALSE)$neg2logl) / (2 * h)
+    expect_equal(a$score[k], fd, tolerance = 1e-4, label = paste("parameter", k))
+  }
+})
+
+test_that("the DIRECT-MATERNAL score matches finite differences", {
+  # The covariance between two random terms is the parameter the old design did not have,
+  # and therefore the one that was never differentiated this way. And the renumf90 card
+  # cannot write this model: one block per group has nowhere to put the covariance.
+  s <- simula(150, seed = 7)
+  s$data$mae_obs <- s$ped$dam[match(s$data$id, s$ped$id)]
+  s$data$mae_obs[s$data$mae_obs == "0"] <- s$data$id[s$data$mae_obs == "0"]
+  f <- y ~ cg + animal(id, group = "g") + maternal(mae_obs, group = "g")
+  theta <- c(0.5, -0.1, 0.3, 0.9)   # var(a), cov(a,m), var(m), residual
+  a <- eval_internal(f, s$data, s$ped, theta = theta, with_dense = FALSE)
+  for (k in seq_along(theta)) {
+    h <- 1e-5 * max(abs(theta[k]), 1)
+    tp <- theta; tp[k] <- tp[k] + h
+    tm <- theta; tm[k] <- tm[k] - h
+    fd <- (eval_internal(f, s$data, s$ped, theta = tp, with_dense = FALSE)$neg2logl -
+           eval_internal(f, s$data, s$ped, theta = tm, with_dense = FALSE)$neg2logl) / (2 * h)
+    expect_equal(a$score[k], fd, tolerance = 1e-3, label = paste("parameter", k))
+  }
+  expect_equal(a$off_pattern, 0L)
+})
+
+test_that("the fit recovers the simulated components", {
+  s <- simula(400, seed = 11, va = 0.4, ve = 0.6)
+  r <- model(y ~ cg + animal(id), s$data, s$ped)
+  expect_true(r$converged)
+  h2 <- r$theta[[1]] / sum(r$theta)
+  expect_lt(abs(h2 - 0.4), 0.25)
+  expect_equal(length(ebv(r)), nrow(s$ped))
+})
+
+test_that("inadmissible theta is an ERROR, not a result", {
+  s <- simula(80)
+  expect_error(eval_internal(y ~ cg + animal(id), s$data, s$ped, theta = c(1, -1)),
+               "INADMISSIBLE")
+})
+
+test_that("Willham's full maternal model fits in one formula: two pe() disambiguate by column", {
+  set.seed(41)
+  s <- simulate_breeding(n_founders = 40, n_generations = 2,
+                         offspring_per_generation = 80, h2 = 0.35, seed = 41)
+  d <- s$data[rep(seq_len(nrow(s$data)), each = 2), ]
+  d$dam <- s$pedigree$dam[match(d$id, s$pedigree$id)]
+  d <- d[d$dam != "0", ]
+  d$y <- d$y + rnorm(nrow(d), 0, 0.4)
+  f <- y ~ cg + animal(id, group = "g") + maternal(dam, group = "g") + pe(id) + pe(dam)
+  r <- model(f, d, s$pedigree)
+  expect_true(r$converged)
+  expect_length(r$theta, 6L)
+  expect_setequal(names(r$theta),
+                  c("var(animal)", "cov(maternal,animal)", "var(maternal)",
+                    "var(pe(id))", "var(pe(dam))", "var(residual)"))
+  # the two permanent environments are distinct groups with distinct levels
+  expect_false(identical(names(ebv(r, "pe(id)")), names(ebv(r, "pe(dam)"))))
+  # and the combined design still satisfies the MME <-> V-form identity
+  th <- c(0.4, -0.1, 0.1, 0.3, 0.1, 0.2)
+  a <- eval_internal(f, d[1:80, ], s$pedigree, theta = th)
+  expect_equal(a$neg2logl, a$neg2logl_V, tolerance = 1e-8)
+})
+
+test_that("a genuine double declaration still errors; different columns do not", {
+  set.seed(2)
+  s <- simulate_breeding(n_founders = 20, n_generations = 1,
+                         offspring_per_generation = 20, h2 = 0.4, seed = 2)
+  expect_error(model(y ~ cg + pe(id) + pe(id), s$data, s$pedigree), "twice")
+  d <- s$data
+  d$lot <- sample(c("l1", "l2"), nrow(d), TRUE)
+  r <- model(y ~ cg + random(cg) + random(lot) + animal(id), d, s$pedigree)
+  expect_true(any(grepl("random(lot)", names(r$theta), fixed = TRUE)))
+})
+
+test_that("NA in the observation is missing, with or without a declared code", {
+  s <- simulate_breeding(n_founders = 30, n_generations = 1,
+                         offspring_per_generation = 40, h2 = 0.4, seed = 55)
+  d <- s$data
+  ref <- model(y ~ cg + animal(id), d[-(1:5), ], s$pedigree)
+  # the same data with those five rows kept but their observation NA: same fit,
+  # not a NaN likelihood (the univariate path used to let NA through)
+  d$y[1:5] <- NA
+  f <- model(y ~ cg + animal(id), d, s$pedigree)
+  expect_true(f$converged)
+  expect_false(is.nan(f$neg2logl))
+  expect_equal(f$n_used, ref$n_used)
+  expect_equal(unname(f$theta), unname(ref$theta), tolerance = 1e-8)
+  # and NA coexists with a declared code: both mean missing
+  d$y[6:10] <- -999
+  f2 <- model(y ~ cg + animal(id), d, s$pedigree, missing_code = -999)
+  expect_true(f2$converged)
+  expect_equal(f2$n_used, ref$n_used - 5L)
+})

@@ -1,0 +1,300 @@
+# BreedingR
+
+An R package for variance components by AI-REML, breeding values, accuracy and
+single-step genomics.
+
+It started as a place to try out a few ideas and to put some specific models into
+practice — reaction norms on an environmental gradient, indirect genetic effects in
+group housing, a residual that carries serial correlation — without waiting on an
+external engine to support them. That is still what it is for: the numerics are written
+in the package itself, in `src/`, and `R CMD INSTALL` compiles them. No separate binary,
+no service, no run-time dependency.
+
+```r
+remotes::install_github("phyllype/BreedingR")   # requires Rtools on Windows
+# or, from a clone:
+install.packages(".", repos = NULL, type = "source")
+library(BreedingR)
+```
+
+## Quick start
+
+A complete run on data the package simulates itself — paste and go:
+
+```r
+library(BreedingR)
+s <- simulate_breeding(n_founders = 60, n_generations = 3,
+                       offspring_per_generation = 150, h2 = 0.4,
+                       n_markers = 500, seed = 1)      # pedigree + phenotypes + genotypes
+
+q  <- qc_phenotypes(s$data, "y", classes = "cg")        # flag, count, never drop silently
+g  <- qc_genotypes(s$genotypes$m, min_maf = 0.01)       # call rate, MAF, HWE, with counts
+
+fit <- model(y ~ cg + animal(id), q$data, s$pedigree,
+             genotypes = list(ids = s$genotypes$ids, m = g$m))
+fit                                # components, SEs, and each variance's share
+ebv(fit)[1:5]                      # breeding values, named by animal
+accuracy(fit, s$pedigree)[1:5]     # with the (1+F) in the denominator
+cor(ebv(fit)[names(s$tbv)], s$tbv) # against the simulator's own truth
+```
+
+A long fit reports itself as it goes. With `verbose = TRUE`, the default in an
+interactive session, each AI iteration prints its -2logL and its relative step, which is
+the convergence criterion itself; Ctrl+C interrupts any fitter.
+
+## Quality control before the model
+
+`qc_phenotypes()` marks the missing code, turns outliers beyond a Tukey fence into
+missing values, and reports class levels too small to estimate. It flags rather than
+deletes: removing a row would reshape contemporary groups and pen compositions without
+saying so. `qc_genotypes()` filters markers by call rate, minor allele frequency and
+Hardy-Weinberg equilibrium, and reports how many each filter removed. `describe()` shows
+the data before a model touches it, and `suggest_model()` reads its shape and names the
+terms it calls for.
+
+## What it fits
+
+```r
+# animal model
+model(weight ~ cg + cov(age) + animal(id), data, pedigree = ped)
+
+# repeatability: permanent environment
+model(weight ~ cg + animal(id) + pe(id), data, ped)
+
+# direct-maternal, with the correlation BETWEEN the two estimated; adding
+# pe(id) + pe(dam) makes it Willham's FULL maternal model (two permanent
+# environments, disambiguated by column in the component names)
+model(weight ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), data, ped)
+
+# reaction norm on a Legendre basis
+d <- cbind(d, legendre(d$thi, order = 1))
+model(y ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d, ped)
+
+# indirect genetic effects (the associative model of Muir and Bijma)
+model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "pen", group = "g"), d, ped)
+
+# single step (ssGBLUP); the same genotypes= works in model_mt() and model_ar1().
+# For the inverse of G*: exact, apy_core= (global core), or vecchia_k= (per-animal
+# neighborhoods, the generalization of APY and of Henderson's own A^-1)
+model(y ~ cg + animal(id), d, ped, genotypes = list(ids = gids, m = M))
+
+# multi-trait with full R0 and missingness by pattern
+model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped);  rg(fit, "animal", "t1", "t2")
+
+# AR(1)/CAR(1) residual for longitudinal data; cbind() on the left fits the
+# multi-trait version with the separable residual Gamma (x) R0
+model_ar1(y ~ cg + animal(id), d, ped, subject = "id", time = "day")
+
+# the Bayesian half: block Gibbs with conjugate updates and reference priors
+gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)
+
+# unknown-parent groups as metafounders (Legarra), diagonal Gamma
+model(y ~ cg + animal(id), d, ped, metafounders = c("L1", "L2"), gamma = c(0.7, 0.6))
+
+# marker effects backsolved from the single-step fit
+snp_effects(f, ped, genotypes = list(ids = gids, m = M))
+
+# the single step WITHOUT G: markers as equations (ssSNPBLUP), conjugate gradients,
+# A22^-1 applied matrix-free; theta is given, as in routine practice
+snp_blup(y ~ cg + animal(id), d, ped, genotypes = list(ids = gids, m = M),
+         theta = c(0.4, 0.6))
+
+# PLINK .bed/.raw straight into genotypes=, with QC that reports what it removed
+g <- qc_genotypes(read_plink("chip")$m, min_maf = 0.01, hwe_p = 1e-7)
+```
+
+Around the fit: `pedigree()` (topological order plus Meuwissen-Luo inbreeding),
+`a_inverse()`, `a22_inverse()`, `ebv()`, `accuracy()` (with the 1+F), `h2_curve()` and
+`plot()` for the reaction norm, `describe()` to look at the data before estimating,
+the selection-signature scans `fst()` (Weir-Cockerham) and `roh()` (F_ROH and islands),
+`simulate_breeding()`, a gene-dropping simulator so that examples and method studies
+share one honest generator, `thi()` and `heat_load()` for the heat-stress axis,
+`selection_index()` and `rank_drift()` for the selection side, `mc_study()` for
+repeated simulate-and-refit studies, and `suggest_model()`, which reads the shape of
+the data and names the term each shape asks for (and the trap it guards against). Timing
+claims go through `benchmark_fit()`, which replicates at least three times and checks
+the runs returned identical numbers — the package's own timing rule as a tool.
+
+The full map of the 39 functions, grouped by kinship, is in
+[FUNCTIONS.md](FUNCTIONS.md); the hands-on that exercises every one of them,
+step by step on data simulated in the document itself, is the vignette
+`vignettes/hands-on.Rmd` (every chunk runs at build time, so it cannot rot). The theory
+behind `apy_core=` (why APY works and what the Mendelian residual means) is in
+[APY.md](APY.md).
+
+## The design decision that carries everything
+
+The layout unit is the **covariance group**, not the term. `group = "g"` puts two random
+terms in the same covariance matrix with the correlation estimated, and that is why
+direct-maternal, the reaction norm and the associative model **have no dedicated
+fitter**: they are the same engine with different incidences and the same
+`kron(C^-1, K^-1)` penalty.
+
+The formula therefore departs from `(1 | group)` on purpose: that notation has nowhere
+to say that two different terms share a covariance matrix.
+
+## How this was validated
+
+Nothing here is checked against itself. Each piece answers to an independent path:
+
+| what | against what |
+|---|---|
+| A^-1 and F | tabular A by the classic recursion; `A^-1 A = I` |
+| sparse Cholesky, selected inverse | `solve()` and the package's own dense path |
+| -2logL of the sparse MME | dense V form, a path with nothing in common |
+| analytic score | central finite differences, ALL parameters |
+| full fit | recovery of the components used to simulate the data |
+| A22^-1 | inverse of the tabular-A block, plus the trap gate (block 22 of A^-1 != A22^-1) |
+| single step | identity: blend 1 forces H^-1 == A^-1 through the whole fit |
+| multi-trait | V form, finite differences on all parameters, and the collapse: both missing == row removed |
+| AR(1) residual | V form, finite differences including rho, and the collapse: rho = 0 == identical iid path |
+| APY | identity: the output is the exact inverse of the G that APY implies; core = everyone == exact |
+| Vecchia | the bridge: k = 2 on a pedigree without full sibs IS Henderson's A^-1 (1e-10); k = n-1 == exact fit |
+| Fst and ROH | constructed references: alternate fixation gives exactly 1, a planted run is found |
+
+The tests in `tests/testthat` run these comparisons on every build, so a change that
+breaks one of the identities cannot pass quietly. `simulate_breeding()` is what they are
+built on: it generates the pedigree, the phenotypes and the genotypes together, so every
+check has the truth beside it.
+
+## References
+
+Aguilar, I., Misztal, I., Johnson, D.L., Legarra, A., Tsuruta, S. & Lawlor, T.J. (2010).
+A unified approach to utilize phenotypic, full pedigree, and genomic information for
+genetic evaluation of Holstein final score. *Journal of Dairy Science* 93:743-752.
+
+Anderson, E., Bai, Z., Bischof, C., Blackford, S., Demmel, J., Dongarra, J., Du Croz,
+J., Greenbaum, A., Hammarling, S., McKenney, A. & Sorensen, D. (1999). *LAPACK Users'
+Guide*, 3rd ed. SIAM, Philadelphia.
+
+Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
+quantitative genetics of inheritance and response to selection. *Genetics* 175:277-288.
+
+Christensen, O.F. & Lund, M.S. (2010). Genomic prediction when some animals are not
+genotyped. *Genetics Selection Evolution* 42:2.
+
+Fragomeni, B.O., Lourenco, D.A.L., Tsuruta, S., Masuda, Y., Aguilar, I., Legarra, A.,
+Lawlor, T.J. & Misztal, I. (2015). Use of genomic recursions in single-step genomic best
+linear unbiased predictor with a large number of genotypes. *Journal of Dairy Science*
+98:4090-4094.
+
+George, A. & Liu, J.W.H. (1989). The evolution of the minimum degree ordering algorithm.
+*SIAM Review* 31:1-19.
+
+Gilmour, A.R., Thompson, R. & Cullis, B.R. (1995). Average information REML: an
+efficient algorithm for variance parameter estimation in linear mixed models.
+*Biometrics* 51:1440-1450.
+
+Henderson, C.R. (1975). Best linear unbiased estimation and prediction under a selection
+model. *Biometrics* 31:423-447.
+
+Henderson, C.R. (1976). A simple method for computing the inverse of a numerator
+relationship matrix used in prediction of breeding values. *Biometrics* 32:69-83.
+
+Kirkpatrick, M., Lofsvold, D. & Bulmer, M. (1990). Analysis of the inheritance,
+selection and evolution of growth trajectories. *Genetics* 124:979-993.
+
+Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
+Ancestral relationships using metafounders: finite ancestral populations and across
+population relationships. *Genetics* 200:455-468.
+
+Liu, Z., Goddard, M.E., Reinhardt, F. & Reents, R. (2014). A single-step genomic model
+with direct estimation of marker effects. *Journal of Dairy Science* 97:5833-5850.
+
+McQuillan, R., Leutenegger, A.-L., Abdel-Rahman, R., Franklin, C.S., Pericic, M.,
+Barac-Lauc, L. et al. (2008). Runs of homozygosity in European populations. *American
+Journal of Human Genetics* 83:359-372.
+
+Meuwissen, T.H.E. & Luo, Z. (1992). Computing inbreeding coefficients in large
+populations. *Genetics Selection Evolution* 24:305-313.
+
+Misztal, I., Legarra, A. & Aguilar, I. (2014). Using recursion to compute the inverse of
+the genomic relationship matrix. *Journal of Dairy Science* 97:3943-3952.
+
+Muir, W.M. (2005). Incorporation of competitive effects in forest tree or animal
+breeding programs. *Genetics* 170:1247-1259.
+
+Muir, W.M. & Schinckel, A.P. (2002). Incorporation of competitive effects in breeding
+programs to improve productivity and animal well being. *Proceedings of the 7th World
+Congress on Genetics Applied to Livestock Production*, Montpellier.
+
+National Research Council (1971). *A Guide to Environmental Research on Animals*.
+National Academy of Sciences, Washington DC.
+
+Patterson, H.D. & Thompson, R. (1971). Recovery of inter-block information when block
+sizes are unequal. *Biometrika* 58:545-554.
+
+Pocrnic, I., Lourenco, D.A.L., Masuda, Y., Legarra, A. & Misztal, I. (2016). The
+dimensionality of genomic information and its effect on genomic prediction. *Genetics*
+203:573-581.
+
+Quaas, R.L. (1976). Computing the diagonal elements and inverse of a large numerator
+relationship matrix. *Biometrics* 32:949-953.
+
+Schafer, F., Katzfuss, M. & Owhadi, H. (2021). Sparse Cholesky factorization by
+Kullback-Leibler minimization. *SIAM Journal on Scientific Computing* 43:A2019-A2046.
+
+Takahashi, K., Fagan, J. & Chen, M.-S. (1973). Formation of a sparse bus impedance
+matrix and its application to short circuit study. *Proceedings of the 8th PICA
+Conference*, 63-69.
+
+Vandenplas, J., Calus, M.P.L., Eding, H. & Vuik, C. (2019). A second-level diagonal
+preconditioner for single-step SNPBLUP. *Genetics Selection Evolution* 51:30.
+
+Vandenplas, J., Eding, H., Calus, M.P.L. & Vuik, C. (2018). Deflated preconditioned
+conjugate gradient method for solving single-step BLUP models efficiently. *Genetics
+Selection Evolution* 50:51.
+
+Vandenplas, J., Gengler, N., Bijma, P., Misztal, I. & Legarra, A. (2022). A comprehensive
+study on size and definition of the core group in the proven and young algorithm for
+single-step GBLUP. *Genetics Selection Evolution* 54:34.
+
+VanRaden, P.M. (2008). Efficient methods to compute genomic predictions. *Journal of
+Dairy Science* 91:4414-4423.
+
+Wade, K.M. & Quaas, R.L. (1993). Solutions to a system of equations involving a
+first-order autoregressive process. *Journal of Dairy Science* 76:3026-3034.
+
+Weir, B.S. & Cockerham, C.C. (1984). Estimating F-statistics for the analysis of
+population structure. *Evolution* 38:1358-1370.
+
+Willham, R.L. (1972). The role of maternal effects in animal breeding: III. Biometrical
+aspects of maternal effects in animals. *Journal of Animal Science* 35:1288-1293.
+
+If a work that should be cited here is missing, please open an issue or write to the
+maintainer address in DESCRIPTION.
+
+## Choices worth knowing about
+
+Convergence is judged on the RELATIVE change in the components,
+`sqrt(sum(dtheta^2) / sum(theta^2)) < tol`, with a default of 1e-8 — never an absolute
+threshold on the score, which grows with the number of records. Coming from the BLUPF90
+family, mind the scale: those programs test that quantity squared, so a card's
+`conv_crit` is this `tol` squared. A 1e-12 there is `tol = 1e-6` here, and the 1e-8
+default here would be 1e-16 on that scale.
+
+Fits start from `var(y)`, never from a previous fit's estimates, so a run cannot inherit
+a neighbour's answer. A covariance that stops being positive-definite ends the fit
+instead of being nudged back into range, and a fit that did not converge says so in the
+print, in the message and in the object.
+
+The data rules are equally deliberate. An unknown genotype code becomes NA and is
+imputed by the marker mean; it never becomes the zero genotype, which is a real
+observation. A pen mate missing from the pedigree is an error rather than a silent
+discard, because dropping him would quietly change who competed with whom. A parent
+cited without a line of its own is an error rather than a new founder.
+
+## Citation and funding
+
+If this package contributed to published work, please cite it:
+
+> Freitas, F. A. O. (2026). BreedingR: variance components and breeding values by
+> AI-REML and single step. R package.
+
+Developed during doctoral research at ESALQ/USP (Universidade de São Paulo), supported
+by the São Paulo Research Foundation (FAPESP), grants #2024/15502-6 and #2025/02949-5
+(BEPE). The opinions, hypotheses and conclusions expressed here are the author's own and
+do not necessarily reflect the views of FAPESP.
+
+Work that uses this package should carry the same acknowledgement, as the funding terms
+ask.

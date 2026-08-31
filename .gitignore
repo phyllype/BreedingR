@@ -1,0 +1,12 @@
+src/rust/target/
+src/*.o
+src/*.dll
+src/*.so
+..Rcheck/
+*.tar.gz
+src/*.dll
+src/*.o
+
+# private: real-data results and the development roadmap live outside the repo
+VALIDATION.md
+PLAN.md

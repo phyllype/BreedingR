@@ -1,0 +1,23 @@
+{
+  "title": "BreedingR: variance components and breeding values by AI-REML and single step",
+  "description": "<p>An R package for variance components by AI-REML, breeding values, accuracy and single-step genomics. It grew out of doctoral research as a place to try out a few ideas and put specific models into practice: reaction norms on an environmental gradient, indirect genetic effects in group housing, and residuals that carry serial correlation. The numerics are written in the package itself, in C++ compiled by R CMD INSTALL, with no run-time dependency.</p><p>Includes AI-REML for single-trait, multi-trait and AR(1)/CAR(1) residual models; a Gibbs sampler over the same designs; single-step genomics with the exact inverse, APY, Vecchia recursions, or markers as equations (ssSNPBLUP); metafounders; genotype and phenotype quality control; and selection-signature scans.</p>",
+  "upload_type": "software",
+  "license": "other-closed",
+  "access_right": "open",
+  "creators": [
+    {
+      "name": "Freitas, Felipe Andre Oliveira",
+      "affiliation": "Escola Superior de Agricultura Luiz de Queiroz (ESALQ), Universidade de Sao Paulo"
+    }
+  ],
+  "keywords": [
+    "animal breeding", "quantitative genetics", "AI-REML", "variance components",
+    "BLUP", "single-step genomic prediction", "ssGBLUP", "reaction norm",
+    "indirect genetic effects", "R package"
+  ],
+  "grants": [
+    {"id": "10.13039/501100001807::2024/15502-6"},
+    {"id": "10.13039/501100001807::2025/02949-5"}
+  ],
+  "language": "eng"
+}

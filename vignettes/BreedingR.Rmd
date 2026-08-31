@@ -1,0 +1,174 @@
+---
+title: "BreedingR: from data to breeding value"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{BreedingR: from data to breeding value}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+set.seed(2026)
+```
+
+This document walks the full workflow on simulated data, simulated HERE, in the vignette,
+so that every number shown has the truth sitting next to it. An example whose result
+cannot be checked teaches nothing.
+
+## 1. Simulate a herd
+
+A pedigree with herd structure (few sires, many dams) and genetic values by the
+recursion `a = 0.5(a_sire + a_dam) + mendelian`, never by a Cholesky of A, which would
+share code with the very thing we are testing.
+
+```{r}
+library(BreedingR)
+
+n <- 800
+id <- sprintf("a%04d", 1:n)
+sire <- dam <- rep("0", n)
+for (i in 61:n) {
+  sire[i] <- id[sample(1:20, 1)]
+  dam[i] <- id[sample(1:(i - 1), 1)]
+}
+ped <- data.frame(id, sire, dam)
+
+p <- pedigree(ped)   # topological order + Meuwissen-Luo inbreeding
+p
+```
+
+```{r}
+va <- 0.4; ve <- 0.6           # the truth: h2 = 0.4
+a <- numeric(n)
+for (i in 1:n) {
+  s <- p$sire[i]; d <- p$dam[i]
+  mend <- if (!is.na(s) && !is.na(d)) 0.5 - 0.25 * (p$F[s] + p$F[d])
+          else if (!is.na(s) || !is.na(d)) 0.75 else 1
+  base <- 0
+  if (!is.na(s)) base <- base + 0.5 * a[s]
+  if (!is.na(d)) base <- base + 0.5 * a[d]
+  a[i] <- base + sqrt(mend * va) * rnorm(1)
+}
+cg <- sample(sprintf("g%02d", 1:10), n, replace = TRUE)
+efc <- setNames(rnorm(10), sprintf("g%02d", 1:10))
+data <- data.frame(id = p$id, cg = cg,
+                    peso = 30 + efc[cg] + a + sqrt(ve) * rnorm(n))
+```
+
+## 2. Look before estimating
+
+```{r}
+describe(data, "peso", classes = "cg", pedigree = ped)
+```
+
+## 3. Fit the animal model
+
+```{r}
+fit <- model(peso ~ cg + animal(id), data, pedigree = ped)
+fit
+```
+
+The truth was `va = 0.4`, `ve = 0.6`. The distance in standard errors is what says
+whether the recovery is within expectation; an estimator that hit 0.400 on the nose
+would be reading the answer, not estimating it.
+
+```{r}
+h2 <- fit$theta[[1]] / sum(fit$theta)
+c(h2_estimada = round(h2, 3),
+  z_va = round(abs(fit$theta[[1]] - va) / fit$se[[1]], 2))
+```
+
+## 4. Breeding values and accuracy
+
+```{r}
+vg <- ebv(fit)
+acc <- accuracy(fit, ped)
+summary(acc)
+plot(vg[order(vg)], acc[order(vg)], pch = ".", cex = 2,
+     xlab = "EBV (ordenado)", ylab = "accuracy")
+```
+
+## 5. Models the formula declares without a dedicated fitter
+
+The layout unit is the covariance group: `group = "g"` puts two random terms into the
+same matrix, with the correlation estimated.
+
+```{r, eval = FALSE}
+# direct-maternal
+model(peso ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), data, ped)
+
+# reaction norm on a Legendre basis
+d2 <- cbind(data, legendre(data$idade, order = 1, limits = c(150, 190)))
+model(peso ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d2, ped)
+
+# indirect genetic effect (associative model)
+model(peso ~ cg + animal(id, group = "g") + indirect(id, pen = "baia", group = "g"),
+        data, ped)
+
+# single step, with the 0/1/2 genotype matrix
+model(peso ~ cg + animal(id), data, ped, genotypes = list(ids = gids, m = M))
+```
+
+## 6. The Bayesian half
+
+The same model, sampled instead of maximized. The posterior means should land near the
+REML estimates — and they carry the whole distribution with them.
+
+```{r}
+gb <- gibbs(peso ~ cg + animal(id), data, pedigree = ped,
+            n_iter = 3000, burnin = 500, thin = 5)
+data.frame(component = colnames(gb$samples),
+           posterior = round(unname(gb$mean), 3),
+           reml = round(unname(fit$theta), 3))
+```
+
+## 7. Genomics without ever building G
+
+For genomic examples the package ships its own generator, `simulate_breeding()`, which
+gene-drops haplotypes so the genotypes are CONSISTENT with the pedigree it emits. The
+single step runs three ways: exact, `apy_core=` (a global core), or `vecchia_k=` (each
+animal conditions on its own k strongest previous relationships — Henderson's A^-1 is
+this recursion with the parents as the set). And `snp_blup()` drops G entirely: markers
+enter as equations and the system is solved by conjugate gradients at given components.
+
+```{r}
+s <- simulate_breeding(n_founders = 40, n_generations = 2,
+                       offspring_per_generation = 80, h2 = 0.4,
+                       n_markers = 300, seed = 7)
+fg <- model(y ~ cg + animal(id), s$data, s$pedigree, genotypes = s$genotypes)
+fs <- snp_blup(y ~ cg + animal(id), s$data, s$pedigree, s$genotypes,
+               theta = unname(fg$theta))
+cor(ebv(fg, "animal"), ebv(fs, "animal")[names(ebv(fg, "animal"))])
+```
+
+The two paths differ by a declared detail (the affine adjustment of G* that `snp_blup()`
+does not apply), so the correlation is near 1 without being 1. PLINK files enter through
+`read_plink()`, and `qc_genotypes()` filters call rate, MAF and HWE while REPORTING what
+each filter removed.
+
+## 8. The selection side
+
+```{r}
+tbv <- s$tbv[names(ebv(fg, "animal"))]
+idx <- selection_index(list(y = ebv(fg, "animal")), c(y = 1))
+dr <- rank_drift(ebv(fs, "animal"), ebv(fg, "animal"), top = 50)
+c(cor_index_tbv = round(cor(idx[names(tbv)], tbv), 2),
+  drift_spearman = round(dr$spearman, 4), retention_50 = dr$retention)
+```
+
+`mc_study()` repeats simulate-and-refit so a recovery claim has a bias and a spread
+instead of one lucky seed; `suggest_model()` reads the shape of the data and names the
+term each shape asks for; `benchmark_fit()` refuses to time anything fewer than three
+times.
+
+## 9. What the package does NOT do silently
+
+These choices live in the errors, on purpose:
+
+- a parent that is cited but has no line of its own is an ERROR, not a founder;
+- a genotype outside 0, 1, 2 and NA is refused (NA is imputed to the mean; zero is a
+  valid genotype and is never used as a missing-value code);
+- a pen mate not in the pedigree is an ERROR, not a silent discard;
+- an INADMISSIBLE theta halts the fit, it never turns into a result;
+- a fit that did not converge SAYS so in the print, in the message and in the object.

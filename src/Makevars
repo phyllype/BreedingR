@@ -1,0 +1,7 @@
+# Recompilar TUDO quando um header muda: o make do R nao rastreia dependencia de header, e
+# mudar o layout de uma struct compartilhada com so parte dos .o recompilados produz um
+# executavel que mistura duas versoes da mesma struct — o sintoma foi um std::bad_alloc num
+# modelo que passava, e podia ter sido pior: podia ter sido um numero.
+$(SHLIB): $(OBJECTS)
+$(OBJECTS): estruturas.h modelo.h mme.h
+PKG_LIBS = $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)

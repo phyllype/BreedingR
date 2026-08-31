@@ -1,0 +1,322 @@
+---
+title: "Hands-on: every function, step by step"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Hands-on: every function, step by step}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+set.seed(2026)
+```
+
+Every exported function of the package, exercised in order of a real workflow, on data
+simulated in the document itself. Each chunk runs at build time, so this walkthrough
+cannot drift away from the code. The companion vignette ("from data to breeding value")
+tells the story; this one is the tool bench.
+
+## Step 0 — simulate a population to work on
+
+`simulate_breeding()` gene-drops haplotypes, so the genotypes it emits are consistent
+with the pedigree it emits — one honest generator for every example.
+
+```{r}
+library(BreedingR)
+s <- simulate_breeding(n_founders = 40, n_generations = 2,
+                       offspring_per_generation = 80, h2 = 0.4,
+                       n_markers = 200, seed = 7)
+str(s, max.level = 1)
+```
+
+## Step 1 — look before estimating
+
+```{r}
+describe(s$data, "y", classes = "cg", pedigree = s$pedigree)
+suggest_model(s$data, "y", "id")
+```
+
+## Step 2 — the pedigree toolbox
+
+```{r}
+p <- pedigree(s$pedigree)      # topological order + Meuwissen-Luo inbreeding
+head(p, 3)
+ai <- a_inverse(s$pedigree)    # Henderson's sparse A^-1, as triplets i/j/x/n
+str(ai[c("i", "j", "x", "n")])
+```
+
+`a22_inverse()` takes 1-based positions in the topological order of `pedigree()`:
+
+```{r}
+gid <- s$genotypes$ids[141:200]
+a22i <- a22_inverse(s$pedigree, geno = match(gid, p$id))
+dim(a22i)
+```
+
+## Step 3 — fit the base animal model, read everything out of it
+
+```{r}
+fit <- model(y ~ cg + animal(id), s$data, s$pedigree)
+fit
+summary(fit)
+coef(fit)
+h2 <- fit$theta[["var(animal)"]] / sum(fit$theta)
+round(h2, 3)                                # simulated truth: 0.4
+```
+
+```{r}
+e <- ebv(fit)                               # named vector, all pedigree animals
+acc <- accuracy(fit, s$pedigree)            # with the (1+F) in the denominator
+round(cor(e[names(s$tbv)], s$tbv), 2)       # against the simulator's own truth
+summary(acc)
+```
+
+## Step 4 — the formula markers, one by one
+
+Repeated records ask for a permanent environment; `random()` is the iid effect for
+litter or batch; a missing-value code leaves the likelihood via `missing_code=`:
+
+```{r}
+d3 <- s$data[rep(1:nrow(s$data), each = 2), ]
+d3$y <- d3$y + rnorm(nrow(d3), 0, 0.5)
+d3$y[1] <- -999
+d3$lot <- sample(c("l1", "l2", "l3"), nrow(d3), TRUE)
+f4 <- model(y ~ cg + random(lot) + animal(id) + pe(id), d3, s$pedigree,
+            missing_code = -999)
+round(f4$theta, 3)
+```
+
+Willham's full maternal model: direct and maternal genetic share ONE covariance matrix
+via `group=`, and the two permanent environments disambiguate by column:
+
+```{r}
+d5 <- d3
+d5$dam <- s$pedigree$dam[match(d5$id, s$pedigree$id)]
+d5 <- d5[d5$dam != "0", ]
+f5 <- model(y ~ cg + animal(id, group = "g") + maternal(dam, group = "g") +
+              pe(id) + pe(dam), d5, s$pedigree, missing_code = -999)
+names(f5$theta)
+```
+
+The reaction norm is `rn()` over a basis you build with `legendre()`; `h2_curve()` and
+`plot()` then read h2 along the gradient:
+
+```{r}
+d6 <- s$data
+d6$thi <- runif(nrow(d6), 55, 80)
+d6 <- cbind(d6, legendre(d6$thi, order = 1, limits = c(55, 80)))
+f6 <- model(y ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d6, s$pedigree)
+head(h2_curve(f6, limits = c(55, 80), points = 5))
+plot(f6, limits = c(55, 80))
+```
+
+The indirect genetic effect (Muir & Schinckel's associative model) marks the PEN MATES
+in the incidence; direct and indirect share a group so their correlation is estimated:
+
+```{r}
+d7 <- s$data
+d7$penc <- rep(sprintf("p%03d", 1:50), length.out = nrow(d7))
+f7 <- model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "penc", group = "g"),
+            d7, s$pedigree)
+round(f7$theta, 3)
+```
+
+A sire model uses `sire()` when only males carry the genetic term. Unknown-parent
+groups enter as metafounders (Legarra): a parent label with no line of its own,
+declared with its gamma:
+
+```{r}
+ped8 <- s$pedigree
+ped8$sire[ped8$sire == "0"] <- "L1"
+ped8$dam[ped8$dam == "0"] <- "L2"
+f8 <- model(y ~ cg + animal(id), s$data, ped8,
+            metafounders = c("L1", "L2"), gamma = c(0.7, 0.7))
+f8$converged
+```
+
+## Step 5 — genomics: files, QC, and the single step
+
+`read_plink()` reads the binary trio (or a .raw); here we write a tiny .bed by hand so
+the example carries its own truth:
+
+```{r}
+pref <- file.path(tempdir(), "toy")
+codes <- c(`2` = 0L, `1` = 2L, `0` = 3L)                 # 2 bits per genotype
+pack <- function(g) { v <- codes[as.character(g)]
+  sum(v * 4L^(seq_along(v) - 1L)) }
+con <- file(paste0(pref, ".bed"), "wb")
+writeBin(as.raw(c(0x6c, 0x1b, 0x01, pack(c(2, 1, 0, 2)), pack(c(0, 0, 1, 1)))), con)
+close(con)
+writeLines(sprintf("F%d I%d 0 0 0 -9", 1:4, 1:4), paste0(pref, ".fam"))
+writeLines(sprintf("1 SNP%d 0 %d A B", 1:2, 1:2), paste0(pref, ".bim"))
+read_plink(pref)$m
+```
+
+`qc_genotypes()` filters call rate, MAF and (optionally) HWE, and reports what each
+filter removed — silent filtering is how panels lose the markers that mattered:
+
+```{r}
+q <- qc_genotypes(s$genotypes$m, min_call_rate = 0.9, min_maf = 0.05)
+c(kept = ncol(q$m), by_call = q$n_call, by_maf = q$n_maf)
+```
+
+The single step is an argument, not a function: `genotypes=` upgrades A to H. The
+inverse of G* is exact by default, `apy_core=` uses a global core, `vecchia_k=` gives
+each animal its own conditioning set:
+
+```{r}
+gen <- list(ids = gid, m = s$genotypes$m[141:200, ])
+fss <- model(y ~ cg + animal(id), s$data, s$pedigree, genotypes = gen)
+fap <- model(y ~ cg + animal(id), s$data, s$pedigree, genotypes = gen,
+             apy_core = gid[1:30])
+fve <- model(y ~ cg + animal(id), s$data, s$pedigree, genotypes = gen,
+             vecchia_k = 25)
+round(c(exact = cor(ebv(fss, "animal"), ebv(fap, "animal")),
+        vecchia = cor(ebv(fss, "animal"), ebv(fve, "animal"))), 3)
+```
+
+The standalone inverses expose the same two approximations with their diagnostics
+(the Mendelian/conditional residual of each animal):
+
+```{r}
+ap <- apy_inverse(gen$m, core = 1:30)
+ve <- vecchia_inverse(gen$m, k = 25)
+c(min_apy_res = round(min(ap$mendeliano), 3),
+  min_vecchia_res = round(min(ve$mendeliano[-1]), 3))
+```
+
+Marker effects come out of a single-step fit by backsolving, or directly by fitting the
+markers as equations — `snp_blup()`, the path that never builds G (theta is GIVEN, the
+routine-evaluation flow):
+
+```{r}
+a_hat <- snp_effects(fss, s$pedigree, gen)
+fsnp <- snp_blup(y ~ cg + animal(id), s$data, s$pedigree, gen,
+                 theta = unname(fss$theta))
+round(cor(unclass(a_hat), fsnp$g[!is.na(fsnp$g)]), 3)
+```
+
+## Step 6 — multi-trait
+
+`cbind()` on the left, full R0, missingness handled record by record; `rg()` reads the
+genetic correlation:
+
+```{r}
+dmt <- s$data
+dmt$y2 <- 5 + 0.5 * s$tbv[dmt$id] + rnorm(nrow(dmt), 0, 0.8)
+fmt <- model_mt(cbind(y, y2) ~ cg + animal(id), dmt, s$pedigree)
+round(rg(fmt, "animal", "y", "y2"), 2)
+head(ebv(fmt, "animal", trait = "y2"), 3)
+```
+
+## Step 7 — longitudinal data with a serially correlated residual
+
+`model_ar1()` needs `subject=` and `time=`; with continuous time it is CAR(1). The
+component `rho(residual)` is the reason this fitter exists:
+
+```{r}
+nlong <- 5
+dar <- s$data[rep(1:nrow(s$data), each = nlong), ]
+dar$day <- rep(1:nlong, nrow(s$data))
+eps <- replicate(nrow(s$data), as.numeric(arima.sim(list(ar = 0.5), nlong, sd = 0.6)))
+dar$y <- dar$y + c(eps)
+far <- model_ar1(y ~ cg + animal(id) + pe(id), dar, s$pedigree,
+                 subject = "id", time = "day")
+round(far$theta[["rho(residual)"]], 2)
+```
+
+## Step 8 — the Bayesian half
+
+`gibbs()` samples the SAME models; `ess()` and `geweke_z()` are the chain diagnostics
+(also computed automatically on the result). With `theta_fixed=` it samples only the
+locations — the mode whose posterior mean must be the BLUP:
+
+```{r}
+gb <- gibbs(y ~ cg + animal(id), s$data, s$pedigree,
+            n_iter = 2000, burnin = 400, thin = 4)
+print(gb)
+round(c(ess = ess(gb$samples[, "var(animal)"]),
+        geweke = geweke_z(gb$samples[, "var(animal)"])), 2)
+```
+
+## Step 9 — selection decisions
+
+```{r}
+idx <- selection_index(list(y = ebv(fit, "animal"),
+                            y2 = ebv(fmt, "animal", trait = "y2")),
+                       weights = c(y = 2, y2 = 1))
+head(idx, 3)
+drift <- rank_drift(ebv(fit, "animal"), ebv(fss, "animal"), top = 50)
+c(spearman = round(drift$spearman, 3), retention = drift$retention)
+```
+
+## Step 10 — the environmental axis
+
+```{r}
+round(thi(c(22, 30), c(60, 85)), 1)          # NRC 1971
+heat_load(c(60, 70, 76), threshold = 68)     # zero in comfort, linear above
+```
+
+## Step 11 — selection signatures
+
+`fst()` needs two or more groups; `roh()` finds runs of homozygosity — here with a
+planted 60-marker run, which comes back as an island:
+
+```{r}
+s2 <- simulate_breeding(n_founders = 40, n_generations = 1,
+                        offspring_per_generation = 40, h2 = 0.4,
+                        n_markers = 200, seed = 99)
+sc <- fst(rbind(s$genotypes$m, s2$genotypes$m),
+          groups = rep(c("A", "B"), c(nrow(s$genotypes$m), nrow(s2$genotypes$m))))
+summary(sc$fst)
+
+mroh <- s$genotypes$m[1:30, ]
+mroh[1:10, 51:110] <- 2                       # the planted run
+rr <- roh(mroh, min_snp = 30)
+c(F_ROH_planted = round(mean(rr$animal$f_roh[1:10]), 2),
+  island_peak = max(rr$marker$freq_roh))
+```
+
+## Step 12 — studies, timing, and the exposed internals
+
+`mc_study()` repeats simulate-and-refit (cold starts, by the package's own rule);
+`benchmark_fit()` refuses fewer than three replicates and checks they returned
+identical numbers:
+
+```{r}
+m <- mc_study(n_rep = 3, h2 = 0.4, seed = 100, n_founders = 30,
+              n_generations = 1, offspring_per_generation = 40)
+round(c(mean_h2 = mean(m$h2_est), bias = attr(m, "bias")), 3)
+
+b <- benchmark_fit(function() model(y ~ cg + animal(id), s$data, s$pedigree), reps = 3)
+b
+```
+
+The internals are exported for the gates, and they double as sparse tools: the same
+triplet list `i/j/x/n` that `a_inverse()` returns feeds all three:
+
+```{r}
+ch <- sparse_chol(ai)                        # minimum degree + symbolic + factor
+x1 <- sparse_solve(ai, rep(1, ai$n))         # A^-1 %*% 1
+si <- selected_inverse(ai)                   # A at the factor's pattern (PEV reads this)
+round(c(logdet = ch$logdet, x1_first = x1[1]), 3)
+inv_pd(matrix(c(4, 1, 1, 3), 2))             # dense positive-definite inverse
+br_version()
+```
+
+And `eval_internal()` (with `_mt` and `_ar1` twins) evaluates -2logL by the TWO
+independent routes at any theta — the identity every gate in the package leans on:
+
+```{r}
+ev <- eval_internal(y ~ cg + animal(id), s$data, s$pedigree, theta = c(0.4, 0.6))
+round(abs(ev$neg2logl - ev$neg2logl_V), 10)
+```
+
+## The rule behind the tour
+
+A new model is almost never a new function — it is a marker inside the formula of one
+engine. A sibling fitter exists only when the mathematics changes: `model_mt()` (the
+residual becomes R0), `model_ar1()` (the residual gains serial correlation), `gibbs()`
+(the algorithm samples instead of maximizing), `snp_blup()` (a fixed-components solver
+with markers as equations). Everything else orbits the fit.
