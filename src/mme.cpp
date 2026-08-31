@@ -382,14 +382,6 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped) {
   Densa xfull(d.nlin, cols.size());
   for (std::size_t j = 0; j < cols.size(); j++)
     for (std::size_t i = 0; i < d.nlin; i++) xfull.at(i, j) = cols[j].second[i];
-  std::vector<std::size_t> fica, sai;
-  posto_completo(xfull, 1e-9, fica, sai);
-  d.x = Densa(d.nlin, fica.size());
-  for (std::size_t jj = 0; jj < fica.size(); jj++) {
-    d.nomes_x.push_back(cols[fica[jj]].first);
-    for (std::size_t i = 0; i < d.nlin; i++) d.x.at(i, jj) = xfull.at(i, fica[jj]);
-  }
-  for (std::size_t j : sai) d.saiu_x.push_back(cols[j].first);
 
   // aleatorios, com niveis do pedigree quando ha parentesco
   for (std::size_t k = 0; k < m.termos.size(); k++) {
@@ -415,6 +407,31 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped) {
     for (std::size_t i = 0; i < d.nlin; i++)
       if (!a.casou[i]) d.usa[i] = 0;
   if (d.n_usadas() == 0) throw Erro("no row enters the analysis");
+
+  // POSTO DE X SOBRE AS LINHAS QUE ENTRAM, nao sobre a tabela inteira.
+  //
+  // Um nivel fixo cujos registros TODOS sairam (ausentes, ou nivel sem par no pedigree)
+  // continua com coluna nao-nula na tabela, entao um posto medido sobre tudo o mantinha;
+  // na montagem, que so anda nas linhas usadas, essa coluna nao recebe nada e a matriz
+  // de coeficientes ganha uma coluna VAZIA. Dali o efeito era em cascata: a Cholesky
+  // acha diagonal zero e devolve "nao positiva-definida", o ajuste para na primeira
+  // avaliacao sem theta, e a travessia ainda tentava montar as MME com esse theta vazio.
+  // Medindo o posto onde o modelo de fato vive, a coluna sai como dependente e e
+  // REPORTADA em dropped_x, que e o comportamento correto e visivel.
+  std::vector<std::size_t> usadas;
+  usadas.reserve(d.n_usadas());
+  for (std::size_t i = 0; i < d.nlin; i++) if (d.usa[i]) usadas.push_back(i);
+  Densa xusadas(usadas.size(), cols.size());
+  for (std::size_t r = 0; r < usadas.size(); r++)
+    for (std::size_t j = 0; j < cols.size(); j++) xusadas.at(r, j) = xfull.at(usadas[r], j);
+  std::vector<std::size_t> fica, sai;
+  posto_completo(xusadas, 1e-9, fica, sai);
+  d.x = Densa(d.nlin, fica.size());
+  for (std::size_t jj = 0; jj < fica.size(); jj++) {
+    d.nomes_x.push_back(cols[fica[jj]].first);
+    for (std::size_t i = 0; i < d.nlin; i++) d.x.at(i, jj) = xfull.at(i, fica[jj]);
+  }
+  for (std::size_t j : sai) d.saiu_x.push_back(cols[j].first);
   return d;
 }
 

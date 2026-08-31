@@ -141,3 +141,26 @@ test_that("NA in the observation is missing, with or without a declared code", {
   expect_true(f2$converged)
   expect_equal(f2$n_used, ref$n_used - 5L)
 })
+
+test_that("a fixed level whose records are all missing is dropped, not left as an empty column", {
+  s <- simulate_breeding(n_founders = 30, n_generations = 1,
+                         offspring_per_generation = 60, h2 = 0.4, seed = 77)
+  d <- s$data
+  # a contemporary group whose ONLY records are missing: the column is nonzero in the
+  # table, and a rank test over all rows would keep it — then the assembly, which walks
+  # only the used rows, would leave that column empty and the factorization would find a
+  # zero pivot. It must come out as a dropped fixed column instead.
+  d$cg[1:3] <- "orphan"
+  d$y[1:3] <- NA
+  f <- model(y ~ cg + animal(id), d, s$pedigree)
+  expect_true(f$converged)
+  expect_true("cg=orphan" %in% f$dropped_x)
+  expect_equal(f$n_used, nrow(d) - 3L)
+  # and the fit equals the one on the data with those rows removed
+  ref <- model(y ~ cg + animal(id), d[-(1:3), ], s$pedigree)
+  expect_equal(unname(f$theta), unname(ref$theta), tolerance = 1e-8)
+  # the same through a declared missing code
+  d2 <- d; d2$y[1:3] <- -999
+  f2 <- model(y ~ cg + animal(id), d2, s$pedigree, missing_code = -999)
+  expect_equal(unname(f2$theta), unname(ref$theta), tolerance = 1e-8)
+})

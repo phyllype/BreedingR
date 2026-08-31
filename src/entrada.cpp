@@ -491,7 +491,13 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     Rf_setAttrib(se, R_NamesSymbol, nms_t);
 
     // EBV e PEV por grupo: fatias da solucao e da inversa seletiva, com os niveis como nomes
-    br::Montado M = br::monta_mme(d, r.theta);
+    //
+    // Um ajuste que parou ANTES da primeira avaliacao volta sem theta: montar as MME com
+    // esse vetor vazio lia fora dele. Sem theta nao ha solucao para fatiar, e o objeto ja
+    // carrega a mensagem — as fatias saem NA, como no resto do caminho de falha.
+    br::Montado M;
+    if (!r.theta.empty()) M = br::monta_mme(d, r.theta);
+    if (M.offset_grupo.empty()) M.offset_grupo.assign(m.grupos.size(), 0);
     SEXP ebv = PROTECT(Rf_allocVector(VECSXP, (R_xlen_t) m.grupos.size()));
     SEXP pev = PROTECT(Rf_allocVector(VECSXP, (R_xlen_t) m.grupos.size()));
     SEXP ebv_nomes = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) m.grupos.size()));
