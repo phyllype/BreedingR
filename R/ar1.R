@@ -75,6 +75,7 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
   trait <- if (is.call(lhs) && identical(as.character(lhs[[1]]), "cbind"))
     vapply(as.list(lhs)[-1], deparse, character(1)) else deparse(lhs)
   terms <- decompoe_formula(formula[[3]])
+  recusa_dilution(terms, "model_ar1()")
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
   if (precisa_ped && is.null(pedigree))
     stop("there is a term with relatedness and no pedigree was given")
@@ -149,6 +150,7 @@ eval_internal_ar1 <- function(formula, data, pedigree = NULL, subject, time, the
   trait <- if (is.call(lhs) && identical(as.character(lhs[[1]]), "cbind"))
     vapply(as.list(lhs)[-1], deparse, character(1)) else deparse(lhs)
   terms <- decompoe_formula(formula[[3]])
+  recusa_dilution(terms, "eval_internal_ar1()")
   used_columns <- unique(c(trait, subject, time,
                              vapply(terms, function(t) t$column, character(1)),
                              unlist(lapply(terms, function(t) t$nested)),

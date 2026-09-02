@@ -61,6 +61,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     stop("expected a formula with a left-hand side")
   trait <- deparse(formula[[2]])
   terms <- decompoe_formula(formula[[3]])
+  recusa_dilution(terms, "gibbs()")
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
   if (precisa_ped && is.null(pedigree))
     stop("there is a term with relationship and no pedigree was given")

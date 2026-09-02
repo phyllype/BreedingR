@@ -67,6 +67,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   if (length(traits) < 2L) stop("cbind() with only one column; for one, use model()")
 
   terms <- decompoe_formula(formula[[3]])
+  recusa_dilution(terms, "model_mt()")
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
   if (precisa_ped && is.null(pedigree))
     stop("there is a term with a relationship structure and no pedigree was given")
@@ -138,6 +139,7 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
   lhs <- formula[[2]]
   traits <- vapply(as.list(lhs)[-1], deparse, character(1))
   terms <- decompoe_formula(formula[[3]])
+  recusa_dilution(terms, "eval_internal_mt()")
   used_columns <- unique(c(traits, vapply(terms, function(t) t$column, character(1)),
                              unlist(lapply(terms, function(t) t$nested)),
                              unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
