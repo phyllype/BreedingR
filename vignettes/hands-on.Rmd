@@ -12,7 +12,7 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 set.seed(2026)
 ```
 
-Forty-seven of the fifty-three exported functions, exercised in the order of a real
+Forty-eight of the fifty-four exported functions, exercised in the order of a real
 workflow, on data simulated in the document itself; the few left out — the inference
 helpers `se_function()` and `profile_theta()`, `qc_phenotypes()`,
 `competition_strength()`, and the `_mt`/`_ar1` twins of `eval_internal()` — are
@@ -136,6 +136,44 @@ d7$penc <- rep(sprintf("p%03d", 1:50), length.out = nrow(d7))
 f7 <- model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "penc", group = "g"),
             d7, s$pedigree)
 round(f7$theta, 3)
+```
+
+Real pens are unequal, and with a coefficient of 1 per mate the social sum grows with
+the pen size. `dilution = d` scales every mate's entry to `(n_i - 1)^(-d)` (Bijma, 2010):
+`d = 0` is the book's plain sum and the default, `d = 1` the mate mean, and the choice
+between regimes is a small grid of `d` compared on `-2logL`, which stays comparable
+because only the incidence changes. Here the social effect is planted as the mate MEAN,
+and the comparison says so:
+
+```{r}
+d8 <- s$data
+d8$penc <- sprintf("q%02d", rep(1:50, rep_len(c(2, 3, 6, 9), 50)))[seq_len(nrow(d8))]
+sv <- setNames(rnorm(nrow(d8)), d8$id)        # one social value per animal
+d8$y <- d8$y + vapply(seq_len(nrow(d8)), function(i) {
+  mates <- setdiff(d8$id[d8$penc == d8$penc[i]], d8$id[i])
+  if (length(mates)) mean(sv[mates]) else 0 }, 0)
+f7d0 <- model(y ~ cg + animal(id, group = "g") +
+                indirect(id, pen = "penc", group = "g", dilution = 0),
+              d8, s$pedigree)
+f7d1 <- model(y ~ cg + animal(id, group = "g") +
+              indirect(id, pen = "penc", group = "g", dilution = 1),
+              d8, s$pedigree)
+round(c(d0 = f7d0$neg2logl, d1 = f7d1$neg2logl), 1)  # the smaller names the regime
+```
+
+The residual of the associative model inherits the same group-size heterogeneity,
+`var(e_i) = s2_ED + (n_i - 1) s2_ES` (Bijma, 2010). `indirect_residual()` estimates the
+ratio `k = s2_ES / s2_ED` by profile REML — each candidate k is an exact weighted fit —
+and returns the whole profile, because with one record per animal the data pins the
+slope `s2_ES` much better than the ratio (its help page says what is and is not
+identified):
+
+```{r}
+ir <- indirect_residual(y ~ cg + animal(id, group = "g") +
+                          indirect(id, pen = "penc", group = "g", dilution = 1),
+                        d8, s$pedigree, k_max = 2, n_grid = 4, tol_k = 0.05,
+                        verbose = FALSE)
+round(c(k = ir$k, s2_ED = ir$s2_ED, s2_ES = ir$s2_ES), 3)
 ```
 
 A sire model uses `sire()` when only males carry the genetic term. Unknown-parent

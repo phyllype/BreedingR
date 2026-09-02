@@ -58,7 +58,7 @@ to the same engine.
 
 **Where to read next.** The vignette *Theory and practice* walks a full evaluation in
 order, explaining each matrix, each algorithm and each iteration alongside the code that
-runs it. *Hands-on* works through 47 of the 53 exported functions, step by step.
+runs it. *Hands-on* works through 48 of the 54 exported functions, step by step.
 [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
 
 ## Quick start
@@ -133,7 +133,11 @@ model(y ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d, ped)
 # var(animal), var(indirect) and the covariance between them, and the SIGN of that
 # covariance is what separates heritable competition from heritable co-operation. The
 # response, though, follows the TOTAL breeding value A_D + (n-1) A_S, so reading it
-# takes the group size n as well (Bijma et al., 2007)
+# takes the group size n as well (Bijma et al., 2007). With unequal pens, dilution=d
+# scales every mate's entry to (n_i - 1)^(-d) (Bijma, 2010): d=0 is the book's plain
+# sum and the default, d=1 the mate mean, and d is chosen by a small grid compared on
+# -2logL. The choice is not cosmetic: on pens of 2 to 12 generated with d=1, forcing
+# d=0 crushed var(indirect) to ~2% of its true value (0.046 against 2)
 model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "pen", group = "g"), d, ped)
 
 # single step (ssGBLUP); the same genotypes= works in model_mt() and model_ar1().
@@ -190,7 +194,9 @@ g <- qc_genotypes(read_plink("chip")$m, min_maf = 0.01, hwe_p = 1e-7)
 
 Around the fit: `pedigree()` (topological order plus Meuwissen-Luo inbreeding),
 `a_inverse()`, `a22_inverse()`, `ebv()`, `accuracy()` (with the 1+F of the pedigree), `h2_curve()` and
-`plot()` for the reaction norm, `describe()` to look at the data before estimating,
+`plot()` for the reaction norm, `indirect_residual()` for the pen-size residual of the
+associative model, `var(e_i) = s2_ED + (n_i - 1) s2_ES`, by profile REML over exact
+weighted fits (Bijma, 2010), `describe()` to look at the data before estimating,
 the selection-signature scans `fst()` (Weir and Cockerham, 1984) and `roh()` (the F_ROH
 of McQuillan et al., 2008, and islands),
 `simulate_breeding()`, a gene-dropping simulator so that examples and method studies
@@ -201,8 +207,8 @@ the data and names the term each shape asks for (and the trap it guards against)
 claims go through `benchmark_fit()`, which replicates at least three times and checks
 the runs returned identical numbers — the package's own timing rule as a tool.
 
-The full map of the 53 functions, grouped by kinship, is in
-[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 47 of them,
+The full map of the 54 functions, grouped by kinship, is in
+[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 48 of them,
 step by step on data simulated in the document itself, is the vignette
 `vignettes/hands-on.Rmd` (every chunk runs at build time, so it cannot rot). The theory
 behind `apy_core=` (why APY works and what the Mendelian residual means) is in
@@ -261,6 +267,9 @@ genetic evaluation of Holstein final score. *Journal of Dairy Science* 93:743-75
 Anderson, E., Bai, Z., Bischof, C., Blackford, S., Demmel, J., Dongarra, J., Du Croz,
 J., Greenbaum, A., Hammarling, S., McKenney, A. & Sorensen, D. (1999). *LAPACK Users'
 Guide*, 3rd ed. SIAM, Philadelphia.
+
+Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect genetic
+effects and group size. *Genetics* 186:1013-1028.
 
 Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 quantitative genetics of inheritance and response to selection. *Genetics* 175:277-288.

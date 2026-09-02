@@ -1,6 +1,6 @@
 ---
 name: breedingr
-description: Genetic evaluation with the BreedingR R package — variance components by AI-REML, breeding values and accuracy, single-step genomics (G, A22, H inverse, APY, Vecchia, ssSNPBLUP), reaction norms, direct-maternal and indirect genetic effects, multi-trait, AR(1)/CAR(1) residuals, a Gibbs sampler, threshold models for categorical traits, Weibull survival with right-censoring, dominance and epistasis kernels, multibreed partial matrices, competitive ability from grouped contests, and quality control. Use when fitting animal models, estimating heritability or genetic correlations, predicting breeding values, running single-step genomic evaluation, or debugging a model that will not converge.
+description: Genetic evaluation with the BreedingR R package — variance components by AI-REML, breeding values and accuracy, single-step genomics (G, A22, H inverse, APY, Vecchia, ssSNPBLUP), reaction norms, direct-maternal and indirect genetic effects (with group-size dilution), multi-trait, AR(1)/CAR(1) residuals, a Gibbs sampler, threshold models for categorical traits, Weibull survival with right-censoring, dominance and epistasis kernels, multibreed partial matrices, competitive ability from grouped contests, and quality control. Use when fitting animal models, estimating heritability or genetic correlations, predicting breeding values, running single-step genomic evaluation, or debugging a model that will not converge.
 ---
 
 # BreedingR
@@ -42,7 +42,7 @@ An unmarked term is a fixed class effect. Marked terms:
 | `pe(id)` | permanent environment: what the repeated records of one subject share and is not additive genetic, so it carries the non-additive genetic effects as well (Mrode & Pocrnic, 2023, Eqn 5.1); repeatability is `share(animal) + share(pe)` in the printed table. Two `pe()` in one model must be NAMED (`nome=`): a component's name never depends on how many terms the model has |
 | `random(litter)` | iid random (litter, batch, pen, technician) |
 | `rn(id, base = c("phi0","phi1"))` | random regression / reaction norm |
-| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel 2002). The SIGN of its covariance with the direct effect separates heritable competition from heritable co-operation; the response follows the total breeding value `A_D + (n-1) A_S`, so reading it takes the pen size n too (Bijma et al. 2007) |
+| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel 2002). The SIGN of its covariance with the direct effect separates heritable competition from heritable co-operation; the response follows the total breeding value `A_D + (n-1) A_S`, so reading it takes the pen size n too (Bijma et al. 2007). With unequal pens, `indirect(id, pen="pen", dilution=1)` is the mate mean: `dilution=d` scales every mate's entry to `(n_i - 1)^(-d)` (Bijma 2010), `d=0` is the plain sum and the default, and d is chosen by a small grid of fits compared on `-2logL`. `model()` only: the sibling fitters refuse `dilution > 0`, saying so |
 | `kernel(id, K = D)` | random term with a DECLARED covariance matrix (symmetric PD, rownames = levels; an all-zero row = a level with no contribution). Constructors: `dominance_matrix()`, `g_matrix()`, `g_dominance()`, `g_epistasis()` (ch. 13), `partial_a()` for the multibreed partial matrices (ch. 14). Two kernels need `nome=` |
 | `group = "g"` | put two terms in one covariance matrix |
 
@@ -71,6 +71,12 @@ with one record each it IS the residual. On simulated single-record data the two
 returned the same -2logL and the extra term merely split the residual; where the
 optimizer drifts instead, it takes `var(animal)` and the direct-maternal covariance
 (the number the model exists for) with it, and stops at the zero boundary.
+
+With unequal pens the residual of the associative model is heterogeneous too,
+`var(e_i) = s2_ED + (n_i - 1) s2_ES`. `indirect_residual(formula, data, ped)` estimates
+the ratio `k = s2_ES / s2_ED` by profile REML — each candidate k is an exact weighted
+`model()` fit — and returns the whole profile, because with one record per animal the
+data pins the slope `s2_ES` much better than the ratio (Bijma 2010; see its help page).
 
 ## The order of a real evaluation
 
@@ -206,5 +212,5 @@ scale.
 ## Where the theory is
 
 The vignette *Theory and practice* walks an evaluation in order, explaining each matrix
-and algorithm beside the code that runs it. *Hands-on* works through 47 of the 53
+and algorithm beside the code that runs it. *Hands-on* works through 48 of the 54
 exported functions. `FUNCTIONS.md` maps the surface; the README carries the references.

@@ -1,9 +1,9 @@
 # The function map
 
-Fifty-three exported functions, one trunk. A new model is almost never a new function —
+Fifty-four exported functions, one trunk. A new model is almost never a new function —
 it is a marker inside the formula of one engine; a sibling fitter exists only when the
 mathematics of the residual or of the algorithm changes. The hands-on that works
-through 47 of them, step by step, is the vignette `hands-on.Rmd`.
+through 48 of them, step by step, is the vignette `hands-on.Rmd`.
 
 ```
 model()  ── THE TRUNK: one engine, one formula
