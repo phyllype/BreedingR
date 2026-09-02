@@ -39,10 +39,10 @@ An unmarked term is a fixed class effect. Marked terms:
 | `animal(id)` | additive genetic, over A (or H with `genotypes=`) |
 | `maternal(dam)` | maternal genetic |
 | `sire(sire)` | sire model |
-| `pe(id)` | permanent environment. Two `pe()` in one model must be NAMED (`nome=`): a component's name never depends on how many terms the model has |
+| `pe(id)` | permanent environment: what the repeated records of one subject share and is not additive genetic, so it carries the non-additive genetic effects as well (Mrode & Pocrnic, Eqn 5.1); repeatability is `share(animal) + share(pe)` in the printed table. Two `pe()` in one model must be NAMED (`nome=`): a component's name never depends on how many terms the model has |
 | `random(litter)` | iid random (litter, batch, pen, technician) |
 | `rn(id, base = c("phi0","phi1"))` | random regression / reaction norm |
-| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel) |
+| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel). The SIGN of its covariance with the direct effect separates heritable competition from heritable co-operation; the response follows the total breeding value `A_D + (n-1) A_S`, so reading it takes the pen size n too (Bijma et al. 2007) |
 | `group = "g"` | put two terms in one covariance matrix |
 
 ```r
@@ -50,13 +50,21 @@ model(weight ~ cg + cov(age) + animal(id), data, pedigree = ped)          # anim
 model(weight ~ cg + animal(id) + pe(id), data, ped)                       # repeatability
 model(y ~ cg + animal(id, group="g") + maternal(dam, group="g"), d, ped)  # direct-maternal
 model(y ~ cg + animal(id,group="g") + maternal(dam,group="g") +
-        pe(id, nome="pe_animal") + pe(dam, nome="pe_dam"), d, ped)   # Willham, full
+        pe(dam), d, ped)                        # full maternal model, Eqn 8.1
 model(y ~ cg + rn(id, base=c("phi0","phi1")) + pe(id), d2, ped)           # reaction norm
 model(y ~ cg + animal(id,group="g") + indirect(id,pen="pen",group="g"), d, ped)
 model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped)                         # multi-trait
 model_ar1(y ~ cg + animal(id) + pe(id), d, ped, subject="id", time="day") # AR(1)/CAR(1)
 gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)                        # Bayesian
 ```
+
+The full maternal model carries ONE permanent environment, the DAM's, which holds her
+non-additive maternal genetics as well (Mrode & Pocrnic, Eqn 8.1). A second `pe()` on
+the animal itself is a different model: it needs REPEATED records on that animal, since
+with one record each it IS the residual. On simulated single-record data the two fits
+returned the same -2logL and the extra term merely split the residual; where the
+optimizer drifts instead, it takes `var(animal)` and the direct-maternal covariance
+(the number the model exists for) with it, and stops at the zero boundary.
 
 ## The order of a real evaluation
 
@@ -79,7 +87,7 @@ fit <- model(y ~ cg + animal(id), q$data, ped, missing_code = -999)
 # 5. read it
 fit                          # components, SEs, and each variance's share
 ebv(fit); ebv(fit, "animal"); ebv(fit_mt, "animal", trait = "t2")
-accuracy(fit, ped)           # with the (1+F)
+accuracy(fit, ped)           # with the (1+F) of the PEDIGREE, genotyped or not
 rg(fit_mt, "animal", "t1", "t2")
 h2_curve(fit_rn, limits = c(55, 80)); plot(fit_rn)
 
@@ -190,5 +198,5 @@ least three replicates or it refuses), `fst()`, `roh()`, `thi()`, `heat_load()`,
 ## Where the theory is
 
 The vignette *Theory and practice* walks an evaluation in order, explaining each matrix
-and algorithm beside the code that runs it. *Hands-on* exercises every exported function.
-`FUNCTIONS.md` maps the surface; the README carries the references.
+and algorithm beside the code that runs it. *Hands-on* works through 37 of the 43
+exported functions. `FUNCTIONS.md` maps the surface; the README carries the references.
