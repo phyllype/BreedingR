@@ -1,3 +1,35 @@
+# BreedingR 0.3.0
+
+## New
+
+* `indirect(id, pen = , dilution = d)`: the social incidence can now be diluted
+  by group size - each pen-mate enters Z_S as (n-1)^-d. `d = 0` is the book's
+  unweighted sum and the default (bit-identical to 0.2.0, gated); `d = 1` is
+  the mate mean; a grid over d compared on -2logL chooses the regime
+  (Bijma, 2010). Measured on unequal pens (2-12) generated with d = 1, forcing
+  d = 0 crushes var(indirect) to about 2 percent of its true value.
+* `indirect_residual()`: the group-size residual
+  var(e_i) = s2_ED + (n_i - 1) s2_ES, profiled over k = s2_ES/s2_ED through the
+  weights machinery with the Jacobian correction. Recovers a planted k on
+  unequal pens; the in-engine version's cost is stated in docs/CHECKLIST.md.
+* The sibling fitters (`model_mt()`, `model_ar1()`, `gibbs()`, `snp_blup()`)
+  refuse `dilution > 0` with a clear error instead of silently fitting the
+  undiluted sum.
+
+## License
+
+* MIT, consistently declared in DESCRIPTION, LICENSE (the R two-line
+  convention), LICENSE.md, CITATION.cff and .zenodo.json (was other-closed).
+  FAPESP-funded work ships open source.
+
+## Docs
+
+* Counts counted: 54 exported functions, 48 exercised by the hands-on vignette,
+  every number re-derived by execution. The reference list cites like a
+  reference list again - the when-this-would-matter notes moved to
+  docs/CHECKLIST.md. Suite: 860 expectations, 0 failures; R CMD check on the
+  tarball: Status OK.
+
 # BreedingR 0.2.0
 
 The package was reviewed chapter by chapter against Mrode & Pocrnic (2023), every
