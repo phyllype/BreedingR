@@ -23,4 +23,5 @@ keywords:
   - reaction norm
   - indirect genetic effects
 version: 0.1.0
+license: MIT
 license-url: "https://github.com/phyllype/BreedingR/blob/main/LICENSE"

@@ -15,7 +15,7 @@ Description: Variance component estimation by AI-REML, breeding values, accuracy
     components, and the published examples of Mrode and Pocrnic (2023). No package
     dependency at run time. Developed with support from the Sao Paulo Research
     Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5.
-License: file LICENSE
+License: MIT + file LICENSE
 Encoding: UTF-8
 Depends: R (>= 4.1)
 Suggests: testthat (>= 3.0.0), knitr, rmarkdown
