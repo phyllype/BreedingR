@@ -54,7 +54,7 @@ model()  ── THE TRUNK: one engine, one formula
 | `pe(id)` | permanent environment: what the repeated records of one subject share and is not additive genetic, so it carries the non-additive genetic effects as well (Mrode & Pocrnic, 2023, Eqn 5.1). Repeatability is `share(animal) + share(pe)` in the printed table. Two `pe()` in one model must be NAMED (`nome=`) |
 | `random(litter)` | iid random: litter, batch, pen |
 | `rn(id, base=)` | reaction norm / random regression over a basis |
-| `indirect(id, pen=)` | indirect genetic effect (Muir & Schinckel 2002); with `group=`, the sign of the direct-indirect covariance separates heritable competition from co-operation, while the response follows the total breeding value `A_D + (n-1) A_S` and so needs the group size too (Bijma et al. 2007) |
+| `indirect(id, pen=)` | indirect genetic effect (Muir & Schinckel 2002); with `group=`, the sign of the direct-indirect covariance separates heritable competition from co-operation, while the response follows the total breeding value `A_D + (n-1) A_S` and so needs the group size too (Bijma et al. 2007). With unequal pens, `dilution=d` scales every mate's entry to `(n_i - 1)^(-d)` (Bijma 2010): `d=0` is the plain sum and the default, `d=1` the mate mean, and the choice comes from a small grid of `d` compared on `-2logL` |
 | `cov(x)` | fixed covariate; an unmarked term is a fixed class |
 | `kernel(id, K=)` | random term with a DECLARED covariance matrix: K symmetric positive-definite, rownames naming the levels, every row an equation with or without a record. The chapter-13 route — dominance by pedigree or markers (`dominance_matrix()`, `g_dominance()`), epistasis (`g_epistasis()`), total merit, any K that is neither A nor H — and the chapter-14 one: a row of K that is ENTIRELY zero declares a level with no contribution (no equation, records kept with zero incidence), which is how the multibreed partial matrices of `partial_a()` enter, generalized-inverse pattern included. The inversion of K is dense, so moderate n; two kernel terms need `nome=` |
 | `group="g"` | two terms, ONE covariance matrix — direct-maternal, direct-indirect |
@@ -92,6 +92,7 @@ conditioning), `metafounders=` with `gamma=`.
 | selection decisions | `selection_index()`, `rank_drift()` |
 | the two scales | `h2_observed()`, `h2_liability()` (Dempster & Lerner 1950, not in the 4th edition of the book): what a liability h2 becomes when the 0/1 trait is analysed linearly, and back — at incidence 0.234 the factor is 0.524, so half the heritability is scale, not modelling |
 | contests | `competition_strength()` (Bradley-Terry / Plackett-Luce strengths (Bradley & Terry 1952; Luce 1959; Plackett 1975) from grouped contests, with an exposure offset) |
+| pen-size residual | `indirect_residual()` (profile REML of `k = s2_ES/s2_ED` in `var(e_i) = s2_ED + (n_i - 1) s2_ES`, through weighted fits with the jacobian removed; Bijma 2010) |
 | environmental axis | `thi()` (NRC 1971), `heat_load()`, `legendre()` |
 | study and control | `describe()`, `suggest_model()` (names the term the data's shape asks for, and the trap), `simulate_breeding()` (gene dropping), `mc_study()`, `benchmark_fit()` (at least 3 replicates or it refuses) |
 | chain diagnostics | `ess()` (Geyer 1992), `geweke_z()` (Geweke 1992) |

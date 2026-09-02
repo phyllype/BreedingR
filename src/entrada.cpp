@@ -284,9 +284,14 @@ SEXP R_resolve(SEXP i, SEXP j, SEXP x, SEXP n, SEXP b) {
 // ---------------------------------------------------------------- o ajuste completo
 
 // Monta Modelo + Tabela + Pedigree a partir dos objetos do R.
+//
+// `tdil` e a diluicao por termo, paralela a tsoc; o padrao R_NilValue existe porque so os
+// pontos de entrada que ja transportam dilution= (R_ajustar, R_avaliar) a enviam. Os
+// demais ajustadores recusam dilution > 0 no lado R (recusa_dilution em R/model.R) e
+// continuam chamando com a aridade antiga.
 static br::Modelo modelo_do_R(SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov, SEXP test,
                               SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP ausente,
-                              SEXP usa_ausente) {
+                              SEXP usa_ausente, SEXP tdil = R_NilValue) {
   const R_xlen_t nt = XLENGTH(tnome);
   std::vector<br::Termo> termos;
   std::vector<std::pair<std::string, std::vector<std::string>>> grupos;
@@ -302,6 +307,11 @@ static br::Modelo modelo_do_R(SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov, SEXP 
     const char* nest = CHAR(STRING_ELT(tnest, k));
     if (*nest) t.aninhado = nest;
     t.social = LOGICAL(tsoc)[k] != 0;
+    if (tdil != R_NilValue) {
+      if (TYPEOF(tdil) != REALSXP || XLENGTH(tdil) != nt)
+        Rf_error("dilution: expected one numeric value per term");
+      t.diluicao = REAL(tdil)[k];
+    }
     // base: colunas separadas por virgula. E o que faz um termo virar regressao aleatoria —
     // um termo com m coeficientes e uma covariancia m x m, nao m termos independentes.
     const char* base = CHAR(STRING_ELT(tbase, k));
@@ -433,9 +443,9 @@ std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& pe
 // a identidade MME <-> forma V, e o score contra diferencas finitas centrais.
 SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
-               SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx, SEXP pesos, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP kern) {
+               SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx, SEXP pesos, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP kern, SEXP tdil) {
   GUARDA(
-    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente);
+    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente, tdil);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
     const br::Pedigree* pp = nullptr;
@@ -495,9 +505,9 @@ SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
 SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
                SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP maxiter, SEXP tol, SEXP n_em,
-               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP pesos, SEXP inicio, SEXP kern) {
+               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP pesos, SEXP inicio, SEXP kern, SEXP tdil) {
   GUARDA(
-    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente);
+    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente, tdil);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
     const br::Pedigree* pp = nullptr;
@@ -1243,8 +1253,8 @@ static const R_CallMethodDef metodos[] = {
   {"R_chol_esparsa", (DL_FUNC) &R_chol_esparsa, 5},
   {"R_inv_seletiva", (DL_FUNC) &R_inv_seletiva, 5},
   {"R_resolve",      (DL_FUNC) &R_resolve,      5},
-  {"R_avaliar",      (DL_FUNC) &R_avaliar,     27},
-  {"R_ajustar",      (DL_FUNC) &R_ajustar,     30},
+  {"R_avaliar",      (DL_FUNC) &R_avaliar,     28},
+  {"R_ajustar",      (DL_FUNC) &R_ajustar,     31},
   {"R_a22_inversa",  (DL_FUNC) &R_a22_inversa,  4},
   {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  20},
   {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  26},

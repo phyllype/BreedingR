@@ -46,6 +46,12 @@ struct Termo {
   // o efeito social de cada colega; o efeito direto continua no termo animal comum, e os
   // dois dividem um grupo de covariancia com a correlacao direto-social estimada.
   bool social = false;
+  // Diluicao do efeito indireto com o tamanho da baia (Bijma 2010, Genetics 186:1013-1028):
+  // a entrada de Z_S de cada companheiro vale (n_i - 1)^(-diluicao), com n_i o numero de
+  // animais DISTINTOS na baia do registro i. diluicao = 0 reproduz a soma do livro
+  // (coeficiente 1 por companheiro, Mrode e Pocrnic 2023 cap. 9, n fixo); diluicao = 1 e a
+  // media dos companheiros. So tem sentido num termo social; validado em monta_modelo.
+  double diluicao = 0.0;
   bool aleatorio() const { return estrutura != Estrutura::Fixo; }
   std::size_t n_coef() const { return base.empty() ? 1 : base.size(); }
 };

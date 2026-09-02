@@ -18,7 +18,19 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 #'   class effect; `cov(x)` is a fixed covariate; `animal(id)`, `maternal(dam)` and
 #'   `sire(sire)` are random with relationship; `pe(id)` and `random(lote)` are random
 #'   without relationship. `group = "nome"` puts two random terms in the SAME covariance
-#'   matrix, with the correlation estimated. `kernel(id, K = D)` is a random term with a
+#'   matrix, with the correlation estimated. `indirect(id, pen = "pen")` is the indirect
+#'   (associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a
+#'   record marks the animal's DISTINCT pen mates, and it shares a group with `animal()`
+#'   so the direct-social covariance is estimated. Its `dilution = d` argument scales the
+#'   entry of every mate to `(n_i - 1)^(-d)`, where `n_i` is the number of distinct
+#'   animals in the pen of record i: `d = 0`, the default, is the book's plain sum
+#'   (coefficient 1 per mate, exactly the old behaviour); `d = 1` is the mate mean; any
+#'   `d >= 0` in between is the dilution of Bijma (2010). With pens of unequal size the
+#'   sum grows with `n_i - 1` and the choice of `d` is an empirical question: fit a small
+#'   grid (say 0, 0.5, 1) and compare `-2logL`, which is comparable across `d` because
+#'   only the incidence changes. A pen of size 1 keeps its zero social row under every
+#'   `d`. See [indirect_residual()] for the residual side of the same problem.
+#'   `kernel(id, K = D)` is a random term with a
 #'   DECLARED covariance matrix: K is a symmetric positive-definite matrix whose rownames
 #'   are the level identifiers, and every row of K gets an equation, with or without a
 #'   record — a dominance D ([dominance_matrix()], [g_dominance()]), an epistatic G_AA
@@ -108,6 +120,9 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 #'
 #'   Misztal, I., Legarra, A. & Aguilar, I. (2014). Using recursion to compute the
 #'   inverse of the genomic relationship matrix. Journal of Dairy Science 97:3943-3952.
+#'
+#'   Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
+#'   genetic effects and group size. Genetics 186:1013-1028.
 #' @export
 model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                   apy_core = NULL, vecchia_k = NULL, missing_code = NULL, maxiter = 300L, tol = 1e-8,
@@ -167,7 +182,8 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              isTRUE(verbose),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma), w,
-             if (is.null(start)) numeric(0) else as.double(start), kern)
+             if (is.null(start)) numeric(0) else as.double(start), kern,
+             vapply(terms, function(t) t$dilution, numeric(1)))
   r$seconds <- proc.time()[["elapsed"]] - t0
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
   # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a
@@ -283,7 +299,8 @@ interpreta_termo <- function(e) {
   if (is.name(e)) {
     n <- as.character(e)
     return(list(nome = n, column = n, estrutura = 0L, covariavel = FALSE,
-                group = "", nested = "", base = "", social = FALSE, kexpr = NULL))
+                group = "", nested = "", base = "", social = FALSE, dilution = 0,
+                kexpr = NULL))
   }
   if (!is.call(e)) stop("did not understand the term: ", deparse(e))
   marc <- as.character(e[[1]])
@@ -315,10 +332,26 @@ interpreta_termo <- function(e) {
   # 1967; Muir and Schinckel, 2002; Bijma et al., 2007). The incidence of row i marks the
   # pen mates; the direct effect stays in animal(id), and the two in the same group
   # estimate the direct-social correlation. The pen crosses over in the nested field.
+  #
+  # dilution = d (Bijma, 2010) scales each mate's entry to (n_i - 1)^(-d), with n_i the
+  # number of distinct animals in the pen of record i. d = 0 is the book's plain sum and
+  # the default; d = 1 is the mate mean. The value crosses over in the dilution field and
+  # only model() and eval_internal() carry it down to the engine.
+  dilution <- 0
   if (marc == "indirect") {
     pen <- pega("pen")
     if (!nzchar(pen)) stop("indirect() requires pen = the pen column: without knowing who lives with whom there is no indirect effect")
     nested <- pen
+    if (!is.null(args[["dilution"]])) {
+      dilution <- eval(args[["dilution"]], parent.frame(3L))
+      if (!is.numeric(dilution) || length(dilution) != 1L || !is.finite(dilution))
+        stop("indirect(): dilution must be a single finite number")
+      if (dilution < 0)
+        stop("indirect(): dilution must be >= 0. d = 0 is the plain sum over pen mates ",
+             "(the default), d = 1 the mate mean; a negative d would AMPLIFY the ",
+             "indirect effect with pen size, which nothing in the model motivates")
+      dilution <- as.double(dilution)
+    }
   }
   # kernel(id, K = D): a random term whose covariance matrix is DECLARED instead of
   # derived from the pedigree or the markers. The K expression is kept as language here
@@ -336,7 +369,16 @@ interpreta_termo <- function(e) {
                       pe = , random = 1L, kernel = 3L, cov = 0L)
   list(nome = nome, column = column, estrutura = estrutura,
        covariavel = marc == "cov", group = group, nested = nested, base = base,
-       social = marc == "indirect", kexpr = kexpr)
+       social = marc == "indirect", dilution = dilution, kexpr = kexpr)
+}
+
+# dilution= only travels down the .Call of model() and eval_internal(). The fitters that
+# do not carry it yet call this right after decompoe_formula(): refusing loudly beats
+# fitting d = 0 in silence and reporting components of a model the user did not write.
+recusa_dilution <- function(terms, quem) {
+  d <- vapply(terms, function(t) t$dilution, numeric(1))
+  if (any(d > 0))
+    stop(quem, " does not carry dilution= yet: drop it, or fit with model()")
 }
 
 #' Evaluate -2logL, score and AI at a given theta, by both routes
@@ -396,7 +438,8 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
         valida_genotipos(genotypes)$gid, valida_genotipos(genotypes)$gm, as.double(blend),
         if (is.null(apy_core)) character(0) else as.character(apy_core),
         if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
-        monta_kernels(terms, environment(formula)))
+        monta_kernels(terms, environment(formula)),
+        vapply(terms, function(t) t$dilution, numeric(1)))
 }
 
 #' @export

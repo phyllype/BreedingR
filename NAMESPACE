@@ -52,6 +52,8 @@ export(g_dominance)
 export(g_epistasis)
 export(genomic_inbreeding)
 export(partial_a)
+export(indirect_residual)
+S3method(print, breeding_indirect_residual)
 
 S3method(print, breeding_fit_thr)
 S3method(coef, breeding_fit_thr)

@@ -28,7 +28,19 @@ model(
 class effect; `cov(x)` is a fixed covariate; `animal(id)`, `maternal(dam)` and
 `sire(sire)` are random with relationship; `pe(id)` and `random(lote)` are random
 without relationship. `group = "nome"` puts two random terms in the SAME covariance
-matrix, with the correlation estimated. `kernel(id, K = D)` is a random term with a
+matrix, with the correlation estimated. `indirect(id, pen = "pen")` is the indirect
+(associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a
+record marks the animal's DISTINCT pen mates, and it shares a group with `animal()`
+so the direct-social covariance is estimated. Its `dilution = d` argument scales the
+entry of every mate to `(n_i - 1)^(-d)`, where `n_i` is the number of distinct
+animals in the pen of record i: `d = 0`, the default, is the book's plain sum
+(coefficient 1 per mate, exactly the old behaviour); `d = 1` is the mate mean; any
+`d >= 0` in between is the dilution of Bijma (2010). With pens of unequal size the
+sum grows with `n_i - 1` and the choice of `d` is an empirical question: fit a small
+grid (say 0, 0.5, 1) and compare `-2logL`, which is comparable across `d` because
+only the incidence changes. A pen of size 1 keeps its zero social row under every
+`d`. See [indirect_residual()] for the residual side of the same problem.
+`kernel(id, K = D)` is a random term with a
 DECLARED covariance matrix: K is a symmetric positive-definite matrix whose rownames
 are the level identifiers, and every row of K gets an equation, with or without a
 record — a dominance D ([dominance_matrix()], [g_dominance()]), an epistatic G_AA
@@ -140,4 +152,7 @@ Patterson, H.D. & Thompson, R. (1971). Recovery of inter-block
 
   Misztal, I., Legarra, A. & Aguilar, I. (2014). Using recursion to compute the
   inverse of the genomic relationship matrix. Journal of Dairy Science 97:3943-3952.
+
+  Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
+  genetic effects and group size. Genetics 186:1013-1028.
 }

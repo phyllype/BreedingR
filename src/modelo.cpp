@@ -90,6 +90,12 @@ Modelo monta_modelo(const std::string& alvo, std::vector<Termo> termos,
       throw Erro("indirect term '" + t.nome + "' without the pen column: without knowing who lives with whom there is no indirect effect");
     if (t.social && !t.aleatorio())
       throw Erro("indirect term '" + t.nome + "' fixed: the indirect effect is genetic, and therefore random");
+    // A diluicao reescreve a incidencia SOCIAL e nada mais: fora de um termo social ela
+    // nao descreve coisa alguma, e um valor negativo amplificaria com o tamanho da baia.
+    if (t.diluicao < 0.0 || !std::isfinite(t.diluicao))
+      throw Erro("term '" + t.nome + "': dilution must be finite and >= 0");
+    if (t.diluicao != 0.0 && !t.social)
+      throw Erro("term '" + t.nome + "': dilution only applies to an indirect() term");
   }
 
   Modelo m;
@@ -197,11 +203,21 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
     std::vector<double> v2;
     for (std::size_t i = 0; i < nlin; i++) {
       const std::size_t proprio = pos.at(rot[i]);
-      for (std::size_t m2 : membros[baia[i]]) {
+      const std::vector<std::size_t>& mem = membros[baia[i]];
+      // Diluicao (Bijma 2010, Genetics 186:1013-1028): cada companheiro entra com
+      // (n_i - 1)^(-d), onde n_i - 1 e o numero de companheiros do registro i (o proprio
+      // animal esta em `mem`, dai o -1). d = 0 e a soma do livro, coeficiente 1. A baia
+      // de tamanho 1 nunca chega ao expoente: sem companheiro o laco abaixo nao executa
+      // e a linha fica zero, entao o 0^-d jamais e avaliado.
+      const std::size_t ncomp = mem.size() - 1;
+      const double peso = (tm.diluicao != 0.0 && ncomp > 1)
+                              ? std::pow(static_cast<double>(ncomp), -tm.diluicao)
+                              : 1.0;
+      for (std::size_t m2 : mem) {
         if (m2 == proprio) continue;
         li2.push_back(static_cast<std::uint32_t>(i));
         cj2.push_back(static_cast<std::uint32_t>(m2));
-        v2.push_back(1.0);
+        v2.push_back(peso);
       }
     }
     d.z = de_triplos(nlin, d.n_niveis, li2, cj2, v2);

@@ -415,6 +415,16 @@ Muir and Van Arendonk, 2007; Mrode and Pocrnic, 2023, ch. 9). The package return
 three components; combining them into `TBV` and `t2` is the caller's step, and it takes
 the pen size.
 
+The book fixes `n = 3`; real pens are unequal, and with a coefficient of 1 per mate the
+social sum grows with `n_i - 1`. `indirect(id, pen = "pen", dilution = d)` scales every
+mate's entry to `(n_i - 1)^(-d)`: `d = 0` (the default) is the book's sum, `d = 1` the
+mate mean, and the regime in between is the dilution of Bijma (2010) — chosen
+empirically by fitting a small grid of `d` and comparing `-2logL`, which stays
+comparable because only the incidence changes. The residual inherits the same
+heterogeneity, `var(e_i) = s2_ED + (n_i - 1) s2_ES`; `indirect_residual()` estimates
+the ratio `s2_ES / s2_ED` by profile REML over weighted fits, and its documentation
+says which of the two the data actually pins.
+
 *Multi-trait*: `cbind()` on the left, a full residual covariance between traits, and
 missingness handled by the pattern of each record rather than by dropping it.
 
@@ -609,8 +619,8 @@ Christensen and Lund (2010) for the single step; Misztal, Legarra and Aguilar (2
 Schafer, Katzfuss and Owhadi (2021) for the approximate inverses; Liu et al. (2014), Masuda et al. (2017) and
 Vandenplas et al. (2018) for markers as equations; Takahashi, Fagan and Chin (1973) for the
 selected inverse; Willham (1972), Kirkpatrick et al. (1990), Schaeffer and Dekkers
-(1994), Griffing (1967), Muir and Schinckel (2002) and Wade and Quaas (1993) for the
-models of section 7; Geman and Geman (1984) and Wang, Rutledge and Gianola (1993, 1994)
+(1994), Griffing (1967), Muir and Schinckel (2002), Bijma (2010) and Wade and Quaas (1993) for
+the models of section 7; Geman and Geman (1984) and Wang, Rutledge and Gianola (1993, 1994)
 for the sampler; Cockerham (1954), Vitezica et al. (2013) and Garcia-Cortes and Toro
 (2006) for the declared covariances of section 10; Gianola and Foulley (1983), Foulley,
 Gianola and Thompson (1983) and Dempster and Lerner (1950) for the threshold model;

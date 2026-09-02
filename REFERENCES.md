@@ -15,6 +15,9 @@ Anderson, E., Bai, Z., Bischof, C., Blackford, S., Demmel, J., Dongarra, J., Du 
 J., Greenbaum, A., Hammarling, S., McKenney, A. & Sorensen, D. (1999). *LAPACK Users'
 Guide*, 3rd ed. SIAM, Philadelphia.
 
+Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect genetic
+effects and group size. *Genetics* 186:1013-1028.
+
 Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 quantitative genetics of inheritance and response to selection. *Genetics* 175:277-288.
 
