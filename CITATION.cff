@@ -13,6 +13,8 @@ abstract: >-
   effect models, AR(1)/CAR(1) residuals, a Gibbs sampler, APY and Vecchia inverses,
   markers as equations, metafounders, quality control and selection-signature scans.
   The numerics live in the package itself, in C++, with no run-time dependency.
+  Developed during doctoral research at ESALQ/USP with support from the Sao Paulo
+  Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5 (BEPE).
 keywords:
   - animal breeding
   - quantitative genetics

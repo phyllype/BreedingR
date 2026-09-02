@@ -34,7 +34,7 @@ for (i in 61:n) {
 }
 ped <- data.frame(id, sire, dam)
 
-p <- pedigree(ped)   # topological order + Meuwissen-Luo inbreeding
+p <- pedigree(ped)   # topological order + Meuwissen-Luo (1992) inbreeding
 p
 ```
 
@@ -73,10 +73,14 @@ The truth was `va = 0.4`, `ve = 0.6`. The distance in standard errors is what sa
 whether the recovery is within expectation; an estimator that hit 0.400 on the nose
 would be reading the answer, not estimating it.
 
+`theta` is a named vector, so both halves of the ratio are taken by name: the numerator
+is the animal variance and the denominator sums the `var()` entries only, never a
+covariance or the `rho` an AR(1) residual adds.
+
 ```{r}
-h2 <- fit$theta[[1]] / sum(fit$theta)
-c(h2_estimada = round(h2, 3),
-  z_va = round(abs(fit$theta[[1]] - va) / fit$se[[1]], 2))
+v <- fit$theta[grepl("^var[(]", names(fit$theta))]
+c(h2_estimated = round(v[["var(animal)"]] / sum(v), 3),
+  z_va = round(abs(fit$theta[["var(animal)"]] - va) / fit$se[["var(animal)"]], 2))
 ```
 
 ## 4. Breeding values and accuracy
@@ -86,7 +90,7 @@ vg <- ebv(fit)
 acc <- accuracy(fit, ped)
 summary(acc)
 plot(vg[order(vg)], acc[order(vg)], pch = ".", cex = 2,
-     xlab = "EBV (ordenado)", ylab = "accuracy")
+     xlab = "EBV (sorted)", ylab = "accuracy")
 ```
 
 ## 5. Models the formula declares without a dedicated fitter
@@ -102,7 +106,7 @@ model(peso ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), data, pe
 d2 <- cbind(data, legendre(data$idade, order = 1, limits = c(150, 190)))
 model(peso ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d2, ped)
 
-# indirect genetic effect (associative model)
+# indirect genetic effect (the associative model of Muir & Schinckel, 2002)
 model(peso ~ cg + animal(id, group = "g") + indirect(id, pen = "baia", group = "g"),
         data, ped)
 
@@ -128,8 +132,8 @@ data.frame(component = colnames(gb$samples),
 For genomic examples the package ships its own generator, `simulate_breeding()`, which
 gene-drops haplotypes so the genotypes are CONSISTENT with the pedigree it emits. The
 single step runs three ways: exact, `apy_core=` (a global core), or `vecchia_k=` (each
-animal conditions on its own k strongest previous relationships — Henderson's A^-1 is
-this recursion with the parents as the set). And `snp_blup()` drops G entirely: markers
+animal conditions on its own k strongest previous relationships — Henderson's (1976)
+A^-1 is this recursion with the parents as the set). And `snp_blup()` drops G entirely: markers
 enter as equations and the system is solved by conjugate gradients at given components.
 
 ```{r}

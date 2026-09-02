@@ -10,3 +10,11 @@ src/*.o
 # private: real-data results and the development roadmap live outside the repo
 VALIDATION.md
 PLAN.md
+
+# revisao interna contra Mrode & Pocrnic: contem o texto extraido do livro (material
+# com direitos autorais) e nao deve entrar no historico em hipotese nenhuma
+revisao_mrode/
+
+# session junk
+.Rhistory
+vignettes/.Rhistory

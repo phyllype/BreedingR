@@ -21,31 +21,44 @@ library(BreedingR)
 
 A genetic evaluation is the same chain every time, and the package covers it end to end.
 The pedigree becomes the relationship matrix `A` and its sparse inverse by Henderson's
-rules, with inbreeding by the Meuwissen-Luo trace and, where the base population is not
-one homogeneous pool, metafounders. The model is written as a formula; the mixed model
+(1976) rules, with inbreeding by the Meuwissen and Luo (1992) trace and, where the base
+population is not one homogeneous pool, metafounders (Legarra et al., 2015). The model
+is written as a formula; the mixed model
 equations are assembled sparse, one record at a time, and factored by a sparse Cholesky
 whose symbolic analysis is computed once and reused. The variance components come from
-AI-REML — analytic score, average information, EM warm-up, a damped step, and convergence
-judged on the RELATIVE change of the components. Breeding values fall out of the same
-solution, and their accuracy out of the selected inverse.
+AI-REML (Gilmour, Thompson and Cullis, 1995) — analytic score, average information, EM
+warm-up (Dempster, Laird and Rubin, 1977), a damped step, and convergence judged on the
+RELATIVE change of the components. Breeding values fall out of the same solution, and
+their accuracy out of the selected inverse (Takahashi, Fagan and Chin, 1973).
 
-Genotypes enter as an argument, not a different program: `G` by VanRaden, brought to the
+Genotypes enter as an argument, not a different program: `G` by VanRaden (2008), brought to the
 scale of `A22` by an affine adjustment and a blend, and the single-step `H^-1` built as
 `A^-1` plus a correction on the genotyped block. When the genotyped set is large enough
-that inverting `G*` hurts, the same fit accepts APY with a core, the Vecchia recursion
-with per-animal conditioning sets, or `snp_blup()`, which never builds `G` at all and
+that inverting `G*` hurts, the same fit accepts APY (Misztal, Legarra and Aguilar, 2014)
+with a core, the Vecchia (1988) recursion with per-animal conditioning sets, or
+`snp_blup()`, which never builds `G` at all and
 solves the marker equations by conjugate gradients.
 
 The models that usually need their own software are formula terms here, because the unit
-of layout is the covariance group rather than the term: direct-maternal, reaction norms
-on an environmental gradient, indirect genetic effects among pen mates, multi-trait with
-a full residual covariance, and an AR(1)/CAR(1) residual for repeated measures. The same
-models can be sampled instead of maximized, through a block Gibbs sampler over the same
-equations.
+of layout is the covariance group rather than the term: direct-maternal (Willham, 1972),
+reaction norms on an environmental gradient (Kirkpatrick, Lofsvold and Bulmer, 1990),
+indirect genetic effects among pen mates (Griffing, 1967; Muir and Schinckel, 2002),
+multi-trait with a full residual covariance, and an AR(1)/CAR(1) residual for repeated
+measures (Wade and Quaas, 1993). The same models can be sampled instead of maximized,
+through a block Gibbs sampler (Geman and Geman, 1984) over the same equations.
+
+The trunk is Gaussian, but the trait does not have to be. An ordered categorical trait
+fits on a probit liability with `model_threshold()`, alone or jointly with a
+quantitative one; time until failure fits with `model_survival()`, where a
+right-censored record enters as a lower bound rather than a missing value. And a random
+term can carry any DECLARED covariance matrix through `kernel(id, K = )`: the dominance
+and epistasis constructions of chapter 13 of Mrode and Pocrnic (2023), and the multibreed
+partial matrices of chapter 14, are matrices built by their own constructors and handed
+to the same engine.
 
 **Where to read next.** The vignette *Theory and practice* walks a full evaluation in
 order, explaining each matrix, each algorithm and each iteration alongside the code that
-runs it. *Hands-on* exercises every exported function step by step.
+runs it. *Hands-on* works through 47 of the 53 exported functions, step by step.
 [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
 
 ## Quick start
@@ -65,7 +78,8 @@ fit <- model(y ~ cg + animal(id), q$data, s$pedigree,
              genotypes = list(ids = s$genotypes$ids, m = g$m))
 fit                                # components, SEs, and each variance's share
 ebv(fit)[1:5]                      # breeding values, named by animal
-accuracy(fit, s$pedigree)[1:5]     # with the (1+F) in the denominator
+accuracy(fit, s$pedigree)[1:5]     # with the (1+F) of the PEDIGREE in the denominator,
+                                   # genotyped or not: see ?accuracy for what that costs
 cor(ebv(fit)[names(s$tbv)], s$tbv) # against the simulator's own truth
 ```
 
@@ -75,7 +89,7 @@ the convergence criterion itself; Ctrl+C interrupts any fitter.
 
 ## Quality control before the model
 
-`qc_phenotypes()` marks the missing code, turns outliers beyond a Tukey fence into
+`qc_phenotypes()` marks the missing code, turns outliers beyond a Tukey (1977) fence into
 missing values, and reports class levels too small to estimate. It flags rather than
 deletes: removing a row would reshape contemporary groups and pen compositions without
 saying so. `qc_genotypes()` filters markers by call rate, minor allele frequency and
@@ -89,20 +103,37 @@ terms it calls for.
 # animal model
 model(weight ~ cg + cov(age) + animal(id), data, pedigree = ped)
 
-# repeatability: permanent environment
+# repeatability: the permanent environment of a subject with repeated records, what
+# those records share and is not additive genetic, so it also carries the non-additive
+# genetic effects; repeatability is share(animal) + share(pe) in the printed table
 model(weight ~ cg + animal(id) + pe(id), data, ped)
 
-# direct-maternal, with the correlation BETWEEN the two estimated; adding
-# adding pe(id, nome=) + pe(dam, nome=) makes it Willham's FULL maternal model;
-# two terms of one marker must be named, so no component is ever renamed by the
-# arrival of another term
+# direct-maternal, with the correlation BETWEEN the two estimated
 model(weight ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), data, ped)
+
+# the full maternal model (Mrode & Pocrnic, 2023, Eqn 8.1): ONE permanent environment, the
+# DAM's, which carries her non-additive maternal genetics as well.
+# A SECOND pe() on the animal itself is not part of Eqn 8.1, and with one record per
+# animal it IS the residual: the likelihood cannot separate the two. On simulated data
+# both models returned the same -2logL, 388.9537, and the extra term only split the
+# 0.578 residual into 0.143 and 0.435. On a second simulated set the fit drifted
+# instead: var(animal) 0.375 -> 0.279, the direct-maternal covariance -0.031 -> -0.001,
+# and it stopped at the zero boundary. That second pe() belongs where the animal itself
+# has REPEATED records, and there both pe() must be named (nome=), so that no component
+# is renamed by the arrival of another term
+model(weight ~ cg + animal(id, group = "g") + maternal(dam, group = "g") +
+        pe(dam), data, ped)
 
 # reaction norm on a Legendre basis
 d <- cbind(d, legendre(d$thi, order = 1))
 model(y ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d, ped)
 
-# indirect genetic effects (the associative model of Muir and Bijma)
+# indirect genetic effects (the associative model of Muir and Schinckel, 2002, and of
+# Bijma et al., 2007): the fit returns
+# var(animal), var(indirect) and the covariance between them, and the SIGN of that
+# covariance is what separates heritable competition from heritable co-operation. The
+# response, though, follows the TOTAL breeding value A_D + (n-1) A_S, so reading it
+# takes the group size n as well (Bijma et al., 2007)
 model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "pen", group = "g"), d, ped)
 
 # single step (ssGBLUP); the same genotypes= works in model_mt() and model_ar1().
@@ -120,13 +151,35 @@ model_ar1(y ~ cg + animal(id), d, ped, subject = "id", time = "day")
 # the Bayesian half: block Gibbs with conjugate updates and reference priors
 gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)
 
-# unknown-parent groups as metafounders (Legarra), diagonal Gamma
+# ordered categorical trait on a probit liability (Gianola & Foulley 1983);
+# the components are GIVEN, thresholds replace the intercept, predict() gives
+# per-category probabilities. cbind(quant, bin) fits the joint analysis of
+# Foulley et al. (1983)
+model_threshold(score ~ herd + sex + sire(sire), d, ped, start = 1/19)
+
+# time until failure with right-censoring: the Weibull frailty model of Kachman
+# (1999); a censored record is a lower bound, not a missing value, and censor=
+# is mandatory. Solutions are log relative risks; predict() gives RRS and S(t)
+model_survival(lpl ~ herd + ysp + animal(cow), d, ped, censor = "code")
+
+# a random term with a DECLARED covariance matrix: dominance beside the additive
+# term (chapter 13), or any K that is neither A nor H
+model(y ~ pen + animal(id) + kernel(id, K = dominance_matrix(ped)), d, ped)
+
+# multibreed by pedigree: the partial relationship matrices of Garcia-Cortes &
+# Toro (2006), one kernel() per founder breed and per segregating pair
+pa <- partial_a(ped, breed = c("1" = "A", "2" = "A", "3" = "B", "4" = "B"))
+model(y ~ herd + kernel(id, K = pa$K[["A"]], nome = "uA") +
+        kernel(id, K = pa$K[["B"]], nome = "uB") +
+        kernel(id, K = pa$K[["A:B"]], nome = "uAB"), d, ped)
+
+# unknown-parent groups as metafounders (Legarra et al., 2015), diagonal Gamma
 model(y ~ cg + animal(id), d, ped, metafounders = c("L1", "L2"), gamma = c(0.7, 0.6))
 
 # marker effects backsolved from the single-step fit
 snp_effects(f, ped, genotypes = list(ids = gids, m = M))
 
-# the single step WITHOUT G: markers as equations (ssSNPBLUP), conjugate gradients,
+# the single step WITHOUT G: markers as equations (ssSNPBLUP; Liu et al., 2014), conjugate gradients,
 # A22^-1 applied matrix-free; theta is given, as in routine practice
 snp_blup(y ~ cg + animal(id), d, ped, genotypes = list(ids = gids, m = M),
          theta = c(0.4, 0.6))
@@ -136,9 +189,10 @@ g <- qc_genotypes(read_plink("chip")$m, min_maf = 0.01, hwe_p = 1e-7)
 ```
 
 Around the fit: `pedigree()` (topological order plus Meuwissen-Luo inbreeding),
-`a_inverse()`, `a22_inverse()`, `ebv()`, `accuracy()` (with the 1+F), `h2_curve()` and
+`a_inverse()`, `a22_inverse()`, `ebv()`, `accuracy()` (with the 1+F of the pedigree), `h2_curve()` and
 `plot()` for the reaction norm, `describe()` to look at the data before estimating,
-the selection-signature scans `fst()` (Weir-Cockerham) and `roh()` (F_ROH and islands),
+the selection-signature scans `fst()` (Weir and Cockerham, 1984) and `roh()` (the F_ROH
+of McQuillan et al., 2008, and islands),
 `simulate_breeding()`, a gene-dropping simulator so that examples and method studies
 share one honest generator, `thi()` and `heat_load()` for the heat-stress axis,
 `selection_index()` and `rank_drift()` for the selection side, `mc_study()` for
@@ -147,8 +201,8 @@ the data and names the term each shape asks for (and the trap it guards against)
 claims go through `benchmark_fit()`, which replicates at least three times and checks
 the runs returned identical numbers — the package's own timing rule as a tool.
 
-The full map of the 39 functions, grouped by kinship, is in
-[FUNCTIONS.md](FUNCTIONS.md); the hands-on that exercises every one of them,
+The full map of the 53 functions, grouped by kinship, is in
+[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 47 of them,
 step by step on data simulated in the document itself, is the vignette
 `vignettes/hands-on.Rmd` (every chunk runs at build time, so it cannot rot). The theory
 behind `apy_core=` (why APY works and what the Mendelian residual means) is in
@@ -183,6 +237,11 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | APY | identity: the output is the exact inverse of the G that APY implies; core = everyone == exact |
 | Vecchia | the bridge: k = 2 on a pedigree without full sibs IS Henderson's A^-1 (1e-10); k = n-1 == exact fit |
 | Fst and ROH | constructed references: alternate fixation gives exactly 1, a planted run is found |
+| fixed-effect solutions | the published fixed effects of Examples 4.1, 5.1, 5.2, 8.1 and 9.1 (by contrast), plus GLS and dense-MME rebuilds in plain R at 1e-6 |
+| threshold model | Examples 15.1 and 15.2: published thresholds, solutions, standard errors, category probabilities, and the joint quantitative-binary analysis |
+| kernel(K=), non-additive | Examples 13.1-13.5: the printed D and D^-1, solutions to 1e-3, and the MME-vs-V-form identity with a kernel term in the model |
+| multibreed partial matrices | Examples 14.1 and 14.2: the printed partial A's and solutions, and the identity model 14.8 == variance-weighted 14.3 |
+| survival model | Example 16.1: the 23 published solutions, RRS and S(40); a censoring gate where treating censored as observed provably distorts the fit |
 
 The tests in `tests/testthat` run these comparisons on every build, so a change that
 breaks one of the identities cannot pass quietly. `simulate_breeding()` is what they are
@@ -190,6 +249,10 @@ built on: it generates the pedigree, the phenotypes and the genotypes together, 
 check has the truth beside it.
 
 ## References
+
+Abdollahi-Arpanahi, R., Lourenco, D. & Misztal, I. (2022). A comprehensive study on
+size and definition of the core group in the proven and young algorithm for single-step
+GBLUP. *Genetics Selection Evolution* 54:34.
 
 Aguilar, I., Misztal, I., Johnson, D.L., Legarra, A., Tsuruta, S. & Lawlor, T.J. (2010).
 A unified approach to utilize phenotypic, full pedigree, and genomic information for
@@ -202,26 +265,83 @@ Guide*, 3rd ed. SIAM, Philadelphia.
 Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 quantitative genetics of inheritance and response to selection. *Genetics* 175:277-288.
 
+Bradley, R.A. & Terry, M.E. (1952). Rank analysis of incomplete block designs: I. The
+method of paired comparisons. *Biometrika* 39:324-345.
+
 Christensen, O.F. & Lund, M.S. (2010). Genomic prediction when some animals are not
 genotyped. *Genetics Selection Evolution* 42:2.
+
+Cockerham, C.C. (1954). An extension of the concept of partitioning hereditary variance
+for analysis of covariances among relatives when epistasis is present. *Genetics*
+39:859-882.
+
+Dempster, A.P., Laird, N.M. & Rubin, D.B. (1977). Maximum likelihood from incomplete
+data via the EM algorithm. *Journal of the Royal Statistical Society, Series B* 39:1-38.
+
+Dempster, E.R. & Lerner, I.M. (1950). Heritability of threshold characters. *Genetics*
+35:212-236.
+
+Ducrocq, V. (1997). Survival analysis, a statistical tool for longevity data. *48th
+Annual Meeting of the European Association for Animal Production*, Vienna.
+
+Ford, L.R., Jr. (1957). Solution of a ranking problem from binary comparisons.
+*American Mathematical Monthly* 64(8, part 2):28-33.
+
+Foulley, J.L., Gianola, D. & Thompson, R. (1983). Prediction of genetic merit from data
+on binary and quantitative variates with an application to calving difficulty, birth
+weight and pelvic opening. *Genetics Selection Evolution* 15:401-424.
 
 Fragomeni, B.O., Lourenco, D.A.L., Tsuruta, S., Masuda, Y., Aguilar, I., Legarra, A.,
 Lawlor, T.J. & Misztal, I. (2015). Use of genomic recursions in single-step genomic best
 linear unbiased predictor with a large number of genotypes. *Journal of Dairy Science*
 98:4090-4094.
 
+Garcia-Cortes, L.A. & Toro, M.A. (2006). Multibreed analysis by splitting the breeding
+values. *Genetics Selection Evolution* 38:601-615.
+
+Geman, S. & Geman, D. (1984). Stochastic relaxation, Gibbs distributions, and the
+Bayesian restoration of images. *IEEE Transactions on Pattern Analysis and Machine
+Intelligence* 6:721-741.
+
 George, A. & Liu, J.W.H. (1989). The evolution of the minimum degree ordering algorithm.
 *SIAM Review* 31:1-19.
+
+Geweke, J. (1992). Evaluating the accuracy of sampling-based approaches to the
+calculation of posterior moments. In Bernardo, J.M., Berger, J.O., Dawid, A.P. &
+Smith, A.F.M. (eds), *Bayesian Statistics 4*. Oxford University Press, Oxford.
+
+Geyer, C.J. (1992). Practical Markov chain Monte Carlo. *Statistical Science*
+7:473-483.
+
+Gianola, D. & Foulley, J.L. (1983). Sire evaluation for ordered categorical data with a
+threshold model. *Genetics Selection Evolution* 15:201-224.
 
 Gilmour, A.R., Thompson, R. & Cullis, B.R. (1995). Average information REML: an
 efficient algorithm for variance parameter estimation in linear mixed models.
 *Biometrics* 51:1440-1450.
+
+Griffing, B. (1967). Selection in reference to biological groups. I. Individual and
+group selection applied to populations of unordered groups. *Australian Journal of
+Biological Sciences* 20:127-140.
+
+Henderson, C.R. (1950). Estimation of genetic parameters (abstract). *Annals of
+Mathematical Statistics* 21:309-310.
 
 Henderson, C.R. (1975). Best linear unbiased estimation and prediction under a selection
 model. *Biometrics* 31:423-447.
 
 Henderson, C.R. (1976). A simple method for computing the inverse of a numerator
 relationship matrix used in prediction of breeding values. *Biometrics* 32:69-83.
+
+Hoeschele, I. & VanRaden, P.M. (1991). Rapid inversion of dominance relationship
+matrices for noninbred populations by including sire by dam subclass effects. *Journal
+of Dairy Science* 74:557-569.
+
+Hunter, D.R. (2004). MM algorithms for generalized Bradley-Terry models. *Annals of
+Statistics* 32:384-406.
+
+Kachman, S.D. (1999). Applications in survival analysis. *Journal of Animal Science*
+77(suppl. 2):147-153.
 
 Kirkpatrick, M., Lofsvold, D. & Bulmer, M. (1990). Analysis of the inheritance,
 selection and evolution of growth trajectories. *Genetics* 124:979-993.
@@ -230,8 +350,23 @@ Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015)
 Ancestral relationships using metafounders: finite ancestral populations and across
 population relationships. *Genetics* 200:455-468.
 
+Levenberg, K. (1944). A method for the solution of certain non-linear problems in least
+squares. *Quarterly of Applied Mathematics* 2:164-168.
+
 Liu, Z., Goddard, M.E., Reinhardt, F. & Reents, R. (2014). A single-step genomic model
 with direct estimation of marker effects. *Journal of Dairy Science* 97:5833-5850.
+
+Luce, R.D. (1959). *Individual Choice Behavior: A Theoretical Analysis*. Wiley, New
+York.
+
+Marquardt, D.W. (1963). An algorithm for least-squares estimation of nonlinear
+parameters. *Journal of the Society for Industrial and Applied Mathematics* 11:431-441.
+
+Masuda, Y., Misztal, I., Legarra, A., Tsuruta, S., Lourenco, D.A.L., Fragomeni, B.O. &
+Aguilar, I. (2017). Technical note: avoiding the direct inversion of the numerator
+relationship matrix for genotyped animals in single-step genomic best linear unbiased
+prediction solved with the preconditioned conjugate gradient. *Journal of Animal
+Science* 95:49-52.
 
 McQuillan, R., Leutenegger, A.-L., Abdel-Rahman, R., Franklin, C.S., Pericic, M.,
 Barac-Lauc, L. et al. (2008). Runs of homozygosity in European populations. *American
@@ -242,6 +377,9 @@ populations. *Genetics Selection Evolution* 24:305-313.
 
 Misztal, I., Legarra, A. & Aguilar, I. (2014). Using recursion to compute the inverse of
 the genomic relationship matrix. *Journal of Dairy Science* 97:3943-3952.
+
+Mrode, R.A. & Pocrnic, I. (2023). *Linear Models for the Prediction of the Genetic
+Merit of Animals*, 4th ed. CABI, Wallingford. doi:10.1079/9781800620506.0000.
 
 Muir, W.M. (2005). Incorporation of competitive effects in forest tree or animal
 breeding programs. *Genetics* 170:1247-1259.
@@ -256,6 +394,8 @@ National Academy of Sciences, Washington DC.
 Patterson, H.D. & Thompson, R. (1971). Recovery of inter-block information when block
 sizes are unequal. *Biometrika* 58:545-554.
 
+Plackett, R.L. (1975). The analysis of permutations. *Applied Statistics* 24:193-202.
+
 Pocrnic, I., Lourenco, D.A.L., Masuda, Y., Legarra, A. & Misztal, I. (2016). The
 dimensionality of genomic information and its effect on genomic prediction. *Genetics*
 203:573-581.
@@ -263,12 +403,18 @@ dimensionality of genomic information and its effect on genomic prediction. *Gen
 Quaas, R.L. (1976). Computing the diagonal elements and inverse of a large numerator
 relationship matrix. *Biometrics* 32:949-953.
 
+Schaeffer, L.R. & Dekkers, J.C.M. (1994). Random regressions in animal models for
+test-day production in dairy cattle. *Proceedings of the 5th World Congress on Genetics
+Applied to Livestock Production*, Guelph, 18:443-446.
+
 Schafer, F., Katzfuss, M. & Owhadi, H. (2021). Sparse Cholesky factorization by
 Kullback-Leibler minimization. *SIAM Journal on Scientific Computing* 43:A2019-A2046.
 
-Takahashi, K., Fagan, J. & Chen, M.-S. (1973). Formation of a sparse bus impedance
+Takahashi, K., Fagan, J. & Chin, M.-S. (1973). Formation of a sparse bus impedance
 matrix and its application to short circuit study. *Proceedings of the 8th PICA
 Conference*, 63-69.
+
+Tukey, J.W. (1977). *Exploratory Data Analysis*. Addison-Wesley, Reading, MA.
 
 Vandenplas, J., Calus, M.P.L., Eding, H. & Vuik, C. (2019). A second-level diagonal
 preconditioner for single-step SNPBLUP. *Genetics Selection Evolution* 51:30.
@@ -277,21 +423,43 @@ Vandenplas, J., Eding, H., Calus, M.P.L. & Vuik, C. (2018). Deflated preconditio
 conjugate gradient method for solving single-step BLUP models efficiently. *Genetics
 Selection Evolution* 50:51.
 
-Vandenplas, J., Gengler, N., Bijma, P., Misztal, I. & Legarra, A. (2022). A comprehensive
-study on size and definition of the core group in the proven and young algorithm for
-single-step GBLUP. *Genetics Selection Evolution* 54:34.
-
 VanRaden, P.M. (2008). Efficient methods to compute genomic predictions. *Journal of
 Dairy Science* 91:4414-4423.
 
+Varadhan, R. & Roland, C. (2008). Simple and globally convergent methods for
+accelerating the convergence of any EM algorithm. *Scandinavian Journal of Statistics*
+35:335-353.
+
+Vecchia, A.V. (1988). Estimation and model identification for continuous spatial
+processes. *Journal of the Royal Statistical Society, Series B* 50:297-312.
+
+Vitezica, Z.G., Varona, L. & Legarra, A. (2013). On the additive and dominant variance
+and covariance of individuals within the genomic selection scope. *Genetics*
+195:1223-1230.
+
 Wade, K.M. & Quaas, R.L. (1993). Solutions to a system of equations involving a
-first-order autoregressive process. *Journal of Dairy Science* 76:3026-3034.
+first-order autoregressive process. *Journal of Dairy Science* 76:3026-3032.
+
+Wang, C.S., Rutledge, J.J. & Gianola, D. (1993). Marginal inferences about variance
+components in a mixed linear model using Gibbs sampling. *Genetics Selection
+Evolution* 25:41-62.
+
+Wang, C.S., Rutledge, J.J. & Gianola, D. (1994). Bayesian analysis of mixed linear
+models via Gibbs sampling with an application to litter size in Iberian pigs. *Genetics
+Selection Evolution* 26:91-115.
+
+Wang, H., Misztal, I., Aguilar, I., Legarra, A. & Muir, W.M. (2012). Genome-wide
+association mapping including phenotypes from relatives without genotypes. *Genetics
+Research* 94:73-83.
 
 Weir, B.S. & Cockerham, C.C. (1984). Estimating F-statistics for the analysis of
 population structure. *Evolution* 38:1358-1370.
 
 Willham, R.L. (1972). The role of maternal effects in animal breeding: III. Biometrical
 aspects of maternal effects in animals. *Journal of Animal Science* 35:1288-1293.
+
+Wright, S. (1922). Coefficients of inbreeding and relationship. *American Naturalist*
+56:330-338.
 
 If a work that should be cited here is missing, please open an issue or write to the
 maintainer address in DESCRIPTION.

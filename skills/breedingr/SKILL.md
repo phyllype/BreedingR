@@ -1,6 +1,6 @@
 ---
 name: breedingr
-description: Genetic evaluation with the BreedingR R package — variance components by AI-REML, breeding values and accuracy, single-step genomics (G, A22, H inverse, APY, Vecchia, ssSNPBLUP), reaction norms, direct-maternal and indirect genetic effects, multi-trait, AR(1)/CAR(1) residuals, a Gibbs sampler, competitive ability from grouped contests, and quality control. Use when fitting animal models, estimating heritability or genetic correlations, predicting breeding values, running single-step genomic evaluation, or debugging a model that will not converge.
+description: Genetic evaluation with the BreedingR R package — variance components by AI-REML, breeding values and accuracy, single-step genomics (G, A22, H inverse, APY, Vecchia, ssSNPBLUP), reaction norms, direct-maternal and indirect genetic effects, multi-trait, AR(1)/CAR(1) residuals, a Gibbs sampler, threshold models for categorical traits, Weibull survival with right-censoring, dominance and epistasis kernels, multibreed partial matrices, competitive ability from grouped contests, and quality control. Use when fitting animal models, estimating heritability or genetic correlations, predicting breeding values, running single-step genomic evaluation, or debugging a model that will not converge.
 ---
 
 # BreedingR
@@ -39,10 +39,11 @@ An unmarked term is a fixed class effect. Marked terms:
 | `animal(id)` | additive genetic, over A (or H with `genotypes=`) |
 | `maternal(dam)` | maternal genetic |
 | `sire(sire)` | sire model |
-| `pe(id)` | permanent environment: what the repeated records of one subject share and is not additive genetic, so it carries the non-additive genetic effects as well (Mrode & Pocrnic, Eqn 5.1); repeatability is `share(animal) + share(pe)` in the printed table. Two `pe()` in one model must be NAMED (`nome=`): a component's name never depends on how many terms the model has |
+| `pe(id)` | permanent environment: what the repeated records of one subject share and is not additive genetic, so it carries the non-additive genetic effects as well (Mrode & Pocrnic, 2023, Eqn 5.1); repeatability is `share(animal) + share(pe)` in the printed table. Two `pe()` in one model must be NAMED (`nome=`): a component's name never depends on how many terms the model has |
 | `random(litter)` | iid random (litter, batch, pen, technician) |
 | `rn(id, base = c("phi0","phi1"))` | random regression / reaction norm |
-| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel). The SIGN of its covariance with the direct effect separates heritable competition from heritable co-operation; the response follows the total breeding value `A_D + (n-1) A_S`, so reading it takes the pen size n too (Bijma et al. 2007) |
+| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel 2002). The SIGN of its covariance with the direct effect separates heritable competition from heritable co-operation; the response follows the total breeding value `A_D + (n-1) A_S`, so reading it takes the pen size n too (Bijma et al. 2007) |
+| `kernel(id, K = D)` | random term with a DECLARED covariance matrix (symmetric PD, rownames = levels; an all-zero row = a level with no contribution). Constructors: `dominance_matrix()`, `g_matrix()`, `g_dominance()`, `g_epistasis()` (ch. 13), `partial_a()` for the multibreed partial matrices (ch. 14). Two kernels need `nome=` |
 | `group = "g"` | put two terms in one covariance matrix |
 
 ```r
@@ -56,10 +57,15 @@ model(y ~ cg + animal(id,group="g") + indirect(id,pen="pen",group="g"), d, ped)
 model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped)                         # multi-trait
 model_ar1(y ~ cg + animal(id) + pe(id), d, ped, subject="id", time="day") # AR(1)/CAR(1)
 gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)                        # Bayesian
+model(y ~ pen + animal(id) + kernel(id, K = dominance_matrix(ped)), d, ped) # dominance
+model_threshold(score ~ herd + sex + sire(sire), d, ped, start = 1/19)    # categorical,
+                                       # probit liability, components GIVEN via start=
+model_survival(lpl ~ herd + ysp + animal(cow), d, ped, censor = "code")   # Weibull
+                                       # frailty; a censored record is a LOWER BOUND
 ```
 
 The full maternal model carries ONE permanent environment, the DAM's, which holds her
-non-additive maternal genetics as well (Mrode & Pocrnic, Eqn 8.1). A second `pe()` on
+non-additive maternal genetics as well (Mrode & Pocrnic, 2023, Eqn 8.1). A second `pe()` on
 the animal itself is a different model: it needs REPEATED records on that animal, since
 with one record each it IS the residual. On simulated single-record data the two fits
 returned the same -2logL and the extra term merely split the residual; where the
@@ -78,8 +84,8 @@ q <- qc_phenotypes(d, "y", missing_code = -999, classes = c("cg","pen"))
 g <- qc_genotypes(M, min_call_rate = 0.9, min_maf = 0.01, hwe_p = 1e-7)
 
 # 3. pedigree
-p  <- pedigree(ped)          # topological order + Meuwissen-Luo inbreeding
-ai <- a_inverse(ped)         # Henderson's sparse A^-1, as triplets
+p  <- pedigree(ped)          # topological order + Meuwissen-Luo (1992) inbreeding
+ai <- a_inverse(ped)         # Henderson's (1976) sparse A^-1, as triplets
 
 # 4. fit
 fit <- model(y ~ cg + animal(id), q$data, ped, missing_code = -999)
@@ -186,17 +192,19 @@ here).
 
 Exposed on purpose, mostly for tests but useful:
 `eval_internal()` / `_mt` / `_ar1` (the -2logL by two independent routes plus the
-analytic score), `sparse_chol()`, `sparse_solve()`, `selected_inverse()` (Takahashi —
+analytic score), `sparse_chol()`, `sparse_solve()`, `selected_inverse()` (Takahashi et al. 1973 —
 every PEV reads it), `a22_inverse()` (the Schur complement, NOT the 22 block of A^-1),
 `apy_inverse()`, `vecchia_inverse()`, `inv_pd()`, `br_version()`.
 
 Study tools: `simulate_breeding()` (gene-dropping, so genotypes are consistent with the
 pedigree it emits), `mc_study()` (repeated simulate-and-refit), `benchmark_fit()` (at
 least three replicates or it refuses), `fst()`, `roh()`, `thi()`, `heat_load()`,
-`legendre()`.
+`legendre()`, `genomic_inbreeding()`, and `h2_observed()` / `h2_liability()` — the
+Dempster & Lerner (1950) conversion between the 0/1 observed scale and the liability
+scale.
 
 ## Where the theory is
 
 The vignette *Theory and practice* walks an evaluation in order, explaining each matrix
-and algorithm beside the code that runs it. *Hands-on* works through 37 of the 43
+and algorithm beside the code that runs it. *Hands-on* works through 47 of the 53
 exported functions. `FUNCTIONS.md` maps the surface; the README carries the references.

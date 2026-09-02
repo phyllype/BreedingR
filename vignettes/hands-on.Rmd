@@ -12,8 +12,11 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 set.seed(2026)
 ```
 
-Every exported function of the package, exercised in order of a real workflow, on data
-simulated in the document itself. Each chunk runs at build time, so this walkthrough
+Forty-seven of the fifty-three exported functions, exercised in the order of a real
+workflow, on data simulated in the document itself; the few left out — the inference
+helpers `se_function()` and `profile_theta()`, `qc_phenotypes()`,
+`competition_strength()`, and the `_mt`/`_ar1` twins of `eval_internal()` — are
+documented on their own help pages and exercised by the test suite. Each chunk runs at build time, so this walkthrough
 cannot drift away from the code. The companion vignette ("from data to breeding value")
 tells the story; this one is the tool bench.
 
@@ -40,9 +43,9 @@ suggest_model(s$data, "y", "id")
 ## Step 2 — the pedigree toolbox
 
 ```{r}
-p <- pedigree(s$pedigree)      # topological order + Meuwissen-Luo inbreeding
+p <- pedigree(s$pedigree)      # topological order + Meuwissen-Luo (1992) inbreeding
 head(p, 3)
-ai <- a_inverse(s$pedigree)    # Henderson's sparse A^-1, as triplets i/j/x/n
+ai <- a_inverse(s$pedigree)    # Henderson's (1976) sparse A^-1, as triplets i/j/x/n
 str(ai[c("i", "j", "x", "n")])
 ```
 
@@ -61,8 +64,17 @@ fit <- model(y ~ cg + animal(id), s$data, s$pedigree)
 fit
 summary(fit)
 coef(fit)
-h2 <- fit$theta[["var(animal)"]] / sum(fit$theta)
+v <- fit$theta[grepl("^var[(]", names(fit$theta))]   # never sum a covariance or a rho
+h2 <- v[["var(animal)"]] / sum(v)                    # both halves picked BY NAME
 round(h2, 3)                                # simulated truth: 0.4
+```
+
+The fixed effects travel in the same solution vector, named `term=level`. The
+parametrization is the implicit intercept with dropped columns at zero, so a table from
+another convention (the book's, BLUPF90's) agrees only on CONTRASTS between levels:
+
+```{r}
+coef(fit, effects = "fixed")                # the same vector as fit$b
 ```
 
 ```{r}
@@ -87,8 +99,11 @@ f4 <- model(y ~ cg + random(lot) + animal(id) + pe(id), d3, s$pedigree,
 round(f4$theta, 3)
 ```
 
-Willham's full maternal model: direct and maternal genetic share ONE covariance matrix
-via `group=`, and the two permanent environments disambiguate by column:
+The full maternal model of Mrode and Pocrnic (2023, Eqn 8.1): direct and maternal genetic share
+ONE covariance matrix via `group=`, and there is ONE permanent environment, the dam's,
+which carries her non-additive maternal genetics as well. `d5` has two records per
+animal, so a second `pe()` on the animal itself is identifiable here too; on one record
+per animal it would BE the residual. Two `pe()` in one model must be NAMED:
 
 ```{r}
 d5 <- d3
@@ -112,7 +127,7 @@ head(h2_curve(f6, limits = c(55, 80), points = 5))
 plot(f6, limits = c(55, 80))
 ```
 
-The indirect genetic effect (Muir & Schinckel's associative model) marks the PEN MATES
+The indirect genetic effect (the associative model of Muir & Schinckel, 2002) marks the PEN MATES
 in the incidence; direct and indirect share a group so their correlation is estimated:
 
 ```{r}
@@ -124,7 +139,7 @@ round(f7$theta, 3)
 ```
 
 A sire model uses `sire()` when only males carry the genetic term. Unknown-parent
-groups enter as metafounders (Legarra): a parent label with no line of its own,
+groups enter as metafounders (Legarra et al., 2015): a parent label with no line of its own,
 declared with its gamma:
 
 ```{r}
@@ -298,8 +313,9 @@ The internals are exported for the gates, and they double as sparse tools: the s
 triplet list `i/j/x/n` that `a_inverse()` returns feeds all three:
 
 ```{r}
-ch <- sparse_chol(ai)                        # minimum degree + symbolic + factor
-x1 <- sparse_solve(ai, rep(1, ai$n))         # A^-1 %*% 1
+ch <- sparse_chol(ai)                        # minimum degree (George & Liu 1989) + symbolic + factor
+x1 <- sparse_solve(ai, rep(1, ai$n))         # SOLVES A^-1 x = 1, so x = A %*% 1: the
+                                             # row sums of A, without ever forming A
 si <- selected_inverse(ai)                   # A at the factor's pattern (PEV reads this)
 round(c(logdet = ch$logdet, x1_first = x1[1]), 3)
 inv_pd(matrix(c(4, 1, 1, 3), 2))             # dense positive-definite inverse
@@ -314,10 +330,118 @@ ev <- eval_internal(y ~ cg + animal(id), s$data, s$pedigree, theta = c(0.4, 0.6)
 round(abs(ev$neg2logl - ev$neg2logl_V), 10)
 ```
 
+## Step 13 — declared covariances: dominance, epistasis, multibreed
+
+`kernel(id, K=)` is the marker for a random term whose covariance matrix is DECLARED
+rather than derived from the pedigree or the markers inside the fit. The constructors
+build the K: `dominance_matrix()` is Cockerham's D from the pedigree, and here the data
+gets a planted dominance deviation (variance 0.3) so the fit has something true to find.
+Repeated records keep the dominance separable from the residual — with one record per
+animal the two are confounded up to the sib covariances, and the fit runs to a boundary
+and says so:
+
+```{r}
+D <- dominance_matrix(s$pedigree)
+set.seed(11)
+dv <- drop(chol(D + diag(1e-8, nrow(D))) %*% rnorm(nrow(D))) * sqrt(0.3)
+names(dv) <- rownames(D)
+dk <- s$data[rep(1:nrow(s$data), each = 2), ]
+dk$y <- 10 + s$tbv[dk$id] + dv[dk$id] + rnorm(nrow(dk), 0, sqrt(0.6))
+fd <- model(y ~ cg + animal(id) + kernel(id, K = D), dk, s$pedigree)
+round(fd$theta, 3)                          # planted: 0.3 kernel, 0.6 residual
+```
+
+The genomic versions build K from markers: `g_matrix()` (raw VanRaden G, the book's —
+no blend, no A22 adjustment), `g_dominance()` (Vitezica's genomic D), `g_epistasis()`
+(the Hadamard square with its diagonal averaged to 1), and `genomic_inbreeding()`
+(f = 1 - het/N, fitted as a `cov()` and read back from `fit$b` as the inbreeding
+depression):
+
+```{r}
+G  <- g_matrix(gen)
+GD <- g_dominance(gen)
+GE <- g_epistasis(G)
+fin <- genomic_inbreeding(gen)
+round(c(diag_G = mean(diag(G)), diag_D = mean(diag(GD)),
+        diag_AA = mean(diag(GE)), mean_f = mean(fin)), 3)
+```
+
+`partial_a()` splits A by breed origin (Garcia-Cortes and Toro's partial matrices): one
+matrix per founder breed, one per segregating pair, plus the breed-fraction table `f`
+and the segregation coefficients `h`. A row of K that is entirely zero declares a level
+with no contribution — a purebred gets no equation in the other breed's term — and each
+matrix goes into its own `kernel()`:
+
+```{r}
+pedm <- data.frame(animal = c("1", "2", "3", "4", "5"),
+                   sire   = c("0", "0", "1", "1", "3"),
+                   dam    = c("0", "0", "2", "2", "4"))
+pa <- partial_a(pedm, breed = c("1" = "A", "2" = "B"))
+pa$f                                        # 3 and 4 are F1; 5 is F2
+round(pa$K[["A"]], 2)                       # the A-partial: animal 2 contributes nothing
+pa$h                                        # only the F2 segregates
+```
+
+## Step 14 — a categorical trait on the liability scale
+
+`model_threshold()` fits an ordered categorical trait by probit on an underlying
+liability (Gianola and Foulley), residual FIXED at 1 for identifiability, thresholds in
+place of the intercept, components GIVEN via `start=`. `predict()` returns the
+per-category probabilities:
+
+```{r}
+dt <- s$data
+dt$cat <- as.integer(cut(dt$y, quantile(dt$y, c(0, 0.6, 0.85, 1)),
+                         include.lowest = TRUE))
+ft <- model_threshold(cat ~ cg + animal(id), dt, s$pedigree, start = 0.35,
+                      verbose = FALSE)
+round(ft$thresholds, 3)
+head(ebv(ft), 3)                            # on the liability scale
+round(predict(ft, dt[1:2, ]), 3)            # P(category) per record
+```
+
+`h2_observed()` and `h2_liability()` are the Dempster and Lerner conversion between the
+0/1 observed scale and the liability scale — at incidence 0.234 half the heritability
+is scale, not biology:
+
+```{r}
+round(c(observed = h2_observed(0.1781, 0.234),
+        liability = h2_liability(0.0934, 0.234)), 4)
+```
+
+## Step 15 — time until failure, with censoring
+
+`model_survival()` fits the Weibull frailty model (Kachman); `censor=` is mandatory
+because a censored record is a LOWER BOUND on the failure time, not a missing value.
+This chunk is Example 16.1 of Mrode and Pocrnic — length of productive life of 12 cows,
+4 censored — and the numbers it prints are the book's p.291-292:
+
+```{r}
+cows <- data.frame(
+  cow  = as.character(8:19),
+  herd = as.character(c(1,1,1,1,1,1,2,2,2,2,2,2)),
+  ysp  = as.character(c(3,4,1,2,3,1,4,1,2,3,4,2)),
+  code = c(0,1,0,1,1,1,1,1,0,1,0,1),        # 0 = censored
+  lpl  = c(40,47,22,28,50,33,49,29,23,37,35,30))
+peds <- data.frame(
+  animal = as.character(1:19),
+  sire = c(rep("0", 7), "1","1","4","4","5","5","1","1","5","5","4","4"),
+  dam  = c(rep("0", 7), "2","3","2","9","3","8","6","7","14","6","7","3"))
+fsu <- model_survival(lpl ~ herd + ysp + animal(cow), cows, peds, censor = "code",
+                      rho = 1, lambda = 1, sigma2 = 0.4, verbose = FALSE)
+round(coef(fsu, "fixed"), 3)                # herd=2 -1.631, ysp -2.346/-3.149/-2.982
+round(exp(ebv(fsu)[["1"]]), 3)              # relative risk of animal 1: 0.459
+round(predict(fsu, data.frame(herd = "1", ysp = "4", cow = "1"),
+              time = 40, type = "survival"), 3)   # S(40) = 0.394
+```
+
 ## The rule behind the tour
 
 A new model is almost never a new function — it is a marker inside the formula of one
-engine. A sibling fitter exists only when the mathematics changes: `model_mt()` (the
-residual becomes R0), `model_ar1()` (the residual gains serial correlation), `gibbs()`
-(the algorithm samples instead of maximizing), `snp_blup()` (a fixed-components solver
-with markers as equations). Everything else orbits the fit.
+engine, `kernel()` being the marker that takes ANY declared covariance. A sibling
+fitter exists only when the mathematics changes: `model_mt()` (the residual becomes
+R0), `model_ar1()` (the residual gains serial correlation), `gibbs()` (the algorithm
+samples instead of maximizing), `snp_blup()` (a fixed-components solver with markers as
+equations), `model_threshold()` (the residual stops being Gaussian with a free
+variance), `model_survival()` (there is no residual at all — the randomness is the
+Weibull the linear predictor scales). Everything else orbits the fit.
