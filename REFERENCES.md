@@ -220,23 +220,25 @@ Wright, S. (1922). Coefficients of inbreeding and relationship. *American Natura
 
 ## Surveyed, not implemented
 
-- Vandenplas, J. et al. (2020) on computational strategies for the preconditioned
-  conjugate gradient applied to ssSNPBLUP,
-  *Genetics Selection Evolution* (https://doi.org/10.1186/s12711-020-00543-9). — the
-  upgrade path if the diagonal preconditioner ever becomes the bottleneck.
-- Greedy conditional selection for Vecchia, arXiv:2307.11648 (2023); correlation-based
-  selection, arXiv:2112.14591. — smarter neighborhoods than nearest-by-relationship,
-  if the k needed for a target accuracy ever matters.
-- Chen, Y., Epperly, E.N., Tropp, J.A. & Webber, R.J. (2024). Randomly pivoted
-  Cholesky. *Communications on Pure and Applied Mathematics*
-  (https://doi.org/10.1002/cpa.22234); Epperly, E.N., Tropp, J.A. & Webber, R.J.
-  (2024). XTrace: making the most of every sample in stochastic trace estimation.
-  *SIMAX* (arXiv:2301.07825). — randomized numerical linear algebra for kernel
-  approximation and trace/log-det estimation.
-- Arakawa, A. et al. (2022). Performance of the No-U-Turn sampler in multi-trait
-  variance component estimation using genomic data. *Genetics Selection Evolution*
-  (https://pmc.ncbi.nlm.nih.gov/articles/PMC9275044/). — the gradient-based direction
-  for the Bayesian half.
-- Bermann, M. et al. (2022) on reliabilities from block sparse inversion of the APY
-  G^-1, and the 2024 comparison of approximation algorithms, *Journal of Animal
-  Science* (https://doi.org/10.1093/jas/skab353, https://doi.org/10.1093/jas/skae195).
+Read for methods the package does not implement; the notes on when each would matter
+live in docs/CHECKLIST.md.
+
+Arakawa, A. et al. (2022). Performance of the No-U-Turn sampler in multi-trait variance
+component estimation using genomic data. *Genetics Selection Evolution* 54:29.
+
+Bermann, M. et al. (2022). Reliabilities from block sparse inversion of the APY G-inverse.
+*Journal of Animal Science* 100:skab353; and the 2024 comparison of approximation
+algorithms, 102:skae195.
+
+Chen, Y., Epperly, E.N., Tropp, J.A. & Webber, R.J. (2024). Randomly pivoted Cholesky.
+*Communications on Pure and Applied Mathematics*, doi 10.1002/cpa.22234.
+
+Epperly, E.N., Tropp, J.A. & Webber, R.J. (2024). XTrace: making the most of every sample
+in stochastic trace estimation. *SIMAX*, arXiv:2301.07825.
+
+Schafer, F. et al. Greedy conditional selection for Vecchia approximations,
+arXiv:2307.11648; correlation-based selection, arXiv:2112.14591.
+
+Vandenplas, J. et al. (2020). Computational strategies for the preconditioned conjugate
+gradient applied to ssSNPBLUP. *Genetics Selection Evolution* 52:24,
+doi 10.1186/s12711-020-00543-9.
