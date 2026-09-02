@@ -14,8 +14,8 @@
 //
 // A parte A^nn/A^ng/A^gg ja E a penalidade que monta_mme escreve com o A^-1 esparso; o
 // resto sao os acrescimos deste arquivo. G nunca e formada nem invertida: o sistema e
-// resolvido por gradientes conjugados precondicionados, e cada aplicacao de A22^-1 usa a
-// identidade de Vandenplas et al. (2019),
+// resolvido por gradientes conjugados precondicionados (Vandenplas et al. 2018, 2019), e
+// cada aplicacao de A22^-1 usa a identidade de Masuda et al. (2017),
 //
 //   A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v,
 //

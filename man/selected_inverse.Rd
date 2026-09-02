@@ -21,3 +21,8 @@ matrix is dense.
 A position OUTSIDE the pattern is not zero, it is unknown. The result only carries the
 ones that were computed.
 }
+\references{
+Takahashi, K., Fagan, J. & Chin, M.-S. (1973). Formation of a sparse
+  bus impedance matrix and its application to short circuit study. Proceedings of
+  the 8th PICA Conference, 63-69.
+}

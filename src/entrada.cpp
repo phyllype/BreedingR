@@ -296,7 +296,8 @@ static br::Modelo modelo_do_R(SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov, SEXP 
     t.coluna = CHAR(STRING_ELT(tcol, k));
     t.efeito = LOGICAL(tcov)[k] ? br::Efeito::Covariavel : br::Efeito::Classe;
     const int e = INTEGER(test)[k];
-    t.estrutura = e == 2 ? br::Estrutura::Parentesco
+    t.estrutura = e == 3 ? br::Estrutura::Declarada
+                : e == 2 ? br::Estrutura::Parentesco
                 : e == 1 ? br::Estrutura::Diagonal : br::Estrutura::Fixo;
     const char* nest = CHAR(STRING_ELT(tnest, k));
     if (*nest) t.aninhado = nest;
@@ -357,6 +358,39 @@ static br::Tabela tabela_do_R(SEXP dados, SEXP nomes) {
   return t;
 }
 
+// Kernels declarados (kernel(id, K=)): lista PARALELA aos termos, NULL para termo comum e
+// list(ids, K) para termo kernel. A matriz cruza como Densa (o R guarda por COLUNA e a
+// Densa por LINHA), e a validacao de forma acontece aqui, antes de qualquer conta.
+static std::vector<br::KernelDecl> kernels_do_R(SEXP kern) {
+  std::vector<br::KernelDecl> out;
+  if (Rf_isNull(kern)) return out;
+  if (TYPEOF(kern) != VECSXP) Rf_error("kernels: expected a list parallel to the terms");
+  const R_xlen_t nt = XLENGTH(kern);
+  out.resize(static_cast<std::size_t>(nt));
+  for (R_xlen_t k = 0; k < nt; k++) {
+    SEXP e = VECTOR_ELT(kern, k);
+    if (Rf_isNull(e)) continue;
+    if (TYPEOF(e) != VECSXP || XLENGTH(e) != 2)
+      Rf_error("kernel of term %d: expected list(ids, K)", (int) k + 1);
+    auto ids = textos(VECTOR_ELT(e, 0), "kernel ids");
+    SEXP km = VECTOR_ELT(e, 1);
+    SEXP dim = Rf_getAttrib(km, R_DimSymbol);
+    if (TYPEOF(km) != REALSXP || dim == R_NilValue || XLENGTH(dim) != 2)
+      Rf_error("kernel of term %d: K must be a numeric matrix", (int) k + 1);
+    const int nl = INTEGER(dim)[0], nc = INTEGER(dim)[1];
+    if (nl != nc || (std::size_t) nl != ids.size())
+      Rf_error("kernel of term %d: K of %d x %d for %d ids", (int) k + 1, nl, nc,
+               (int) ids.size());
+    br::Densa m((std::size_t) nl, (std::size_t) nc);
+    for (int j2 = 0; j2 < nc; j2++)
+      for (int i2 = 0; i2 < nl; i2++)
+        m.at((std::size_t) i2, (std::size_t) j2) = REAL(km)[(R_xlen_t) j2 * nl + i2];
+    out[(std::size_t) k].ids = std::move(ids);
+    out[(std::size_t) k].k = std::move(m);
+  }
+  return out;
+}
+
 extern "C++" {
 template <class DES>
 std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& ped,
@@ -399,7 +433,7 @@ std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& pe
 // a identidade MME <-> forma V, e o score contra diferencas finitas centrais.
 SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
-               SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx, SEXP pesos, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk) {
+               SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx, SEXP pesos, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP kern) {
   GUARDA(
     br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente);
     br::Tabela t = tabela_do_R(dados, nomes);
@@ -414,7 +448,9 @@ SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     }
     std::vector<double> pw;
     if (XLENGTH(pesos) > 0) pw.assign(REAL(pesos), REAL(pesos) + XLENGTH(pesos));
-    br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw);
+    std::vector<br::KernelDecl> ks = kernels_do_R(kern);
+    br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw,
+                                      ks.empty() ? nullptr : &ks);
     std::vector<double> th(REAL(theta), REAL(theta) + XLENGTH(theta));
     if (th.size() != m.ntheta) Rf_error("theta with %d entries; the layout asks for %d",
                                         (int) th.size(), (int) m.ntheta);
@@ -459,7 +495,7 @@ SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
 SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
                SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP maxiter, SEXP tol, SEXP n_em,
-               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP pesos, SEXP inicio) {
+               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP pesos, SEXP inicio, SEXP kern) {
   GUARDA(
     br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente);
     br::Tabela t = tabela_do_R(dados, nomes);
@@ -474,7 +510,9 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     }
     std::vector<double> pw;
     if (XLENGTH(pesos) > 0) pw.assign(REAL(pesos), REAL(pesos) + XLENGTH(pesos));
-    br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw);
+    std::vector<br::KernelDecl> ks = kernels_do_R(kern);
+    br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw,
+                                      ks.empty() ? nullptr : &ks);
 
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
 
@@ -547,12 +585,25 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
         REAL(vc)[j * nt2 + k] = r.vcov.empty() ? NA_REAL : r.vcov[k * nt2 + j];
     }
     Rf_setAttrib(sc, R_NamesSymbol, Rf_duplicate(nms_t));
+
+    // Solucoes dos efeitos fixos: as primeiras x.ncol posicoes da solucao, nomeadas pelas
+    // colunas de X — os MESMOS nomes termo=nivel que dropped_x usa. Nada e recalculado: o
+    // solver ja resolveu o sistema inteiro, isto e uma fatia. Sem theta nao ha solucao e a
+    // fatia sai NA, como no resto do caminho de falha.
+    SEXP bfix = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) d.x.ncol));
+    SEXP bnms = PROTECT(Rf_allocVector(STRSXP,  (R_xlen_t) d.x.ncol));
+    for (std::size_t k = 0; k < d.x.ncol; k++) {
+      REAL(bfix)[k] = r.solucao.empty() ? NA_REAL : r.solucao[k];
+      SET_STRING_ELT(bnms, (R_xlen_t) k, Rf_mkChar(d.nomes_x[k].c_str()));
+    }
+    Rf_setAttrib(bfix, R_NamesSymbol, bnms);
+
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
                             "message", "n_used", "n_columns", "ebv", "dropped_x", "pev",
-                            "score", "vcov"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 14));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 14));
-    for (int q = 0; q < 14; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "score", "vcov", "b", "newton_dec"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 16));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 16));
+    for (int q = 0; q < 16; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
     for (std::size_t k = 0; k < d.saiu_x.size(); k++)
       SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
@@ -570,8 +621,10 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     SET_VECTOR_ELT(out, 11, pev);
     SET_VECTOR_ELT(out, 12, sc);
     SET_VECTOR_ELT(out, 13, vc);
+    SET_VECTOR_ELT(out, 14, bfix);
+    SET_VECTOR_ELT(out, 15, Rf_ScalarReal(r.decremento));
     Rf_setAttrib(out, R_NamesSymbol, nms);
-    UNPROTECT(11);
+    UNPROTECT(13);
     return out;
   )
 }
@@ -741,11 +794,29 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     Rf_setAttrib(ebv, R_NamesSymbol, ebv_nomes);
     Rf_setAttrib(pev, R_NamesSymbol, Rf_duplicate(ebv_nomes));
 
+    // Solucoes dos efeitos fixos: a coluna j da caracteristica tau vive em j*t + tau (a
+    // convencao do bloco fixo da montagem), nomeada "coluna|caracteristica" como o ebv.
+    const std::size_t nb = d.x.ncol * d.t;
+    SEXP bfix = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) nb));
+    SEXP bnms = PROTECT(Rf_allocVector(STRSXP,  (R_xlen_t) nb));
+    for (std::size_t j = 0; j < d.x.ncol; j++)
+      for (std::size_t tau = 0; tau < d.t; tau++) {
+        const std::size_t k = j * d.t + tau;
+        REAL(bfix)[k] = r.solucao.empty() ? NA_REAL : r.solucao[k];
+        const std::string nm = d.nomes_x[j] + "|" + d.alvos[tau];
+        SET_STRING_ELT(bnms, (R_xlen_t) k, Rf_mkChar(nm.c_str()));
+      }
+    Rf_setAttrib(bfix, R_NamesSymbol, bnms);
+    SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
+    for (std::size_t k = 0; k < d.saiu_x.size(); k++)
+      SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
+
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
-                            "message", "n_used", "n_columns", "ebv", "pev"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 11));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 11));
-    for (int q = 0; q < 11; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "message", "n_used", "n_columns", "ebv", "pev", "b",
+                            "dropped_x", "newton_dec"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 14));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 14));
+    for (int q = 0; q < 14; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     SET_VECTOR_ELT(out, 0, theta);
     SET_VECTOR_ELT(out, 1, se);
     SET_VECTOR_ELT(out, 2, Rf_ScalarReal(r.neg2logl));
@@ -757,8 +828,11 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     SET_VECTOR_ELT(out, 8, Rf_ScalarInteger((int) d.total_colunas()));
     SET_VECTOR_ELT(out, 9, ebv);
     SET_VECTOR_ELT(out, 10, pev);
+    SET_VECTOR_ELT(out, 11, bfix);
+    SET_VECTOR_ELT(out, 12, saiu);
+    SET_VECTOR_ELT(out, 13, Rf_ScalarReal(r.decremento));
     Rf_setAttrib(out, R_NamesSymbol, nms);
-    UNPROTECT(8);
+    UNPROTECT(11);
     return out;
   )
 }
@@ -902,11 +976,30 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     Rf_setAttrib(ebv, R_NamesSymbol, ebv_nomes);
     Rf_setAttrib(pev, R_NamesSymbol, Rf_duplicate(ebv_nomes));
 
+    // Solucoes dos efeitos fixos, na convencao do bloco fixo (identica a da multi): a
+    // coluna j da caracteristica tau em j*t + tau. Com t = 1 o nome e so termo=nivel.
+    const std::size_t nb = d.x.ncol * d.t;
+    SEXP bfix = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) nb));
+    SEXP bnms = PROTECT(Rf_allocVector(STRSXP,  (R_xlen_t) nb));
+    for (std::size_t j = 0; j < d.x.ncol; j++)
+      for (std::size_t tau = 0; tau < d.t; tau++) {
+        const std::size_t k = j * d.t + tau;
+        REAL(bfix)[k] = r.solucao.empty() ? NA_REAL : r.solucao[k];
+        std::string nm = d.nomes_x[j];
+        if (d.t > 1) nm += "|" + d.alvos[tau];
+        SET_STRING_ELT(bnms, (R_xlen_t) k, Rf_mkChar(nm.c_str()));
+      }
+    Rf_setAttrib(bfix, R_NamesSymbol, bnms);
+    SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
+    for (std::size_t k = 0; k < d.saiu_x.size(); k++)
+      SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
+
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
-                            "message", "n_used", "n_columns", "n_subjects", "ebv", "pev"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 12));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 12));
-    for (int q = 0; q < 12; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "message", "n_used", "n_columns", "n_subjects", "ebv", "pev",
+                            "b", "dropped_x", "newton_dec"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 15));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 15));
+    for (int q = 0; q < 15; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     SET_VECTOR_ELT(out, 0, theta);
     SET_VECTOR_ELT(out, 1, se);
     SET_VECTOR_ELT(out, 2, Rf_ScalarReal(r.neg2logl));
@@ -919,8 +1012,11 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     SET_VECTOR_ELT(out, 9, Rf_ScalarInteger((int) d.sujeitos.size()));
     SET_VECTOR_ELT(out, 10, ebv);
     SET_VECTOR_ELT(out, 11, pev);
+    SET_VECTOR_ELT(out, 12, bfix);
+    SET_VECTOR_ELT(out, 13, saiu);
+    SET_VECTOR_ELT(out, 14, Rf_ScalarReal(r.decremento));
     Rf_setAttrib(out, R_NamesSymbol, nms);
-    UNPROTECT(8);
+    UNPROTECT(11);
     return out;
   )
 }
@@ -1002,18 +1098,38 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
     Rf_setAttrib(ebv, R_NamesSymbol, ebv_nomes);
     Rf_setAttrib(esd, R_NamesSymbol, Rf_duplicate(ebv_nomes));
 
-    const char* campos[] = {"samples", "names", "ebv", "ebv_sd", "message", "n_used"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 6));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 6));
-    for (int q = 0; q < 6; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    // Media e dp a posteriori dos efeitos fixos: as primeiras x.ncol posicoes do vetor de
+    // localizacao, com os mesmos nomes termo=nivel que dropped_x usa.
+    SEXP bfix = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) d.x.ncol));
+    SEXP bsd  = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) d.x.ncol));
+    SEXP bnms = PROTECT(Rf_allocVector(STRSXP,  (R_xlen_t) d.x.ncol));
+    for (std::size_t k = 0; k < d.x.ncol; k++) {
+      REAL(bfix)[k] = S.media_loc.empty() ? NA_REAL : S.media_loc[k];
+      REAL(bsd)[k]  = S.var_loc.empty() ? NA_REAL : std::sqrt(S.var_loc[k]);
+      SET_STRING_ELT(bnms, (R_xlen_t) k, Rf_mkChar(d.nomes_x[k].c_str()));
+    }
+    Rf_setAttrib(bfix, R_NamesSymbol, bnms);
+    Rf_setAttrib(bsd, R_NamesSymbol, Rf_duplicate(bnms));
+    SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
+    for (std::size_t k = 0; k < d.saiu_x.size(); k++)
+      SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
+
+    const char* campos[] = {"samples", "names", "ebv", "ebv_sd", "message", "n_used",
+                            "b", "b_sd", "dropped_x"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 9));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 9));
+    for (int q = 0; q < 9; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     SET_VECTOR_ELT(out, 0, amostras);
     SET_VECTOR_ELT(out, 1, nms_t);
     SET_VECTOR_ELT(out, 2, ebv);
     SET_VECTOR_ELT(out, 3, esd);
     SET_VECTOR_ELT(out, 4, Rf_mkString(S.mensagem.c_str()));
     SET_VECTOR_ELT(out, 5, Rf_ScalarInteger((int) d.n_usadas()));
+    SET_VECTOR_ELT(out, 6, bfix);
+    SET_VECTOR_ELT(out, 7, bsd);
+    SET_VECTOR_ELT(out, 8, saiu);
     Rf_setAttrib(out, R_NamesSymbol, nms);
-    UNPROTECT(7);
+    UNPROTECT(11);
     return out;
   )
 }
@@ -1127,8 +1243,8 @@ static const R_CallMethodDef metodos[] = {
   {"R_chol_esparsa", (DL_FUNC) &R_chol_esparsa, 5},
   {"R_inv_seletiva", (DL_FUNC) &R_inv_seletiva, 5},
   {"R_resolve",      (DL_FUNC) &R_resolve,      5},
-  {"R_avaliar",      (DL_FUNC) &R_avaliar,     26},
-  {"R_ajustar",      (DL_FUNC) &R_ajustar,     29},
+  {"R_avaliar",      (DL_FUNC) &R_avaliar,     27},
+  {"R_ajustar",      (DL_FUNC) &R_ajustar,     30},
   {"R_a22_inversa",  (DL_FUNC) &R_a22_inversa,  4},
   {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  20},
   {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  26},

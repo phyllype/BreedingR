@@ -15,7 +15,7 @@ model_ar1(
   apy_core = NULL,
   vecchia_k = NULL,
   missing_code = NULL,
-  maxiter = 200L,
+  maxiter = 300L,
   tol = 1e-08,
   metafounders = NULL,
   gamma = NULL,
@@ -57,10 +57,17 @@ with `apy_core`}
 
 \item{missing_code}{missing-value code for observations}
 
-\item{maxiter}{maximum number of iterations}
+\item{maxiter}{maximum number of iterations; a fit that hits the ceiling says so in
+`message` and how to raise it}
 
 \item{tol}{relative tolerance on the components, sqrt(sum delta^2 / sum theta^2);
-see the BLUPF90 scale note in [model()]}
+see the BLUPF90 scale note in [model()]. The Newton decrement g' AI^-1 g is
+computed at the final point and reported in `newton_dec` (components at a
+covariance boundary excluded, since this walker cannot follow a singular
+boundary), but unlike [model()] it does not gate `converged` here: this fitter
+steps in raw theta and can jam whole against a boundary, so a decrement above
+2e-4 becomes a WARNING in `message` instead — read it before trusting a fit
+near a boundary. The hard certificate lives in the univariate fitter}
 
 \item{metafounders}{labels of unknown-parent groups; a parent with one of these
 labels needs no line of its own (any OTHER cited-without-line parent is still a
@@ -79,8 +86,16 @@ session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 \value{
 besides the components, `rho(residual)` with its standard error; |rho| >= 1
   is never a result: a step that leaves the interval is rejected like any
-  inadmissible theta
+  inadmissible theta. The fixed-effect solutions come in `b`, named `term=level`
+  (with `|trait` appended under `cbind()`); the parametrization note of [model()]
+  applies -- dropped columns are in `dropped_x` and only contrasts compare against a
+  reference-level convention
 }
 \description{
 Fits a model with AR(1)/CAR(1) residual by AI-REML
+}
+\references{
+Wade, K.M. & Quaas, R.L. (1993). Solutions to a system of equations
+  involving a first-order autoregressive process. Journal of Dairy Science
+  76:3026-3032.
 }

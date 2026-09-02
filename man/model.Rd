@@ -13,7 +13,7 @@ model(
   apy_core = NULL,
   vecchia_k = NULL,
   missing_code = NULL,
-  maxiter = 100L,
+  maxiter = 300L,
   tol = 1e-08,
   n_em = 4L,
   metafounders = NULL,
@@ -28,7 +28,20 @@ model(
 class effect; `cov(x)` is a fixed covariate; `animal(id)`, `maternal(dam)` and
 `sire(sire)` are random with relationship; `pe(id)` and `random(lote)` are random
 without relationship. `group = "nome"` puts two random terms in the SAME covariance
-matrix, with the correlation estimated.}
+matrix, with the correlation estimated. `kernel(id, K = D)` is a random term with a
+DECLARED covariance matrix: K is a symmetric positive-definite matrix whose rownames
+are the level identifiers, and every row of K gets an equation, with or without a
+record — a dominance D ([dominance_matrix()], [g_dominance()]), an epistatic G_AA
+([g_epistasis()]), a partial multibreed matrix ([partial_a()]), or any relationship
+the pedigree and the markers do not already provide. A row of K that is ENTIRELY
+zero, diagonal included, declares a level with no contribution to this term: it
+gets no equation and its records stay in the analysis with zero incidence here —
+the generalized-inverse pattern of the multibreed partial matrices (Mrode &
+Pocrnic, 4th ed., p.243-244). An id absent from K altogether still excludes the
+record, as with an animal missing from the pedigree: a zero row is a declaration,
+an absence is a gap. Two kernel terms need `nome=` to tell their components apart.
+The inversion of K is dense, so the declared route is for matrices of moderate
+size — the size of a genotyped set, not of a national pedigree.}
 
 \item{data}{data.frame with the columns referenced}
 
@@ -52,12 +65,23 @@ with `apy_core`}
 
 \item{missing_code}{missing-value code for observations, for example -999}
 
-\item{maxiter}{maximum number of iterations of the damped step}
+\item{maxiter}{maximum number of iterations of the damped step. The default 300 was
+raised from 100 after a measured case: a direct-indirect model warm-started from
+the reduced fit still had relDelta 1.6e-4 at iteration 100 — no defect, a model
+that walks slowly along a covariance boundary. A fit that hits the ceiling says so
+in `message` and reports `converged = FALSE`}
 
 \item{tol}{RELATIVE tolerance on the components, sqrt(sum delta^2 / sum theta^2).
 BLUPF90 note: airemlf90/blupf90+ VCE test the SQUARED quantity, so their
 conv_crit equals this tol squared (their 1e-10 is tol = 1e-5 here; this 1e-8
-default is 1e-16 on their scale)}
+default is 1e-16 on their scale). A small step alone never certifies convergence:
+`converged = TRUE` additionally requires the Newton decrement of the free
+components, g' AI^-1 g restricted to the components not held at a boundary, to
+fall under 2e-4 — near the optimum the decrement is about twice the -2logL gap
+to it, so the certificate bounds that gap by ~1e-4. The value is reported in
+`newton_dec`. Measured motivation: a fit that stalled against the singularity
+boundary with relDelta 5.1e-9 and the score far from zero sat 6.9 -2logL units
+above the optimum, and the step criterion alone declared it converged}
 
 \item{n_em}{EM iterations before the AI, to land in the right basin}
 
@@ -85,6 +109,35 @@ a de-regressed proof}
 Use it to warm-start from a submodel, or to check that the optimum does not depend
 on where the search began. Without it the start comes from `var(y)`}
 }
+\value{
+an object of class `breeding_fit`: the components `theta` with their `se`,
+  the fixed-effect solutions `b` (named `term=level`, in the order the columns of X
+  entered), `ebv` and `pev` per covariance group, `score`, `vcov`, the convergence
+  fields (`converged`, `iters`, `reldelta`, and `newton_dec`, the Newton decrement
+  of the free components at the final point) and `message`. PARAMETRIZATION OF `b`, and it matters when comparing against
+  a book or another program: the model carries an implicit intercept and drops
+  linearly dependent columns (listed in `dropped_x`; a dropped level has solution
+  zero). A program that instead zeroes some other level -- Mrode's examples zero one
+  level per factor and fit no intercept -- agrees with `b` only on CONTRASTS,
+  differences between levels of the same factor, never on the raw values.
+}
 \description{
 Fit a mixed model by AI-REML
+}
+\references{
+Patterson, H.D. & Thompson, R. (1971). Recovery of inter-block
+  information when block sizes are unequal. Biometrika 58:545-554.
+
+  Gilmour, A.R., Thompson, R. & Cullis, B.R. (1995). Average information REML.
+  Biometrics 51:1440-1450.
+
+  VanRaden, P.M. (2008). Efficient methods to compute genomic predictions. Journal
+  of Dairy Science 91:4414-4423.
+
+  Aguilar, I. et al. (2010). A unified approach... Journal of Dairy Science
+  93:743-752; Christensen, O.F. & Lund, M.S. (2010). Genetics Selection Evolution
+  42:2.
+
+  Misztal, I., Legarra, A. & Aguilar, I. (2014). Using recursion to compute the
+  inverse of the genomic relationship matrix. Journal of Dairy Science 97:3943-3952.
 }

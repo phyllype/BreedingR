@@ -24,3 +24,10 @@ vector of marker effects, in the units of the trait per allele-dose,
 \description{
 Backsolve SNP effects from a single-step fit
 }
+\references{
+VanRaden, P.M. (2008). Journal of Dairy Science 91:4414-4423.
+
+  Wang, H., Misztal, I., Aguilar, I., Legarra, A. & Muir, W.M. (2012). Genome-wide
+  association mapping including phenotypes from relatives without genotypes.
+  Genetics Research 94:73-83.
+}

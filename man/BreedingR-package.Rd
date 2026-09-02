@@ -6,7 +6,7 @@
 \alias{BreedingR-package}
 \title{BreedingR: Variance Components and Breeding Values by AI-REML and Single Step}
 \description{
-Variance component estimation by AI-REML, breeding values, accuracy and single-step genomics (ssGBLUP), with reaction norms, direct-maternal models, indirect genetic effects (the associative model), APY and selection-signature scans (Fst and runs of homozygosity). The numerics live in the package itself, in C++ with no external dependency, checked against independent paths: the dense V form, central finite differences, and recovery of simulated components. No package dependency at run time. Developed with support from the Sao Paulo Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5.
+Variance component estimation by AI-REML, breeding values, accuracy and single-step genomics (ssGBLUP), with reaction norms, direct-maternal models, indirect genetic effects (the associative model), threshold models for ordered categorical traits, Weibull frailty models for censored survival times, declared covariance kernels (dominance, epistasis, multibreed partial matrices), APY and selection-signature scans (Fst and runs of homozygosity). The numerics live in the package itself, in C++ with no external dependency, checked against independent paths: the dense V form, central finite differences, recovery of simulated components, and the published examples of Mrode and Pocrnic (2023). No package dependency at run time. Developed with support from the Sao Paulo Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5.
 }
 \author{
 \strong{Maintainer}: Felipe Andre Oliveira Freitas \email{phyllype.freitas@gmail.com}

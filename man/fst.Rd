@@ -22,3 +22,7 @@ upward, and the mean is what serves as the reference for finding the peaks.
 \description{
 Per-marker Fst between groups (Weir & Cockerham)
 }
+\references{
+Weir, B.S. & Cockerham, C.C. (1984). Estimating F-statistics for the
+  analysis of population structure. Evolution 38:1358-1370.
+}

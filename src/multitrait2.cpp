@@ -2,6 +2,8 @@
 
 #include "mme.h"
 
+#include <cstdio>
+
 // so para o TRACE opcional e a interrupcao: nenhuma conta usa o R
 #include <R_ext/Print.h>
 #include <R_ext/Utils.h>
@@ -110,6 +112,11 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
     if (g.estrutura == Estrutura::Parentesco) {
       d.kinv.push_back(ainv);
       d.kinv_logdet.push_back(ld_ainv);
+    } else if (g.estrutura == Estrutura::Declarada) {
+      // Cair no ramo diagonal trocaria a K declarada pela identidade EM SILENCIO — o
+      // ajuste convergiria para outra coisa. Erro declarado ate este desenho carregar K.
+      throw Erro("kernel() is not available in this fitter yet: in this version only "
+                 "model() and eval_internal() carry the declared K");
     } else {
       d.kinv.push_back(Csc());
       d.kinv_logdet.push_back(0.0);
@@ -140,6 +147,7 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
     d.nomes_x.push_back(cols[fica[jj]].first);
     for (std::size_t i = 0; i < d.nlin; i++) d.x.at(i, jj) = xfull.at(i, fica[jj]);
   }
+  for (std::size_t j : sai) d.saiu_x.push_back(cols[j].first);
 
   for (std::size_t k = 0; k < m.termos.size(); k++) {
     if (!m.termos[k].aleatorio()) continue;
@@ -205,6 +213,75 @@ AjusteMT ajusta_mt(const DesenhoMT& d, std::size_t maxiter, double tol, bool ver
     return R;
   }
 
+  // O certificado final, espelhado do ajustador univariado (o racional completo esta em
+  // aireml.cpp): passo relativo pequeno nao prova otimo — AI amortecida pode aceitar um
+  // passo minusculo com o gradiente longe de zero. converged exige tambem o decremento
+  // de Newton, g' AI^-1 g, ~2x o gap em -2logL perto do otimo. Este laco anda em theta
+  // cru, sem pisos e sem log-Cholesky (o limite declarado da etapa 1B), entao as
+  // fronteiras que o univariado congela via conjunto ativo aparecem aqui como score que
+  // nunca zera. O certificado exclui o que este laco consegue reconhecer: uma variancia
+  // diagonal em zero numerico (<= 1e-6 da escala residual) com o score empurrando para
+  // baixo, e TODO componente de um grupo cuja C_g esta a 1e-3 (razao das diagonais do
+  // Cholesky, o mesmo piso relativo do univariado) da singularidade — este laco nao
+  // anda sobre a parede, entao a certificacao e CONDICIONAL a ela e a mensagem diz
+  // isso. AI que nao inverte no bloco livre nao certifica nada: conta como recusa.
+  const double tol_dec = 2e-4;
+  std::size_t na_fronteira = 0;   // exclusoes da ULTIMA chamada, para a mensagem
+  auto decremento = [&](const AvaliacaoMT& av) -> double {
+    const std::size_t nt = d.modelo.ntheta;
+    std::vector<char> fora(nt, 0);
+    double s2m = 0.0;
+    for (std::size_t tau = 0; tau < d.t; tau++)
+      s2m += theta[d.modelo.offset_residual + (tau * (2 * d.t - tau + 1)) / 2];
+    s2m = std::max(1.0, s2m / static_cast<double>(d.t));
+    for (const Grupo& gr : d.modelo.grupos) {
+      Densa cg(gr.dim, gr.dim);
+      for (std::size_t j = 0; j < gr.dim; j++)
+        for (std::size_t i = j; i < gr.dim; i++) {
+          const std::size_t k = gr.offset + (j * (2 * gr.dim - j + 1)) / 2 + (i - j);
+          cg.at(i, j) = theta[k];
+          cg.at(j, i) = theta[k];
+        }
+      Densa L;
+      bool sing = !chol_pequena(cg, L);
+      if (!sing && gr.dim > 1) {
+        double lmax = 0.0, lmin = std::numeric_limits<double>::infinity();
+        for (std::size_t i = 0; i < gr.dim; i++) {
+          lmax = std::max(lmax, L.at(i, i));
+          lmin = std::min(lmin, L.at(i, i));
+        }
+        sing = lmin < 1e-3 * lmax;
+      }
+      for (std::size_t j = 0; j < gr.dim; j++)
+        for (std::size_t i = j; i < gr.dim; i++) {
+          const std::size_t k = gr.offset + (j * (2 * gr.dim - j + 1)) / 2 + (i - j);
+          if (sing) fora[k] = 1;
+          else if (i == j && theta[k] <= 1e-6 * s2m && av.score[k] > 0.0) fora[k] = 1;
+        }
+    }
+    na_fronteira = 0;
+    for (char f2 : fora) na_fronteira += f2;
+    if (na_fronteira == nt) return 0.0;
+    Densa m2 = av.ai;
+    std::vector<double> sc = av.score;
+    for (std::size_t i = 0; i < nt; i++)
+      if (fora[i]) {
+        sc[i] = 0.0;
+        for (std::size_t j = 0; j < nt; j++) { m2.at(i, j) = 0.0; m2.at(j, i) = 0.0; }
+        m2.at(i, i) = 1.0;
+      }
+    Densa minv;
+    try { minv = inv_geral(m2); } catch (const Erro&) {
+      return std::numeric_limits<double>::infinity();
+    }
+    double dec = 0.0;
+    for (std::size_t i = 0; i < nt; i++) {
+      if (sc[i] == 0.0) continue;
+      for (std::size_t j = 0; j < nt; j++) dec += sc[i] * minv.at(i, j) * sc[j];
+    }
+    return std::fabs(dec);
+  };
+
   double lambda = 1e-2;   // multi comeca mais amortecido: as covariancias partem de zero
   for (std::size_t it = 1; it <= maxiter; it++) {
     R.iters = it;
@@ -245,8 +322,36 @@ AjusteMT ajusta_mt(const DesenhoMT& d, std::size_t maxiter, double tol, bool ver
     if (verboso)
       Rprintf("iter %3d  -2logL %.6f  relDelta %.3e\n",
               (int) it, cur.neg2logl, R.reldelta);
-    if (R.reldelta < tol) { R.convergiu = true; break; }
+    if (R.reldelta < tol) {
+      // Ao contrario do univariado, converged aqui continua sendo o criterio de passo:
+      // este laco anda em theta cru e TRAVA INTEIRO quando uma direcao encosta numa
+      // fronteira (o defeito declarado da etapa 1B) — reprovar o certificado so faria o
+      // laco travado iterar ate maxiter, empurrando a variancia da fronteira para zero
+      // exato sem ganhar verossimilhanca (medido nas celulas AR(1) da suite). O
+      // decremento e computado e REPORTADO, e um certificado reprovado vira aviso na
+      // mensagem; o portao duro fica para o porte log-Cholesky destes lacos.
+      R.decremento = decremento(cur);
+      R.convergiu = true;
+      if (R.decremento >= tol_dec) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%.3g", R.decremento);
+        R.mensagem = std::string("the step criterion converged, but the Newton ") +
+            "decrement of the off-boundary components is " + buf + " against the 2e-4 "
+            "tolerance: this fitter can rest short of the optimum near a covariance "
+            "boundary, so treat the estimates as approximate there (the univariate "
+            "fitter carries the boundary-following walker and the hard certificate)";
+      }
+      break;
+    }
   }
+  if (std::isnan(R.decremento)) R.decremento = decremento(cur);
+  if (na_fronteira > 0)
+    R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
+        std::to_string(na_fronteira) + " component(s) at a covariance boundary (a "
+        "variance at zero, or a group within 1e-3 of singularity) excluded from the "
+        "convergence certificate: this fitter walks in raw theta and cannot follow a "
+        "singular boundary, so the certificate is conditional on it; read the "
+        "components near that boundary with care";
 
   R.se.assign(d.modelo.ntheta, std::nan(""));
   try {
@@ -257,8 +362,13 @@ AjusteMT ajusta_mt(const DesenhoMT& d, std::size_t maxiter, double tol, bool ver
     }
   } catch (const Erro&) {}
 
-  if (!R.convergiu && R.mensagem.empty())
-    R.mensagem = "parou em " + std::to_string(maxiter) + " iteracoes sem atingir a tolerancia";
+  if (!R.convergiu && R.mensagem.empty()) {
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), " (relDelta %.3g, Newton decrement %.3g against the "
+                  "2e-4 tolerance)", R.reldelta, R.decremento);
+    R.mensagem = "stopped at " + std::to_string(maxiter) + " iteration(s) without a "
+        "certified optimum" + buf + ": this model asks for more iterations. Raise maxiter=";
+  }
   if (cur.fora_do_padrao > 0)
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
         std::to_string(cur.fora_do_padrao) + " leitura(s) fora do padrao do fator";

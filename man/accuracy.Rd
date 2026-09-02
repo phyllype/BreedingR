@@ -7,7 +7,8 @@
 accuracy(fit, pedigree, group = NULL, trait = NULL)
 }
 \arguments{
-\item{fit}{result of model(), model_mt() or model_ar1()}
+\item{fit}{result of model(), model_mt(), model_ar1() or model_threshold()
+(ordinal mode; the joint threshold fit carries no PEV, a declared limit)}
 
 \item{pedigree}{the same data.frame used in the fit}
 
@@ -27,4 +28,20 @@ It is only defined for a group with ONE coefficient. In a reaction norm the accu
 the intercept alone is misleading (the slope's is tiny and the total EBV's depends on the
 point of the gradient), so the error here tells you to combine the coefficients
 explicitly.
+
+One declared limit: F is read from the PEDIGREE even when the fit was single-step. For a
+genotyped animal the prior variance is the diagonal of H, which in that block is the
+diagonal of G*, and that is not 1 + F_ped. On a simulated population of 510 animals, all
+genotyped, the two diagonals differ by up to 0.18, which moves an individual accuracy by
+up to 0.067 (median 0.011). The two versions agree in the mean (0.6966 against 0.6964),
+so a herd average is unaffected; what moves is the individual, and with it the ranking of
+genotyped animals by accuracy (Spearman correlation between the two vectors, 0.77). Read
+genomic accuracies with that in mind.
+}
+\references{
+Henderson, C.R. (1975). Best linear unbiased estimation and prediction
+  under a selection model. Biometrics 31:423-447.
+
+  Mrode, R.A. & Pocrnic, I. (2023). Linear Models for the Prediction of the Genetic
+  Merit of Animals, 4th ed. CABI, ch. 3.
 }

@@ -26,3 +26,8 @@ d <- cbind(d, legendre(d$thi, order = 1))
 Scaling by the observed range is part of the MODEL: two data sets with different ranges
 give different bases. To compare fits, fix `limits`.
 }
+\references{
+Kirkpatrick, M., Lofsvold, D. & Bulmer, M. (1990). Analysis of the
+  inheritance, selection and evolution of growth trajectories. Genetics
+  124:979-993.
+}

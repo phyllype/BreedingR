@@ -1,4 +1,4 @@
-# APY: the inverse of G approximated through a core (Misztal 2014).
+# APY: the inverse of G approximated through a core (Misztal, Legarra and Aguilar 2014).
 #
 # The idea: the genomic values of the YOUNG animals are, conditionally, a linear combination
 # of the CORE's plus a Mendelian residual of their own. From that comes a sparse block inverse:
@@ -23,6 +23,11 @@
 #' @return list with i, j, x, n (triplets of the lower triangle of G_APY^-1), the diagnostic
 #'   `mendeliano` (the m_i of the young animals; very small = young animal almost collinear
 #'   with the core) and the parameters used
+#' @references Misztal, I., Legarra, A. & Aguilar, I. (2014). Journal of Dairy Science
+#'   97:3943-3952.
+#'
+#'   Fragomeni, B.O. et al. (2015). Journal of Dairy Science 98:4090-4094; Pocrnic, I.
+#'   et al. (2016). Genetics 203:573-581.
 #' @export
 apy_inverse <- function(m, core, lambda = 0.01) {
   if (!is.matrix(m)) stop("expected a matrix of genotypes")
@@ -38,7 +43,7 @@ apy_inverse <- function(m, core, lambda = 0.01) {
   if (nc < 2L) stop("the core needs at least 2 animals")
   jovens <- setdiff(seq_len(n), core)
 
-  # VanRaden's G, with mean imputation (the same rule as the rest of the package)
+  # VanRaden's (2008) G, with mean imputation (the same rule as the rest of the package)
   p <- colMeans(m, na.rm = TRUE) / 2
   usa <- is.finite(p) & p > 0 & p < 1
   Z <- m[, usa, drop = FALSE]

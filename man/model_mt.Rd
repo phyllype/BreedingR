@@ -13,7 +13,7 @@ model_mt(
   apy_core = NULL,
   vecchia_k = NULL,
   missing_code = NULL,
-  maxiter = 200L,
+  maxiter = 300L,
   tol = 1e-08,
   metafounders = NULL,
   gamma = NULL,
@@ -47,10 +47,17 @@ with `apy_core`}
 
 \item{missing_code}{missing-value code}
 
-\item{maxiter}{maximum number of iterations}
+\item{maxiter}{maximum number of iterations; a fit that hits the ceiling says so in
+`message` and how to raise it}
 
 \item{tol}{relative tolerance on the components, sqrt(sum delta^2 / sum theta^2);
-see the BLUPF90 scale note in [model()]}
+see the BLUPF90 scale note in [model()]. The Newton decrement g' AI^-1 g is
+computed at the final point and reported in `newton_dec` (components at a
+covariance boundary excluded, since this walker cannot follow a singular
+boundary), but unlike [model()] it does not gate `converged` here: this fitter
+steps in raw theta and can jam whole against a boundary, so a decrement above
+2e-4 becomes a WARNING in `message` instead — read it before trusting a fit
+near a boundary. The hard certificate lives in the univariate fitter}
 
 \item{metafounders}{labels of unknown-parent groups; a parent with one of these
 labels needs no line of its own (any OTHER cited-without-line parent is still a
@@ -65,6 +72,12 @@ unknown parent}
 -2logL and the relative step (the convergence criterion itself), so a long fit
 is a progress report instead of silence. Defaults to interactive() — live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
+}
+\value{
+an object of class `breeding_fit_mt`; besides the fields of [model()], the
+  fixed-effect solutions `b` come named `term=level|trait`, one entry per column of X
+  and per trait. The parametrization note of [model()] applies: dropped columns are
+  in `dropped_x` and only contrasts compare against a reference-level convention.
 }
 \description{
 Fits a multi-trait mixed model by AI-REML

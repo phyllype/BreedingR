@@ -60,8 +60,13 @@ test_that("COLLAPSE: gamma -> 0 reproduces the classic unknown parent", {
   set.seed(33)
   n <- 100
   id <- sprintf("w%03d", seq_len(n))
-  sire <- ifelse(seq_len(n) <= 20, "MA", id[pmax(1, seq_len(n) - 20)])
-  dam <- ifelse(seq_len(n) <= 30, "MB", id[pmax(1, seq_len(n) - 25)])
+  # odd position male, even position female, so no animal is ever cited on both sides:
+  # a sire that is also a dam is what the format check warns about, and a fixture has no
+  # business tripping it
+  jp <- seq_len(n) - 20L; jp <- jp - (1L - jp %% 2L)
+  jm <- seq_len(n) - 25L; jm <- jm - jm %% 2L
+  sire <- ifelse(seq_len(n) <= 20, "MA", id[pmax(1L, jp)])
+  dam <- ifelse(seq_len(n) <= 30, "MB", id[pmax(2L, jm)])
   ped_g <- data.frame(id = id, sire = sire, dam = dam, stringsAsFactors = FALSE)
   d <- data.frame(id = id, cg = sample(c("g1", "g2", "g3"), n, TRUE),
                   y = rnorm(n, 10), stringsAsFactors = FALSE)
@@ -83,8 +88,9 @@ test_that("the fit runs with metafounders and the EBVs carry their levels", {
   set.seed(9)
   n <- 60
   id <- sprintf("z%02d", seq_len(n))
-  sire <- c(rep("MA", 10), sample(id[1:20], n - 10, TRUE))
-  dam <- c(rep("MB", 10), sample(id[1:30], n - 10, TRUE))
+  # sires from the odd positions, dams from the even ones: no animal on both sides
+  sire <- c(rep("MA", 10), sample(id[seq(1, 19, by = 2)], n - 10, TRUE))
+  dam <- c(rep("MB", 10), sample(id[seq(2, 30, by = 2)], n - 10, TRUE))
   ok <- match(sire, id, nomatch = 0) < seq_len(n) & match(dam, id, nomatch = 0) < seq_len(n)
   sire[!ok] <- "MA"; dam[!ok] <- "MB"
   ped <- data.frame(id = id, sire = sire, dam = dam, stringsAsFactors = FALSE)
@@ -104,4 +110,87 @@ test_that("declared errors: gamma outside (0,2), length mismatch, label collisio
   ped_c <- ped_mf; ped_c$id[1] <- "M1"
   expect_error(pedigree(ped_c, metafounders = c("M1", "M2"), gamma = gamas),
                "collides|repeats|repeated")
+})
+
+# --- THE FIT CARRIES ITS OWN BASE, AND accuracy() READS IT ----------------------------
+#
+# accuracy() rebuilds the pedigree to divide the PEV by (1 + F) sigma2_a. Before the fit
+# recorded `metafounders` and `gamma`, that rebuild was a DIFFERENT pedigree: a metafounder
+# label is a parent with no line of its own, so pedigree() stopped on its own declared
+# error and the function died with a message about the pedigree, three steps from the
+# cause. And had the label carried a line, F would have come back on the gamma = 0 base,
+# which understates the accuracy of every descendant.
+#
+# The fixture carries a real additive signal, because with sigma2_a pinned at zero every
+# accuracy is zero and the gate would pass on nothing.
+
+ped_mf_fit <- local({
+  pais <- sprintf("m%02d", 1:20)
+  maes <- sprintf("f%02d", 1:40)
+  filhos <- sprintf("k%03d", 1:240)
+  data.frame(
+    id   = c(pais, maes, filhos),
+    sire = c(rep("L1", 60), rep(pais, length.out = 240)),
+    dam  = c(rep("L1", 60), rep(maes, length.out = 240)),
+    stringsAsFactors = FALSE)
+})
+
+dados_mf_fit <- local({
+  set.seed(202)
+  n <- nrow(ped_mf_fit)
+  a <- stats::setNames(numeric(n), ped_mf_fit$id)
+  for (i in seq_len(n)) {
+    s <- ped_mf_fit$sire[i]; d <- ped_mf_fit$dam[i]
+    if (s == "L1") a[i] <- stats::rnorm(1)                       # base animal
+    else a[i] <- 0.5 * (a[[s]] + a[[d]]) + stats::rnorm(1, 0, sqrt(0.5))
+  }
+  cg <- rep(c("g1", "g2", "g3"), length.out = n)
+  data.frame(id = ped_mf_fit$id, cg = cg,
+             y = 30 + c(g1 = 0, g2 = 1.5, g3 = -1)[cg] + a + stats::rnorm(n),
+             stringsAsFactors = FALSE)
+})
+
+test_that("accuracy() runs on a fit with metafounders, and on the gamma of that fit", {
+  f <- model(y ~ cg + animal(id), dados_mf_fit, ped_mf_fit,
+             metafounders = "L1", gamma = 0.7, maxiter = 150, verbose = FALSE)
+  expect_gt(unname(f$theta[["var(animal)"]]), 0.1)      # there IS a signal to be accurate about
+  acc <- accuracy(f, ped_mf_fit)
+  expect_true(all(is.finite(acc)))
+  expect_length(acc, nrow(ped_mf_fit) + 1L)             # the metafounder has a row of its own
+  expect_gt(stats::median(acc), 0.2)
+
+  # the arithmetic, spelled out here: PEV over (1 + F) sigma2_a with the F of THIS base
+  p <- pedigree(ped_mf_fit, metafounders = "L1", gamma = 0.7)
+  expect_identical(names(f$pev[[1]]), p$id)
+  esperado <- sqrt(pmax(0, 1 - f$pev[[1]] /
+                          ((1 + p$F) * unname(f$theta[["var(animal)"]]))))
+  expect_equal(unname(acc), unname(esperado), tolerance = 1e-12)
+
+  # and that F is NOT the unrelated base's F: with gamma = 0.7 every descendant of the
+  # metafounder carries F = 0.35, where the classic base gives 0 and the accuracy comes
+  # out too small
+  expect_equal(unname(stats::quantile(p$F, c(0, 1))), c(-0.3, 0.35), tolerance = 1e-10)
+  ped0 <- ped_mf_fit
+  ped0$sire[ped0$sire == "L1"] <- "0"; ped0$dam[ped0$dam == "L1"] <- "0"
+  f0 <- stats::setNames(pedigree(ped0)$F, pedigree(ped0)$id)[p$id]
+  f0[is.na(f0)] <- 0
+  velha <- sqrt(pmax(0, 1 - f$pev[[1]] /
+                       ((1 + f0) * unname(f$theta[["var(animal)"]]))))
+  animais <- p$id != "L1"
+  expect_gt(min((acc - velha)[animais]), 0)
+  expect_gt(mean((acc - velha)[animais]), 0.01)
+})
+
+test_that("the fit records the base it was built on", {
+  f <- model(y ~ cg + animal(id), dados_mf_fit, ped_mf_fit,
+             metafounders = "L1", gamma = 0.7, maxiter = 80, verbose = FALSE)
+  expect_identical(f$metafounders, "L1")
+  expect_identical(f$gamma, 0.7)
+  # a fit without them records nothing, and accuracy() then rebuilds the classic base
+  ped0 <- ped_mf_fit
+  ped0$sire[ped0$sire == "L1"] <- "0"; ped0$dam[ped0$dam == "L1"] <- "0"
+  f0 <- model(y ~ cg + animal(id), dados_mf_fit, ped0, maxiter = 80, verbose = FALSE)
+  expect_null(f0$metafounders)
+  expect_null(f0$gamma)
+  expect_true(all(is.finite(accuracy(f0, ped0))))
 })

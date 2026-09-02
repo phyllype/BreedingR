@@ -52,7 +52,8 @@ is a progress report instead of silence. Defaults to interactive() — live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 }
 \value{
-list with `b` (fixed effects), `ebv` (per covariance group, all animals;
+list with `b` (fixed-effect solutions, named `term=level`; the parametrization
+  note of [model()] applies), `ebv` (per covariance group, all animals;
   [ebv()] works on it), `g` (marker effects in trait units per allele dose, NA for
   monomorphic markers), `converged`, `iters`, `resnorm`, `message`
 }
@@ -65,4 +66,15 @@ path applies; in populations far from the base the two paths differ by construct
 and that difference is declared, not hidden. Every application of `A22^-1` uses the
 identity `A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v` over the sparse blocks of
 `A^-1`, with one sparse factorization of the non-genotyped block.
+}
+\references{
+Liu, Z., Goddard, M.E., Reinhardt, F. & Reents, R. (2014). A
+  single-step genomic model with direct estimation of marker effects. Journal of
+  Dairy Science 97:5833-5850.
+
+  Masuda, Y. et al. (2017). Avoiding the direct inversion of the numerator
+  relationship matrix... Journal of Animal Science 95:49-52.
+
+  Vandenplas, J., Eding, H., Calus, M.P.L. & Vuik, C. (2018). Genetics Selection
+  Evolution 50:51; Vandenplas, J. et al. (2019) 51:30.
 }

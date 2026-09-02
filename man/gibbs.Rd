@@ -71,8 +71,17 @@ session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 \value{
 samples matrix (kept iterations x parameters), posterior `mean` and `sd`,
   effective sample sizes, Geweke z, and the posterior mean/sd of every random effect
-  (`ebv`, `ebv_sd`)
+  (`ebv`, `ebv_sd`), and of every fixed effect (`b`, `b_sd`, named `term=level` as in
+  [model()], whose parametrization note applies: dropped columns are in `dropped_x`
+  and only contrasts compare against a reference-level convention)
 }
 \description{
 Gibbs sampler for a single-trait mixed model
+}
+\references{
+Geman, S. & Geman, D. (1984). Stochastic relaxation, Gibbs
+  distributions, and the Bayesian restoration of images. IEEE TPAMI 6:721-741.
+
+  Wang, C.S., Rutledge, J.J. & Gianola, D. (1993). Genetics Selection Evolution
+  25:41-62; (1994) 26:91-115.
 }

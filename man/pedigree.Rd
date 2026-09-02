@@ -38,4 +38,22 @@ that order, and merging back by the original position would silently swap animal
 A cited parent that has no line of its own is an ERROR, not an unknown. Treating it as
 unknown would change the offspring's Mendelian variance and the relationships of all the
 descendants.
+
+THE THIRD COLUMN IS THE DAM, never the maternal grandsire. There is no sire and maternal
+grandsire mode here (Mrode and Pocrnic, secs. 3.6 and 3.7): a pedigree in that format is
+read as animal, sire and dam, and the grandsire's path then enters with weight 0.5 where
+the MGS rules ask for 0.25. Nothing downstream can catch it — the A^-1 that comes out is
+still symmetric and positive definite. On the book's own example in sec. 3.7 the A that
+comes out differs from the right one by up to 0.25, and the third bull gets F = 0.25
+instead of 0.125. THERE IS NO CHECK THAT CATCHES THIS, and none is coming: the obvious
+signal, an individual cited as a sire and as a dam, was built and measured and it does
+not separate an MGS pedigree from any pedigree that draws both parents from one pool
+(both sit at a share of 1.00). Getting the format right is on the caller.
+}
+\references{
+Meuwissen, T.H.E. & Luo, Z. (1992). Computing inbreeding coefficients
+  in large populations. Genetics Selection Evolution 24:305-313.
+
+  Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
+  Ancestral relationships using metafounders. Genetics 200:455-468.
 }

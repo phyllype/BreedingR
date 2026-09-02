@@ -22,6 +22,8 @@
 #' marker. Negative values are expected at markers with no differentiation (the estimator is
 #' unbiased, not truncated) and are NOT zeroed here: truncating biases the scan's mean
 #' upward, and the mean is what serves as the reference for finding the peaks.
+#' @references Weir, B.S. & Cockerham, C.C. (1984). Estimating F-statistics for the
+#'   analysis of population structure. Evolution 38:1358-1370.
 #' @export
 fst <- function(m, groups) {
   if (!is.matrix(m)) stop("expected a genotype matrix")
@@ -77,6 +79,8 @@ fst <- function(m, groups) {
 #' @return list with `animal` (F_ROH = fraction of the markers in ROH) and `marker`
 #'   (frequency of animals in ROH at each marker: the peaks are the islands)
 #' @param min_kb minimum length in kb, used only when pos is given
+#' @references McQuillan, R. et al. (2008). Runs of homozygosity in European
+#'   populations. American Journal of Human Genetics 83:359-372.
 #' @export
 roh <- function(m, min_snp = 30L, max_het = 0L, pos = NULL, min_kb = NULL, chr = NULL) {
   if (!is.matrix(m)) stop("expected a genotype matrix")

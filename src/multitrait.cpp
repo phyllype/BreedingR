@@ -1,4 +1,4 @@
-// Multi-caracteristica com registros completos: R0 cheia t x t, grupos com a caracteristica
+// Multi-caracteristica (Henderson e Quaas, 1976) com registros completos: R0 cheia t x t, grupos com a caracteristica
 // como coeficiente extra.
 //
 // ## O desenho

@@ -1,4 +1,4 @@
-// Residuo AR(1)/CAR(1), agora para t caracteristicas: correlacao rho^|dt| dentro de
+// Residuo AR(1)/CAR(1) (Wade e Quaas, 1993), agora para t caracteristicas: correlacao rho^|dt| dentro de
 // sujeito NO TEMPO, e R0 cheia ENTRE caracteristicas, separaveis:
 //
 //   R = diag_s { Gamma_s (x) R0 },   Gamma_s[i,j] = rho^|t_i - t_j|

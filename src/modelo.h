@@ -25,7 +25,10 @@
 namespace br {
 
 enum class Efeito { Classe, Covariavel };
-enum class Estrutura { Fixo, Diagonal, Parentesco };
+// Declarada: o termo traz a PROPRIA matriz de covariancia (kernel(id, K=)) — D de
+// dominancia, G_AA de epistasia, uma parcial por raca. O K^-1 do grupo vem da K declarada
+// em vez de A ou H, e todo o resto (penalidade kron, score, AI) nem sabe a diferenca.
+enum class Estrutura { Fixo, Diagonal, Parentesco, Declarada };
 
 struct Termo {
   std::string nome;
@@ -37,7 +40,8 @@ struct Termo {
   // covariavel estimada DENTRO de cada nivel desta classe; num termo social, a coluna da
   // BAIA (o grupo de convivencia)
   std::string aninhado;
-  // Efeito genetico INDIRETO (modelo associativo de Muir e Bijma): a incidencia da linha i
+  // Efeito genetico INDIRETO (modelo associativo: Griffing 1967; Muir e Schinckel 2002;
+  // Bijma et al. 2007): a incidencia da linha i
   // marca os COMPANHEIROS de baia do animal i, nao o proprio animal. O fenotipo de i carrega
   // o efeito social de cada colega; o efeito direto continua no termo animal comum, e os
   // dois dividem um grupo de covariancia com a correlacao direto-social estimada.

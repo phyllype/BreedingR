@@ -7,13 +7,14 @@
 ebv(fit, group = NULL, trait = NULL)
 }
 \arguments{
-\item{fit}{result of model(), model_mt() or model_ar1()}
+\item{fit}{result of model(), model_mt(), model_ar1(), model_threshold(),
+model_survival() or snp_blup()}
 
 \item{group}{covariance group; the first one if omitted}
 
 \item{trait}{multi-trait only: which trait to slice out; all of them if omitted}
 }
 \description{
-Works for all three fits. In the multi-trait case the coefficients come named
+Works for all the fitters. In the multi-trait case the coefficients come named
 "level|trait"; use `trait=` to slice out one trait.
 }

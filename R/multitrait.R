@@ -1,4 +1,4 @@
-# Multi-trait: cbind() on the left-hand side of the formula.
+# Multi-trait (Henderson and Quaas, 1976): cbind() on the left-hand side of the formula.
 #
 #   model_mt(cbind(peso, ganho) ~ cg + animal(id), data, ped)
 #
@@ -28,9 +28,16 @@
 #'   result message says it is an approximation and with which k. Mutually exclusive
 #'   with `apy_core`
 #' @param missing_code missing-value code
-#' @param maxiter maximum number of iterations
+#' @param maxiter maximum number of iterations; a fit that hits the ceiling says so in
+#'   `message` and how to raise it
 #' @param tol relative tolerance on the components, sqrt(sum delta^2 / sum theta^2);
-#'   see the BLUPF90 scale note in [model()]
+#'   see the BLUPF90 scale note in [model()]. The Newton decrement g' AI^-1 g is
+#'   computed at the final point and reported in `newton_dec` (components at a
+#'   covariance boundary excluded, since this walker cannot follow a singular
+#'   boundary), but unlike [model()] it does not gate `converged` here: this fitter
+#'   steps in raw theta and can jam whole against a boundary, so a decrement above
+#'   2e-4 becomes a WARNING in `message` instead — read it before trusting a fit
+#'   near a boundary. The hard certificate lives in the univariate fitter
 #' @param verbose print the fit as it walks: one line per AI iteration with the
 #'   -2logL and the relative step (the convergence criterion itself), so a long fit
 #'   is a progress report instead of silence. Defaults to interactive() — live in a
@@ -42,10 +49,14 @@
 #' @param gamma base self-relationship of each metafounder, in (0, 2); DIAGONAL Gamma
 #'   only in this version (a declared limit). gamma -> 0 collapses onto the classic
 #'   unknown parent
+#' @return an object of class `breeding_fit_mt`; besides the fields of [model()], the
+#'   fixed-effect solutions `b` come named `term=level|trait`, one entry per column of X
+#'   and per trait. The parametrization note of [model()] applies: dropped columns are
+#'   in `dropped_x` and only contrasts compare against a reference-level convention.
 #' @export
 model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                        apy_core = NULL, vecchia_k = NULL, missing_code = NULL,
-                       maxiter = 200L, tol = 1e-8, metafounders = NULL, gamma = NULL,
+                       maxiter = 300L, tol = 1e-8, metafounders = NULL, gamma = NULL,
                        verbose = interactive()) {
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side: cbind(p1, p2) ~ ...")
@@ -74,8 +85,8 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   })
   ped_id <- ped_sire <- ped_dam <- character(0)
   if (!is.null(pedigree)) {
-    pega <- function(k) { v <- as.character(pedigree[[k]]); v[is.na(v)] <- "0"; v }
-    ped_id <- pega(1L); ped_sire <- pega(2L); ped_dam <- pega(3L)
+    cp <- colunas_pedigree(pedigree)
+    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
   g <- valida_genotipos(genotypes)
 
@@ -100,6 +111,12 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma))
   r$seconds <- proc.time()[["elapsed"]] - t0
+  # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
+  # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a
+  # parent with no line of its own, which is a declared error outside this mode, and even
+  # if it were tolerated the F would come back on the gamma = 0 base.
+  r$metafounders <- metafounders
+  r$gamma <- gamma
   r$formula <- formula
   r$traits <- traits
   structure(r, class = "breeding_fit_mt")
@@ -130,8 +147,8 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
   })
   ped_id <- ped_sire <- ped_dam <- character(0)
   if (!is.null(pedigree)) {
-    pega <- function(k) { v <- as.character(pedigree[[k]]); v[is.na(v)] <- "0"; v }
-    ped_id <- pega(1L); ped_sire <- pega(2L); ped_dam <- pega(3L)
+    cp <- colunas_pedigree(pedigree)
+    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
   .Call(R_avaliar_mt,
         lst, names(lst), traits,
@@ -188,8 +205,10 @@ print.breeding_fit_mt <- function(x, ...) {
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
   print(tabela_componentes(x$theta, x$se), digits = 6)
+  mostra_fixos(x$b, x$dropped_x)
   invisible(x)
 }
 
 #' @export
-coef.breeding_fit_mt <- function(object, ...) object$theta
+coef.breeding_fit_mt <- function(object, effects = c("components", "fixed"), ...)
+  switch(match.arg(effects), components = object$theta, fixed = object$b)

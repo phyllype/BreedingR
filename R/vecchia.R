@@ -1,10 +1,10 @@
-# Vecchia: the inverse of G approximated by conditioning each animal on its OWN k
+# Vecchia (1988): the inverse of G approximated by conditioning each animal on its OWN k
 # nearest neighbors among the previous ones, instead of on a global core.
 #
 #   column i of U:  b = G[c,c]^-1 G[c,i],  d = g_ii - G[c,i]' b
 #                   U[c,i] = -b / sqrt(d), U[i,i] = 1 / sqrt(d),   G^-1 ~ U U'
 #
-# The bridge that makes this familiar: Henderson's sparse A^-1 IS the Vecchia
+# The bridge that makes this familiar: Henderson's (1976) sparse A^-1 IS the Vecchia
 # approximation of A with the parents as the conditioning set — exact because the
 # pedigree is Markovian. APY is the other special case (everyone conditions on one
 # global core). Schafer, Katzfuss and Owhadi (2021) prove the factor built this way
@@ -24,6 +24,12 @@
 #' @return list with i, j, x, n (triplets of the lower triangle of the approximate
 #'   G^-1), the diagnostic `mendeliano` (the conditional residual d_i of each animal;
 #'   tiny = collinear with its neighborhood) and the parameters used
+#' @references Vecchia, A.V. (1988). Estimation and model identification for
+#'   continuous spatial processes. Journal of the Royal Statistical Society B
+#'   50:297-312.
+#'
+#'   Schafer, F., Katzfuss, M. & Owhadi, H. (2021). SIAM Journal on Scientific
+#'   Computing 43:A2019-A2046.
 #' @export
 vecchia_inverse <- function(m = NULL, k = 100, lambda = 0.01, g = NULL) {
   if (is.null(g)) {

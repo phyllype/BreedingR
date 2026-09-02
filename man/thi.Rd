@@ -21,3 +21,7 @@ heat-stress literature calls NRC (1971); other THI variants exist and differ by 
 tenths — if a study uses another one, compute it and pass it as the covariate, the
 reaction norm does not care where the axis came from.
 }
+\references{
+National Research Council (1971). A Guide to Environmental Research on
+  Animals. National Academy of Sciences, Washington DC.
+}

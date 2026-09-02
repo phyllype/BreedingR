@@ -1,6 +1,7 @@
 # Single step WITHOUT G: markers as equations (ssSNPBLUP, Liu et al. 2014), solved by
-# preconditioned conjugate gradients with A22^-1 applied matrix-free (Vandenplas et al.
-# 2019). G is never built nor inverted, so the cost stops depending on the cube of the
+# preconditioned conjugate gradients (Vandenplas et al. 2018, 2019) with A22^-1 applied
+# matrix-free (Masuda et al. 2017). G is never built nor inverted, so the cost stops
+# depending on the cube of the
 # number of genotyped animals. Variance components are GIVEN: this is the solver of
 # routine practice (estimate once on the exact path, then solve at scale), not a REML.
 
@@ -34,9 +35,19 @@
 #'   session, quiet in scripts and checks. Every fitter also honors Ctrl+C now
 #' @param metafounders as in [model()]
 #' @param gamma as in [model()]
-#' @return list with `b` (fixed effects), `ebv` (per covariance group, all animals;
+#' @return list with `b` (fixed-effect solutions, named `term=level`; the parametrization
+#'   note of [model()] applies), `ebv` (per covariance group, all animals;
 #'   [ebv()] works on it), `g` (marker effects in trait units per allele dose, NA for
 #'   monomorphic markers), `converged`, `iters`, `resnorm`, `message`
+#' @references Liu, Z., Goddard, M.E., Reinhardt, F. & Reents, R. (2014). A
+#'   single-step genomic model with direct estimation of marker effects. Journal of
+#'   Dairy Science 97:5833-5850.
+#'
+#'   Masuda, Y. et al. (2017). Avoiding the direct inversion of the numerator
+#'   relationship matrix... Journal of Animal Science 95:49-52.
+#'
+#'   Vandenplas, J., Eding, H., Calus, M.P.L. & Vuik, C. (2018). Genetics Selection
+#'   Evolution 50:51; Vandenplas, J. et al. (2019) 51:30.
 #' @export
 snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
                      missing_code = NULL, tol = 1e-8, maxiter = 2000L,
@@ -56,7 +67,7 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
     if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
   })
   if (is.null(pedigree)) stop("snp_blup needs a pedigree: the model is single step")
-  pega <- function(k) { v <- as.character(pedigree[[k]]); v[is.na(v)] <- "0"; v }
+  cp <- colunas_pedigree(pedigree)
   g <- valida_genotipos(genotypes)
   if (length(g$gid) == 0) stop("snp_blup without genotypes has nothing to solve")
 
@@ -71,7 +82,7 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
              vapply(terms, function(t) t$nested, character(1)),
              vapply(terms, function(t) t$base, character(1)),
              vapply(terms, function(t) t$social, logical(1)),
-             pega(1L), pega(2L), pega(3L),
+             cp$id, cp$sire, cp$dam,
              if (is.null(missing_code)) 0.0 else as.double(missing_code),
              !is.null(missing_code),
              g$gid, g$gm, as.double(rpg), as.double(theta),
@@ -80,6 +91,12 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma))
   r$seconds <- proc.time()[["elapsed"]] - t0
+  # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
+  # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a
+  # parent with no line of its own, which is a declared error outside this mode, and even
+  # if it were tolerated the F would come back on the gamma = 0 base.
+  r$metafounders <- metafounders
+  r$gamma <- gamma
   if (!is.null(colnames(genotypes$m))) names(r$g) <- colnames(genotypes$m)
   r$theta <- theta
   r$rpg <- rpg

@@ -9,7 +9,8 @@
 #
 #   peso ~ cg + animal(id, group = "g") + maternal(dam, group = "g")
 
-MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indirect")
+MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indirect",
+                "kernel")
 
 #' Fit a mixed model by AI-REML
 #'
@@ -17,7 +18,20 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 #'   class effect; `cov(x)` is a fixed covariate; `animal(id)`, `maternal(dam)` and
 #'   `sire(sire)` are random with relationship; `pe(id)` and `random(lote)` are random
 #'   without relationship. `group = "nome"` puts two random terms in the SAME covariance
-#'   matrix, with the correlation estimated.
+#'   matrix, with the correlation estimated. `kernel(id, K = D)` is a random term with a
+#'   DECLARED covariance matrix: K is a symmetric positive-definite matrix whose rownames
+#'   are the level identifiers, and every row of K gets an equation, with or without a
+#'   record — a dominance D ([dominance_matrix()], [g_dominance()]), an epistatic G_AA
+#'   ([g_epistasis()]), a partial multibreed matrix ([partial_a()]), or any relationship
+#'   the pedigree and the markers do not already provide. A row of K that is ENTIRELY
+#'   zero, diagonal included, declares a level with no contribution to this term: it
+#'   gets no equation and its records stay in the analysis with zero incidence here —
+#'   the generalized-inverse pattern of the multibreed partial matrices (Mrode &
+#'   Pocrnic, 4th ed., p.243-244). An id absent from K altogether still excludes the
+#'   record, as with an animal missing from the pedigree: a zero row is a declaration,
+#'   an absence is a gap. Two kernel terms need `nome=` to tell their components apart.
+#'   The inversion of K is dense, so the declared route is for matrices of moderate
+#'   size — the size of a genotyped set, not of a national pedigree.
 #' @param data data.frame with the columns referenced
 #' @param pedigree data.frame animal, sire, dam; required with a relationship term
 #' @param missing_code missing-value code for observations, for example -999
@@ -33,11 +47,22 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 #'   parents as the conditioning set). k >= n - 1 reproduces the exact inverse; the
 #'   result message says it is an approximation and with which k. Mutually exclusive
 #'   with `apy_core`
-#' @param maxiter maximum number of iterations of the damped step
+#' @param maxiter maximum number of iterations of the damped step. The default 300 was
+#'   raised from 100 after a measured case: a direct-indirect model warm-started from
+#'   the reduced fit still had relDelta 1.6e-4 at iteration 100 — no defect, a model
+#'   that walks slowly along a covariance boundary. A fit that hits the ceiling says so
+#'   in `message` and reports `converged = FALSE`
 #' @param tol RELATIVE tolerance on the components, sqrt(sum delta^2 / sum theta^2).
 #'   BLUPF90 note: airemlf90/blupf90+ VCE test the SQUARED quantity, so their
 #'   conv_crit equals this tol squared (their 1e-10 is tol = 1e-5 here; this 1e-8
-#'   default is 1e-16 on their scale)
+#'   default is 1e-16 on their scale). A small step alone never certifies convergence:
+#'   `converged = TRUE` additionally requires the Newton decrement of the free
+#'   components, g' AI^-1 g restricted to the components not held at a boundary, to
+#'   fall under 2e-4 — near the optimum the decrement is about twice the -2logL gap
+#'   to it, so the certificate bounds that gap by ~1e-4. The value is reported in
+#'   `newton_dec`. Measured motivation: a fit that stalled against the singularity
+#'   boundary with relDelta 5.1e-9 and the score far from zero sat 6.9 -2logL units
+#'   above the optimum, and the step criterion alone declared it converged
 #' @param n_em EM iterations before the AI, to land in the right basin
 #' @param start starting values for the components, in the order the fit reports them.
 #'   Use it to warm-start from a submodel, or to check that the optimum does not depend
@@ -58,9 +83,34 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 #' @param gamma base self-relationship of each metafounder, in (0, 2); DIAGONAL Gamma
 #'   only in this version (a declared limit). gamma -> 0 collapses onto the classic
 #'   unknown parent
+#' @return an object of class `breeding_fit`: the components `theta` with their `se`,
+#'   the fixed-effect solutions `b` (named `term=level`, in the order the columns of X
+#'   entered), `ebv` and `pev` per covariance group, `score`, `vcov`, the convergence
+#'   fields (`converged`, `iters`, `reldelta`, and `newton_dec`, the Newton decrement
+#'   of the free components at the final point) and `message`. PARAMETRIZATION OF `b`, and it matters when comparing against
+#'   a book or another program: the model carries an implicit intercept and drops
+#'   linearly dependent columns (listed in `dropped_x`; a dropped level has solution
+#'   zero). A program that instead zeroes some other level -- Mrode's examples zero one
+#'   level per factor and fit no intercept -- agrees with `b` only on CONTRASTS,
+#'   differences between levels of the same factor, never on the raw values.
+#' @references Patterson, H.D. & Thompson, R. (1971). Recovery of inter-block
+#'   information when block sizes are unequal. Biometrika 58:545-554.
+#'
+#'   Gilmour, A.R., Thompson, R. & Cullis, B.R. (1995). Average information REML.
+#'   Biometrics 51:1440-1450.
+#'
+#'   VanRaden, P.M. (2008). Efficient methods to compute genomic predictions. Journal
+#'   of Dairy Science 91:4414-4423.
+#'
+#'   Aguilar, I. et al. (2010). A unified approach... Journal of Dairy Science
+#'   93:743-752; Christensen, O.F. & Lund, M.S. (2010). Genetics Selection Evolution
+#'   42:2.
+#'
+#'   Misztal, I., Legarra, A. & Aguilar, I. (2014). Using recursion to compute the
+#'   inverse of the genomic relationship matrix. Journal of Dairy Science 97:3943-3952.
 #' @export
 model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
-                  apy_core = NULL, vecchia_k = NULL, missing_code = NULL, maxiter = 100L, tol = 1e-8,
+                  apy_core = NULL, vecchia_k = NULL, missing_code = NULL, maxiter = 300L, tol = 1e-8,
                   n_em = 4L, metafounders = NULL, gamma = NULL, verbose = interactive(),
                   weights = NULL, start = NULL) {
   if (!inherits(formula, "formula")) stop("expected a formula, like peso ~ cg + animal(id)")
@@ -89,12 +139,13 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
 
   ped_id <- ped_sire <- ped_dam <- character(0)
   if (!is.null(pedigree)) {
-    pega <- function(k) { v <- as.character(pedigree[[k]]); v[is.na(v)] <- "0"; v }
-    ped_id <- pega(1L); ped_sire <- pega(2L); ped_dam <- pega(3L)
+    cp <- colunas_pedigree(pedigree)
+    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
 
   g <- valida_genotipos(genotypes)
   w <- valida_pesos(weights, data)
+  kern <- monta_kernels(terms, environment(formula))
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_ajustar,
@@ -116,8 +167,14 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              isTRUE(verbose),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma), w,
-             if (is.null(start)) numeric(0) else as.double(start))
+             if (is.null(start)) numeric(0) else as.double(start), kern)
   r$seconds <- proc.time()[["elapsed"]] - t0
+  # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
+  # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a
+  # parent with no line of its own, which is a declared error outside this mode, and even
+  # if it were tolerated the F would come back on the gamma = 0 base.
+  r$metafounders <- metafounders
+  r$gamma <- gamma
   r$formula <- formula
   r$trait <- trait
   structure(r, class = "breeding_fit")
@@ -158,6 +215,36 @@ valida_pesos <- function(weights, data) {
   w
 }
 
+# The declared-K route: evaluates each kernel(id, K=) expression in the environment of the
+# formula and validates the shape the engine needs — square, named, symmetric, finite.
+# Positive-definiteness is left to the factorization, where the answer is exact instead of
+# a tolerance. Returns NULL when the model has no kernel term, so every fitter can pass
+# the result straight to .Call.
+monta_kernels <- function(terms, envir) {
+  out <- lapply(terms, function(t) {
+    if (t$estrutura != 3L) return(NULL)
+    K <- eval(t$kexpr, envir)
+    if (!is.matrix(K) || !is.numeric(K) || nrow(K) != ncol(K))
+      stop("kernel '", t$nome, "': K must be a square numeric matrix")
+    ids <- rownames(K)
+    if (is.null(ids))
+      stop("kernel '", t$nome, "': K needs rownames with the level identifiers, so the ",
+           "coefficients can be matched to the data and named in the result")
+    if (anyDuplicated(ids))
+      stop("kernel '", t$nome, "': duplicated rowname(s) in K: ",
+           paste(unique(ids[duplicated(ids)]), collapse = ", "))
+    if (any(!is.finite(K)))
+      stop("kernel '", t$nome, "': K has non-finite value(s)")
+    assimetria <- max(abs(K - t(K)))
+    if (assimetria > 1e-8 * max(1, max(abs(K))))
+      stop("kernel '", t$nome, "': K is not symmetric (largest asymmetry ",
+           format(assimetria, digits = 3), "). Symmetrize it explicitly: (K + t(K)) / 2")
+    storage.mode(K) <- "double"
+    list(as.character(ids), K)
+  })
+  if (all(vapply(out, is.null, logical(1)))) NULL else out
+}
+
 decompoe_formula <- function(expr) {
   partes <- list()
   anda <- function(e) {
@@ -196,7 +283,7 @@ interpreta_termo <- function(e) {
   if (is.name(e)) {
     n <- as.character(e)
     return(list(nome = n, column = n, estrutura = 0L, covariavel = FALSE,
-                group = "", nested = "", base = "", social = FALSE))
+                group = "", nested = "", base = "", social = FALSE, kexpr = NULL))
   }
   if (!is.call(e)) stop("did not understand the term: ", deparse(e))
   marc <- as.character(e[[1]])
@@ -224,7 +311,8 @@ interpreta_termo <- function(e) {
   }
   if (marc == "rn" && !nzchar(base))
     stop("rn() requires base = c(...): without a base, use animal() or random()")
-  # indirect(id, pen = "baia"): the INDIRECT genetic effect (associative model). The incidence of row i marks the
+  # indirect(id, pen = "baia"): the INDIRECT genetic effect (associative model; Griffing,
+  # 1967; Muir and Schinckel, 2002; Bijma et al., 2007). The incidence of row i marks the
   # pen mates; the direct effect stays in animal(id), and the two in the same group
   # estimate the direct-social correlation. The pen crosses over in the nested field.
   if (marc == "indirect") {
@@ -232,11 +320,23 @@ interpreta_termo <- function(e) {
     if (!nzchar(pen)) stop("indirect() requires pen = the pen column: without knowing who lives with whom there is no indirect effect")
     nested <- pen
   }
+  # kernel(id, K = D): a random term whose covariance matrix is DECLARED instead of
+  # derived from the pedigree or the markers. The K expression is kept as language here
+  # and evaluated by the fitter in the environment of the formula — this parser also runs
+  # where no K is wanted (accuracy() re-reads the stored formula), and evaluating a
+  # possibly large matrix there would be work done for nobody.
+  kexpr <- NULL
+  if (marc == "kernel") {
+    if (is.null(args[["K"]]))
+      stop("kernel() requires K = the covariance matrix of its levels: without a K, ",
+           "use animal() for the pedigree relationship or random() for the identity")
+    kexpr <- args[["K"]]
+  }
   estrutura <- switch(marc, animal = , maternal = , sire = , rn = , indirect = 2L,
-                      pe = , random = 1L, cov = 0L)
+                      pe = , random = 1L, kernel = 3L, cov = 0L)
   list(nome = nome, column = column, estrutura = estrutura,
        covariavel = marc == "cov", group = group, nested = nested, base = base,
-       social = marc == "indirect")
+       social = marc == "indirect", kexpr = kexpr)
 }
 
 #' Evaluate -2logL, score and AI at a given theta, by both routes
@@ -274,8 +374,8 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
   })
   ped_id <- ped_sire <- ped_dam <- character(0)
   if (!is.null(pedigree)) {
-    pega <- function(k) { v <- as.character(pedigree[[k]]); v[is.na(v)] <- "0"; v }
-    ped_id <- pega(1L); ped_sire <- pega(2L); ped_dam <- pega(3L)
+    cp <- colunas_pedigree(pedigree)
+    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
   .Call(R_avaliar,
         lst, names(lst), trait,
@@ -295,7 +395,8 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
              valida_pesos(weights, data),
         valida_genotipos(genotypes)$gid, valida_genotipos(genotypes)$gm, as.double(blend),
         if (is.null(apy_core)) character(0) else as.character(apy_core),
-        if (is.null(vecchia_k)) 0L else as.integer(vecchia_k))
+        if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
+        monta_kernels(terms, environment(formula)))
 }
 
 #' @export
@@ -315,6 +416,8 @@ print.breeding_fit <- function(x, ...) {
   cat("AI-REML fit of '", x$trait, "'\n", sep = "")
   cat("  ", if (x$converged) "converged" else "DID NOT CONVERGE",
       " in ", x$iters, " iteration(s), relDelta ", format(x$reldelta, digits = 3),
+      if (!is.null(x$newton_dec))
+        paste0(", Newton decrement ", format(x$newton_dec, digits = 3)),
       ", ", format(x$seconds, digits = 3), " s\n", sep = "")
   cat("  -2logL ", format(x$neg2logl, digits = 10), "\n", sep = "")
   cat("  ", x$n_used, " record(s), ", x$n_columns, " column(s) in the equations\n", sep = "")
@@ -324,30 +427,56 @@ print.breeding_fit <- function(x, ...) {
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
   print(tabela_componentes(x$theta, x$se), digits = 6)
+  mostra_fixos(x$b, x$dropped_x)
   invisible(x)
 }
 
+#' Coefficients of a fit: variance components or fixed-effect solutions
+#'
+#' The default keeps what `coef()` always returned here, the vector of variance
+#' components. `effects = "fixed"` returns the fixed-effect solutions instead, the same
+#' vector stored in `fit$b`; see the parametrization note in [model()] before comparing
+#' them against anything that zeroes a reference level.
+#' @param object result of [model()], [model_mt()] or [model_ar1()]
+#' @param effects `"components"` (default) for `theta`, `"fixed"` for `b`
+#' @param ... unused, kept for the generic
+#' @return a named numeric vector
 #' @export
-coef.breeding_fit <- function(object, ...) object$theta
+coef.breeding_fit <- function(object, effects = c("components", "fixed"), ...)
+  switch(match.arg(effects), components = object$theta, fixed = object$b)
+
+# The sober print of the fixed block, shared by the fit classes: one line of
+# warning about the parametrization (the number one source of false alarms against
+# published tables), then the named vector as R prints it. The threshold fitter has
+# no implicit intercept, so it passes its own note.
+mostra_fixos <- function(b, dropped, nota = "implicit intercept") {
+  if (is.null(b) || !length(b)) return(invisible())
+  cat("\nfixed effects (", nota,
+      if (length(dropped)) "; dropped columns are zero" else "",
+      "; compare by contrast):\n", sep = "")
+  print(b, digits = 6)
+  invisible()
+}
 
 #' Genetic values of a group
 #'
-#' Works for all three fits. In the multi-trait case the coefficients come named
+#' Works for all the fitters. In the multi-trait case the coefficients come named
 #' "level|trait"; use `trait=` to slice out one trait.
-#' @param fit result of model(), model_mt() or model_ar1()
+#' @param fit result of model(), model_mt(), model_ar1(), model_threshold(),
+#'   model_survival() or snp_blup()
 #' @param group covariance group; the first one if omitted
 #' @param trait multi-trait only: which trait to slice out; all of them if omitted
 #' @export
 ebv <- function(fit, group = NULL, trait = NULL) {
   if (!inherits(fit, c("breeding_fit", "breeding_fit_mt", "breeding_fit_ar1",
-                       "breeding_snp_blup")))
-    stop("expected the result of model(), model_mt(), model_ar1() or snp_blup()")
+                       "breeding_fit_thr", "breeding_fit_surv", "breeding_snp_blup")))
+    stop("expected the result of model(), model_mt(), model_ar1(), ",
+         "model_threshold(), model_survival() or snp_blup()")
   if (is.null(group)) group <- names(fit$ebv)[1]
   v <- fit$ebv[[group]]
   if (is.null(v)) stop("there is no group '", group, "'. Available: ", paste(names(fit$ebv), collapse = ", "))
   if (!is.null(trait)) {
-    if (!inherits(fit, "breeding_fit_mt") &&
-        !(inherits(fit, "breeding_fit_ar1") && any(grepl("[|]", names(v)))))
+    if (!inherits(fit, "breeding_fit_mt") && !any(grepl("[|]", names(v))))
       stop("trait= only makes sense in a multi-trait fit")
     # the name is "level|trait" and, with more than one coefficient, "level|trait[k]"
     pega <- grepl(paste0("\\|", trait, "(\\[\\d+\\])?$"), names(v))
@@ -364,7 +493,8 @@ summary.breeding_fit <- function(object, ...) {
   out <- list(trait = object$trait, converged = object$converged, neg2logl = object$neg2logl,
               components = data.frame(component = names(th), estimate = unname(th),
                                        std_error = unname(object$se),
-                                       proportion = unname(th) / sum(th), row.names = NULL))
+                                       proportion = unname(th) / sum(th), row.names = NULL),
+              fixed = object$b, dropped_x = object$dropped_x)
   structure(out, class = "summary.breeding_fit")
 }
 
@@ -373,6 +503,7 @@ print.summary.breeding_fit <- function(x, ...) {
   cat("Trait:", x$trait, "\n-2logL:", format(x$neg2logl, digits = 10),
       if (x$converged) "" else "(DID NOT CONVERGE)", "\n\n")
   print(x$components, digits = 6)
+  mostra_fixos(x$fixed, x$dropped_x)
   cat("\nThe 'proportion' is the component over the sum of all of them. The standard error\n",
       "of that ratio needs the covariance between components and is NOT given here: making\n",
       "the number up would be worse than giving none.\n", sep = "")
@@ -390,15 +521,31 @@ print.summary.breeding_fit <- function(x, ...) {
 #' the intercept alone is misleading (the slope's is tiny and the total EBV's depends on the
 #' point of the gradient), so the error here tells you to combine the coefficients
 #' explicitly.
-#' @param fit result of model(), model_mt() or model_ar1()
+#'
+#' One declared limit: F is read from the PEDIGREE even when the fit was single-step. For a
+#' genotyped animal the prior variance is the diagonal of H, which in that block is the
+#' diagonal of G*, and that is not 1 + F_ped. On a simulated population of 510 animals, all
+#' genotyped, the two diagonals differ by up to 0.18, which moves an individual accuracy by
+#' up to 0.067 (median 0.011). The two versions agree in the mean (0.6966 against 0.6964),
+#' so a herd average is unaffected; what moves is the individual, and with it the ranking of
+#' genotyped animals by accuracy (Spearman correlation between the two vectors, 0.77). Read
+#' genomic accuracies with that in mind.
+#' @param fit result of model(), model_mt(), model_ar1() or model_threshold()
+#'   (ordinal mode; the joint threshold fit carries no PEV, a declared limit)
 #' @param pedigree the same data.frame used in the fit
 #' @param group covariance group; the first one if omitted
 #' @param trait required in the multi-trait case: accuracy is per trait, with the
 #'   corresponding var(group@trait)
+#' @references Henderson, C.R. (1975). Best linear unbiased estimation and prediction
+#'   under a selection model. Biometrics 31:423-447.
+#'
+#'   Mrode, R.A. & Pocrnic, I. (2023). Linear Models for the Prediction of the Genetic
+#'   Merit of Animals, 4th ed. CABI, ch. 3.
 #' @export
 accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
-  if (!inherits(fit, c("breeding_fit", "breeding_fit_mt", "breeding_fit_ar1")))
-    stop("expected the result of model(), model_mt() or model_ar1()")
+  if (!inherits(fit, c("breeding_fit", "breeding_fit_mt", "breeding_fit_ar1",
+                       "breeding_fit_thr")))
+    stop("expected the result of model(), model_mt(), model_ar1() or model_threshold()")
   if (is.null(group)) group <- names(fit$ebv)[1]
   pv <- fit$pev[[group]]
   if (is.null(pv)) stop("there is no PEV for group '", group, "'")
@@ -413,7 +560,11 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
   } else {
     va <- unname(fit$theta[match(paste0("var(", group, ")"), names(fit$theta))])
   }
-  p <- pedigree(pedigree)
+  # the SAME base the fit was built on. A fit with metafounders cites labels that have no
+  # line of their own, so rebuilding the pedigree without them dies on a declared error;
+  # and even if the label had a line, gamma = 0 would return F on the wrong base and
+  # understate the accuracy of every descendant.
+  p <- pedigree(pedigree, metafounders = fit$metafounders, gamma = fit$gamma)
   if (length(pv) != nrow(p)) {
     # a group with SEVERAL scalar terms (direct-maternal, direct-indirect) has one
     # block of animals per term, and each block has its own variance: the accuracy is

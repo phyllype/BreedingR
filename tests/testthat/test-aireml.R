@@ -88,7 +88,7 @@ test_that("inadmissible theta is an ERROR, not a result", {
                "INADMISSIBLE")
 })
 
-test_that("Willham's full maternal model fits in one formula: two pe() disambiguate by column", {
+test_that("the maternal model fits in one formula, and two pe() must be named", {
   set.seed(41)
   s <- simulate_breeding(n_founders = 40, n_generations = 2,
                          offspring_per_generation = 80, h2 = 0.35, seed = 41)

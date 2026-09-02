@@ -15,6 +15,11 @@
 #' @param group covariance group of the genomic term ("animal" by default)
 #' @return vector of marker effects, in the units of the trait per allele-dose,
 #'   plus the allele frequencies used, as attributes
+#' @references VanRaden, P.M. (2008). Journal of Dairy Science 91:4414-4423.
+#'
+#'   Wang, H., Misztal, I., Aguilar, I., Legarra, A. & Muir, W.M. (2012). Genome-wide
+#'   association mapping including phenotypes from relatives without genotypes.
+#'   Genetics Research 94:73-83.
 #' @export
 snp_effects <- function(fit, pedigree, genotypes, blend = 0.05, group = "animal") {
   if (!inherits(fit, "breeding_fit")) stop("expected the result of model()")

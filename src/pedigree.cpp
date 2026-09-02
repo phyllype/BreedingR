@@ -1,4 +1,4 @@
-// Pedigree: ordenacao topologica, endogamia de Meuwissen e Luo, e A^-1 de Henderson.
+// Pedigree: ordenacao topologica, endogamia de Meuwissen e Luo (1992), e A^-1 de Henderson (1976).
 //
 // Este e o modulo onde um erro passa despercebido com mais facilidade, porque A^-1 sai
 // simetrica, positiva-definida e plausivel mesmo quando esta errada. Dois pontos concentram

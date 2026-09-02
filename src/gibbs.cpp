@@ -1,4 +1,5 @@
-// Gibbs para o modelo animal (uma caracteristica): o lado bayesiano do pacote.
+// Gibbs (Geman e Geman, 1984; Wang, Rutledge e Gianola, 1993, 1994) para o modelo
+// animal (uma caracteristica): o lado bayesiano do pacote.
 //
 // ## O desenho
 //
@@ -104,7 +105,7 @@ GibbsSaida gibbs(const Desenho& d, std::size_t n_iter, std::size_t burnin,
 
   std::size_t n_amostras = 0;
   std::size_t total_cols = 0;
-  std::vector<double> media_u, m2_u;   // Welford para media e variancia das localizacoes
+  std::vector<double> media_u, m2_u;   // Welford (1962) para media e variancia das localizacoes
 
   for (std::size_t it = 0; it < n_iter; it++) {
     R_CheckUserInterrupt();

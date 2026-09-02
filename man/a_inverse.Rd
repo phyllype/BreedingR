@@ -30,3 +30,11 @@ with `Matrix::sparseMatrix(i = a$i, j = a$j, x = a$x, dims = c(a$n, a$n), symmet
 but this package does not depend on Matrix: the matrix is returned in triplets so anyone
 can use whatever they prefer.
 }
+\references{
+Henderson, C.R. (1976). A simple method for computing the inverse of a
+  numerator relationship matrix used in prediction of breeding values. Biometrics
+  32:69-83.
+
+  Quaas, R.L. (1976). Computing the diagonal elements and inverse of a large
+  numerator relationship matrix. Biometrics 32:949-953.
+}

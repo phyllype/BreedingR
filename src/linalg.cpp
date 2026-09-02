@@ -4,7 +4,7 @@
 // E o que tira o pacote do caminho denso. A Cholesky densa de estruturas.cpp fica como
 // REFERENCIA: tudo aqui e conferido contra ela, nunca contra si mesmo.
 //
-// Duas ideias decidem o formato do codigo (Davis, Direct Methods for Sparse Linear Systems):
+// Duas ideias decidem o formato do codigo (Davis, 2006, Direct Methods for Sparse Linear Systems):
 //
 //  - a ARVORE DE ELIMINACAO diz, para cada coluna, a que coluna anterior o primeiro
 //    elemento fora da diagonal pertence. Subir a arvore da o padrao de nao-zeros de uma
@@ -208,11 +208,11 @@ Csc permuta_sim(const Csc& a, const std::vector<std::size_t>& perm) {
   return de_triplos(n, n, li, cj, v);
 }
 
-// Grau minimo sobre o grafo quociente.
+// Grau minimo (Tinney e Walker, 1967) sobre o grafo quociente.
 //
 // Medido, nao assumido. Num pedigree de 3.000 animais mais um clique genomico o preenchimento
 // foi: natural 1.332.217, Cuthill-McKee reverso 746.017, Cuthill-McKee simples 2.506.473,
-// grau minimo 201.487. O RCM reduz pela metade mas poe os nos de grau alto PRIMEIRO, que e
+// grau minimo 201.487. O RCM (Cuthill e McKee, 1969) reduz pela metade mas poe os nos de grau alto PRIMEIRO, que e
 // exatamente onde a forma fechada do bloco denso final nao os enxerga.
 //
 // O grafo quociente e o que torna isto pagavel: uma variavel eliminada vira um ELEMENTO que

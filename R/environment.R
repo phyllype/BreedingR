@@ -1,4 +1,4 @@
-# Environmental covariates for reaction norms: the temperature-humidity index and the
+# Environmental covariates for reaction norms: the temperature-humidity index (NRC, 1971) and the
 # heat load above a threshold. Small on purpose — these are the two transforms every
 # heat-stress study starts from, and having them here keeps the basis reproducible.
 
@@ -13,6 +13,8 @@
 #' @param temp temperature in degrees Celsius
 #' @param rh relative humidity in percent (0 to 100)
 #' @return the index, same length as the inputs
+#' @references National Research Council (1971). A Guide to Environmental Research on
+#'   Animals. National Academy of Sciences, Washington DC.
 #' @export
 thi <- function(temp, rh) {
   if (any(rh < 0 | rh > 100, na.rm = TRUE)) stop("relative humidity outside 0..100")

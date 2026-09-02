@@ -13,3 +13,8 @@ geweke_z(x)
 Compares the mean of the first tenth of the chain against the mean of the last half;
 under convergence the standardized difference is approximately standard normal.
 }
+\references{
+Geweke, J. (1992). Evaluating the accuracy of sampling-based approaches
+  to the calculation of posterior moments. In Bayesian Statistics 4. Oxford
+  University Press.
+}

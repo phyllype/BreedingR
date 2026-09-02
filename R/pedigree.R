@@ -1,3 +1,28 @@
+# WHY THERE IS NO PEDIGREE-FORMAT CHECK HERE, AND WHAT THAT COSTS.
+#
+# A pedigree whose THIRD column holds the MATERNAL GRANDSIRE (Mrode and Pocrnic, 2023,
+# secs. 3.6 and 3.7) reads in here as a pedigree of animal, sire and dam, and nothing downstream can
+# notice: the A^-1 that comes out is still symmetric and positive definite and every solver
+# accepts it. What changes is the weight of the grandsire path, 0.5 where the MGS rules ask
+# for 0.25. Measured on the book's own example of sec. 3.7: the A that comes out differs
+# from the printed one by up to 0.25 and the third bull gets F = 0.25 instead of 0.125.
+#
+# The obvious detector is the one thing sires and dams never share: an individual cited on
+# both sides. It was written, wired in, and MEASURED, and it does not separate. Over 150
+# random configurations the share of distinct dams that also appear as sires runs 0.05 to
+# 0.82 for simulate_breeding() and 0.67 to 1.00 (1.00 in 132 of 150) for hand-written
+# pedigrees that draw both parents from one pool. The MGS format sits at 0.97 to 1.00. The
+# two distributions overlap at the top, so no threshold tells them apart, and on the
+# package's own suite the warning fired 262 times across 18 files without a single true
+# positive. A warning nobody can afford to read is worse than none.
+#
+# So the risk is DOCUMENTED, on the pedigree() page, and not guessed at. If a sex column
+# ever enters the pedigree interface, the check belongs right here.
+colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
+  pega <- function(k) { v <- as.character(ped[[k]]); v[is.na(v)] <- "0"; v }
+  list(id = pega(id), sire = pega(sire), dam = pega(dam))
+}
+
 #' Sort a pedigree and compute inbreeding
 #'
 #' Returns the pedigree in TOPOLOGICAL ORDER, with sire and dam before the offspring, and the
@@ -9,6 +34,17 @@
 #' A cited parent that has no line of its own is an ERROR, not an unknown. Treating it as
 #' unknown would change the offspring's Mendelian variance and the relationships of all the
 #' descendants.
+#'
+#' THE THIRD COLUMN IS THE DAM, never the maternal grandsire. There is no sire and maternal
+#' grandsire mode here (Mrode and Pocrnic, secs. 3.6 and 3.7): a pedigree in that format is
+#' read as animal, sire and dam, and the grandsire's path then enters with weight 0.5 where
+#' the MGS rules ask for 0.25. Nothing downstream can catch it — the A^-1 that comes out is
+#' still symmetric and positive definite. On the book's own example in sec. 3.7 the A that
+#' comes out differs from the right one by up to 0.25, and the third bull gets F = 0.25
+#' instead of 0.125. THERE IS NO CHECK THAT CATCHES THIS, and none is coming: the obvious
+#' signal, an individual cited as a sire and as a dam, was built and measured and it does
+#' not separate an MGS pedigree from any pedigree that draws both parents from one pool
+#' (both sit at a share of 1.00). Getting the format right is on the caller.
 #'
 #' @param ped data.frame with animal, sire and dam. An unknown sire or dam enters as "0" or NA.
 #' @return data.frame with id, sire, dam (1-based indices, NA if unknown) and F
@@ -23,12 +59,17 @@
 #' @param gamma base self-relationship of each metafounder, in (0, 2); DIAGONAL Gamma
 #'   only in this version (a declared limit). gamma -> 0 collapses onto the classic
 #'   unknown parent
+#' @references Meuwissen, T.H.E. & Luo, Z. (1992). Computing inbreeding coefficients
+#'   in large populations. Genetics Selection Evolution 24:305-313.
+#'
+#'   Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
+#'   Ancestral relationships using metafounders. Genetics 200:455-468.
 #' @export
 pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L,
                      metafounders = NULL, gamma = NULL) {
   if (!is.data.frame(ped)) stop("expected a data.frame")
-  pega <- function(k) { v <- as.character(ped[[k]]); v[is.na(v)] <- "0"; v }
-  r <- .Call(R_pedigree, pega(id), pega(sire), pega(dam),
+  cp <- colunas_pedigree(ped, id, sire, dam)
+  r <- .Call(R_pedigree, cp$id, cp$sire, cp$dam,
         if (is.null(metafounders)) character(0) else as.character(metafounders),
         if (is.null(gamma)) numeric(0) else as.double(gamma))
   out <- data.frame(id = r$id, sire = r$sire, dam = r$dam, F = r$F,
@@ -67,12 +108,18 @@ print.br_pedigree <- function(x, ...) {
 #' @param gamma base self-relationship of each metafounder, in (0, 2); DIAGONAL Gamma
 #'   only in this version (a declared limit). gamma -> 0 collapses onto the classic
 #'   unknown parent
+#' @references Henderson, C.R. (1976). A simple method for computing the inverse of a
+#'   numerator relationship matrix used in prediction of breeding values. Biometrics
+#'   32:69-83.
+#'
+#'   Quaas, R.L. (1976). Computing the diagonal elements and inverse of a large
+#'   numerator relationship matrix. Biometrics 32:949-953.
 #' @export
 a_inverse <- function(ped, id = 1L, sire = 2L, dam = 3L,
                       metafounders = NULL, gamma = NULL) {
   if (!is.data.frame(ped)) stop("expected a data.frame")
-  pega <- function(k) { v <- as.character(ped[[k]]); v[is.na(v)] <- "0"; v }
-  .Call(R_a_inversa, pega(id), pega(sire), pega(dam),
+  cp <- colunas_pedigree(ped, id, sire, dam)
+  .Call(R_a_inversa, cp$id, cp$sire, cp$dam,
         if (is.null(metafounders)) character(0) else as.character(metafounders),
         if (is.null(gamma)) numeric(0) else as.double(gamma))
 }
@@ -114,6 +161,9 @@ sparse_chol <- function(a, reorder = TRUE) {
 #' @param block 0 detects the dense tail and uses the closed form; 1 forces the pure
 #'   recurrence, which exists so the tests can compare the two paths.
 #' @param a list i, j, x, n with the triplets
+#' @references Takahashi, K., Fagan, J. & Chin, M.-S. (1973). Formation of a sparse
+#'   bus impedance matrix and its application to short circuit study. Proceedings of
+#'   the 8th PICA Conference, 63-69.
 #' @export
 selected_inverse <- function(a, block = 0L) {
   .Call(R_inv_seletiva, as.integer(a$i), as.integer(a$j), as.double(a$x),
@@ -142,8 +192,8 @@ sparse_solve <- function(a, b) {
 #' @param dam the dam column
 #' @export
 a22_inverse <- function(ped, geno, id = 1L, sire = 2L, dam = 3L) {
-  pega <- function(k) { v <- as.character(ped[[k]]); v[is.na(v)] <- "0"; v }
-  .Call(R_a22_inversa, pega(id), pega(sire), pega(dam), as.integer(geno))
+  cp <- colunas_pedigree(ped, id, sire, dam)
+  .Call(R_a22_inversa, cp$id, cp$sire, cp$dam, as.integer(geno))
 }
 
 #' Normalized Legendre polynomials, evaluated on a gradient
@@ -161,6 +211,9 @@ a22_inverse <- function(ped, geno, id = 1L, sire = 2L, dam = 3L) {
 #' @param x the observed gradient
 #' @param order polynomial order, 0 to 6
 #' @param limits minimum and maximum for scaling; if omitted, the observed ones are used
+#' @references Kirkpatrick, M., Lofsvold, D. & Bulmer, M. (1990). Analysis of the
+#'   inheritance, selection and evolution of growth trajectories. Genetics
+#'   124:979-993.
 #' @export
 legendre <- function(x, order = 1L, limits = NULL) {
   if (!is.numeric(x)) stop("x must be numeric")

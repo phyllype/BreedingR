@@ -1,4 +1,5 @@
-# The Bayesian half: Gibbs sampling for the same models model() fits.
+# The Bayesian half: Gibbs sampling (Geman and Geman, 1984; in animal models, Wang,
+# Rutledge and Gianola, 1993, 1994) for the same models model() fits.
 #
 #   g <- gibbs(y ~ cg + animal(id), data, ped, n_iter = 20000)
 #
@@ -32,7 +33,9 @@
 #'   sample variance the PEV)
 #' @return samples matrix (kept iterations x parameters), posterior `mean` and `sd`,
 #'   effective sample sizes, Geweke z, and the posterior mean/sd of every random effect
-#'   (`ebv`, `ebv_sd`)
+#'   (`ebv`, `ebv_sd`), and of every fixed effect (`b`, `b_sd`, named `term=level` as in
+#'   [model()], whose parametrization note applies: dropped columns are in `dropped_x`
+#'   and only contrasts compare against a reference-level convention)
 #' @param verbose print the fit as it walks: one line per AI iteration with the
 #'   -2logL and the relative step (the convergence criterion itself), so a long fit
 #'   is a progress report instead of silence. Defaults to interactive() — live in a
@@ -44,6 +47,11 @@
 #' @param gamma base self-relationship of each metafounder, in (0, 2); DIAGONAL Gamma
 #'   only in this version (a declared limit). gamma -> 0 collapses onto the classic
 #'   unknown parent
+#' @references Geman, S. & Geman, D. (1984). Stochastic relaxation, Gibbs
+#'   distributions, and the Bayesian restoration of images. IEEE TPAMI 6:721-741.
+#'
+#'   Wang, C.S., Rutledge, J.J. & Gianola, D. (1993). Genetics Selection Evolution
+#'   25:41-62; (1994) 26:91-115.
 #' @export
 gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                   apy_core = NULL, missing_code = NULL, vecchia_k = NULL,
@@ -68,8 +76,8 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   })
   ped_id <- ped_sire <- ped_dam <- character(0)
   if (!is.null(pedigree)) {
-    pega <- function(k) { v <- as.character(pedigree[[k]]); v[is.na(v)] <- "0"; v }
-    ped_id <- pega(1L); ped_sire <- pega(2L); ped_dam <- pega(3L)
+    cp <- colunas_pedigree(pedigree)
+    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
   g <- valida_genotipos(genotypes)
 
@@ -98,6 +106,12 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              if (is.null(gamma)) numeric(0) else as.double(gamma))
   colnames(r$samples) <- r$names
   r$seconds <- proc.time()[["elapsed"]] - t0
+  # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
+  # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a
+  # parent with no line of its own, which is a declared error outside this mode, and even
+  # if it were tolerated the F would come back on the gamma = 0 base.
+  r$metafounders <- metafounders
+  r$gamma <- gamma
   r$mean <- colMeans(r$samples)
   r$sd <- apply(r$samples, 2, stats::sd)
   r$ess <- apply(r$samples, 2, ess)
@@ -112,6 +126,8 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
 #' Geyer's initial positive sequence: sum consecutive pairs of autocovariances while the
 #' pair sums stay positive. Honest for reversible chains; iid draws give ess ~ n.
 #' @param x numeric vector (one chain)
+#' @references Geyer, C.J. (1992). Practical Markov chain Monte Carlo. Statistical
+#'   Science 7:473-483.
 #' @export
 ess <- function(x) {
   n <- length(x)
@@ -133,6 +149,9 @@ ess <- function(x) {
 #' Compares the mean of the first tenth of the chain against the mean of the last half;
 #' under convergence the standardized difference is approximately standard normal.
 #' @param x numeric vector (one chain)
+#' @references Geweke, J. (1992). Evaluating the accuracy of sampling-based approaches
+#'   to the calculation of posterior moments. In Bayesian Statistics 4. Oxford
+#'   University Press.
 #' @export
 geweke_z <- function(x) {
   n <- length(x)
@@ -155,5 +174,10 @@ print.breeding_gibbs <- function(x, ...) {
   print(data.frame(component = colnames(x$samples), mean = unname(x$mean),
                    sd = unname(x$sd), ess = round(unname(x$ess)),
                    geweke_z = round(unname(x$geweke), 2), row.names = NULL), digits = 6)
+  if (length(x$b)) {
+    cat("\nfixed effects, posterior mean (implicit intercept; compare by contrast):\n")
+    print(data.frame(term = names(x$b), mean = unname(x$b), sd = unname(x$b_sd),
+                     row.names = NULL), digits = 6)
+  }
   invisible(x)
 }

@@ -1,4 +1,4 @@
-// Inversa seletiva de Takahashi: os elementos de C^-1 no padrao do fator.
+// Inversa seletiva de Takahashi (Takahashi, Fagan e Chin, 1973): os elementos de C^-1 no padrao do fator.
 //
 // E o que a PEV, a acuracia e os tracos do score precisam, e e a unica parte de C^-1 que se
 // pode pagar. A inversa cheia da matriz de coeficientes e densa: a 20.400 colunas sao 3,3 GB,

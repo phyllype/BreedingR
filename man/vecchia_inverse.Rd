@@ -27,3 +27,11 @@ list with i, j, x, n (triplets of the lower triangle of the approximate
 \description{
 Inverse of G by the Vecchia recursion
 }
+\references{
+Vecchia, A.V. (1988). Estimation and model identification for
+  continuous spatial processes. Journal of the Royal Statistical Society B
+  50:297-312.
+
+  Schafer, F., Katzfuss, M. & Owhadi, H. (2021). SIAM Journal on Scientific
+  Computing 43:A2019-A2046.
+}

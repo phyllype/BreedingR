@@ -10,6 +10,8 @@
 
 #include "modelo.h"
 
+#include <limits>
+
 namespace br {
 
 // ---- pedigree.cpp
@@ -67,6 +69,16 @@ struct SelInv {
 std::size_t bloco_denso_final(const Csc&);
 SelInv inversa_seletiva(const Csc&, std::size_t);
 
+// Uma matriz de covariancia DECLARADA pelo usuario (kernel(id, K=)): os ids que nomeiam
+// linhas e colunas, e a K densa. O vetor de declaracoes anda PARALELO aos termos do
+// modelo — entrada vazia para termo que nao e kernel — para que o desenho ache a K do
+// termo sem um mapa a parte.
+struct KernelDecl {
+  std::vector<std::string> ids;
+  Densa k;
+  bool vazia() const { return ids.empty(); }
+};
+
 // ---- o desenho completo
 struct Desenho {
   Modelo modelo;
@@ -118,6 +130,9 @@ struct Montado {
 Montado monta_mme(const Desenho&, const std::vector<double>&);
 Densa cov_grupo(const Modelo&, const std::vector<double>&, std::size_t);
 
+// ---- aireml.cpp: Cholesky of a small dense covariance group; false when not PD.
+bool chol_pequena(const Densa&, Densa&);
+
 struct Neg2LogL {
   bool ok = false;
   double valor = 0.0;
@@ -145,6 +160,10 @@ struct Ajuste {
   bool convergiu = false;
   std::size_t iters = 0;
   double reldelta = 0.0;
+  // Newton decrement of the FREE components at the final point, g' AI^-1 g with the
+  // active set excluded: the convergence certificate (~ twice the -2logL gap to the
+  // optimum near it). NaN when the fit died before a first evaluation.
+  double decremento = std::numeric_limits<double>::quiet_NaN();
   double neg2logl = 0.0;
   std::vector<double> theta, se, solucao;
   std::vector<double> pev;   // diagonal de [C_s^-1] vezes s2e, na numeracao das colunas
@@ -154,7 +173,8 @@ struct Ajuste {
   std::size_t fora_do_padrao = 0;
 };
 Desenho monta_desenho(const Modelo&, const Tabela&, const Pedigree*,
-                      const std::vector<double>* = nullptr);
+                      const std::vector<double>* = nullptr,
+                      const std::vector<KernelDecl>* = nullptr);
 
 // ---- genomica.cpp
 struct RelatorioG {
@@ -173,7 +193,8 @@ RelatorioG aplica_genomica(Desenho&, const Pedigree&, const std::vector<std::str
 std::vector<double> partida(const Desenho&);
 
 // ---- sssnp.cpp: o passo unico sem G — marcadores como equacoes, PCG, A22^-1 livre de
-// matriz (Liu et al. 2014; Vandenplas et al. 2019). theta e dado: e um resolvedor.
+// matriz (Liu et al. 2014; Masuda et al. 2017; Vandenplas et al. 2018, 2019). theta e
+// dado: e um resolvedor.
 struct SnpBlup {
   bool ok = false, convergiu = false;
   std::size_t iters = 0;
@@ -209,6 +230,7 @@ struct DesenhoMT {
   std::size_t t = 0;
   Densa x;
   std::vector<std::string> nomes_x;
+  std::vector<std::string> saiu_x;
   std::vector<DesenhoTermo> aleatorios;
   std::vector<Csc> kinv;
   std::vector<double> kinv_logdet;
@@ -250,6 +272,9 @@ struct AjusteMT {
   bool convergiu = false;
   std::size_t iters = 0;
   double reldelta = 0.0;
+  // Newton decrement at the final point (these walkers have no active set, so it is
+  // g' AI^-1 g whole); NaN when the fit died before a first evaluation.
+  double decremento = std::numeric_limits<double>::quiet_NaN();
   double neg2logl = 0.0;
   std::vector<double> theta, se, solucao;
   std::vector<double> pev;   // diagonal de C^-1 no otimo, ja em unidades absolutas
@@ -276,6 +301,7 @@ struct DesenhoAR {
   std::size_t t = 1;
   Densa x;
   std::vector<std::string> nomes_x;
+  std::vector<std::string> saiu_x;
   std::vector<DesenhoTermo> aleatorios;
   std::vector<Csc> kinv;
   std::vector<double> kinv_logdet;

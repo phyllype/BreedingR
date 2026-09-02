@@ -1,4 +1,5 @@
-// Passo unico: G de VanRaden, A22^-1 pelo complemento de Schur, e H^-1.
+// Passo unico: G de VanRaden (2008), A22^-1 pelo complemento de Schur, e H^-1
+// (Aguilar et al. 2010; Christensen e Lund 2010).
 //
 // A armadilha silenciosa do passo unico esta toda numa confusao de blocos:
 //
@@ -230,7 +231,8 @@ Csc constroi_hinv(const Csc& ainv, const std::vector<std::size_t>& geno,
 //
 // Genotipado fora do pedigree e ERRO explicito, nao descarte silencioso: um genotipado sem
 // linha em A nao tem onde entrar em H^-1, e some-lo mudaria a analise sem aviso.
-// A inversa APY de uma G densa ja ajustada: nucleo exato, jovens por recursao condicional.
+// A inversa APY (Misztal, Legarra e Aguilar, 2014) de uma G densa ja ajustada: nucleo
+// exato, jovens por recursao condicional.
 //
 //   G_APY^-1 = [ Gcc^-1 + P Mnn^-1 P\'   -P Mnn^-1 ]      P = Gcc^-1 Gcn
 //              [ -Mnn^-1 P\'              Mnn^-1   ]      Mnn = diag(g_ii - g_ic P_i)
@@ -302,9 +304,9 @@ static Densa apy_de(const Densa& g, const std::vector<std::size_t>& nucleo) {
   return out;
 }
 
-// A inversa de Vecchia: cada animal condiciona nos SEUS k vizinhos mais proximos entre
+// A inversa de Vecchia (1988): cada animal condiciona nos SEUS k vizinhos mais proximos entre
 // os anteriores, nao num nucleo global. E a generalizacao da APY — e do proprio A^-1 de
-// Henderson, que e exatamente Vecchia com os PAIS como conjunto de condicionamento
+// Henderson (1976), que e exatamente Vecchia com os PAIS como conjunto de condicionamento
 // (exato porque o pedigree e markoviano). Schafer, Katzfuss & Owhadi (2021) mostram que,
 // dado o padrao, o fator esparso assim construido minimiza a divergencia KL; conjuntos
 // maiores nunca pioram.

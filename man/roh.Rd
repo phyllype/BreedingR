@@ -29,3 +29,7 @@ list with `animal` (F_ROH = fraction of the markers in ROH) and `marker`
 \description{
 Runs of homozygosity: F_ROH per animal and per-marker frequency
 }
+\references{
+McQuillan, R. et al. (2008). Runs of homozygosity in European
+  populations. American Journal of Human Genetics 83:359-372.
+}

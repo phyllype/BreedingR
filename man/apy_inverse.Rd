@@ -22,3 +22,10 @@ list with i, j, x, n (triplets of the lower triangle of G_APY^-1), the diagnosti
 \description{
 Inverse of G by the APY algorithm
 }
+\references{
+Misztal, I., Legarra, A. & Aguilar, I. (2014). Journal of Dairy Science
+  97:3943-3952.
+
+  Fragomeni, B.O. et al. (2015). Journal of Dairy Science 98:4090-4094; Pocrnic, I.
+  et al. (2016). Genetics 203:573-581.
+}
