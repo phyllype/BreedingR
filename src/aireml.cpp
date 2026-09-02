@@ -1,11 +1,14 @@
-// AI-REML: score analitico, informacao media, EM de aquecimento e passo amortecido.
+// AI-REML (Gilmour, Thompson e Cullis, 1995): score analitico, informacao media, EM
+// (Dempster, Laird e Rubin, 1977) de aquecimento e passo amortecido.
 //
 // As regras que nao se quebram, todas vindas de defeito medido no projeto de origem:
 //
 //  1. convergencia RELATIVA nas componentes, sqrt(soma delta^2 / soma theta^2) < tol. Nunca
 //     um limiar absoluto na norma do score, que e O(n_registros): a mesma tolerancia que
 //     converge com 500 registros declara nao-convergido com 200 mil, com as estimativas
-//     paradas no otimo.
+//     paradas no otimo. O certificado final soma o DECREMENTO DE NEWTON dos componentes
+//     livres, g' AI^-1 g — normalizado pela curvatura, ele mede o gap em -2logL e nao a
+//     escala do score, entao nao reintroduz o defeito de O(n_registros).
 //  2. theta inadmissivel nao e resultado. C_g nao definida interrompe o passo; nunca vira
 //     resposta.
 //  3. a partida vem de var(y), nunca de valores de um cartao ja ajustado — partir das
@@ -24,6 +27,9 @@
 // C_g <- (Q + T) / nl precisa exatamente do que o score ja computou.
 
 #include "mme.h"
+
+#include <cstdio>
+#include <limits>
 
 // so para o TRACE opcional e a interrupcao: nenhuma conta usa o R
 #include <R_ext/Print.h>
@@ -365,6 +371,115 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
   return A;
 }
 
+// ------------------- log-Cholesky coordinates (Pinheiro and Bates, 1996) for the STEP
+//
+// The damped AI step used to walk in theta itself, and a measured failure showed why that
+// cannot work: with two terms in one group and a strong direct-social correlation, the REML
+// optimum sits ON the boundary det(C_g) = 0. In theta coordinates that boundary is a curved
+// wall; the admissible trench around the ridge gets thinner than ANY additive step, so every
+// candidate lands outside the cone, the damping ratchets up by a factor of 10 per few
+// iterations, and the fit crawls on single EM steps until it declares a false convergence
+// 5-13 -2logL units above the optimum (seeds 11 and 51 of the gate in test-aireml-boundary.R).
+//
+// The step therefore walks in z: per group the lower Cholesky factor of C_g with the log of
+// its diagonal, plus log(s2e). In z EVERY point maps to an admissible theta, the singular
+// boundary is pushed to -infinity, and the ridge uncurls into a direction the damped step can
+// follow. The score, the AI matrix and the likelihood are untouched: the chain rule through
+// J = dtheta/dz converts them, and the answer is still reported in theta.
+
+// Cholesky of a small dense C_g (group dimension is 1-3 in practice); false when not PD.
+// Shared through mme.h: the multi-trait and AR(1) certificates use it to recognize a
+// covariance group at the singularity boundary.
+bool chol_pequena(const Densa& c, Densa& L) {
+  const std::size_t n = c.nlin;
+  L = Densa(n, n);
+  for (std::size_t j = 0; j < n; j++) {
+    double s = c.at(j, j);
+    for (std::size_t k = 0; k < j; k++) s -= L.at(j, k) * L.at(j, k);
+    if (!(s > 0.0) || !std::isfinite(s)) return false;
+    L.at(j, j) = std::sqrt(s);
+    for (std::size_t i = j + 1; i < n; i++) {
+      double t = c.at(i, j);
+      for (std::size_t k = 0; k < j; k++) t -= L.at(i, k) * L.at(j, k);
+      L.at(i, j) = t / L.at(j, j);
+    }
+  }
+  return true;
+}
+
+// z shares theta's indexing: z[theta_idx(i,j)] = log L_ii on the diagonal, L_ij below it,
+// and z[offset_residual] = log s2e. False when some C_g is not PD (nothing to map).
+static bool z_de_theta(const Modelo& mo, const std::vector<double>& theta,
+                       std::vector<double>& z) {
+  z.assign(mo.ntheta, 0.0);
+  for (const Grupo& gr : mo.grupos) {
+    Densa cg(gr.dim, gr.dim);
+    for (std::size_t j = 0; j < gr.dim; j++)
+      for (std::size_t i = j; i < gr.dim; i++) {
+        const double v = theta[gr.theta_idx(i, j)];
+        cg.at(i, j) = v;
+        cg.at(j, i) = v;
+      }
+    Densa L;
+    if (!chol_pequena(cg, L)) return false;
+    for (std::size_t j = 0; j < gr.dim; j++)
+      for (std::size_t i = j; i < gr.dim; i++)
+        z[gr.theta_idx(i, j)] = (i == j) ? std::log(L.at(i, i)) : L.at(i, j);
+  }
+  if (!(theta[mo.offset_residual] > 0.0)) return false;
+  z[mo.offset_residual] = std::log(theta[mo.offset_residual]);
+  return true;
+}
+
+static std::vector<double> theta_de_z(const Modelo& mo, const std::vector<double>& z) {
+  std::vector<double> theta(mo.ntheta, 0.0);
+  for (const Grupo& gr : mo.grupos) {
+    Densa L(gr.dim, gr.dim);
+    for (std::size_t j = 0; j < gr.dim; j++)
+      for (std::size_t i = j; i < gr.dim; i++) {
+        const double v = z[gr.theta_idx(i, j)];
+        L.at(i, j) = (i == j) ? std::exp(v) : v;
+      }
+    for (std::size_t j = 0; j < gr.dim; j++)
+      for (std::size_t i = j; i < gr.dim; i++) {
+        double s = 0.0;
+        for (std::size_t k = 0; k <= j; k++) s += L.at(i, k) * L.at(j, k);
+        theta[gr.theta_idx(i, j)] = s;
+      }
+  }
+  theta[mo.offset_residual] = std::exp(z[mo.offset_residual]);
+  return theta;
+}
+
+// J = dtheta/dz, block diagonal by group. For z_m = L entry (a,b) with chain factor
+// s_m (= L_aa on the diagonal, 1 below), and theta_k = C_ij (i >= j):
+//   dC_ij/dz_m = s_m (delta_ia L_jb + delta_ja L_ib)
+static Densa jacobiano_z(const Modelo& mo, const std::vector<double>& z) {
+  Densa J(mo.ntheta, mo.ntheta);
+  for (const Grupo& gr : mo.grupos) {
+    Densa L(gr.dim, gr.dim);
+    for (std::size_t j = 0; j < gr.dim; j++)
+      for (std::size_t i = j; i < gr.dim; i++) {
+        const double v = z[gr.theta_idx(i, j)];
+        L.at(i, j) = (i == j) ? std::exp(v) : v;
+      }
+    for (std::size_t b = 0; b < gr.dim; b++)
+      for (std::size_t a = b; a < gr.dim; a++) {
+        const std::size_t m = gr.theta_idx(a, b);
+        const double sm = (a == b) ? L.at(a, a) : 1.0;
+        for (std::size_t j = 0; j < gr.dim; j++)
+          for (std::size_t i = j; i < gr.dim; i++) {
+            double v = 0.0;
+            if (i == a && b <= j) v += L.at(j, b);
+            if (j == a && b <= i) v += L.at(i, b);
+            J.at(gr.theta_idx(i, j), m) = sm * v;
+          }
+      }
+  }
+  J.at(mo.offset_residual, mo.offset_residual) = std::exp(z[mo.offset_residual]);
+  return J;
+}
+
 // ------------------------------------------------------------------------------- o ajuste
 
 std::vector<double> partida(const Desenho& d) {
@@ -403,8 +518,12 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     return R;
   }
 
-  // EM de aquecimento: monotono, fica no cone, e de graca
+  // EM de aquecimento: monotono, fica no cone, e de graca. A checagem extra de
+  // z_de_theta garante que o ponto de onde o passo amortecido parte tem fator de
+  // Cholesky — um EM que encoste numericamente na singularidade nao vira partida.
   for (std::size_t e = 0; e < n_em; e++) {
+    std::vector<double> zt;
+    if (!z_de_theta(d.modelo, cur.em_theta, zt)) break;
     Avaliacao prox = avalia(d, cur.em_theta, &cs);
     if (!prox.ok) break;
     theta = cur.em_theta;
@@ -413,34 +532,196 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
 
   if (verboso && n_em > 0)
     Rprintf("EM warm-up (%d round(s)): -2logL %.6f\n", (int) n_em, cur.neg2logl);
-  // CONJUNTO ATIVO. Uma variancia tem piso em zero, e o otimo REML pode estar EM cima
-  // dele. Sem tratar isso, a componente encosta no piso, o passo passa a apontar para
-  // fora do espaco, cada tentativa e rejeitada, o amortecimento explode e o ajuste
-  // queima as iteracoes no lugar — terminando num -2logL PIOR que o do submodelo
-  // aninhado, o que e impossivel num otimo. Congelando quem esta no piso com o gradiente
-  // empurrando para fora, o resto e otimizado CONDICIONALMENTE a isso, que e a solucao
-  // correta do problema com restricao.
-  std::vector<char> congelado(theta.size(), 0);
+  // CONJUNTO ATIVO, agora em z. Duas fronteiras REAIS do espaco de parametros passam
+  // pelo mesmo mecanismo: uma variancia com piso em zero e um C_g de grupo encostando na
+  // singularidade (correlacao em +/-1, o regime medido no modelo direto-social). Nos dois
+  // casos a diagonal do fator de Cholesky tem um piso — absoluto para a variancia, RELATIVO
+  // a maior diagonal do grupo para a singularidade — e a entrada presa no piso com o score
+  // empurrando para fora e congelada, com o resto otimizado CONDICIONALMENTE a isso, que e
+  // a solucao correta do problema com restricao.
   double lambda = 1e-3;
+  std::vector<double> z;
+  if (!z_de_theta(d.modelo, theta, z)) {
+    R.mensagem = "o theta inicial e INADMISSIVEL: alguma covariancia nao e positiva-definida";
+    return R;
+  }
+
+  // floors on the diagonal of z, recomputed at the current point: relative to the group's
+  // largest Cholesky diagonal (so a one-term group never binds on it) and absolute against
+  // the residual scale (the old variance floor, 1e-10 max(1, s2e), read through l = sqrt v)
+  auto pisos_z = [&](const std::vector<double>& zc, std::vector<double>& piso,
+                     std::vector<char>& relativo) {
+    piso.assign(zc.size(), -std::numeric_limits<double>::infinity());
+    relativo.assign(zc.size(), 0);
+    const double s2e = std::exp(zc[d.modelo.offset_residual]);
+    const double piso_abs = 0.5 * std::log(1e-10 * std::max(1.0, s2e));
+    for (const Grupo& gr : d.modelo.grupos) {
+      double zmax = -std::numeric_limits<double>::infinity();
+      for (std::size_t i = 0; i < gr.dim; i++)
+        zmax = std::max(zmax, zc[gr.theta_idx(i, i)]);
+      const double piso_rel = zmax + std::log(1e-3);
+      for (std::size_t i = 0; i < gr.dim; i++) {
+        const std::size_t k = gr.theta_idx(i, i);
+        piso[k] = std::max(piso_rel, piso_abs);
+        relativo[k] = piso_rel > piso_abs ? 1 : 0;
+      }
+    }
+  };
+
+  // The pieces of the step at a point, shared by the walker and by the final certificate:
+  // score and AI mapped to z by the chain rule, the floors, and two active sets over the
+  // SAME floors and the SAME outward-score rule, differing only in reach. `congelado` is
+  // the step's (strictly at the clamp), `na_parede` is the certificate's and the boundary
+  // report's (within a factor of 2 of the floor): a component pinned at a floor with the
+  // score pushing outward never zeroes its gradient — it points out of the cone by
+  // construction — so the certificate must exclude it, whether the walker left it clamped
+  // or resting a hair above the clamp. Excluding anything more would certify a point with
+  // a live direction ignored.
+  struct PecasZ {
+    std::vector<double> sz, piso;
+    Densa az;
+    std::vector<char> congelado, na_parede, piso_rel;
+  };
+  auto pecas_z = [&](const std::vector<double>& zc, const Avaliacao& av) {
+    PecasZ P;
+    pisos_z(zc, P.piso, P.piso_rel);
+    Densa J = jacobiano_z(d.modelo, zc);
+    const std::size_t nt = d.modelo.ntheta;
+    P.sz.assign(nt, 0.0);
+    for (std::size_t m = 0; m < nt; m++)
+      for (std::size_t k = 0; k < nt; k++) P.sz[m] += J.at(k, m) * av.score[k];
+    P.az = Densa(nt, nt);
+    for (std::size_t a = 0; a < nt; a++)
+      for (std::size_t b = 0; b < nt; b++) {
+        double s = 0.0;
+        for (std::size_t k = 0; k < nt; k++) {
+          if (J.at(k, a) == 0.0) continue;
+          double t = 0.0;
+          for (std::size_t l = 0; l < nt; l++) t += av.ai.at(k, l) * J.at(l, b);
+          s += J.at(k, a) * t;
+        }
+        P.az.at(a, b) = s;
+      }
+    P.congelado.assign(nt, 0);
+    P.na_parede.assign(nt, 0);
+    for (const Grupo& gr : d.modelo.grupos)
+      for (std::size_t i = 0; i < gr.dim; i++) {
+        const std::size_t k = gr.theta_idx(i, i);
+        P.congelado[k] = (zc[k] <= P.piso[k] + 1e-9 && P.sz[k] > 0.0) ? 1 : 0;
+        // the certificate's active set, and it is WIDER than the step's on purpose: the
+        // walker rests a hair above the clamp without ever being frozen there (the same
+        // measured fact the boundary report handles with the same factor-2 tolerance).
+        // A hair above the floor the z-gradient of the pinned diagonal is ~L^2 and its
+        // AI_z diagonal ~L^4, so the quadratic form returns that direction's FULL
+        // theta-scale share — measured 1.1499 on a true boundary optimum (seed 11 of
+        // test-aireml-boundary.R) where the free directions were flat. On the floor
+        // with the score pointing outward is pinned, whether clamped or resting.
+        P.na_parede[k] = (zc[k] <= P.piso[k] + std::log(2.0) && P.sz[k] > 0.0) ? 1 : 0;
+      }
+    return P;
+  };
+
+  // THE CONVERGENCE CERTIFICATE, measured missing on real data (docs/CHECKLIST.md,
+  // 2026-09-02): a direct+indirect fit ended converged TRUE with relDelta 5.1e-09 and
+  // group scores up to -506050, sitting 6.9 -2logL units ABOVE the optimum. The damped
+  // AI step and the EM step can stall together against the singularity wall with the
+  // gradient far from zero, and neither the small step nor the EM confirmation sees it.
+  // The evidence of an optimum is the Newton decrement restricted to the FREE components,
+  //
+  //   dec = g_free' [AI_free]^-1 g_free
+  //
+  // computed in the z coordinates of the step (the decrement is invariant to the
+  // parametrization; the active set is defined in z). Near the optimum, -2logL exceeds
+  // its minimum by ~dec/2 (second-order Taylor with the AI for the Hessian), so dec is a
+  // GAP ON THE -2logL SCALE: the tolerance 2e-4 certifies the fit sits within ~1e-4 of
+  // its optimum — four orders of magnitude below the ~4 units a likelihood-ratio test
+  // calls a difference — while the measured defect (gap 6.9, dec ~14) fails it by five.
+  // An AI too singular to solve on the free block certifies nothing and counts as a
+  // refusal.
+  const double tol_dec = 2e-4;
+  auto decremento_livre = [&](const PecasZ& P) -> double {
+    Densa m = P.az;
+    std::vector<double> sc = P.sz;
+    bool algum_livre = false;
+    for (std::size_t i = 0; i < m.nlin; i++) {
+      if (P.na_parede[i]) {
+        sc[i] = 0.0;
+        for (std::size_t j = 0; j < m.ncol; j++) { m.at(i, j) = 0.0; m.at(j, i) = 0.0; }
+        m.at(i, i) = 1.0;
+      } else {
+        algum_livre = true;
+      }
+    }
+    if (!algum_livre) return 0.0;
+    Densa minv;
+    try { minv = inv_geral(m); } catch (const Erro&) {
+      return std::numeric_limits<double>::infinity();
+    }
+    double dec = 0.0;
+    for (std::size_t i = 0; i < sc.size(); i++) {
+      if (sc[i] == 0.0) continue;
+      for (std::size_t j = 0; j < sc.size(); j++) dec += sc[i] * minv.at(i, j) * sc[j];
+    }
+    return std::fabs(dec);   // the AI is PSD; a negative here is rounding, not curvature
+  };
+
+  // EM rescue: multiplicative, stays in the cone, and does not shrink at the boundary, so
+  // it walks exactly where the damped step stalls. Each EM candidate is CLAMPED through z
+  // (an EM that lands numerically ON the singularity would evaluate to garbage: the MME
+  // -2logL loses its meaning when det(C_g) underflows). Up to 50 steps, while each pays
+  // more than 1e-8.
+  auto resgate_em = [&]() -> bool {
+    bool ganhou = false;
+    for (int e = 0; e < 50; e++) {
+      std::vector<double> ze;
+      if (!z_de_theta(d.modelo, cur.em_theta, ze)) break;
+      std::vector<double> piso; std::vector<char> rel;
+      pisos_z(ze, piso, rel);
+      for (const Grupo& gr : d.modelo.grupos)
+        for (std::size_t i = 0; i < gr.dim; i++) {
+          const std::size_t k = gr.theta_idx(i, i);
+          ze[k] = std::max(ze[k], piso[k]);
+        }
+      std::vector<double> cand = theta_de_z(d.modelo, ze);
+      Avaliacao prox = avalia(d, cand, &cs);
+      if (!prox.ok || prox.neg2logl >= cur.neg2logl - 1e-8) break;
+      double num = 0.0, den = 0.0;
+      for (std::size_t i = 0; i < cand.size(); i++) {
+        const double dlt = cand[i] - theta[i];
+        num += dlt * dlt;
+        den += cand[i] * cand[i];
+      }
+      R.reldelta = std::sqrt(num / std::max(den, 1e-300));
+      theta = cand;
+      z = ze;
+      cur = std::move(prox);
+      ganhou = true;
+    }
+    return ganhou;
+  };
+
   for (std::size_t it = 1; it <= maxiter; it++) {
     R.iters = it;
     R_CheckUserInterrupt();
-    const double piso = 1e-10 * std::max(1.0, theta[d.modelo.offset_residual]);
-    for (const Grupo& gr : d.modelo.grupos)
-      for (std::size_t i = 0; i < gr.dim; i++) {
-        const std::size_t k = gr.theta_idx(i, i);       // so as VARIANCIAS tem piso
-        congelado[k] = (theta[k] <= piso && cur.score[k] > 0.0) ? 1 : 0;
-      }
+    // chain rule (score_z = J' score, AI_z = J' AI J), floors and active set, all at
+    // the current point — the same pieces the certificate reads at the exits
+    PecasZ P = pecas_z(z, cur);
+    const std::vector<double>& piso = P.piso;
+    const std::vector<double>& sz = P.sz;
+    const Densa& az = P.az;
+    const std::vector<char>& congelado = P.congelado;
+    const std::size_t nt = theta.size();
     bool aceitou = false;
-    for (int tent = 0; tent < 30; tent++) {
-      Densa m = cur.ai;
+    std::vector<double> zc;
+    for (int tent = 0; tent < 30 && !aceitou; tent++) {
+      Densa m = az;
       for (std::size_t i = 0; i < m.nlin; i++) {
         const double di = m.at(i, i);
         m.at(i, i) = (di == 0.0) ? lambda : di * (1.0 + lambda);
       }
       // congelado: linha e coluna viram identidade e o score sai — e o sistema REDUZIDO
       // dos que ainda podem andar, sem que o bloqueado contamine a direcao dos outros
-      std::vector<double> sc = cur.score;
+      std::vector<double> sc = sz;
       for (std::size_t i = 0; i < m.nlin; i++)
         if (congelado[i]) {
           sc[i] = 0.0;
@@ -449,63 +730,106 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
         }
       Densa minv;
       try { minv = inv_geral(m); } catch (const Erro&) { lambda *= 10.0; continue; }
-      std::vector<double> cand = theta;
-      for (std::size_t i = 0; i < cand.size(); i++) {
+      std::vector<double> passo(nt, 0.0);
+      for (std::size_t i = 0; i < nt; i++) {
         if (congelado[i]) continue;
-        double passo = 0.0;
-        for (std::size_t j = 0; j < cand.size(); j++) passo += minv.at(i, j) * sc[j];
-        cand[i] -= passo;
+        for (std::size_t j = 0; j < nt; j++) passo[i] += minv.at(i, j) * sc[j];
       }
-      Avaliacao prox = avalia(d, cand, &cs);
-      if (prox.ok && prox.neg2logl <= cur.neg2logl + 1e-9) {
-        double num = 0.0, den = 0.0;
-        for (std::size_t i = 0; i < cand.size(); i++) {
-          const double dlt = cand[i] - theta[i];
-          num += dlt * dlt;
-          den += cand[i] * cand[i];
+      // step halving on the SAME direction: the damped direction can be right while the
+      // full length overshoots the curved valley, and rejecting it only to re-damp is what
+      // used to ratchet lambda
+      for (const double alpha : {1.0, 0.5, 0.25}) {
+        zc = z;
+        for (std::size_t i = 0; i < nt; i++)
+          if (!congelado[i]) zc[i] -= alpha * passo[i];
+        for (const Grupo& gr : d.modelo.grupos)
+          for (std::size_t i = 0; i < gr.dim; i++) {
+            const std::size_t k = gr.theta_idx(i, i);
+            zc[k] = std::max(zc[k], piso[k]);
+          }
+        std::vector<double> cand = theta_de_z(d.modelo, zc);
+        Avaliacao prox = avalia(d, cand, &cs);
+        if (prox.ok && prox.neg2logl <= cur.neg2logl + 1e-9) {
+          double num = 0.0, den = 0.0;
+          for (std::size_t i = 0; i < cand.size(); i++) {
+            const double dlt = cand[i] - theta[i];
+            num += dlt * dlt;
+            den += cand[i] * cand[i];
+          }
+          R.reldelta = std::sqrt(num / std::max(den, 1e-300));
+          theta = cand;
+          z = zc;
+          cur = std::move(prox);
+          lambda = std::max(lambda / 10.0, 1e-10);
+          aceitou = true;
+          break;
         }
-        R.reldelta = std::sqrt(num / std::max(den, 1e-300));
-        theta = cand;
-        cur = std::move(prox);
-        lambda = std::max(lambda / 10.0, 1e-10);
-        aceitou = true;
-        break;
       }
-      lambda *= 10.0;
+      if (!aceitou) lambda *= 10.0;
     }
-    if (!aceitou) { R.mensagem = "nenhum passo amortecido melhorou a verossimilhanca"; break; }
+    if (!aceitou) {
+      // before giving up, hand the point to the EM rescue: measured on the direct-social
+      // gate, the damped step can be stuck while EM still walks — and after a rescue the
+      // damping RESTARTS, or the next AI step would inherit a lambda pumped to 1e20+ by
+      // the failed attempts and stay parked forever ("amortecimento preso")
+      if (resgate_em()) {
+        lambda = 1e-3;
+        if (verboso)
+          Rprintf("      EM rescue: -2logL %.6f (no damped step improved)\n", cur.neg2logl);
+        continue;
+      }
+      // In z every candidate is admissible, so this exit means the likelihood itself
+      // refused 90 second-order variants AND the EM step. That is where the walker
+      // rests — but resting is not an optimum: on the measured direct+indirect regime
+      // the AI and the EM stall TOGETHER against the wall with the gradient far from
+      // zero (the certificate defect above). Only the Newton decrement tells a numerical
+      // optimum from a stall; the code before this stage declared converged TRUE here
+      // unconditionally.
+      R.decremento = decremento_livre(P);
+      if (R.decremento < tol_dec) {
+        R.convergiu = true;
+        R.mensagem = "stopped where neither the damped AI step nor the EM step improves "
+            "the likelihood (a numerical optimum tighter than the step tolerance)";
+      } else {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%.3g", R.decremento);
+        R.mensagem = std::string("did NOT converge: neither the damped AI step nor the ") +
+            "EM step improves the likelihood, but the Newton decrement of the free "
+            "components is " + buf + " (tolerance 2e-4 on the -2logL scale), so the "
+            "point is a stall, not a certified optimum. Try a different start=, and "
+            "profile any component the message reports at a boundary";
+      }
+      break;
+    }
     if (verboso)
       Rprintf("iter %3d  -2logL %.6f  relDelta %.3e\n",
               (int) it, cur.neg2logl, R.reldelta);
     if (R.reldelta < tol) {
-      // O PASSO PEQUENO NAO PROVA OTIMO. Com uma componente encostada no zero a AI fica
-      // quase singular naquela direcao, o amortecimento cresce, o passo encolhe — e um
-      // criterio que olha so o tamanho do passo declara convergencia com o score longe
-      // de zero. O sintoma observado foi um modelo MAIOR parando com -2logL pior que o
-      // submodelo aninhado dele, o que e impossivel no otimo.
-      //
-      // Antes de declarar, tenta um passo EM: ele e multiplicativo, fica dentro do cone
-      // e NAO encolhe na fronteira, entao consegue andar exatamente onde o passo AI
-      // travou. Se a verossimilhanca ainda melhora ali, nao havia convergencia nenhuma.
-      Avaliacao pem = avalia(d, cur.em_theta, &cs);
-      if (pem.ok && pem.neg2logl < cur.neg2logl - 1e-8) {
-        double num = 0.0, den = 0.0;
-        for (std::size_t i = 0; i < theta.size(); i++) {
-          const double dlt = cur.em_theta[i] - theta[i];
-          num += dlt * dlt;
-          den += cur.em_theta[i] * cur.em_theta[i];
-        }
-        R.reldelta = std::sqrt(num / std::max(den, 1e-300));
-        theta = cur.em_theta;
-        cur = std::move(pem);
+      // O PASSO PEQUENO NAO PROVA OTIMO. Com uma componente encostada numa fronteira a AI
+      // fica quase singular naquela direcao, o amortecimento cresce, o passo encolhe — e
+      // um criterio que olha so o tamanho do passo declararia convergencia com o score
+      // longe de zero. Antes de declarar, o EM tem de confirmar que nao anda mais; se
+      // ainda melhora, nao havia convergencia nenhuma, e o amortecimento reinicia.
+      if (resgate_em()) {
+        lambda = 1e-3;
         if (verboso)
           Rprintf("      EM rescue: -2logL %.6f (the AI step had stalled)\n", cur.neg2logl);
         continue;
       }
-      R.convergiu = true;
-      break;
+      // ... e um EM parado tambem nao prova nada quando AI e EM travam JUNTOS (o defeito
+      // do certificado, medido): converged exige ainda o decremento de Newton dos
+      // componentes livres. A recusa NAO encerra o ajuste — o passo pode voltar a andar —
+      // e se maxiter chegar, a mensagem final carrega o decremento reprovado.
+      R.decremento = decremento_livre(pecas_z(z, cur));
+      if (R.decremento < tol_dec) {
+        R.convergiu = true;
+        break;
+      }
     }
   }
+  // the decrement at the final point, whatever the exit: the certificate the user can
+  // read next to fit$score, and the number the maxiter message reports
+  if (std::isnan(R.decremento)) R.decremento = decremento_livre(pecas_z(z, cur));
   // norma do score no ponto final, para quem quiser conferir que ele de fato zerou:
   // e a evidencia direta de otimo, que o tamanho do passo nao da.
   R.score = cur.score;
@@ -527,16 +851,49 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     }
   } catch (const Erro&) {}
 
+  if (!R.convergiu && R.mensagem.empty()) {
+    // The maxiter exit, and it comes BEFORE the boundary notes so those append to the
+    // explanation instead of silencing it. Measured by the user on the 2x2 group
+    // warm-started from the reduced model: 100 iterations ended with relDelta still
+    // 1.6e-04 — not a defect, a model that walks slowly. The message says exactly
+    // that, and how to ask for more.
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), " (relDelta %.3g, Newton decrement of the free "
+                  "components %.3g against the 2e-4 tolerance)", R.reldelta, R.decremento);
+    R.mensagem = "stopped at " + std::to_string(maxiter) + " iteration(s) without a "
+        "certified optimum" + buf + ": this model asks for more iterations. Raise "
+        "maxiter=; a start= from a reduced model shortens the walk";
+  }
   {
-    std::size_t nfix = 0;
-    for (char c : congelado) nfix += c;
-    if (nfix > 0)
-      R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + std::to_string(nfix) +
+    // The boundary report reads the FINAL point, not the freeze flags of the last
+    // iteration: near a boundary optimum the walker can rest a hair above the floor
+    // without ever being frozen there, and the user still needs to know the estimate
+    // is on the edge (fit$score is NOT ~0 in the boundary direction, by design).
+    std::size_t nzero = 0, nsing = 0;
+    std::vector<double> zf;
+    if (z_de_theta(d.modelo, theta, zf)) {
+      std::vector<double> piso; std::vector<char> rel;
+      pisos_z(zf, piso, rel);
+      for (const Grupo& gr : d.modelo.grupos)
+        for (std::size_t i = 0; i < gr.dim; i++) {
+          const std::size_t k = gr.theta_idx(i, i);
+          // within a factor of 2 of the floor counts as ON it: the walker rests where
+          // the trench flattens, a hair above the clamp, and the reader still needs
+          // to know the estimate is an edge case
+          if (zf[k] <= piso[k] + std::log(2.0)) (rel[k] ? nsing : nzero)++;
+        }
+    }
+    if (nzero > 0)
+      R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + std::to_string(nzero) +
           " component(s) at the zero boundary, fixed there while the others were "
           "optimized conditional on that";
+    if (nsing > 0)
+      R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + std::to_string(nsing) +
+          " covariance group direction(s) at the singularity boundary (a correlation at "
+          "+/-1), held there while the others were optimized conditional on that; the "
+          "boundary is real, but a delta-method interval there is not — profile the "
+          "component instead";
   }
-  if (!R.convergiu && R.mensagem.empty())
-    R.mensagem = "parou em " + std::to_string(maxiter) + " iteracoes sem atingir a tolerancia relativa";
   if (cur.fora_do_padrao > 0)
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
         std::to_string(cur.fora_do_padrao) +
