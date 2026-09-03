@@ -1,0 +1,230 @@
+---
+title: "Contest models: from the multinomial to competitive breeding values"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Contest models: from the multinomial to competitive breeding values}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+This vignette derives the two estimators BreedingR uses for competitive ability measured through grouped contests: the Laplace estimator of the genetic variance of contest strength, and the composite-likelihood test for a rival-dependent (differential) indirect effect. The object throughout is a *group contest*: several competitors share a group, a fixed number of discrete outcomes is divided among them, and the division is observed.
+
+## 1. The contest likelihood
+
+A group $g$ holds competitors $i \in \mathcal{P}_g$. Competitor $i$ enters with a known **exposure** $s_{i}>0$ (a dose, a number of trials) and carries a latent **strength** $\lambda_i>0$. The $N_g$ outcomes of the group are divided by a biased lottery: each outcome falls to $i$ with probability
+
+$$p_{ig} \;=\; \frac{s_{i}\,\lambda_i}{\sum_{k\in\mathcal{P}_g} s_{k}\,\lambda_k},
+\qquad
+(y_{1g},\dots,y_{kg}) \;\sim\; \mathrm{Multinomial}\!\left(N_g;\, p_{1g},\dots,p_{kg}\right).$$
+
+Write $\eta_i=\log\lambda_i$ and take the exposure as an offset $o_i=\log s_i$. With two competitors this is the Bradley-Terry model (Bradley and Terry, 1952); with more it is Plackett-Luce (Luce, 1959; Plackett, 1975), equivalently the conditional logit. The strengths are defined only up to a common scale: multiplying every $\lambda$ in a group by the same constant leaves every $p_{ig}$ unchanged, because the constant factors out of numerator and denominator. Only *differences* of $\eta$ are identifiable, and an anchor is required (a zero-mean random term supplies one).
+
+## 2. Reduction to a pair, by exact conditioning
+
+Take a pair $\{i,j\}\subseteq\mathcal{P}_g$ and condition on their joint count $m=y_{ig}+y_{jg}$. The claim is that the conditional distribution of $y_{ig}$ is Binomial and depends on no other competitor. Start from the multinomial mass function and hold every count except $y_{ig},y_{jg}$ fixed:
+
+$$\Pr\!\left(y_{ig}=a,\; y_{jg}=m-a \mid \{y_{kg}\}_{k\neq i,j}\right)
+\;=\;
+\frac{\dfrac{N_g!}{a!\,(m-a)!\,\prod_{k\neq i,j} y_{kg}!}\; p_{ig}^{\,a}\,p_{jg}^{\,m-a}\,\prod_{k\neq i,j} p_{kg}^{\,y_{kg}}}
+     {\displaystyle\sum_{a'=0}^{m}\dfrac{N_g!}{a'!\,(m-a')!\,\prod_{k\neq i,j} y_{kg}!}\; p_{ig}^{\,a'}\,p_{jg}^{\,m-a'}\,\prod_{k\neq i,j} p_{kg}^{\,y_{kg}}}.$$
+
+Every factor that does not involve $a$ (the $N_g!$, the $\prod_{k\neq i,j}$ terms, the fixed other counts) is identical in the numerator and in every summand of the denominator, so it cancels:
+
+$$\Pr\!\left(y_{ig}=a \mid y_{ig}+y_{jg}=m\right)
+\;=\;
+\frac{\dbinom{m}{a}\,p_{ig}^{\,a}\,p_{jg}^{\,m-a}}
+     {\displaystyle\sum_{a'=0}^{m}\dbinom{m}{a'}\,p_{ig}^{\,a'}\,p_{jg}^{\,m-a'}}.$$
+
+The denominator is a binomial expansion, $\sum_{a'=0}^{m}\binom{m}{a'}p_{ig}^{\,a'}p_{jg}^{\,m-a'}=(p_{ig}+p_{jg})^{m}$, so
+
+$$y_{ig}\mid(y_{ig}+y_{jg}=m)\;\sim\;\mathrm{Binomial}(m,\pi_{ij}),
+\qquad
+\pi_{ij}=\frac{p_{ig}}{p_{ig}+p_{jg}}=\frac{s_i\lambda_i}{s_i\lambda_i+s_j\lambda_j}.$$
+
+The result is exact, not an approximation: conditioning on the pair total removes the rest of the group from the problem, because the other competitors' probabilities do not survive the cancellation. Taking the log-odds,
+
+$$\mathrm{logit}\,\pi_{ij}
+=\log\frac{p_{ig}}{p_{jg}}
+=(o_i-o_j)+(\eta_i-\eta_j).
+\tag{2.1}$$
+
+Section 3 shows that the pair is also the only place where a rival-dependent effect is identifiable.
+
+## 3. What is estimable: the aliasing of a uniform indirect effect
+
+Give each competitor a direct log-strength $a_i$ and an indirect effect it exerts on its groupmates. Write the realized log-strength of $i$ in group $g$ as its own ability plus the effects the others exert on it:
+
+$$\eta_{ig}=a_i+\sum_{j\in\mathcal{P}_g,\,j\neq i} c_{j\to i},$$
+
+where $c_{j\to i}$ is the effect of $j$ on $i$. Two cases.
+
+**Uniform indirect effect.** $j$ acts on every groupmate alike, $c_{j\to i}=c_j$. Then
+
+$$\eta_{ig}=a_i+\sum_{j\neq i}c_j
+        =a_i+\Big(\underbrace{\textstyle\sum_{j\in\mathcal{P}_g}c_j}_{\;=\,C_g,\ \text{constant in }i}\Big)-c_i
+        =(a_i-c_i)+C_g.$$
+
+Substituting into the choice probability, the group constant $C_g$ cancels as the common scale did in Section 1:
+
+$$p_{ig}=\frac{s_i\,e^{\,(a_i-c_i)+C_g}}{\sum_{k} s_k\,e^{\,(a_k-c_k)+C_g}}
+      =\frac{s_i\,e^{\,a_i-c_i}}{\sum_{k} s_k\,e^{\,a_k-c_k}},$$
+
+because $e^{C_g}$ multiplies numerator and denominator. Only the combination $b_i=a_i-c_i$ enters. Hence the reparametrization
+
+$$(a_i,\,c_i)\;\longmapsto\;(a_i+t,\;c_i+t)\quad\text{for any constant }t$$
+
+leaves $b_i$, and therefore every probability and the whole likelihood, exactly unchanged. Direct and uniform-indirect effects are perfectly aliased: no estimator separates them, at any sample size. (On the *share* scale, with outcomes as proportions summing to one, the same collinearity appears as a direct-indirect correlation pinned at $-1$, where the gradient does not vanish and a delta-method standard error is meaningless.)
+
+**Differential (rival-dependent) indirect effect.** $j$ acts differently depending on who the rival is, for instance by the rival's lineage. Model the departure from uniform as
+
+$$c_{j\to i}=c_j+\delta_j\,\mathbb{1}[\,\text{class}(i)\neq\text{class}(j)\,].$$
+
+Now form the pair contrast (2.1). The own abilities and the uniform parts enter $\eta_i-\eta_j$; the group constant $C_g$ and any term common to $i$ and $j$ cancel in the difference, but the class-specific term does not, because it is asymmetric in $i$ and $j$:
+
+$$\mathrm{logit}\,\pi_{ij}
+=(o_i-o_j)+(\eta_i-\eta_j)
+=(o_i-o_j)+(a_i-a_j)
++\delta_i\,\mathbb{1}[\text{class}(j)\neq\text{class}(i)]
+-\delta_j\,\mathbb{1}[\text{class}(i)\neq\text{class}(j)].
+\tag{3.1}$$
+
+The pair is where the differential effect becomes visible: a uniform shift adds the same amount to $\eta_i$ and $\eta_j$ and cancels in the difference, while a rival-dependent shift survives. The estimable quantity $\delta_i$ is the change in $i$'s log-odds of winning an outcome from $j$ when $j$ is of a different class, over and above the two competitors' abilities.
+
+## 4. Composite likelihood
+
+Break every group into its pairs and multiply the pair binomials as if independent:
+
+$$c\ell(\boldsymbol{\eta},\boldsymbol{\delta})
+=\sum_{\text{pairs }(i,j)}\log\mathrm{Binom}\!\left(y_{ig}\,;\,m_{ij},\,\pi_{ij}\right).
+\tag{4.1}$$
+
+The pairs are not independent: a competitor appears in many of them, and within a group the counts are constrained to sum to $N_g$. So (4.1) is a *composite* likelihood (Lindsay, 1988; Varin, Reid and Firth, 2011), not a likelihood. Two properties of a likelihood have to be examined separately: the consistency of the estimator, and the distribution of the ratio statistic.
+
+**Consistency holds.** Each factor is a genuine conditional probability (Section 2), so each per-pair score has mean zero at the true parameter: $\mathbb{E}\!\left[\nabla\log\mathrm{Binom}_p\right]=0$. The composite score is a sum of these,
+
+$$\nabla c\ell=\sum_p \nabla\log\mathrm{Binom}_p,
+\qquad
+\mathbb{E}\!\left[\nabla c\ell\right]=\sum_p \mathbb{E}\!\left[\nabla\log\mathrm{Binom}_p\right]=0,$$
+
+so the estimating equation $\nabla c\ell=0$ is unbiased and its root is consistent under the usual regularity conditions. Unbiasedness of the score requires the marginals to be correct, not the pairs to be independent; this is what justifies the composite construction.
+
+**The second Bartlett identity fails.** For a true likelihood, the expected negative Hessian equals the variance of the score, $H\equiv-\mathbb{E}[\nabla^2\ell]=\operatorname{Var}(\nabla\ell)\equiv J$. For the composite likelihood the two objects differ:
+
+$$H=-\mathbb{E}\!\left[\nabla^2 c\ell\right]=\sum_p -\mathbb{E}\!\left[\nabla^2\log\mathrm{Binom}_p\right],$$
+
+a sum of per-pair informations, whereas
+
+$$J=\operatorname{Var}\!\left(\nabla c\ell\right)
+=\sum_p\sum_q \operatorname{Cov}\!\left(\nabla\log\mathrm{Binom}_p,\;\nabla\log\mathrm{Binom}_q\right).$$
+
+The off-diagonal $p\neq q$ terms are nonzero because pairs sharing a competitor are dependent, so $J\neq H$. Two consequences follow.
+
+1.  **The curvature is not the precision.** The variance of $\hat{\boldsymbol{\delta}}$ is the Godambe (sandwich) matrix $G^{-1}=H^{-1}JH^{-1}$ (Godambe, 1960), not $H^{-1}$. A standard error read off the composite Hessian is invalid.
+
+2.  **The likelihood-ratio statistic is not** $\chi^2$. For a true likelihood $2[\ell(\hat\theta)-\ell(\theta_0)]\to\chi^2_q$. For a composite likelihood the same Taylor expansion gives (Kent, 1982)
+
+    $$2\!\left[c\ell(\hat\theta)-c\ell(\theta_0)\right]\;\xrightarrow{d}\;\sum_{k=1}^{q}\lambda_k Z_k^2,
+    \qquad Z_k\stackrel{iid}{\sim}\mathcal N(0,1),$$
+
+    where $\lambda_1,\dots,\lambda_q$ are the eigenvalues of $H^{-1}J$. When $H=J$ (a true likelihood) every $\lambda_k=1$ and the mixture collapses to $\chi^2_q$. Here the $\lambda_k$ are unknown, so the reference distribution is unknown and a $\chi^2$ table does not apply.
+
+## 5. Calibration by permutation
+
+Because the $\lambda_k$ are unknown, and because overdispersion (a batch or handling effect shared within a group) inflates $J$ beyond what the multinomial predicts, the null distribution of the statistic is obtained empirically. The null must reproduce everything that shapes the statistic (the dependence among pairs, the overdispersion, the group sizes, the exposures) and break only the association under test, between the rival's class and the outcome. A permutation that relabels which groups are class-mixed, among groups of the same size, with the counts and exposures untouched, does this: it severs class from outcome while preserving the dependence structure and the dispersion. The empirical $p$-value is
+
+$$p=\frac{1+\#\{\,\text{permutation statistic}\ \geq\ \text{observed}\,\}}{1+B},$$
+
+whose floor is $1/(1+B)$ for $B$ permutations. A parametric bootstrap that samples from the fitted multinomial is not a valid null here: it takes the multinomial as the truth and so omits the overdispersion, making the null too tight. It is kept as a diagnostic: the gap between the permutation null and the parametric null measures the overdispersion the multinomial cannot hold.
+
+## 6. The variance components, by Laplace
+
+The differential test estimates $\boldsymbol{\delta}$ as location parameters. The companion question, how much of contest strength is heritable, puts a pedigree-structured random effect on the strengths and asks for its variance. With $\eta_i=a_i+q_i$, $\mathbf{a}\sim\mathcal N(\mathbf 0,\sigma^2_a\mathbf A)$ (additive, tied by the pedigree) and $\mathbf{q}\sim\mathcal N(\mathbf 0,\sigma^2_q\mathbf I)$ (a permanent competitor effect), the variance is a marginal likelihood over the random effects,
+
+$$L(\sigma^2_a,\sigma^2_q)=\int \Big[\textstyle\prod_g \mathrm{Multinomial}\big(\mathbf y_g\mid \mathbf p(\mathbf u)\big)\Big]\,
+\mathcal N(\mathbf a\mid\mathbf 0,\sigma^2_a\mathbf A)\,\mathcal N(\mathbf q\mid\mathbf 0,\sigma^2_q\mathbf I)\;d\mathbf u,
+\qquad \mathbf u=(\mathbf a,\mathbf q).$$
+
+There is no closed form: the integral is in the dimension of the pedigree. In the Gaussian linear model the integral of a normal density against a normal prior is itself normal and closes, which is what makes REML available there; with a multinomial likelihood it does not close and has to be approximated.
+
+**Laplace's method** (Tierney and Kadane, 1986). Write the integrand as $e^{-g(\mathbf u)}$ with
+
+$$g(\mathbf u)=-\ell(\mathbf u)+\tfrac12\,\mathbf a'\mathbf A^{-1}\mathbf a/\sigma^2_a+\tfrac12\,\mathbf q'\mathbf q/\sigma^2_q,$$
+
+where $\ell$ is the multinomial log-likelihood. Expand $g$ to second order about its minimizer $\hat{\mathbf u}$ (the joint mode). The gradient vanishes there by definition of the mode, $\nabla g(\hat{\mathbf u})=\mathbf 0$, so the first-order term of the Taylor expansion is zero and the expansion is
+
+$$g(\mathbf u)\approx g(\hat{\mathbf u})+\tfrac12(\mathbf u-\hat{\mathbf u})'\mathbf H(\mathbf u-\hat{\mathbf u}),
+\qquad
+\mathbf H=\nabla^2 g(\hat{\mathbf u})=\mathbf W+\begin{pmatrix}\mathbf A^{-1}/\sigma^2_a & \\ & \mathbf I/\sigma^2_q\end{pmatrix},$$
+
+with $\mathbf W$ the multinomial information (below). The remaining integral is Gaussian and closes, $\int e^{-\frac12(\mathbf u-\hat{\mathbf u})'\mathbf H(\mathbf u-\hat{\mathbf u})}d\mathbf u=(2\pi)^{n/2}|\mathbf H|^{-1/2}$, giving
+
+$$-2\log L \;\approx\;
+\underbrace{-2\ell(\hat{\mathbf u})}_{\text{fit at the mode}}
++\underbrace{\mathbf a'\mathbf A^{-1}\mathbf a/\sigma^2_a+\mathbf q'\mathbf q/\sigma^2_q}_{\text{pedigree and permanent penalties}}
++\underbrace{n_a\log\sigma^2_a-\log|\mathbf A^{-1}|+n_q\log\sigma^2_q}_{\text{prior normalizers}}
++\underbrace{\log|\mathbf H|}_{\text{cost of estimating }\hat{\mathbf u}}.
+\tag{6.1}$$
+
+**The multinomial information** $\mathbf W$. From $\ell$, with $\eta$ on the log scale,
+
+$$\frac{\partial \ell}{\partial\eta_i}=\sum_g\big(y_{ig}-N_g p_{ig}\big),
+\qquad
+-\frac{\partial^2 \ell}{\partial\eta_i\,\partial\eta_j}=\sum_g N_g\big(\delta_{ij}\,p_{ig}-p_{ig}p_{jg}\big),$$
+
+so each group contributes the block $N_g\big(\mathrm{diag}(\mathbf p_g)-\mathbf p_g\mathbf p_g'\big)$. Two facts follow. First, $\mathbf W$ is sparse: entry $(i,j)$ is nonzero only if $i$ and $j$ shared a group. The sparsity comes from the design, and it is what makes the method affordable: $\mathbf H=\mathbf W+(\text{block-diagonal precision})$ is sparse, and a single sparse Cholesky factorization delivers both the Newton step for the mode and the $\log|\mathbf H|$ that (6.1) needs. Second, $\mathbf W$ is a weighted graph Laplacian: its rows sum to zero ($\sum_j N_g(\delta_{ij}p_{ig}-p_{ig}p_{jg})=N_g(p_{ig}-p_{ig})=0$), so $\mathbf W$ is singular on its own; the precision term $\mathbf A^{-1}/\sigma^2_a$ is what makes $\mathbf H$ positive definite.
+
+**The role of** $\log|\mathbf H|$. It is the price of having estimated the mode rather than known it; without it $\sigma^2$ comes out systematically underestimated. It is not the REML penalty. Writing the Gaussian restricted likelihood in the standard form,
+
+$$-2\log L_{\text{REML}}=(\mathbf y-\mathbf X\mathbf b)'\mathbf V^{-1}(\mathbf y-\mathbf X\mathbf b)+\log|\mathbf V|+\log|\mathbf X'\mathbf V^{-1}\mathbf X|,$$
+
+the Laplace term corresponds to $\log|\mathbf V|$ (through the identity $\log|\mathbf V|=\log|\mathbf R|+\log|\mathbf G|+\log|\mathbf H|$), which is the maximum-likelihood term. The restricted term proper is $\log|\mathbf X'\mathbf V^{-1}\mathbf X|$, which penalizes the fixed effects for having been estimated, and (6.1) does not carry it. The estimator is therefore marginal (ML) over the random effects, not REML; REML would additionally integrate the fixed effects, which the same expansion could do. When the design has an offset and no free fixed effect, as the contest model does with exposure entering as an offset, the distinction does not change the numbers, but it does as soon as a fixed effect enters.
+
+The variance components are then estimated by minimizing (6.1) over $(\sigma^2_a,\sigma^2_q)$, re-finding the mode at each trial value. The surface of an additive/permanent model has a ridge: trading $\sigma^2_a$ for $\sigma^2_q$ at fixed sum barely moves the fit. A point estimate is therefore not enough, and the interval on the heritable fraction $\sigma^2_a/(\sigma^2_a+\sigma^2_q)$ is read from a profile of (6.1) along that fraction. The profile is valid here because the multinomial is a true likelihood and the profile-likelihood ratio keeps its asymptotic calibration; this is the point at which the composite likelihood of Section 4 and the likelihood of this section part ways, since there $H\neq J$ removes the $\chi^2$ calibration and here it holds.
+
+## 7. Heritability of a contest-derived effect
+
+Suppose the differential effects $\hat{\boldsymbol{\delta}}$ of Sections 3 to 5 are shown to exist and the question becomes whether they are heritable. Two routes.
+
+**Two-step, and its attenuation.** Treat the estimates as a measurement-error model,
+
+$$\hat\delta_i=\delta_i+e_i,\qquad \boldsymbol{\delta}\sim\mathcal N(\mathbf 0,\sigma^2_\delta\mathbf A),\qquad \operatorname{Var}(e_i)=v_i,$$
+
+where $v_i$ is the sampling variance of the composite estimate. Fitting an animal model to $\hat{\boldsymbol{\delta}}$ aims $\sigma^2_\delta$ at the additive variance and loads $\sigma^2_{\text{env}}+\bar v$ onto the residual, so the estimated heritability is
+
+$$\mathbb{E}\!\left[\hat h^2_\delta\right]\approx
+\frac{\sigma^2_\delta}{\sigma^2_\delta+\sigma^2_{\text{env}}+\bar v}
+\;<\;
+\frac{\sigma^2_\delta}{\sigma^2_\delta+\sigma^2_{\text{env}}}
+=h^2_\delta,$$
+
+biased downward by the sampling noise $\bar v$. The bias has a single direction, which makes a null result conservative but not conclusive: without the $v_i$ the estimate cannot separate "not heritable" from "a moderate $\sigma^2_\delta$ drowned in noise". Closing the gap needs the $v_i$, from the Godambe sandwich or a pair bootstrap, entered as weights. A weight built from the composite curvature alone (ignoring $H\neq J$) is optimistic and inflates the genetic fraction.
+
+**Coupled.** Put $\boldsymbol{\delta}$ inside the composite likelihood with the pedigree prior and integrate by the Laplace machinery of Section 6 (the Hessian in $\boldsymbol{\delta}$ is sparse for the same reason: $\delta_i$ meets $\delta_j$ only if they shared a class-mixed group). The difference from Section 6 is that the base object is a composite likelihood, not a true one, so even the profile of its marginal does not inherit the $\chi^2$ calibration. The interval on $\sigma^2_\delta$ has to come from simulation with a known truth on the same design.
+
+## How the package exposes this
+
+``` r
+# strength per unit of exposure (Sections 1 to 3), free of the sum-to-N constraint
+bt <- competition_strength(wins, group, competitor, exposure = dose)
+
+# the strength as a phenotype for an animal model, carrying its own precision
+d2  <- data.frame(id = names(bt$strength), y = bt$log_strength, w = 1 / bt$se^2)
+model(y ~ animal(id), d2, pedigree, weights = "w")
+```
+
+`competition_strength()` fits the strengths by the MM algorithm of Hunter (2004), which is the EM-MAP of Caron and Doucet (2012) with a Gamma prior and contains Zermelo's (1929) iteration as the flat-prior case. It flags competitors outside the strongly connected component of the contest graph, where the estimate is prior shrinkage rather than measurement (Ford, 1957). The variance-component estimator of Section 6 and the differential test of Sections 4 and 5 are analysis-level constructions built on the sparse pieces the package exposes (`a_inverse()`, `sparse_chol()`, `sparse_solve()`, `selected_inverse()`).
+
+## References
+
+- Bradley, R.A. & Terry, M.E. (1952). Rank analysis of incomplete block designs I. *Biometrika* 39:324-345.
+- Caron, F. & Doucet, A. (2012). Efficient Bayesian inference for generalized Bradley-Terry models. *Journal of Computational and Graphical Statistics* 21:174-196.
+- Ford, L.R. (1957). Solution of a ranking problem from binary comparisons. *American Mathematical Monthly* 64:28-33.
+- Godambe, V.P. (1960). An optimum property of regular maximum likelihood estimation. *Annals of Mathematical Statistics* 31:1208-1211.
+- Hunter, D.R. (2004). MM algorithms for generalized Bradley-Terry models. *Annals of Statistics* 32:384-406.
+- Kent, J.T. (1982). Robust properties of likelihood ratio tests. *Biometrika* 69:19-27.
+- Lindsay, B.G. (1988). Composite likelihood methods. *Contemporary Mathematics* 80:221-239.
+- Luce, R.D. (1959). *Individual Choice Behavior*. Wiley, New York.
+- Plackett, R.L. (1975). The analysis of permutations. *Applied Statistics* 24:193-202.
+- Tierney, L. & Kadane, J.B. (1986). Accurate approximations for posterior moments and marginal densities. *Journal of the American Statistical Association* 81:82-86.
+- Varin, C., Reid, N. & Firth, D. (2011). An overview of composite likelihood methods. *Statistica Sinica* 21:5-42.
+- Zermelo, E. (1929). Die Berechnung der Turnier-Ergebnisse als ein Maximumproblem der Wahrscheinlichkeitsrechnung. *Mathematische Zeitschrift* 29:436-460.
