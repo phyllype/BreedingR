@@ -221,7 +221,27 @@ The heritability itself runs optimistic, by 0.05 in the interior case and 0.11 u
 - *The share of the sandwich mass sitting off the diagonal.* It can exceed the diagonal mass several times over and still be harmless: the off-diagonal is dominated by one global mode, the non-identifiable constant, and the restricted likelihood projects that direction out. The whitened quadratic forms built from the full matrix and from its diagonal agree to within about seven percent.
 - *Shrinkage from the ridge on $\boldsymbol{\delta}$.* By the Ghosh-Louis result (Louis, 1984), a shrunken set of estimates understates the dispersion of the parameters, so the ridge biases the genetic fraction downward, never upward. Lowering it by two orders of magnitude restores the regression of $\hat{\boldsymbol{\delta}}$ on $\boldsymbol{\delta}$ to a slope of one and leaves the variance components no better.
 
-**The coupled alternative.** Put $\boldsymbol{\delta}$ inside the composite likelihood with the pedigree prior and integrate by the Laplace machinery of Section 6 (the Hessian in $\boldsymbol{\delta}$ is sparse for the same reason: $\delta_i$ meets $\delta_j$ only if they shared a class-mixed group). This avoids the transport problem entirely. The difference from Section 6 is that the base object is a composite likelihood, not a true one, so the profile of its marginal does not inherit the $\chi^2$ calibration and the interval must come from simulation on the same design. The general theory for what a two-step estimator costs when the first step is itself estimated is Murphy and Topel (1985); the standing warning against using first-stage predictions as a second-stage phenotype without carrying their uncertainty is Hadfield, Wilson, Garant, Sheldon and Kruuk (2010), and carrying $\mathbf V_e$ as above is what answers it. Where only the inference on $\sigma^2_\delta$ is wanted and not the point estimate, a cluster-robust variance in the second stage (Hedges, Tipton and Johnson, 2010), clustered by group as the first-stage sandwich already is, is the cheaper route.
+**The coupled alternative, and why it is not simply better.** The obvious objection to any two-stage scheme is that a single stage would avoid the transport question altogether: put $\boldsymbol{\delta}$ inside the composite likelihood with the pedigree prior and integrate by the Laplace machinery of Section 6. That construction is available, and on the surface it looks strictly preferable. It is not, and the reason is the same broken identity as in Section 4, arriving in a place where it is much harder to see.
+
+Expand the composite log-likelihood about its maximum, $c\ell(\boldsymbol{\delta})\approx c-\tfrac12(\boldsymbol{\delta}-\mathbf d)'\mathbf H(\boldsymbol{\delta}-\mathbf d)$ with $\mathbf d=\hat{\boldsymbol{\delta}}$. Integrating against the prior $\mathcal N(\mathbf 0,\mathbf G)$, $\mathbf G=\sigma^2_\delta\mathbf A+\sigma^2_{\text{env}}\mathbf I$, gives a closed form,
+
+$$\int e^{\,c\ell(\boldsymbol{\delta})}\,\mathcal N(\boldsymbol{\delta}\mid\mathbf 0,\mathbf G)\,d\boldsymbol{\delta}
+=e^{c}(2\pi)^{p/2}|\mathbf H|^{-1/2}\,
+\mathcal N\!\left(\mathbf d\mid\mathbf 0,\;\mathbf G+\mathbf H^{-1}\right),$$
+
+so in this regime the coupled estimator is exactly maximum likelihood on $\hat{\boldsymbol{\delta}}$ with covariance $\mathbf G+\mathbf H^{-1}$. But the sampling truth, by Section 4, is $\mathbf G_{\text{true}}+\mathbf H^{-1}\mathbf J\mathbf H^{-1}$. Equating the two, the coupled estimator solves
+
+$$\hat{\mathbf G}-\mathbf G_{\text{true}}
+=\mathbf E:=\mathbf H^{-1}(\mathbf J-\mathbf H)\mathbf H^{-1}.
+\tag{7.2}$$
+
+It replaces the measurement variance by the *curvature* of the composite likelihood, which is precisely the object the second Bartlett identity would have licensed and which, in a composite likelihood, is wrong by exactly $\mathbf E$. When $\mathbf J=\mathbf H$ the bias vanishes identically; when they differ it is of the order of the quantity being estimated. Which component absorbs it depends on the *pattern* of $\mathbf E$ and not its size: white $\mathbf E$ loads entirely onto $\sigma^2_{\text{env}}$, $\mathbf E$ carrying the pedigree pattern loads entirely onto $\sigma^2_\delta$, and a numerical projection of (7.2) with the same mean diagonal sends a true $h^2_\delta=0.60$ to $0.375$ in the first case and $0.750$ in the second. The bias does not vanish under the null either: with $\sigma^2_\delta=0$ it is unchanged, so a non-heritable effect can be returned as heritable.
+
+This is why the two-stage form above is preferred here. It *injects* the sandwich, which is valid under the pair dependence by construction; the coupled form manufactures the same quantity internally out of $\mathbf H$ and gets it wrong. The two-stage error is also visible, whereas the coupled one hides inside a well-behaved number. What the coupled form does genuinely repair is the ridge: with a penalty on $\boldsymbol{\delta}$ the first stage returns $\hat{\boldsymbol{\delta}}=\mathbf B\boldsymbol{\delta}+\boldsymbol{\epsilon}$, and $\mathbf B\mathbf G\mathbf B'$ cannot be written in the form $\sigma^2_\delta\mathbf A+\sigma^2_{\text{env}}\mathbf I$ at all, which is the mechanism behind $\sigma^2_{\text{env}}$ reaching the zero boundary. Coupling generates that shrinkage from the pedigree prior instead, where $\log|\mathbf H|$ already accounts for it.
+
+The construction that would carry both advantages is the coupled form with a curvature adjustment applied to $c\ell$ before the Laplace step, in the manner of Chandler and Bate (2007) or Pace, Salvan and Sartori (2011): rescaling so the effective curvature becomes $\mathbf H\mathbf J^{-1}\mathbf H$ makes the variance the estimator replaces equal to the sandwich, which zeroes $\mathbf E$ by construction rather than calibrating around it. The obstacle is not cost but the rank of $\hat{\mathbf J}=\sum_g\mathbf S_g\mathbf S_g'$, at most the number of groups and exactly singular along the flat directions, so the trace-based adjustments, which never invert $\mathbf J$, are the safe form.
+
+The general theory for what a two-step estimator costs when the first step is itself estimated is Murphy and Topel (1985); the standing warning against using first-stage predictions as a second-stage phenotype without carrying their uncertainty is Hadfield, Wilson, Garant, Sheldon and Kruuk (2010), and carrying $\mathbf V_e$ as above is what answers it. Where only the inference on $\sigma^2_\delta$ is wanted and not the point estimate, a cluster-robust variance in the second stage (Hedges, Tipton and Johnson, 2010), clustered by group as the first-stage sandwich already is, is the cheaper route.
 
 ## How the package exposes this
 
@@ -240,6 +260,7 @@ model(y ~ animal(id), d2, pedigree, weights = "w")
 
 - Bradley, R.A. & Terry, M.E. (1952). Rank analysis of incomplete block designs I. *Biometrika* 39:324-345.
 - Caron, F. & Doucet, A. (2012). Efficient Bayesian inference for generalized Bradley-Terry models. *Journal of Computational and Graphical Statistics* 21:174-196.
+- Chandler, R.E. & Bate, S. (2007). Inference for clustered data using the independence loglikelihood. *Biometrika* 94:167-183.
 - Ford, L.R. (1957). Solution of a ranking problem from binary comparisons. *American Mathematical Monthly* 64:28-33.
 - Garrick, D.J., Taylor, J.F. & Fernando, R.L. (2009). Deregressing estimated breeding values and weighting information for genomic regression analyses. *Genetics Selection Evolution* 41:55.
 - Godambe, V.P. (1960). An optimum property of regular maximum likelihood estimation. *Annals of Mathematical Statistics* 31:1208-1211.
@@ -251,6 +272,7 @@ model(y ~ animal(id), d2, pedigree, weights = "w")
 - Louis, T.A. (1984). Estimating a population of parameter values using Bayes and empirical Bayes methods. *Journal of the American Statistical Association* 79:393-398.
 - Luce, R.D. (1959). *Individual Choice Behavior*. Wiley, New York.
 - Murphy, K.M. & Topel, R.H. (1985). Estimation and inference in two-step econometric models. *Journal of Business and Economic Statistics* 3:370-379.
+- Pace, L., Salvan, A. & Sartori, N. (2011). Adjusting composite likelihood ratio statistics. *Statistica Sinica* 21:129-148.
 - Piepho, H.-P., Möhring, J., Schulz-Streeck, T. & Ogutu, J.O. (2012). A stage-wise approach for the analysis of multi-environment trials. *Biometrical Journal* 54:844-860.
 - Plackett, R.L. (1975). The analysis of permutations. *Applied Statistics* 24:193-202.
 - Thompson, S.G. & Sharp, S.J. (1999). Explaining heterogeneity in meta-analysis: a comparison of methods. *Statistics in Medicine* 18:2693-2708.
