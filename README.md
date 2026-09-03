@@ -59,7 +59,8 @@ to the same engine.
 **Where to read next.** The vignette *Theory and practice* walks a full evaluation in
 order, explaining each matrix, each algorithm and each iteration alongside the code that
 runs it. *Hands-on* works through 48 of the 54 exported functions, step by step.
-[FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
+*Contest models* derives the competitive-ability estimators from the group multinomial,
+one identity at a time. [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
 
 ## Quick start
 
@@ -212,7 +213,10 @@ The full map of the 54 functions, grouped by kinship, is in
 step by step on data simulated in the document itself, is the vignette
 `vignettes/hands-on.Rmd` (every chunk runs at build time, so it cannot rot). The theory
 behind `apy_core=` (why APY works and what the Mendelian residual means) is in
-[APY.md](APY.md).
+[APY.md](APY.md). The derivations behind `competition_strength()` and the contest
+estimators (exact pair conditioning, the aliasing of a uniform indirect effect, composite
+likelihood and its failed Bartlett identity, the Laplace variance components) are in
+`vignettes/contest-models.Rmd`.
 
 ## The design decision that carries everything
 
