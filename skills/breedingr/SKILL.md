@@ -78,6 +78,27 @@ the ratio `k = s2_ES / s2_ED` by profile REML, each candidate k is an exact weig
 `model()` fit, and returns the whole profile, because with one record per animal the
 data pins the slope `s2_ES` much better than the ratio (Bijma 2010; see its help page).
 
+## Getting the data in, which is where real sessions start
+
+```r
+# Read identifiers as CHARACTER. If R decides "0012345" is a number the leading zero is
+# gone and it stops matching the pedigree; that is the most common reason a first fit
+# returns nothing useful. Convert the trait and the covariates by hand afterwards.
+d   <- read.csv("phenotypes.csv", colClasses = "character")
+ped <- read.csv("pedigree.csv",   colClasses = "character")  # animal, sire, dam; 0 = unknown
+d$y <- as.numeric(d$y)
+
+length(intersect(d$id, ped$id))       # THE check: should equal the animals with records
+
+# Genotypes: animals x markers coded 0/1/2, ids matching the pedigree
+M <- as.matrix(read.table("genotypes.txt", row.names = 1))
+geno <- list(ids = rownames(M), m = M)
+```
+
+Every animal cited as a parent needs its own row. A cited-but-absent parent is a declared
+ERROR and not a warning: turning it silently into an unknown would change the Mendelian
+variance of its offspring and the relationships of everything downstream.
+
 ## The order of a real evaluation
 
 ```r

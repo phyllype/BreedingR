@@ -1,0 +1,184 @@
+---
+title: "Your first evaluation, starting from your own files"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Your first evaluation, starting from your own files}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+library(BreedingR)
+set.seed(1)
+```
+
+This guide goes from two files on your disk to breeding values you can act on. It assumes you know what a breeding value is and does not assume you know anything about this package. Everything here runs: the files are written first so the reading code is real, and you can replace those two lines with your own paths.
+
+## What you need
+
+Two text files.
+
+**A phenotype file**, one row per record. It needs the animal's identifier, the trait you are evaluating, and the fixed effects you want to correct for. Contemporary group is almost always one of them.
+
+**A pedigree file**, one row per animal, with three columns in this order: animal, sire, dam. An unknown parent is `0`. Every animal that appears as a parent must have its own row, and the package will stop rather than guess if one is missing. A parent quietly turned into an unknown changes the Mendelian variance of its offspring and the relationship of everything downstream, so it is an error and not a warning.
+
+The identifiers must be the same strings in both files. This is the single most common reason a first fit returns nothing useful.
+
+Let me write two files so the rest of the guide can read them. Yours already exist, so skip this chunk and point the next one at your paths.
+
+```{r}
+s <- simulate_breeding(n_founders = 60, n_generations = 3,
+                       offspring_per_generation = 120, h2 = 0.35,
+                       n_markers = 300, seed = 42)
+
+pasta <- tempdir()
+write.csv(s$data,     file.path(pasta, "phenotypes.csv"), row.names = FALSE)
+write.csv(s$pedigree, file.path(pasta, "pedigree.csv"),   row.names = FALSE)
+```
+
+## Read them in
+
+```{r}
+dados <- read.csv(file.path(pasta, "phenotypes.csv"), colClasses = "character")
+ped   <- read.csv(file.path(pasta, "pedigree.csv"),   colClasses = "character")
+
+dados$y <- as.numeric(dados$y)     # the trait is the only numeric column
+str(dados)
+head(ped, 3)
+```
+
+Reading everything as character first and converting only the trait is deliberate. Identifiers like `0012345` lose their leading zero when R decides they are numbers, and then they stop matching the pedigree. Convert the trait, and any covariate, by hand.
+
+## Look at the data before you model it
+
+`describe()` reports the shape of what you have, and `suggest_model()` reads that shape and names the terms it calls for. Neither fits anything.
+
+```{r}
+describe(dados, trait = "y", classes = "cg", pedigree = ped)
+suggest_model(dados, trait = "y", animal = "id")
+```
+
+`qc_phenotypes()` flags problems. It marks the missing code, turns outliers beyond a Tukey fence into missing values, and reports class levels too small to estimate. It **flags rather than deletes**: dropping a row would reshape contemporary groups without saying so, and you would never see it happen.
+
+```{r}
+q <- qc_phenotypes(dados, "y", classes = "cg")
+q$report
+dados <- q$data
+```
+
+## The fit
+
+The model is a formula. An unmarked term is a fixed class effect, `cov(x)` is a covariate, and `animal(id)` is the additive genetic effect that the pedigree gives structure to.
+
+```{r}
+fit <- model(y ~ cg + animal(id), dados, ped)
+fit
+```
+
+Read that from the top. The variance components come from AI-REML. `converged` says whether it got there, and it is not a formality: the package refuses to call a fit converged unless the Newton decrement of the free components passes tolerance as well, so a `FALSE` there is a real statement and not a rounding complaint.
+
+## Reading the answer
+
+**Heritability** is the additive share of the total variance. Pick the components by name and never sum a covariance:
+
+```{r}
+v  <- fit$theta[grepl("^var[(]", names(fit$theta))]
+h2 <- v[["var(animal)"]] / sum(v)
+round(h2, 3)
+```
+
+The file was simulated with a heritability of 0.35, so this is the estimate landing near a truth you happen to know. On your own data you will not have that check, which is why the last section of this guide is about what to look at instead.
+
+**Breeding values** and their **accuracy**:
+
+```{r}
+e   <- ebv(fit)
+acc <- accuracy(fit, ped)
+head(round(e, 3), 5)
+summary(acc)
+```
+
+`ebv()` returns every animal in the pedigree, including those without records, because a parent gets an estimate from its offspring. Accuracy carries the `(1 + F)` of the pedigree in its denominator, which is the honest one: an inbred animal has less Mendelian variance left to predict.
+
+**Ranking**, which is usually the actual question:
+
+```{r}
+melhores <- head(sort(e, decreasing = TRUE), 5)
+data.frame(animal = names(melhores),
+           ebv = round(unname(melhores), 3),
+           acc = round(unname(acc[names(melhores)]), 3))
+```
+
+Read the accuracy column before you act on the ranking. A high breeding value with low accuracy is a young animal with little information, not a proven one.
+
+## The complication you will actually hit: repeated records
+
+If an animal has more than one record, the additive term alone will absorb what those records share and heritability will come out too high. The permanent environment term is what catches it.
+
+```{r}
+rep_dados <- rbind(dados, transform(dados, y = dados$y + rnorm(nrow(dados), 0, 0.5)))
+sem_pe <- model(y ~ cg + animal(id), rep_dados, ped)
+com_pe <- model(y ~ cg + animal(id) + pe(id), rep_dados, ped)
+
+frac <- function(f, termo) {
+  v <- f$theta[grepl("^var[(]", names(f$theta))]
+  unname(v[[paste0("var(", termo, ")")]] / sum(v))
+}
+c(sem_pe = round(frac(sem_pe, "animal"), 3),
+  com_pe = round(frac(com_pe, "animal"), 3))
+```
+
+The first number is inflated and the second is the heritability. The difference between them is exactly the within-animal covariance that had nowhere else to go. Repeatability is the two shares added together.
+
+## When it does not converge
+
+`converged = FALSE` has a small number of causes, and the message says which.
+
+Hitting the iteration cap means it was still moving. Raise `maxiter=`. Starting values far from the answer make this common, and `start=` from a simpler fit usually fixes it.
+
+A component walking to zero means the data does not support that term. This is information, not a failure: a permanent environment that goes to zero is telling you the repeated records share nothing beyond the genetics.
+
+A correlation stuck at plus or minus one, in a model with a covariance group such as direct plus maternal, is a real boundary and not a numerical accident. The fit says so in its message. A standard error there is meaningless, and the interval has to come from `profile_theta()` instead.
+
+```{r}
+fit$converged
+fit$message
+```
+
+## Adding genotypes
+
+Genotypes are an argument, not a different program. The matrix is animals by markers, coded 0, 1, 2, with a vector of identifiers that match the pedigree.
+
+```{r}
+g <- qc_genotypes(s$genotypes$m, min_maf = 0.01)
+g$report
+
+fit_g <- model(y ~ cg + animal(id), dados, ped,
+               genotypes = list(ids = s$genotypes$ids, m = g$m))
+round(c(pedigree = h2,
+        single_step = unname(fit_g$theta[["var(animal)"]] / sum(
+          fit_g$theta[grepl("^var[(]", names(fit_g$theta))]))), 3)
+```
+
+That is single-step: genotyped and non-genotyped animals in one evaluation, with the relationship matrix built from both sources.
+
+The two heritabilities are not the same number and there is no reason to expect them to be. The denominator changed. Pedigree relationships are expectations, while genomic ones are what actually happened at the markers, so full sibs stop being 0.5 apiece and spread around it. Which of the two you report depends on which base population you mean, and the honest habit is to say which one you fitted rather than to pick the number you like.
+
+If your genotyped set is large enough that the dense route hurts, `apy_core=` and `vecchia_k=` are the two approximations, and `snp_blup()` solves the marker equations without forming the genomic relationship matrix at all.
+
+## Before you believe any of it
+
+Four checks, in the order they catch things.
+
+Do the identifiers match? `length(intersect(dados$id, ped$id))` should be the number of animals with records. A near-zero intersection is the leading-zero problem from the first section.
+
+Did quality control remove something that mattered? The report says what it flagged and why.
+
+Is the contemporary group doing what you think? A group with very many levels can absorb the very signal you are trying to estimate, and a group with one animal in it contributes nothing but a lost degree of freedom.
+
+Does the heritability sit where the literature puts it? If it does not, the reason is usually a missing term in the model rather than a discovery.
+
+## Where to go next
+
+*Hands-on* walks the whole function surface, one marker at a time, and every chunk in it runs. *Theory and practice* explains what the engine does at each step and why. *Contest models* derives the competitive-ability estimators. `FUNCTIONS.md` maps everything by kinship.

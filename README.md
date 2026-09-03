@@ -56,11 +56,13 @@ and epistasis constructions of chapter 13 of Mrode and Pocrnic (2023), and the m
 partial matrices of chapter 14, are matrices built by their own constructors and handed
 to the same engine.
 
-**Where to read next.** The vignette *Theory and practice* walks a full evaluation in
-order, explaining each matrix, each algorithm and each iteration alongside the code that
-runs it. *Hands-on* works through 48 of the 54 exported functions, step by step.
-*Contest models* derives the competitive-ability estimators from the group multinomial,
-one identity at a time. [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
+**Where to read next.** Start with *Your first evaluation*, which goes from two files on
+disk to breeding values you can act on, and assumes nothing about this package. After
+that: *Theory and practice* walks a full evaluation in order, explaining each matrix, each
+algorithm and each iteration alongside the code that runs it; *Hands-on* works through 48
+of the 54 exported functions, step by step; *Contest models* derives the
+competitive-ability estimators from the group multinomial, one identity at a time.
+[FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
 
 ## Quick start
 

@@ -246,16 +246,54 @@ The construction that would carry both advantages is the coupled form with a cur
 
 The general theory for what a two-step estimator costs when the first step is itself estimated is Murphy and Topel (1985); the standing warning against using first-stage predictions as a second-stage phenotype without carrying their uncertainty is Hadfield, Wilson, Garant, Sheldon and Kruuk (2010), and carrying $\mathbf V_e$ as above is what answers it. Where only the inference on $\sigma^2_\delta$ is wanted and not the point estimate, a cluster-robust variance in the second stage (Hedges, Tipton and Johnson, 2010), clustered by group as the first-stage sandwich already is, is the cheaper route.
 
-## How the package exposes this
+## Doing this to your own data
 
-``` r
-# strength per unit of exposure (Sections 1 to 3), free of the sum-to-N constraint
-bt <- competition_strength(wins, group, competitor, exposure = dose)
+The data you need is one row per competitor per group: who competed, in which group, with how much exposure, and how many outcomes they took.
 
-# the strength as a phenotype for an animal model, carrying its own precision
-d2  <- data.frame(id = names(bt$strength), y = bt$log_strength, w = 1 / bt$se^2)
+```{r}
+library(BreedingR)
+set.seed(7)
+
+# One row per competitor per group. Substitute your own columns.
+n_grupos <- 200
+contests <- do.call(rbind, lapply(seq_len(n_grupos), function(g) {
+  quem <- sample(1:40, 4)
+  dose <- runif(4, 0.5, 2)
+  forca <- exp(c(0.9, 0.3, -0.2, -0.6, rep(0, 36))[quem])
+  p <- dose * forca / sum(dose * forca)
+  data.frame(group = as.character(g), competitor = as.character(quem),
+             dose = dose, wins = as.vector(rmultinom(1, 12, p)))
+}))
+head(contests, 4)
+```
+
+`competition_strength()` estimates the strength of each competitor per unit of exposure. It is the fit of Section 1, and it reports who it could not measure.
+
+```{r}
+bt <- competition_strength(contests$wins, contests$group,
+                           contests$competitor, exposure = contests$dose)
+head(round(sort(bt$log_strength, decreasing = TRUE), 3), 5)
+```
+
+Competitors 1 and 2 were planted at 0.9 and 0.3 on this scale and come back near those values, which is the check worth running on any design of your own before trusting a ranking from it: simulate your own group sizes and exposures with strengths you chose, and see whether they come back.
+
+**Read `identifiable` before anything else.** A competitor outside the strongly connected component of the contest graph has a strength that came from the prior and not from the data (Ford, 1957). It has no standard error, and it does not belong in a published ranking.
+
+```{r}
+sum(!bt$identifiable)          # how many are prior shrinkage rather than measurement
+```
+
+The strength then becomes a phenotype like any other, and it carries its own precision, so it goes in as a weight rather than as a bare number:
+
+```{r, eval = FALSE}
+d2 <- data.frame(id = names(bt$strength), y = bt$log_strength, w = 1 / bt$se^2)
+d2 <- d2[bt$identifiable, ]                 # measured competitors only
 model(y ~ animal(id), d2, pedigree, weights = "w")
 ```
+
+That two-stage route is the one Section 7 dissects, and the warning there applies here: weighting by `1/se^2` alone uses the composite curvature, which overstates the precision. Where the groups are large and the same competitors meet repeatedly, use the cluster-robust variance instead, and read the additive variance rather than the heritability as the finding.
+
+**What this design cannot answer, however much data you collect.** If you are asking whether a competitor harms its rivals uniformly, Section 3 settles it: that effect is exactly aliased with its own ability, and no estimator separates the two. Only a rival-dependent effect is estimable, and only through the pair contrast.
 
 `competition_strength()` fits the strengths by the MM algorithm of Hunter (2004), which is the EM-MAP of Caron and Doucet (2012) with a Gamma prior and contains Zermelo's (1929) iteration as the flat-prior case. It flags competitors outside the strongly connected component of the contest graph, where the estimate is prior shrinkage rather than measurement (Ford, 1957). The variance-component estimator of Section 6 and the differential test of Sections 4 and 5 are analysis-level constructions built on the sparse pieces the package exposes (`a_inverse()`, `sparse_chol()`, `sparse_solve()`, `selected_inverse()`).
 
