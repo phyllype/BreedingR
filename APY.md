@@ -184,12 +184,12 @@ statistics, and two special cases place it firmly in this field:
 Between the two extremes, per-animal neighborhoods use the budget where each animal
 needs it. Schafer, Katzfuss and Owhadi (2021, SIAM J. Sci. Comput.) prove that, given
 the sparsity pattern, this factor minimizes the Kullback-Leibler divergence to the true
-G^-1, and that enlarging the conditioning sets never increases it — which is why the
+G^-1, and that enlarging the conditioning sets never increases it: which is why the
 package's gate on nested neighborhoods (error shrinking as k grows, exactness at
 k = n - 1) is a theorem check, not a hope.
 
 The order matters: conditioning on the past is what the recursion means, so rows come
-ancestors first — in genotype files sorted by birth date or by a renumbered pedigree,
+ancestors first, in genotype files sorted by birth date or by a renumbered pedigree,
 that is the order the data already has. In the package: `vecchia_inverse()` for the
 standalone factor and diagnostics, `vecchia_k =` in the fitters for the single step,
 mutually exclusive with `apy_core =`.

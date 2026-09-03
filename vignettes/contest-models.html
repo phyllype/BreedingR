@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+
+
+<title>Contest models: from the multinomial to competitive breeding values</title>
+
+<script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
+// be compatible with the behavior of Pandoc < 2.8).
+document.addEventListener('DOMContentLoaded', function(e) {
+  var hs = document.querySelectorAll("div.section[class*='level'] > :first-child");
+  var i, h, a;
+  for (i = 0; i < hs.length; i++) {
+    h = hs[i];
+    if (!/^h[1-6]$/i.test(h.tagName)) continue;  // it should be a header h1-h6
+    a = h.attributes;
+    while (a.length > 0) h.removeAttribute(a[0].name);
+  }
+});
+</script>
+
+<style type="text/css">
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+span.underline{text-decoration: underline;}
+div.column{display: inline-block; vertical-align: top; width: 50%;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+</style>
+
+
+
+<style type="text/css">
+code {
+white-space: pre;
+}
+.sourceCode {
+overflow: visible;
+}
+</style>
+<style type="text/css" data-origin="pandoc">
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+<script>
+// apply pandoc div.sourceCode style to pre.sourceCode instead
+(function() {
+  var sheets = document.styleSheets;
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].ownerNode.dataset["origin"] !== "pandoc") continue;
+    try { var rules = sheets[i].cssRules; } catch (e) { continue; }
+    var j = 0;
+    while (j < rules.length) {
+      var rule = rules[j];
+      // check if there is a div.sourceCode rule
+      if (rule.type !== rule.STYLE_RULE || rule.selectorText !== "div.sourceCode") {
+        j++;
+        continue;
+      }
+      var style = rule.style.cssText;
+      // check if color or background-color is set
+      if (rule.style.color === '' && rule.style.backgroundColor === '') {
+        j++;
+        continue;
+      }
+      // replace div.sourceCode by a pre.sourceCode rule
+      sheets[i].deleteRule(j);
+      sheets[i].insertRule('pre.sourceCode{' + style + '}', j);
+    }
+  }
+})();
+</script>
+
+
+
+
+<style type="text/css">body {
+background-color: #fff;
+margin: 1em auto;
+max-width: 700px;
+overflow: visible;
+padding-left: 2em;
+padding-right: 2em;
+font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+font-size: 14px;
+line-height: 1.35;
+}
+#TOC {
+clear: both;
+margin: 0 0 10px 10px;
+padding: 4px;
+width: 400px;
+border: 1px solid #CCCCCC;
+border-radius: 5px;
+background-color: #f6f6f6;
+font-size: 13px;
+line-height: 1.3;
+}
+#TOC .toctitle {
+font-weight: bold;
+font-size: 15px;
+margin-left: 5px;
+}
+#TOC ul {
+padding-left: 40px;
+margin-left: -1.5em;
+margin-top: 5px;
+margin-bottom: 5px;
+}
+#TOC ul ul {
+margin-left: -2em;
+}
+#TOC li {
+line-height: 16px;
+}
+table {
+margin: 1em auto;
+border-width: 1px;
+border-color: #DDDDDD;
+border-style: outset;
+border-collapse: collapse;
+}
+table th {
+border-width: 2px;
+padding: 5px;
+border-style: inset;
+}
+table td {
+border-width: 1px;
+border-style: inset;
+line-height: 18px;
+padding: 5px 5px;
+}
+table, table th, table td {
+border-left-style: none;
+border-right-style: none;
+}
+table thead, table tr.even {
+background-color: #f7f7f7;
+}
+p {
+margin: 0.5em 0;
+}
+blockquote {
+background-color: #f6f6f6;
+padding: 0.25em 0.75em;
+}
+hr {
+border-style: solid;
+border: none;
+border-top: 1px solid #777;
+margin: 28px 0;
+}
+dl {
+margin-left: 0;
+}
+dl dd {
+margin-bottom: 13px;
+margin-left: 13px;
+}
+dl dt {
+font-weight: bold;
+}
+ul {
+margin-top: 0;
+}
+ul li {
+list-style: circle outside;
+}
+ul ul {
+margin-bottom: 0;
+}
+pre, code {
+background-color: #f7f7f7;
+border-radius: 3px;
+color: #333;
+white-space: pre-wrap; 
+}
+pre {
+border-radius: 3px;
+margin: 5px 0px 10px 0px;
+padding: 10px;
+}
+pre:not([class]) {
+background-color: #f7f7f7;
+}
+code {
+font-family: Consolas, Monaco, 'Courier New', monospace;
+font-size: 85%;
+}
+p > code, li > code {
+padding: 2px 0px;
+}
+div.figure {
+text-align: center;
+}
+img {
+background-color: #FFFFFF;
+padding: 2px;
+border: 1px solid #DDDDDD;
+border-radius: 3px;
+border: 1px solid #CCCCCC;
+margin: 0 5px;
+}
+h1 {
+margin-top: 0;
+font-size: 35px;
+line-height: 40px;
+}
+h2 {
+border-bottom: 4px solid #f7f7f7;
+padding-top: 10px;
+padding-bottom: 2px;
+font-size: 145%;
+}
+h3 {
+border-bottom: 2px solid #f7f7f7;
+padding-top: 10px;
+font-size: 120%;
+}
+h4 {
+border-bottom: 1px solid #f7f7f7;
+margin-left: 8px;
+font-size: 105%;
+}
+h5, h6 {
+border-bottom: 1px solid #ccc;
+font-size: 105%;
+}
+a {
+color: #0033dd;
+text-decoration: none;
+}
+a:hover {
+color: #6666ff; }
+a:visited {
+color: #800080; }
+a:visited:hover {
+color: #BB00BB; }
+a[href^="http:"] {
+text-decoration: underline; }
+a[href^="https:"] {
+text-decoration: underline; }
+
+code > span.kw { color: #555; font-weight: bold; } 
+code > span.dt { color: #902000; } 
+code > span.dv { color: #40a070; } 
+code > span.bn { color: #d14; } 
+code > span.fl { color: #d14; } 
+code > span.ch { color: #d14; } 
+code > span.st { color: #d14; } 
+code > span.co { color: #888888; font-style: italic; } 
+code > span.ot { color: #007020; } 
+code > span.al { color: #ff0000; font-weight: bold; } 
+code > span.fu { color: #900; font-weight: bold; } 
+code > span.er { color: #a61717; background-color: #e3d2d2; } 
+</style>
+
+
+
+
+</head>
+
+<body>
+
+
+
+
+<h1 class="title toc-ignore">Contest models: from the multinomial to
+competitive breeding values</h1>
+
+
+
+<p>This vignette derives, without skipped steps, the two estimators
+BreedingR uses for competitive ability measured through grouped
+contests: the coupled Laplace estimator of the genetic variance of
+contest strength, and the composite-likelihood test for a
+rival-dependent (differential) indirect effect. Every transition is
+justified: which identity is used, and why one line follows from the
+previous one. It is pure method — no data enter it. The worked object
+throughout is a <em>group contest</em>: several competitors share a
+group, a fixed number of discrete outcomes is divided among them, and we
+observe the division.</p>
+<div id="the-contest-likelihood" class="section level2">
+<h2>1. The contest likelihood</h2>
+<p>A group <span class="math inline">\(g\)</span> holds competitors
+<span class="math inline">\(i \in \mathcal{P}_g\)</span>. Competitor
+<span class="math inline">\(i\)</span> enters with a known
+<strong>exposure</strong> <span class="math inline">\(s_{i}&gt;0\)</span> (the opportunity bought — a
+dose, a number of trials) and carries a latent <strong>strength</strong>
+<span class="math inline">\(\lambda_i&gt;0\)</span>. The <span class="math inline">\(N_g\)</span> outcomes of the group are divided by
+a biased lottery: each outcome falls to <span class="math inline">\(i\)</span> with probability</p>
+<p><span class="math display">\[p_{ig} \;=\;
+\frac{s_{i}\,\lambda_i}{\sum_{k\in\mathcal{P}_g} s_{k}\,\lambda_k},
+\qquad
+(y_{1g},\dots,y_{kg}) \;\sim\; \mathrm{Multinomial}\!\left(N_g;\,
+p_{1g},\dots,p_{kg}\right).\]</span></p>
+<p>Write <span class="math inline">\(\eta_i=\log\lambda_i\)</span> and
+take the exposure as an offset <span class="math inline">\(o_i=\log
+s_i\)</span>. With two competitors this is the Bradley–Terry model <span class="citation">[@bt1952]</span>; with more it is Plackett–Luce <span class="citation">[@luce1959; @plackett1975]</span>, equivalently the
+conditional logit. The strengths are defined only up to a common scale:
+multiplying every <span class="math inline">\(\lambda\)</span> in a
+group by the same constant leaves every <span class="math inline">\(p_{ig}\)</span> unchanged, because the constant
+factors out of numerator and denominator. Only <em>differences</em> of
+<span class="math inline">\(\eta\)</span> are identifiable; an anchor is
+required (a zero-mean random term supplies one).</p>
+</div>
+<div id="reduction-to-a-pair-by-exact-conditioning" class="section level2">
+<h2>2. Reduction to a pair, by exact conditioning</h2>
+<p>Take a pair <span class="math inline">\(\{i,j\}\subseteq\mathcal{P}_g\)</span> and
+condition on their joint count <span class="math inline">\(m=y_{ig}+y_{jg}\)</span>. The claim is that the
+conditional distribution of <span class="math inline">\(y_{ig}\)</span>
+is Binomial and depends on <strong>no other competitor</strong>. Start
+from the multinomial mass function and hold every count except <span class="math inline">\(y_{ig},y_{jg}\)</span> fixed:</p>
+<p><span class="math display">\[\Pr\!\left(y_{ig}=a,\; y_{jg}=m-a \mid
+\{y_{kg}\}_{k\neq i,j}\right)
+\;=\;
+\frac{\dfrac{N_g!}{a!\,(m-a)!\,\prod_{k\neq i,j} y_{kg}!}\;
+p_{ig}^{\,a}\,p_{jg}^{\,m-a}\,\prod_{k\neq i,j} p_{kg}^{\,y_{kg}}}
+     {\displaystyle\sum_{a&#39;=0}^{m}\dfrac{N_g!}{a&#39;!\,(m-a&#39;)!\,\prod_{k\neq
+i,j} y_{kg}!}\; p_{ig}^{\,a&#39;}\,p_{jg}^{\,m-a&#39;}\,\prod_{k\neq
+i,j} p_{kg}^{\,y_{kg}}}.\]</span></p>
+<p>Every factor that does not involve <span class="math inline">\(a\)</span> — the <span class="math inline">\(N_g!\)</span>, all the <span class="math inline">\(\prod_{k\neq i,j}\)</span> terms, the fixed other
+counts — is identical in the numerator and in every summand of the
+denominator, so it cancels:</p>
+<p><span class="math display">\[\Pr\!\left(y_{ig}=a \mid
+y_{ig}+y_{jg}=m\right)
+\;=\;
+\frac{\dbinom{m}{a}\,p_{ig}^{\,a}\,p_{jg}^{\,m-a}}
+     {\displaystyle\sum_{a&#39;=0}^{m}\dbinom{m}{a&#39;}\,p_{ig}^{\,a&#39;}\,p_{jg}^{\,m-a&#39;}}.\]</span></p>
+<p>The denominator is a binomial expansion, <span class="math inline">\(\sum_{a&#39;=0}^{m}\binom{m}{a&#39;}p_{ig}^{\,a&#39;}p_{jg}^{\,m-a&#39;}=(p_{ig}+p_{jg})^{m}\)</span>,
+so</p>
+<p><span class="math display">\[y_{ig}\mid(y_{ig}+y_{jg}=m)\;\sim\;\mathrm{Binomial}(m,\pi_{ij}),
+\qquad
+\pi_{ij}=\frac{p_{ig}}{p_{ig}+p_{jg}}=\frac{s_i\lambda_i}{s_i\lambda_i+s_j\lambda_j}.\]</span></p>
+<p>This is <strong>exact</strong>, not an approximation: conditioning on
+the pair total removes the rest of the group from the problem, because
+the other competitors’ probabilities never survive the cancellation.
+Taking the log-odds,</p>
+<p><span class="math display">\[\mathrm{logit}\,\pi_{ij}
+=\log\frac{p_{ig}}{p_{jg}}
+=(o_i-o_j)+(\eta_i-\eta_j).
+\tag{2.1}\]</span></p>
+<p>The reduction to pairs is not a convenience: Section 3 shows it is
+the <em>only</em> place where a rival-dependent effect is
+identifiable.</p>
+</div>
+<div id="what-is-estimable-the-aliasing-of-a-uniform-indirect-effect" class="section level2">
+<h2>3. What is estimable — the aliasing of a uniform indirect
+effect</h2>
+<p>Give each competitor a direct log-strength <span class="math inline">\(a_i\)</span> and an indirect effect it exerts on
+its groupmates. Write the realized log-strength of <span class="math inline">\(i\)</span> in group <span class="math inline">\(g\)</span> as its own ability plus the effects the
+others exert on it:</p>
+<p><span class="math display">\[\eta_{ig}=a_i+\sum_{j\in\mathcal{P}_g,\,j\neq i}
+c_{j\to i},\]</span></p>
+<p>where <span class="math inline">\(c_{j\to i}\)</span> is the effect
+of <span class="math inline">\(j\)</span> on <span class="math inline">\(i\)</span>. Two cases.</p>
+<p><strong>Uniform indirect effect</strong> — <span class="math inline">\(j\)</span> acts on every groupmate alike, <span class="math inline">\(c_{j\to i}=c_j\)</span>. Then</p>
+<p><span class="math display">\[\eta_{ig}=a_i+\sum_{j\neq i}c_j
+        =a_i+\Big(\underbrace{\textstyle\sum_{j\in\mathcal{P}_g}c_j}_{\;=\,C_g,\
+\text{constant in }i}\Big)-c_i
+        =(a_i-c_i)+C_g.\]</span></p>
+<p>Substituting into the choice probability, the group-constant <span class="math inline">\(C_g\)</span> leaves through the same door the
+scale did in Section 1:</p>
+<p><span class="math display">\[p_{ig}=\frac{s_i\,e^{\,(a_i-c_i)+C_g}}{\sum_{k}
+s_k\,e^{\,(a_k-c_k)+C_g}}
+      =\frac{s_i\,e^{\,a_i-c_i}}{\sum_{k}
+s_k\,e^{\,a_k-c_k}},\]</span></p>
+<p>because <span class="math inline">\(e^{C_g}\)</span> multiplies
+numerator and denominator and cancels. Only the combination <span class="math inline">\(b_i=a_i-c_i\)</span> enters. Hence the
+reparametrization</p>
+<p><span class="math display">\[(a_i,\,c_i)\;\longmapsto\;(a_i+t,\;c_i+t)\quad\text{for
+any constant }t\]</span></p>
+<p>leaves <span class="math inline">\(b_i\)</span>, and therefore every
+probability and the whole likelihood, <strong>exactly</strong>
+unchanged. Direct and uniform-indirect effects are perfectly aliased: no
+estimator separates them, at any sample size. This is a property of the
+design, not of the software. (On the <em>share</em> scale — outcomes as
+proportions summing to one — the same collinearity appears as a
+direct–indirect correlation pinned at <span class="math inline">\(-1\)</span>, where the gradient does not vanish
+and a delta-method standard error is meaningless.)</p>
+<p><strong>Differential (rival-dependent) indirect effect</strong> —
+<span class="math inline">\(j\)</span> acts differently depending on who
+the rival is, e.g. by the rival’s lineage. Model the departure from
+uniform as</p>
+<p><span class="math display">\[c_{j\to
+i}=c_j+\delta_j\,\mathbb{1}[\,\text{class}(i)\neq\text{class}(j)\,].\]</span></p>
+<p>Now form the pair contrast (2.1). The own-abilities and the uniform
+parts enter <span class="math inline">\(\eta_i-\eta_j\)</span>; the
+group-constant <span class="math inline">\(C_g\)</span> and any term
+common to <span class="math inline">\(i\)</span> and <span class="math inline">\(j\)</span> cancel in the difference, but the
+class-specific term does <strong>not</strong>, because it is asymmetric
+in <span class="math inline">\(i\)</span> and <span class="math inline">\(j\)</span>:</p>
+<p><span class="math display">\[\mathrm{logit}\,\pi_{ij}
+=(o_i-o_j)+(\eta_i-\eta_j)
+=(o_i-o_j)+(a_i-a_j)
++\delta_i\,\mathbb{1}[\text{class}(j)\neq\text{class}(i)]
+-\delta_j\,\mathbb{1}[\text{class}(i)\neq\text{class}(j)].
+\tag{3.1}\]</span></p>
+<p>The pair is exactly where the differential effect becomes visible: a
+uniform shift adds the same amount to <span class="math inline">\(\eta_i\)</span> and <span class="math inline">\(\eta_j\)</span> and dies in the difference, while
+a rival-dependent shift survives. The estimable quantity <span class="math inline">\(\delta_i\)</span> is the change in <span class="math inline">\(i\)</span>’s log-odds of winning an outcome from
+<span class="math inline">\(j\)</span> when <span class="math inline">\(j\)</span> is of a different class, over and above
+the two competitors’ abilities.</p>
+</div>
+<div id="composite-likelihood-and-what-it-costs" class="section level2">
+<h2>4. Composite likelihood, and what it costs</h2>
+<p>Break every group into its pairs and multiply the pair binomials as
+if independent:</p>
+<p><span class="math display">\[c\ell(\boldsymbol{\eta},\boldsymbol{\delta})
+=\sum_{\text{pairs
+}(i,j)}\log\mathrm{Binom}\!\left(y_{ig}\,;\,m_{ij},\,\pi_{ij}\right).
+\tag{4.1}\]</span></p>
+<p>The pairs are <strong>not</strong> independent: a competitor appears
+in many of them, and within a group the counts are constrained to sum to
+<span class="math inline">\(N_g\)</span>. So (4.1) is a
+<em>composite</em> likelihood <span class="citation">[@lindsay1988;
+@varin2011]</span>, not a likelihood. What survives that, and what
+breaks, is precise.</p>
+<p><strong>Consistency survives.</strong> Each factor is a genuine
+conditional probability (Section 2), so each per-pair score has mean
+zero at the true parameter: <span class="math inline">\(\mathbb{E}\!\left[\nabla\log\mathrm{Binom}_p\right]=0\)</span>.
+The composite score is a sum of these,</p>
+<p><span class="math display">\[\nabla c\ell=\sum_p
+\nabla\log\mathrm{Binom}_p,
+\qquad
+\mathbb{E}\!\left[\nabla c\ell\right]=\sum_p
+\mathbb{E}\!\left[\nabla\log\mathrm{Binom}_p\right]=0,\]</span></p>
+<p>so the estimating equation <span class="math inline">\(\nabla
+c\ell=0\)</span> is unbiased and its root is consistent under the usual
+regularity conditions. Unbiasedness of the score needs the marginals to
+be correct, <strong>not</strong> the pairs to be independent — which is
+exactly why the composite construction is legitimate here.</p>
+<p><strong>The second Bartlett identity breaks.</strong> For a true
+likelihood, the expected negative Hessian equals the variance of the
+score, <span class="math inline">\(H\equiv-\mathbb{E}[\nabla^2\ell]=\operatorname{Var}(\nabla\ell)\equiv
+J\)</span>. For the composite likelihood the two objects come apart:</p>
+<p><span class="math display">\[H=-\mathbb{E}\!\left[\nabla^2
+c\ell\right]=\sum_p
+-\mathbb{E}\!\left[\nabla^2\log\mathrm{Binom}_p\right],\]</span></p>
+<p>a sum of per-pair informations, whereas</p>
+<p><span class="math display">\[J=\operatorname{Var}\!\left(\nabla
+c\ell\right)
+=\sum_p\sum_q
+\operatorname{Cov}\!\left(\nabla\log\mathrm{Binom}_p,\;\nabla\log\mathrm{Binom}_q\right).\]</span></p>
+<p>The off-diagonal <span class="math inline">\(p\neq q\)</span> terms
+are nonzero precisely because pairs sharing a competitor are dependent,
+so <span class="math inline">\(J\neq H\)</span>. Two consequences, both
+with teeth:</p>
+<ol style="list-style-type: decimal">
+<li><p><strong>The curvature is not the precision.</strong> The variance
+of <span class="math inline">\(\hat{\boldsymbol{\delta}}\)</span> is the
+Godambe (sandwich) matrix <span class="math inline">\(G^{-1}=H^{-1}JH^{-1}\)</span> <span class="citation">[@godambe1960]</span>, not <span class="math inline">\(H^{-1}\)</span>. A standard error read off the
+composite Hessian is invalid.</p></li>
+<li><p><strong>The likelihood-ratio statistic is not</strong> <span class="math inline">\(\chi^2\)</span>. For a true likelihood <span class="math inline">\(2[\ell(\hat\theta)-\ell(\theta_0)]\to\chi^2_q\)</span>.
+For a composite likelihood the same Taylor expansion gives, instead
+<span class="citation">[@kent1982]</span>,</p>
+<p><span class="math display">\[2\!\left[c\ell(\hat\theta)-c\ell(\theta_0)\right]\;\xrightarrow{d}\;\sum_{k=1}^{q}\lambda_k
+Z_k^2,
+\qquad Z_k\stackrel{iid}{\sim}\mathcal N(0,1),\]</span></p>
+<p>where <span class="math inline">\(\lambda_1,\dots,\lambda_q\)</span>
+are the eigenvalues of <span class="math inline">\(H^{-1}J\)</span>.
+When <span class="math inline">\(H=J\)</span> (a true likelihood) every
+<span class="math inline">\(\lambda_k=1\)</span> and the mixture
+collapses to <span class="math inline">\(\chi^2_q\)</span>. Here the
+<span class="math inline">\(\lambda_k\)</span> are unknown, so the
+reference distribution is unknown — and reading the statistic against a
+<span class="math inline">\(\chi^2\)</span> table would invent
+it.</p></li>
+</ol>
+</div>
+<div id="calibration-by-permutation" class="section level2">
+<h2>5. Calibration by permutation</h2>
+<p>Because the <span class="math inline">\(\lambda_k\)</span> are
+unknown — and because real overdispersion (a batch or handling effect
+shared within a group) inflates <span class="math inline">\(J\)</span>
+beyond what the multinomial predicts — the null distribution of the
+statistic is obtained empirically. The null must reproduce
+<em>everything</em> that shapes the statistic — the dependence among
+pairs, the overdispersion, the group sizes, the exposures — and break
+<em>only</em> the association under test, between the rival’s class and
+the outcome. A permutation that relabels which groups are class-mixed,
+among groups of the same size, with the counts and exposures untouched,
+does exactly this: it severs class from outcome while preserving the
+dependence structure and the dispersion. The empirical <span class="math inline">\(p\)</span>-value is</p>
+<p><span class="math display">\[p=\frac{1+\#\{\,\text{permutation
+statistic}\ \geq\ \text{observed}\,\}}{1+B},\]</span></p>
+<p>whose floor is <span class="math inline">\(1/(1+B)\)</span> for <span class="math inline">\(B\)</span> permutations. A parametric bootstrap
+that samples from the fitted multinomial is <strong>not</strong> a valid
+null here: it assumes the multinomial is the truth and so omits the
+overdispersion, making the null too tight; it is kept only as a
+<em>diagnostic</em> — the gap between the permutation null and the
+parametric null measures the overdispersion the multinomial cannot
+hold.</p>
+</div>
+<div id="the-coupled-variance-components-by-laplace" class="section level2">
+<h2>6. The coupled variance components, by Laplace</h2>
+<p>The differential test estimates <span class="math inline">\(\boldsymbol{\delta}\)</span> as location
+parameters. The companion question — how much of contest strength is
+heritable — puts a pedigree-structured random effect on the strengths
+and asks for its variance. With <span class="math inline">\(\eta_i=a_i+q_i\)</span>, <span class="math inline">\(\mathbf{a}\sim\mathcal N(\mathbf
+0,\sigma^2_a\mathbf A)\)</span> (additive, tied by the pedigree) and
+<span class="math inline">\(\mathbf{q}\sim\mathcal N(\mathbf
+0,\sigma^2_q\mathbf I)\)</span> (a permanent competitor effect), the
+variance is a marginal likelihood over the random effects,</p>
+<p><span class="math display">\[L(\sigma^2_a,\sigma^2_q)=\int
+\Big[\textstyle\prod_g \mathrm{Multinomial}\big(\mathbf y_g\mid \mathbf
+p(\mathbf u)\big)\Big]\,
+\mathcal N(\mathbf a\mid\mathbf 0,\sigma^2_a\mathbf A)\,\mathcal
+N(\mathbf q\mid\mathbf 0,\sigma^2_q\mathbf I)\;d\mathbf u,
+\qquad \mathbf u=(\mathbf a,\mathbf q).\]</span></p>
+<p>There is no closed form: the integral is in the dimension of the
+pedigree. This is why “running REML” is not available — REML is the
+Gaussian case, where the integral of a normal against a normal is normal
+and closes. Here it must be approximated, and the approximation is a
+declared choice.</p>
+<p><strong>Laplace’s method.</strong> Write the integrand as <span class="math inline">\(e^{-g(\mathbf u)}\)</span> with</p>
+<p><span class="math display">\[g(\mathbf u)=-\ell(\mathbf
+u)+\tfrac12\,\mathbf a&#39;\mathbf A^{-1}\mathbf
+a/\sigma^2_a+\tfrac12\,\mathbf q&#39;\mathbf q/\sigma^2_q,\]</span></p>
+<p>where <span class="math inline">\(\ell\)</span> is the multinomial
+log-likelihood. Expand <span class="math inline">\(g\)</span> to second
+order about its minimizer <span class="math inline">\(\hat{\mathbf
+u}\)</span> (the joint mode). The gradient vanishes there <strong>by
+definition of the mode</strong>, <span class="math inline">\(\nabla
+g(\hat{\mathbf u})=\mathbf 0\)</span>, so the first-order term of the
+Taylor expansion is exactly zero — this is the single fact that makes
+the method work:</p>
+<p><span class="math display">\[g(\mathbf u)\approx g(\hat{\mathbf
+u})+\tfrac12(\mathbf u-\hat{\mathbf u})&#39;\mathbf H(\mathbf
+u-\hat{\mathbf u}),
+\qquad
+\mathbf H=\nabla^2 g(\hat{\mathbf u})=\mathbf W+\begin{pmatrix}\mathbf
+A^{-1}/\sigma^2_a &amp; \\ &amp; \mathbf
+I/\sigma^2_q\end{pmatrix},\]</span></p>
+<p>with <span class="math inline">\(\mathbf W\)</span> the multinomial
+information (below). The remaining integral is Gaussian and closes,
+<span class="math inline">\(\int e^{-\frac12(\mathbf u-\hat{\mathbf
+u})&#39;\mathbf H(\mathbf u-\hat{\mathbf u})}d\mathbf
+u=(2\pi)^{n/2}|\mathbf H|^{-1/2}\)</span>, giving</p>
+<p><span class="math display">\[-2\log L \;\approx\;
+\underbrace{-2\ell(\hat{\mathbf u})}_{\text{fit at the mode}}
++\underbrace{\mathbf a&#39;\mathbf A^{-1}\mathbf a/\sigma^2_a+\mathbf
+q&#39;\mathbf q/\sigma^2_q}_{\text{pedigree and permanent penalties}}
++\underbrace{n_a\log\sigma^2_a-\log|\mathbf
+A^{-1}|+n_q\log\sigma^2_q}_{\text{prior normalizers}}
++\underbrace{\log|\mathbf H|}_{\text{cost of estimating }\hat{\mathbf
+u}}.
+\tag{6.1}\]</span></p>
+<p><strong>The multinomial information</strong> <span class="math inline">\(\mathbf W\)</span>. From <span class="math inline">\(\ell\)</span>, with <span class="math inline">\(\eta\)</span> on the log scale,</p>
+<p><span class="math display">\[\frac{\partial
+\ell}{\partial\eta_i}=\sum_g\big(y_{ig}-N_g p_{ig}\big),
+\qquad
+-\frac{\partial^2 \ell}{\partial\eta_i\,\partial\eta_j}=\sum_g
+N_g\big(\delta_{ij}\,p_{ig}-p_{ig}p_{jg}\big),\]</span></p>
+<p>so each group contributes the block <span class="math inline">\(N_g\big(\mathrm{diag}(\mathbf p_g)-\mathbf
+p_g\mathbf p_g&#39;\big)\)</span>. Two facts follow. First, <span class="math inline">\(\mathbf W\)</span> is <strong>sparse</strong>:
+entry <span class="math inline">\((i,j)\)</span> is nonzero only if
+<span class="math inline">\(i\)</span> and <span class="math inline">\(j\)</span> shared a group. Sparsity comes from the
+design, and it is what makes the method affordable — <span class="math inline">\(\mathbf H=\mathbf W+(\text{block-diagonal
+precision})\)</span> is sparse, and a single sparse Cholesky
+factorization delivers both the Newton step for the mode and the <span class="math inline">\(\log|\mathbf H|\)</span> that (6.1) needs. Second,
+<span class="math inline">\(\mathbf W\)</span> is a weighted graph
+Laplacian: its rows sum to zero (<span class="math inline">\(\sum_j
+N_g(\delta_{ij}p_{ig}-p_{ig}p_{jg})=N_g(p_{ig}-p_{ig})=0\)</span>), so
+<span class="math inline">\(\mathbf W\)</span> is singular on its own;
+the precision term <span class="math inline">\(\mathbf
+A^{-1}/\sigma^2_a\)</span> is what makes <span class="math inline">\(\mathbf H\)</span> positive definite.</p>
+<p><strong>What</strong> <span class="math inline">\(\log|\mathbf
+H|\)</span> is, and is not. It is the price of having <em>estimated</em>
+the mode rather than known it; without it <span class="math inline">\(\sigma^2\)</span> comes out systematically
+underestimated. It is <strong>not</strong> the REML penalty. Writing the
+Gaussian restricted likelihood in the standard form,</p>
+<p><span class="math display">\[-2\log L_{\text{REML}}=(\mathbf
+y-\mathbf X\mathbf b)&#39;\mathbf V^{-1}(\mathbf y-\mathbf X\mathbf
+b)+\log|\mathbf V|+\log|\mathbf X&#39;\mathbf V^{-1}\mathbf
+X|,\]</span></p>
+<p>the Laplace term corresponds to <span class="math inline">\(\log|\mathbf V|\)</span> (through the identity
+<span class="math inline">\(\log|\mathbf V|=\log|\mathbf R|+\log|\mathbf
+G|+\log|\mathbf H|\)</span>), which is the
+<strong>maximum-likelihood</strong> term. The genuinely restricted term
+is <span class="math inline">\(\log|\mathbf X&#39;\mathbf V^{-1}\mathbf
+X|\)</span>, which penalizes the fixed effects for having been estimated
+— and (6.1) does not carry it. So the estimator is marginal (ML) over
+the random effects, not REML. Calling it “REML–Laplace” is a common
+abuse; the honest statement is that REML would additionally integrate
+the fixed effects, which the same expansion could do. When the design
+has an offset and no free fixed effect — as the contest model does,
+exposure entering as an offset — the distinction does not bite
+numerically, but it does the moment a fixed effect enters.</p>
+<p>The variance components are then estimated by minimizing (6.1) over
+<span class="math inline">\((\sigma^2_a,\sigma^2_q)\)</span>, re-finding
+the mode at each trial value. Because the surface of an
+additive/permanent model has a ridge — trading <span class="math inline">\(\sigma^2_a\)</span> for <span class="math inline">\(\sigma^2_q\)</span> at fixed sum barely moves the
+fit — a point estimate is not enough: the interval on the heritable
+fraction <span class="math inline">\(\sigma^2_a/(\sigma^2_a+\sigma^2_q)\)</span> is
+read from a <strong>profile</strong> of (6.1) along that fraction, which
+is valid here because the multinomial <em>is</em> a true likelihood and
+the profile-likelihood ratio keeps its asymptotic calibration. (This is
+the one place the composite likelihood of Section 4 and the true
+likelihood here part ways: there, <span class="math inline">\(H\neq
+J\)</span> forbids the <span class="math inline">\(\chi^2\)</span>
+calibration; here it holds.)</p>
+</div>
+<div id="heritability-of-a-contest-derived-effect" class="section level2">
+<h2>7. Heritability of a contest-derived effect</h2>
+<p>Suppose the differential effects <span class="math inline">\(\hat{\boldsymbol{\delta}}\)</span> of Section 3–5
+are shown to exist and one asks whether <em>they</em> are heritable. Two
+routes, and the honest arithmetic of each.</p>
+<p><strong>Two-step, and its attenuation.</strong> Treat the estimates
+as a measurement-error model,</p>
+<p><span class="math display">\[\hat\delta_i=\delta_i+e_i,\qquad
+\boldsymbol{\delta}\sim\mathcal N(\mathbf 0,\sigma^2_\delta\mathbf
+A),\qquad \operatorname{Var}(e_i)=v_i,\]</span></p>
+<p>where <span class="math inline">\(v_i\)</span> is the sampling
+variance of the composite estimate. Fitting an animal model to <span class="math inline">\(\hat{\boldsymbol{\delta}}\)</span> aims <span class="math inline">\(\sigma^2_\delta\)</span> at the additive variance
+and loads <span class="math inline">\(\sigma^2_{\text{env}}+\bar
+v\)</span> onto the residual, so the estimated heritability is</p>
+<p><span class="math display">\[\mathbb{E}\!\left[\hat
+h^2_\delta\right]\approx
+\frac{\sigma^2_\delta}{\sigma^2_\delta+\sigma^2_{\text{env}}+\bar v}
+\;&lt;\;
+\frac{\sigma^2_\delta}{\sigma^2_\delta+\sigma^2_{\text{env}}}
+=h^2_\delta,\]</span></p>
+<p>biased downward by the sampling noise <span class="math inline">\(\bar v\)</span> — a single direction, which makes
+a null result conservative but not conclusive: without the <span class="math inline">\(v_i\)</span> it cannot separate “not heritable”
+from “a moderate <span class="math inline">\(\sigma^2_\delta\)</span>
+drowned in noise”. Closing it needs the <span class="math inline">\(v_i\)</span>, from the Godambe sandwich or a pair
+bootstrap, entered as weights — with the caution that a weight built
+from the composite curvature alone (ignoring <span class="math inline">\(H\neq J\)</span>) is optimistic and inflates the
+genetic fraction.</p>
+<p><strong>Coupled.</strong> Put <span class="math inline">\(\boldsymbol{\delta}\)</span> inside the composite
+likelihood with the pedigree prior and integrate by the Laplace
+machinery of Section 6 (the Hessian in <span class="math inline">\(\boldsymbol{\delta}\)</span> is sparse for the
+same reason: <span class="math inline">\(\delta_i\)</span> meets <span class="math inline">\(\delta_j\)</span> only if they shared a
+class-mixed group). The one difference from Section 6 is that the base
+object is a composite likelihood, not a true one, so even the profile of
+its marginal does not inherit automatic <span class="math inline">\(\chi^2\)</span> calibration — the interval on
+<span class="math inline">\(\sigma^2_\delta\)</span> must come from
+simulation with a known truth on the real design, the validation pattern
+this whole family of estimators uses.</p>
+</div>
+<div id="how-the-package-exposes-this" class="section level2">
+<h2>How the package exposes this</h2>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="co"># strength per unit of exposure (Section 1-3), free of the sum-to-N constraint</span></span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>bt <span class="ot">&lt;-</span> <span class="fu">competition_strength</span>(wins, group, competitor, <span class="at">exposure =</span> dose)</span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a><span class="co"># the strength as a phenotype for an animal model, carrying its own precision</span></span>
+<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a>d2  <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">id =</span> <span class="fu">names</span>(bt<span class="sc">$</span>strength), <span class="at">y =</span> bt<span class="sc">$</span>log_strength, <span class="at">w =</span> <span class="dv">1</span> <span class="sc">/</span> bt<span class="sc">$</span>se<span class="sc">^</span><span class="dv">2</span>)</span>
+<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a><span class="fu">model</span>(y <span class="sc">~</span> <span class="fu">animal</span>(id), d2, pedigree, <span class="at">weights =</span> <span class="st">&quot;w&quot;</span>)</span></code></pre></div>
+<p><code>competition_strength()</code> fits the strengths by the MM
+algorithm of <span class="citation">@hunter2004</span> — which is the
+EM-MAP of <span class="citation">@caron2012</span> with a Gamma prior,
+containing Zermelo’s <span class="citation">[-@zermelo1929]</span>
+iteration as the flat-prior case — and flags competitors outside the
+strongly connected component of the contest graph, where the estimate is
+prior shrinkage rather than measurement <span class="citation">[@ford1957]</span>. The coupled variance-component
+estimator of Section 6 and the differential test of Sections 4–5 are
+analysis-level constructions built on the same sparse pieces the package
+exposes (<code>a_inverse()</code>, <code>sparse_chol()</code>,
+<code>sparse_solve()</code>, <code>selected_inverse()</code>).</p>
+</div>
+<div id="references" class="section level2">
+<h2>References</h2>
+<ul>
+<li>Bradley, R.A. &amp; Terry, M.E. (1952). Rank analysis of incomplete
+block designs I. <em>Biometrika</em> 39:324-345.</li>
+<li>Caron, F. &amp; Doucet, A. (2012). Efficient Bayesian inference for
+generalized Bradley-Terry models. <em>JCGS</em> 21:174-196.</li>
+<li>Ford, L.R. (1957). Solution of a ranking problem from binary
+comparisons. <em>Amer. Math. Monthly</em> 64:28-33.</li>
+<li>Godambe, V.P. (1960). An optimum property of regular maximum
+likelihood estimation. <em>Ann. Math. Statist.</em> 31:1208-1211.</li>
+<li>Hunter, D.R. (2004). MM algorithms for generalized Bradley-Terry
+models. <em>Ann. Statist.</em> 32:384-406.</li>
+<li>Kent, J.T. (1982). Robust properties of likelihood ratio tests.
+<em>Biometrika</em> 69:19-27.</li>
+<li>Lindsay, B.G. (1988). Composite likelihood methods. <em>Contemp.
+Math.</em> 80:221-239.</li>
+<li>Luce, R.D. (1959). <em>Individual Choice Behavior</em>. Wiley.</li>
+<li>Plackett, R.L. (1975). The analysis of permutations. <em>Appl.
+Statist.</em> 24:193-202.</li>
+<li>Tierney, L. &amp; Kadane, J.B. (1986). Accurate approximations for
+posterior moments and marginal densities. <em>JASA</em> 81:82-86.</li>
+<li>Varin, C., Reid, N. &amp; Firth, D. (2011). An overview of composite
+likelihood methods. <em>Statistica Sinica</em> 21:5-42.</li>
+<li>Zermelo, E. (1929). Die Berechnung der Turnier-Ergebnisse. <em>Math.
+Z.</em> 29:436-460.</li>
+</ul>
+</div>
+
+
+
+<!-- code folding -->
+
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>

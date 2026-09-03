@@ -1,6 +1,6 @@
 ---
 name: breedingr
-description: Genetic evaluation with the BreedingR R package — variance components by AI-REML, breeding values and accuracy, single-step genomics (G, A22, H inverse, APY, Vecchia, ssSNPBLUP), reaction norms, direct-maternal and indirect genetic effects (with group-size dilution), multi-trait, AR(1)/CAR(1) residuals, a Gibbs sampler, threshold models for categorical traits, Weibull survival with right-censoring, dominance and epistasis kernels, multibreed partial matrices, competitive ability from grouped contests, and quality control. Use when fitting animal models, estimating heritability or genetic correlations, predicting breeding values, running single-step genomic evaluation, or debugging a model that will not converge.
+description: Genetic evaluation with the BreedingR R package, variance components by AI-REML, breeding values and accuracy, single-step genomics (G, A22, H inverse, APY, Vecchia, ssSNPBLUP), reaction norms, direct-maternal and indirect genetic effects (with group-size dilution), multi-trait, AR(1)/CAR(1) residuals, a Gibbs sampler, threshold models for categorical traits, Weibull survival with right-censoring, dominance and epistasis kernels, multibreed partial matrices, competitive ability from grouped contests, and quality control. Use when fitting animal models, estimating heritability or genetic correlations, predicting breeding values, running single-step genomic evaluation, or debugging a model that will not converge.
 ---
 
 # BreedingR
@@ -25,7 +25,7 @@ Var(u_g) = C_g (x) K_g
 ```
 
 That is why direct-maternal, reaction norms and indirect genetic effects have no
-dedicated fitter — they are the same engine with a different incidence and the same
+dedicated fitter, they are the same engine with a different incidence and the same
 `kron(C^-1, K^-1)` penalty. When someone asks for a model that "isn't supported", check
 first whether it is a group of terms.
 
@@ -74,8 +74,8 @@ optimizer drifts instead, it takes `var(animal)` and the direct-maternal covaria
 
 With unequal pens the residual of the associative model is heterogeneous too,
 `var(e_i) = s2_ED + (n_i - 1) s2_ES`. `indirect_residual(formula, data, ped)` estimates
-the ratio `k = s2_ES / s2_ED` by profile REML — each candidate k is an exact weighted
-`model()` fit — and returns the whole profile, because with one record per animal the
+the ratio `k = s2_ES / s2_ED` by profile REML, each candidate k is an exact weighted
+`model()` fit, and returns the whole profile, because with one record per animal the
 data pins the slope `s2_ES` much better than the ratio (Bijma 2010; see its help page).
 
 ## The order of a real evaluation
@@ -123,17 +123,17 @@ snp_effects(fit, ped, gen)                                           # backsolve
 ```
 
 `H^-1 = A^-1 + [0 0; 0 G*^-1 - A22^-1]`, with `G*` brought to the scale of `A22` by an
-affine adjustment and then blended. `blend = 1` collapses `H^-1` to `A^-1` exactly —
+affine adjustment and then blended. `blend = 1` collapses `H^-1` to `A^-1` exactly:
 a useful sanity check. `apy_core` and `vecchia_k` are mutually exclusive; both cut
 arithmetic, not memory (`G*^-1` is dense on all paths). `snp_blup()` never builds G at
-all, but takes theta as GIVEN — estimate components once with `model()`, then solve at
+all, but takes theta as GIVEN, estimate components once with `model()`, then solve at
 scale.
 
 ## Weights, and what they are not
 
 `weights =` (a column name or a vector): a record of weight w has residual variance
 `s2e / w`. Use it for records that are means of k observations (weight k), or estimates
-carrying their own precision — a two-step analysis, a de-regressed proof.
+carrying their own precision: a two-step analysis, a de-regressed proof.
 
 **Never simulate weights by repeating rows.** Replication changes the degrees of freedom;
 with a random effect per record it drives the residual to zero and returns h2 = 1. That
@@ -163,15 +163,15 @@ These are errors on purpose, and each one is a real analysis that would otherwis
 wrong without warning:
 
 - a parent cited without a line of its own is an error, not a new founder;
-- a genotype outside {0,1,2,NA} is refused — an unknown code must become NA first, or it
+- a genotype outside {0,1,2,NA} is refused, an unknown code must become NA first, or it
   would be counted as the zero genotype, which is a real observation;
 - a pen mate outside the pedigree is an error, not a silent discard (it would change who
   competed with whom);
-- two records of the same subject at the same time in `model_ar1()` is an error — with
+- two records of the same subject at the same time in `model_ar1()` is an error, with
   AR(1) the time identifies the record; simultaneous repetition wants `pe()`;
 - an inadmissible theta (a covariance that is not positive-definite) stops the fit;
 - a fit that did not converge says so in the print, the message and the object;
-- two terms that would carry the same name is an error, not a silent rename — otherwise
+- two terms that would carry the same name is an error, not a silent rename, otherwise
   adding a term would quietly change the name of one already there, and code indexing
   components by name would break without a word.
 
@@ -182,10 +182,10 @@ and the relative step, which IS the convergence criterion. Ctrl+C interrupts any
 
 | symptom | usual cause |
 |---|---|
-| `did not converge` | check `fit$score` — at a true optimum it is ~0 for every FREE component; a component held at the zero boundary keeps a nonzero score, and the message says so |
+| `did not converge` | check `fit$score`, at a true optimum it is ~0 for every FREE component; a component held at the zero boundary keeps a nonzero score, and the message says so |
 | a variance pinned at ~0 | the effect is not identifiable from this design; the fit freezes it at the boundary and optimizes the rest conditional on that, and says so in the message |
 | `theta INADMISSIBLE` | starting covariance not positive-definite, or a group with a correlation forced to +/-1 |
-| a correlation of exactly -1 | a compositional phenotype — see the contest model above |
+| a correlation of exactly -1 | a compositional phenotype, see the contest model above |
 | fixed columns in `dropped_x` | linear dependence, including levels whose records are all missing |
 | h2 = 1 with residual 0 | rows were replicated to fake weights; use `weights =` |
 
@@ -198,14 +198,14 @@ here).
 
 Exposed on purpose, mostly for tests but useful:
 `eval_internal()` / `_mt` / `_ar1` (the -2logL by two independent routes plus the
-analytic score), `sparse_chol()`, `sparse_solve()`, `selected_inverse()` (Takahashi et al. 1973 —
+analytic score), `sparse_chol()`, `sparse_solve()`, `selected_inverse()` (Takahashi et al. 1973,
 every PEV reads it), `a22_inverse()` (the Schur complement, NOT the 22 block of A^-1),
 `apy_inverse()`, `vecchia_inverse()`, `inv_pd()`, `br_version()`.
 
 Study tools: `simulate_breeding()` (gene-dropping, so genotypes are consistent with the
 pedigree it emits), `mc_study()` (repeated simulate-and-refit), `benchmark_fit()` (at
 least three replicates or it refuses), `fst()`, `roh()`, `thi()`, `heat_load()`,
-`legendre()`, `genomic_inbreeding()`, and `h2_observed()` / `h2_liability()` — the
+`legendre()`, `genomic_inbreeding()`, and `h2_observed()` / `h2_liability()`, the
 Dempster & Lerner (1950) conversion between the 0/1 observed scale and the liability
 scale.
 

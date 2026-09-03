@@ -4,8 +4,8 @@ An R package for variance components by AI-REML, breeding values, accuracy and
 single-step genomics.
 
 It started as a place to try out a few ideas and to put some specific models into
-practice — reaction norms on an environmental gradient, indirect genetic effects in
-group housing, a residual that carries serial correlation — without waiting on an
+practice, reaction norms on an environmental gradient, indirect genetic effects in
+group housing, a residual that carries serial correlation, without waiting on an
 external engine to support them. That is still what it is for: the numerics are written
 in the package itself, in `src/`, and `R CMD INSTALL` compiles them. No separate binary,
 no service, no run-time dependency.
@@ -26,7 +26,7 @@ population is not one homogeneous pool, metafounders (Legarra et al., 2015). The
 is written as a formula; the mixed model
 equations are assembled sparse, one record at a time, and factored by a sparse Cholesky
 whose symbolic analysis is computed once and reused. The variance components come from
-AI-REML (Gilmour, Thompson and Cullis, 1995) — analytic score, average information, EM
+AI-REML (Gilmour, Thompson and Cullis, 1995): analytic score, average information, EM
 warm-up (Dempster, Laird and Rubin, 1977), a damped step, and convergence judged on the
 RELATIVE change of the components. Breeding values fall out of the same solution, and
 their accuracy out of the selected inverse (Takahashi, Fagan and Chin, 1973).
@@ -64,7 +64,7 @@ one identity at a time. [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
 
 ## Quick start
 
-A complete run on data the package simulates itself — paste and go:
+A complete run on data the package simulates itself, paste and go:
 
 ```r
 library(BreedingR)
@@ -206,7 +206,7 @@ share one honest generator, `thi()` and `heat_load()` for the heat-stress axis,
 repeated simulate-and-refit studies, and `suggest_model()`, which reads the shape of
 the data and names the term each shape asks for (and the trap it guards against). Timing
 claims go through `benchmark_fit()`, which replicates at least three times and checks
-the runs returned identical numbers — the package's own timing rule as a tool.
+the runs returned identical numbers: the package's own timing rule as a tool.
 
 The full map of the 54 functions, grouped by kinship, is in
 [FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 48 of them,
@@ -480,7 +480,7 @@ maintainer address in DESCRIPTION.
 ## Choices worth knowing about
 
 Convergence is judged on the RELATIVE change in the components,
-`sqrt(sum(dtheta^2) / sum(theta^2)) < tol`, with a default of 1e-8 — never an absolute
+`sqrt(sum(dtheta^2) / sum(theta^2)) < tol`, with a default of 1e-8: never an absolute
 threshold on the score, which grows with the number of records. Coming from the BLUPF90
 family, mind the scale: those programs test that quantity squared, so a card's
 `conv_crit` is this `tol` squared. A 1e-12 there is `tol = 1e-6` here, and the 1e-8

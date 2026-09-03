@@ -60,7 +60,7 @@ the tarball reports Status OK with 0 errors, 0 warnings, 0 notes.
   A whole-zero row in a declared K now means "this level has no equation", the
   book's convention for animals outside a partial matrix.
 * `model_survival()`: Weibull proportional-hazards sire frailty (Kachman, 1999)
-  with right-censoring declared through `censor=` — a censored record enters the
+  with right-censoring declared through `censor=`, a censored record enters the
   likelihood as S(t), never as a missing value. `predict()` returns relative
   risk and survival curves.
 * `competition_strength()` returns `identifiable`: a competitor outside the
@@ -74,12 +74,12 @@ the tarball reports Status OK with 0 errors, 0 warnings, 0 notes.
   of the free components (`g' AI^-1 g`, boundary components excluded) must pass
   tolerance. Previously a fit could report `converged = TRUE` with the score far
   from zero when the AI and EM steps stalled together on the boundary of a 2x2
-  covariance group — measured in the field at 6.9 units of -2logL short of the
+  covariance group: measured in the field at 6.9 units of -2logL short of the
   optimum. In the multivariate and AR(1) fitters the decrement is reported as
   `newton_dec` with a warning; the hard gate there awaits the log-Cholesky port.
 * The damped AI step walks in per-group log-Cholesky coordinates (Pinheiro and
-  Bates, 1996): an optimum ON the boundary det(C) = 0 — a correlation of ±1,
-  common in direct-associative models — is now reached instead of crawled
+  Bates, 1996): an optimum ON the boundary det(C) = 0, a correlation of ±1,
+  common in direct-associative models, is now reached instead of crawled
   toward and abandoned.
 * `profile_theta()` profiles. At each grid value the other components are
   re-optimized; it used to evaluate a slice through the estimate, which made
@@ -94,20 +94,20 @@ the tarball reports Status OK with 0 errors, 0 warnings, 0 notes.
 
 * New test files carry the published numbers of Mrode & Pocrnic (2023),
   chapters 3, 4, 5, 8, 9, 10, 13, 14, 15, 16 and 17-19, page-cited constant by
-  constant. Several reproduce at machine precision — the social-interaction
+  constant. Several reproduce at machine precision: the social-interaction
   Example 9.1 to 1.3e-15 across 36 quantities. Where the book itself misprints
   (the survival example's sigma2, Griffing's page range), the gate documents the
   misprint instead of absorbing it.
 
 ## Docs
 
-* Every named method now carries author and year — in prose, roxygen and code
-  comments alike — and the reference list holds 62 verified entries, identical
+* Every named method now carries author and year, in prose, roxygen and code
+  comments alike, and the reference list holds 62 verified entries, identical
   in README.md and REFERENCES.md. Two real credit errors were fixed: the
   matrix-free A22^-1 identity is Masuda et al. (2017), not Vandenplas, and the
   third author of Takahashi et al. (1973) is Chin, not Chen. Griffing (1967) is
   cited as the origin of the associative model, pages checked at the publisher.
-* The full maternal model taught by the README and the skill is Eqn 8.1 — ONE
+* The full maternal model taught by the README and the skill is Eqn 8.1: ONE
   permanent environment, the dam's. The old recipe with a second `pe()` on the
   animal is non-identifiable on single records and is documented as such.
 
