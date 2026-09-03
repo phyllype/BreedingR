@@ -183,23 +183,45 @@ The variance components are then estimated by minimizing (6.1) over $(\sigma^2_a
 
 ## 7. Heritability of a contest-derived effect
 
-Suppose the differential effects $\hat{\boldsymbol{\delta}}$ of Sections 3 to 5 are shown to exist and the question becomes whether they are heritable. Two routes.
+Suppose the differential effects $\hat{\boldsymbol{\delta}}$ of Sections 3 to 5 are shown to exist and the question becomes whether they are heritable. The estimates are a first stage, so this is a two-stage problem, and the way the first stage is carried into the second decides the answer.
 
-**Two-step, and its attenuation.** Treat the estimates as a measurement-error model,
+**The measurement-error model.** Write
 
-$$\hat\delta_i=\delta_i+e_i,\qquad \boldsymbol{\delta}\sim\mathcal N(\mathbf 0,\sigma^2_\delta\mathbf A),\qquad \operatorname{Var}(e_i)=v_i,$$
+$$\hat{\boldsymbol{\delta}}=\boldsymbol{\delta}+\mathbf e,\qquad
+\boldsymbol{\delta}\sim\mathcal N(\mathbf 0,\sigma^2_\delta\mathbf A+\sigma^2_{\text{env}}\mathbf I),\qquad
+\operatorname{Var}(\mathbf e)=\mathbf V_e,$$
 
-where $v_i$ is the sampling variance of the composite estimate. Fitting an animal model to $\hat{\boldsymbol{\delta}}$ aims $\sigma^2_\delta$ at the additive variance and loads $\sigma^2_{\text{env}}+\bar v$ onto the residual, so the estimated heritability is
+where $\mathbf V_e$ is the Godambe sandwich of Section 4, clustered by group, which is what makes it valid under both the pair dependence and any overdispersion. The marginal covariance of the observed vector is then
 
-$$\mathbb{E}\!\left[\hat h^2_\delta\right]\approx
-\frac{\sigma^2_\delta}{\sigma^2_\delta+\sigma^2_{\text{env}}+\bar v}
-\;<\;
-\frac{\sigma^2_\delta}{\sigma^2_\delta+\sigma^2_{\text{env}}}
-=h^2_\delta,$$
+$$\operatorname{Var}(\hat{\boldsymbol{\delta}})=\sigma^2_\delta\mathbf A+\sigma^2_{\text{env}}\mathbf I+\mathbf V_e.
+\tag{7.1}$$
 
-biased downward by the sampling noise $\bar v$. The bias has a single direction, which makes a null result conservative but not conclusive: without the $v_i$ the estimate cannot separate "not heritable" from "a moderate $\sigma^2_\delta$ drowned in noise". Closing the gap needs the $v_i$, from the Godambe sandwich or a pair bootstrap, entered as weights. A weight built from the composite curvature alone (ignoring $H\neq J$) is optimistic and inflates the genetic fraction.
+**$\mathbf V_e$ enters with its coefficient fixed, and that is the whole point.** It is tempting to fit $\sigma^2_\delta\mathbf A+\sigma^2_{\text{env}}\mathbf I+\phi\,\mathbf V_e$ with $\phi$ free, on the argument that a free $\phi$ near one would confirm the sandwich. It does not work, and the reason is structural rather than numerical: $\phi\mathbf V_e$ with $\phi$ free is the *multiplicative* model for heterogeneity and $\sigma^2_{\text{env}}\mathbf I+\mathbf V_e$ is the *additive* one (Thompson and Sharp, 1999), and the two components $\phi$ and $\sigma^2_{\text{env}}$ are not simultaneously identifiable whenever the $v_i$ are not strongly heterogeneous, because $\mathbf V_e$ is then close to proportional to $\mathbf I$ and the two columns of the design in variance space collapse. Fitted with $\phi$ free on simulated contests, $\phi$ settles between 2.4 and 4.8, $\sigma^2_{\text{env}}$ goes to the zero boundary, and $\hat h^2_\delta$ returns essentially 1.0 against a true 0.6. Fixing the coefficient at one is what Piepho, Möhring, Schulz-Streeck and Ogutu (2012) call the fully efficient two-stage analysis, the only version that reproduces a single-stage fit; carrying a diagonal approximation instead is the standard shortcut of the two-stage literature in breeding (Garrick, Taylor and Fernando, 2009, state plainly that they ignore the off-diagonal of the error covariance).
 
-**Coupled.** Put $\boldsymbol{\delta}$ inside the composite likelihood with the pedigree prior and integrate by the Laplace machinery of Section 6 (the Hessian in $\boldsymbol{\delta}$ is sparse for the same reason: $\delta_i$ meets $\delta_j$ only if they shared a class-mixed group). The difference from Section 6 is that the base object is a composite likelihood, not a true one, so even the profile of its marginal does not inherit the $\chi^2$ calibration. The interval on $\sigma^2_\delta$ has to come from simulation with a known truth on the same design.
+With the coefficient fixed, (7.1) is an ordinary restricted likelihood in two free components,
+
+$$-2\log L_{\text{REML}}=\log|\mathbf V|+\log|\mathbf X'\mathbf V^{-1}\mathbf X|+\mathbf y'\mathbf P\mathbf y,
+\qquad \mathbf V=\sigma^2_\delta\mathbf A+\sigma^2_{\text{env}}\mathbf I+\mathbf V_e,$$
+
+with $\mathbf X$ the intercept alone, since $\boldsymbol{\delta}$ is identified only up to an additive constant and the restricted likelihood projects that direction out.
+
+What it delivers, and what it does not, was measured on simulated contests with a half-sib pedigree, twelve replicates in each of three regimes: no environmental variance, an interior case, and the interior case plus strong per-record overdispersion. The additive variance comes back in all three, and this is the quantity that answers whether the differential effect carries heritable variation at all:
+
+| regime | $\hat\sigma^2_\delta$ (true 0.30) | $\hat h^2_\delta$ (true) | interval coverage |
+|---|---|---|---|
+| no environment | 0.24 | 0.84 (1.00, a boundary) | 0.93 |
+| interior | 0.32 | 0.65 (0.60) | 0.93 |
+| plus overdispersion | 0.31 | 0.71 (0.60) | 0.92 |
+
+The heritability itself runs optimistic, by 0.05 in the interior case and 0.11 under overdispersion, and the bias has one direction. Two measured causes push the same way: $\sigma^2_{\text{env}}$ comes back low (0.17 and 0.13 against a true 0.20), and $h^2$ cannot exceed one, so replicates in which $\sigma^2_{\text{env}}$ reaches the zero boundary are truncated and pull the mean up. Report $\sigma^2_\delta$ as the finding and $h^2_\delta$ as an upper reading.
+
+**Three readings that look like diagnostics and are not.** Each was measured on simulated contests with a known truth, and each says less than it appears to.
+
+- *A weighted animal model with $w_i=1/v_i$, reading the residual variance as a calibration check.* The residual it returns is not the scale of $\mathbf V_e$: it satisfies, to within a few percent, the identity $\hat\sigma^2_e\approx\bigl(\operatorname{Var}(\hat{\boldsymbol{\delta}})-\hat\sigma^2_\delta\bigr)/\bar v$. Since $\bar v$ is small next to the dispersion of $\hat{\boldsymbol{\delta}}$, everything the pedigree fails to explain, the environmental variance of $\boldsymbol{\delta}$ included, is divided by a small number and reappears magnified. Replacing $\hat{\boldsymbol{\delta}}$ by a synthetic phenotype whose error is exactly independent $\mathcal N(0,v_i)$ reproduces the same inflated residual, which settles that it never measured calibration.
+- *The share of the sandwich mass sitting off the diagonal.* It can exceed the diagonal mass several times over and still be harmless: the off-diagonal is dominated by one global mode, the non-identifiable constant, and the restricted likelihood projects that direction out. The whitened quadratic forms built from the full matrix and from its diagonal agree to within about seven percent.
+- *Shrinkage from the ridge on $\boldsymbol{\delta}$.* By the Ghosh-Louis result (Louis, 1984), a shrunken set of estimates understates the dispersion of the parameters, so the ridge biases the genetic fraction downward, never upward. Lowering it by two orders of magnitude restores the regression of $\hat{\boldsymbol{\delta}}$ on $\boldsymbol{\delta}$ to a slope of one and leaves the variance components no better.
+
+**The coupled alternative.** Put $\boldsymbol{\delta}$ inside the composite likelihood with the pedigree prior and integrate by the Laplace machinery of Section 6 (the Hessian in $\boldsymbol{\delta}$ is sparse for the same reason: $\delta_i$ meets $\delta_j$ only if they shared a class-mixed group). This avoids the transport problem entirely. The difference from Section 6 is that the base object is a composite likelihood, not a true one, so the profile of its marginal does not inherit the $\chi^2$ calibration and the interval must come from simulation on the same design. The general theory for what a two-step estimator costs when the first step is itself estimated is Murphy and Topel (1985); the standing warning against using first-stage predictions as a second-stage phenotype without carrying their uncertainty is Hadfield, Wilson, Garant, Sheldon and Kruuk (2010), and carrying $\mathbf V_e$ as above is what answers it. Where only the inference on $\sigma^2_\delta$ is wanted and not the point estimate, a cluster-robust variance in the second stage (Hedges, Tipton and Johnson, 2010), clustered by group as the first-stage sandwich already is, is the cheaper route.
 
 ## How the package exposes this
 
@@ -219,12 +241,19 @@ model(y ~ animal(id), d2, pedigree, weights = "w")
 - Bradley, R.A. & Terry, M.E. (1952). Rank analysis of incomplete block designs I. *Biometrika* 39:324-345.
 - Caron, F. & Doucet, A. (2012). Efficient Bayesian inference for generalized Bradley-Terry models. *Journal of Computational and Graphical Statistics* 21:174-196.
 - Ford, L.R. (1957). Solution of a ranking problem from binary comparisons. *American Mathematical Monthly* 64:28-33.
+- Garrick, D.J., Taylor, J.F. & Fernando, R.L. (2009). Deregressing estimated breeding values and weighting information for genomic regression analyses. *Genetics Selection Evolution* 41:55.
 - Godambe, V.P. (1960). An optimum property of regular maximum likelihood estimation. *Annals of Mathematical Statistics* 31:1208-1211.
+- Hadfield, J.D., Wilson, A.J., Garant, D., Sheldon, B.C. & Kruuk, L.E.B. (2010). The misuse of BLUP in ecology and evolution. *The American Naturalist* 175:116-125.
+- Hedges, L.V., Tipton, E. & Johnson, M.C. (2010). Robust variance estimation in meta-regression with dependent effect size estimates. *Research Synthesis Methods* 1:39-65.
 - Hunter, D.R. (2004). MM algorithms for generalized Bradley-Terry models. *Annals of Statistics* 32:384-406.
 - Kent, J.T. (1982). Robust properties of likelihood ratio tests. *Biometrika* 69:19-27.
 - Lindsay, B.G. (1988). Composite likelihood methods. *Contemporary Mathematics* 80:221-239.
+- Louis, T.A. (1984). Estimating a population of parameter values using Bayes and empirical Bayes methods. *Journal of the American Statistical Association* 79:393-398.
 - Luce, R.D. (1959). *Individual Choice Behavior*. Wiley, New York.
+- Murphy, K.M. & Topel, R.H. (1985). Estimation and inference in two-step econometric models. *Journal of Business and Economic Statistics* 3:370-379.
+- Piepho, H.-P., Möhring, J., Schulz-Streeck, T. & Ogutu, J.O. (2012). A stage-wise approach for the analysis of multi-environment trials. *Biometrical Journal* 54:844-860.
 - Plackett, R.L. (1975). The analysis of permutations. *Applied Statistics* 24:193-202.
+- Thompson, S.G. & Sharp, S.J. (1999). Explaining heterogeneity in meta-analysis: a comparison of methods. *Statistics in Medicine* 18:2693-2708.
 - Tierney, L. & Kadane, J.B. (1986). Accurate approximations for posterior moments and marginal densities. *Journal of the American Statistical Association* 81:82-86.
 - Varin, C., Reid, N. & Firth, D. (2011). An overview of composite likelihood methods. *Statistica Sinica* 21:5-42.
 - Zermelo, E. (1929). Die Berechnung der Turnier-Ergebnisse als ein Maximumproblem der Wahrscheinlichkeitsrechnung. *Mathematische Zeitschrift* 29:436-460.
