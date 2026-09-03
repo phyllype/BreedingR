@@ -205,15 +205,18 @@ $$-2\log L_{\text{REML}}=\log|\mathbf V|+\log|\mathbf X'\mathbf V^{-1}\mathbf X|
 
 with $\mathbf X$ the intercept alone, since $\boldsymbol{\delta}$ is identified only up to an additive constant and the restricted likelihood projects that direction out.
 
-What it delivers, and what it does not, was measured on simulated contests with a half-sib pedigree, twelve replicates in each of three regimes: no environmental variance, an interior case, and the interior case plus strong per-record overdispersion. The additive variance comes back in all three, and this is the quantity that answers whether the differential effect carries heritable variation at all:
+What it delivers depends on how badly the second Bartlett identity fails, so it has to be measured against that severity rather than reported as one number. Taking the median of $\operatorname{diag}(\mathbf H^{-1}\mathbf J\mathbf H^{-1})/\operatorname{diag}(\mathbf H^{-1})$ as the severity index, ten replicates in each of four regimes on simulated contests with a half-sib pedigree give:
 
-| regime | $\hat\sigma^2_\delta$ (true 0.30) | $\hat h^2_\delta$ (true) | interval coverage |
-|---|---|---|---|
-| no environment | 0.24 | 0.84 (1.00, a boundary) | 0.93 |
-| interior | 0.32 | 0.65 (0.60) | 0.93 |
-| plus overdispersion | 0.31 | 0.71 (0.60) | 0.92 |
+| regime | severity | $\hat\sigma^2_\delta$ (true 0.30) | $\hat h^2_\delta$ (true) | coverage |
+|---|---|---|---|---|
+| no environmental variance | 1.4 | 0.24 | 0.85 (1.00, a boundary) | 0.93 |
+| interior | 1.4 | 0.31 | 0.63 (0.60) | 0.93 |
+| interior, overdispersed | 2.2 | 0.30 | 0.69 (0.60) | 0.92 |
+| interior, strongly overdispersed | 4.8 | 0.18 | 0.38 (0.40) | 0.90 |
 
-The heritability itself runs optimistic, by 0.05 in the interior case and 0.11 under overdispersion, and the bias has one direction. Two measured causes push the same way: $\sigma^2_{\text{env}}$ comes back low (0.17 and 0.13 against a true 0.20), and $h^2$ cannot exceed one, so replicates in which $\sigma^2_{\text{env}}$ reaches the zero boundary are truncated and pull the mean up. Report $\sigma^2_\delta$ as the finding and $h^2_\delta$ as an upper reading.
+The two ends of that table read in opposite directions, and neither alone would have been safe to generalise. Where the identity fails mildly, $\sigma^2_\delta$ is recovered and $h^2_\delta$ runs optimistic by 0.03 to 0.09, because $\sigma^2_{\text{env}}$ comes back low and $h^2$ cannot exceed one, so replicates that reach the zero boundary are truncated and pull the mean up. Where it fails at the severity a real contest design can reach, $h^2_\delta$ is instead almost unbiased and it is $\sigma^2_\delta$ that deflates, by about forty percent. So on a real design the heritability is the reading to trust and the additive variance is a floor, and on a well-behaved one it is the other way round. Interval coverage holds throughout, and the gap against the unweighted analysis widens exactly where it should: its coverage falls to 0.55 in the last row.
+
+The same severity governs the identifiability discussed above. The free-scale fit breaks (returns $h^2=1$) in the first three regimes and stops breaking in the fourth, because heavy overdispersion makes the $v_i$ genuinely heterogeneous and $\mathbf V_e$ stops being nearly proportional to $\mathbf I$. That is the Thompson and Sharp mechanism seen from the outside: the non-identifiability is a property of the design, not of the fitter.
 
 **Three readings that look like diagnostics and are not.** Each was measured on simulated contests with a known truth, and each says less than it appears to.
 
