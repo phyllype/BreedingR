@@ -102,11 +102,25 @@ test_that("the fit runs with metafounders and the EBVs carry their levels", {
   expect_true(all(c("MA", "MB") %in% names(eb)))
 })
 
-test_that("declared errors: gamma outside (0,2), length mismatch, label collision", {
-  expect_error(pedigree(ped_mf, metafounders = c("M1", "M2"), gamma = c(0, 0.5)),
+test_that("declared errors: inadmissible gamma, length mismatch, label collision", {
+  # The admissibility rule changed when Gamma became a full matrix, and it changed at both
+  # ends. The old rule was elementwise 0 < gamma < 2. Above, that is still right: with
+  # gamma_ii >= 2 a metafounder's offspring has non-positive Mendelian variance. Below, it
+  # was wrong twice over: gamma_ii = 0 is the unknown-parent-group limit rather than an
+  # error, and an off-diagonal may be NEGATIVE, which is two bases pulled apart by
+  # selection in opposite directions. What decides admissibility is positive definiteness,
+  # and the Cholesky is what tests it: a gamma_12 above sqrt(gamma_11 gamma_22) leaves
+  # every Mendelian variance positive and A(Gamma) indefinite all the same.
+  expect_error(pedigree(ped_mf, metafounders = c("M1", "M2"), gamma = c(2.5, 0.5)),
                "outside")
+  expect_error(pedigree(ped_mf, metafounders = c("M1", "M2"),
+                        gamma = matrix(c(0.30, 0.45, 0.45, 0.50), 2, 2)),
+               "positive definite")
+  # gamma = 0 is a meaningful limit, not a typo, and the message says which limit it is
+  expect_error(pedigree(ped_mf, metafounders = c("M1", "M2"), gamma = c(0, 0.5)),
+               "generalized inverse")
   expect_error(pedigree(ped_mf, metafounders = c("M1", "M2"), gamma = 0.5),
-               "different lengths")
+               "one entry per metafounder")
   ped_c <- ped_mf; ped_c$id[1] <- "M1"
   expect_error(pedigree(ped_c, metafounders = c("M1", "M2"), gamma = gamas),
                "collides|repeats|repeated")

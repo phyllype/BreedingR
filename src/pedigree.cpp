@@ -14,6 +14,8 @@
 #include "mme.h"
 #include <unordered_map>
 #include <queue>
+#include <cmath>
+#include <algorithm>
 
 namespace br {
 
@@ -26,11 +28,44 @@ Pedigree constroi_pedigree(const std::vector<std::string>& id0,
                            const std::vector<std::string>& ma0,
                            const std::vector<std::string>& mf,
                            const std::vector<double>& gama) {
-  if (mf.size() != gama.size())
-    throw Erro("metafounders and gamma with different lengths");
-  for (double g : gama)
-    if (!(g > 0.0) || !(g < 2.0))
-      throw Erro("gamma outside (0, 2): a metafounder needs positive base variance and a positive Mendelian variance for its offspring");
+  // Gamma chega de duas formas: comprimento q (a DIAGONAL, compatibilidade) ou q*q (a
+  // matriz CHEIA, por linhas). O caso diagonal e so um atalho de escrita: ele e expandido
+  // aqui e daqui para baixo existe um caminho unico.
+  const std::size_t q = mf.size();
+  std::vector<double> G(q * q, 0.0);
+  if (q) {
+    if (gama.size() == q) {
+      for (std::size_t k = 0; k < q; k++) G[k * q + k] = gama[k];
+    } else if (gama.size() == q * q) {
+      G = gama;
+    } else {
+      throw Erro("gamma must have one entry per metafounder (the diagonal) or "
+                 "n_metafounders^2 entries (the full matrix, by rows)");
+    }
+    // Simetria: exigida, nao presumida. Aceitar so o triangulo de cima em silencio seria a
+    // porta de entrada de um Gamma pela metade.
+    double assim = 0.0, esc = 0.0;
+    for (std::size_t a = 0; a < q; a++)
+      for (std::size_t b = 0; b < q; b++) {
+        assim = std::max(assim, std::fabs(G[a * q + b] - G[b * q + a]));
+        esc = std::max(esc, std::fabs(G[a * q + b]));
+      }
+    if (assim > 1e-10 * std::max(esc, 1.0)) throw Erro("gamma is not symmetric");
+    for (std::size_t a = 0; a < q; a++)
+      for (std::size_t b = 0; b < a; b++) {
+        const double m2 = 0.5 * (G[a * q + b] + G[b * q + a]);
+        G[a * q + b] = m2; G[b * q + a] = m2;
+      }
+    // A diagonal e limitada por CIMA, e nao por baixo. d_i = 1 - 0,25(gamma_ss + gamma_tt)
+    // e o pior caso e os dois pais serem o MESMO metafundador, entao gamma_ii < 2 basta.
+    // gamma_ii = 0 e legitimo (e o limite de grupo de pais desconhecidos) e o fora da
+    // diagonal pode ser NEGATIVO (bases divergidas por selecao em sentidos opostos), entao
+    // a regra antiga "0 < gamma < 2 elemento a elemento" estava errada nos dois extremos.
+    for (std::size_t k = 0; k < q; k++)
+      if (!(G[k * q + k] < 2.0) || !(G[k * q + k] >= 0.0))
+        throw Erro("a diagonal entry of gamma is outside [0, 2): with gamma_ii >= 2 the "
+                   "Mendelian variance of a metafounder's offspring is not positive");
+  }
 
   // metafundadores viram linhas-base VIRTUAIS, prefixadas ao pedigree
   std::vector<std::string> id(mf);
@@ -62,8 +97,9 @@ Pedigree constroi_pedigree(const std::vector<std::string>& id0,
       throw Erro("parent '" + s + "' is cited and has no line of its own in the pedigree");
     return static_cast<std::int64_t>(it->second);
   };
-  std::unordered_map<std::string, double> gmap;
-  for (std::size_t k = 0; k < mf.size(); k++) gmap[mf[k]] = gama[k];
+  // o mapa guarda a COLUNA de Gamma, nao o valor: com Gamma cheia e a coluna que importa
+  std::unordered_map<std::string, std::size_t> gmap;
+  for (std::size_t k = 0; k < q; k++) gmap[mf[k]] = k;
 
   std::vector<std::int64_t> p(n), m(n);
   for (std::size_t i = 0; i < n; i++) { p[i] = liga(pa[i]); m[i] = liga(ma[i]); }
@@ -104,13 +140,64 @@ Pedigree constroi_pedigree(const std::vector<std::string>& id0,
   out.mae.resize(n);
   out.eh_mf.assign(n, 0);
   out.gama.assign(n, 0.0);
+  out.col_mf.assign(n, -1);
+  out.n_mf = q;
   for (std::size_t k = 0; k < ordem.size(); k++) {
     const std::size_t v = ordem[k];
     out.ids[k] = id[v];
     out.pai[k] = p[v] >= 0 ? static_cast<std::int64_t>(novo[p[v]]) : -1;
     out.mae[k] = m[v] >= 0 ? static_cast<std::int64_t>(novo[m[v]]) : -1;
     auto it = gmap.find(id[v]);
-    if (it != gmap.end()) { out.eh_mf[k] = 1; out.gama[k] = it->second; }
+    if (it != gmap.end()) {
+      out.eh_mf[k] = 1;
+      out.col_mf[k] = static_cast<std::int64_t>(it->second);
+      out.gama[k] = G[it->second * q + it->second];
+    }
+  }
+
+  // K (Cholesky inferior) e Gamma^-1, uma vez so. Gamma tem tipicamente 2 a 10 linhas,
+  // entao o custo e irrelevante e vale pre-computar em vez de refazer por animal.
+  //
+  // A Cholesky e tambem o TESTE de admissibilidade, e e o teste certo: uma Gamma com
+  // gamma_jk grande demais passa folgado no criterio de variancia mendeliana positiva e
+  // ainda assim deixa A(Gamma) indefinida. Testar so d > 0 nao pega isso.
+  if (q) {
+    out.gama_chol.assign(q * q, 0.0);
+    for (std::size_t a = 0; a < q; a++) {
+      for (std::size_t b = 0; b <= a; b++) {
+        double s = G[a * q + b];
+        for (std::size_t c = 0; c < b; c++)
+          s -= out.gama_chol[a * q + c] * out.gama_chol[b * q + c];
+        if (a == b) {
+          if (!(s > 0.0))
+            throw Erro("gamma is singular or not positive definite, so it has no inverse "
+                       "to place in A^-1. A base relationship matrix that is not positive "
+                       "definite does not generate one either, however well behaved the "
+                       "Mendelian variances look. This also covers gamma_ii = 0 and two "
+                       "metafounders standing for the same population: both are meaningful "
+                       "limits and both need the generalized inverse, which this version "
+                       "does not implement");
+          out.gama_chol[a * q + a] = std::sqrt(s);
+        } else {
+          out.gama_chol[a * q + b] = s / out.gama_chol[b * q + b];
+        }
+      }
+    }
+    // Gamma^-1 pela propria Cholesky: resolve K K' X = I, coluna a coluna
+    out.gama_inv.assign(q * q, 0.0);
+    std::vector<double> y(q);
+    for (std::size_t col = 0; col < q; col++) {
+      for (std::size_t a = 0; a < q; a++) {
+        double s = (a == col) ? 1.0 : 0.0;
+        for (std::size_t c = 0; c < a; c++) s -= out.gama_chol[a * q + c] * y[c];
+        y[a] = s / out.gama_chol[a * q + a];
+      }
+      for (std::size_t a = q; a-- > 0;) {
+        double s = y[a];
+        for (std::size_t c = a + 1; c < q; c++) s -= out.gama_chol[c * q + a] * out.gama_inv[c * q + col];
+        out.gama_inv[a * q + col] = s / out.gama_chol[a * q + a];
+      }
+    }
   }
   return out;
 }
@@ -139,9 +226,9 @@ std::vector<double> endogamia(const Pedigree& p) {
 
   for (std::size_t i = 0; i < n; i++) {
     if (!p.eh_mf.empty() && p.eh_mf[i]) {
-      // metafundador: linha-base com a_ff = gamma, logo F = gamma - 1 e D = gamma.
-      // Todas as formulas abaixo leem so f dos pais, entao ESTE pre-carregamento e a
-      // unica mudanca que a generalizacao inteira pede.
+      // metafundador: linha-base com a_ff = gamma_ii, logo F = gamma_ii - 1 e D = gamma_ii.
+      // O F e NEGATIVO quando gamma < 1 e tem de continuar negativo: a formula mendeliana
+      // le exatamente esse valor.
       f[i] = p.gama[i] - 1.0;
       d[i] = p.gama[i];
       continue;
@@ -156,13 +243,25 @@ std::vector<double> endogamia(const Pedigree& p) {
     na_fila[i] = 1;
     double soma = 0.0;
 
+    // Os l dos metafundadores sao COLHIDOS, nao consumidos um a um. Ler cada metafundador
+    // como um ancestral qualquer, somando l_j^2 gamma_jj e zerando l_j, faz os termos
+    // cruzados gamma_jk desaparecerem EM SILENCIO e reproduz o comportamento diagonal sem
+    // erro visivel nenhum. O termo certo e a forma quadratica inteira, l_mf' Gamma l_mf,
+    // computada como ||K' l_mf||^2, que e a forma publicada e a estavel.
+    std::vector<double> lmf(p.n_mf, 0.0);
+
     while (!fila.empty()) {
       const std::size_t j = fila.top();
       fila.pop();
       na_fila[j] = 0;
       const double lj = l[j];
       l[j] = 0.0;
-      soma += lj * lj * d[j];
+      if (p.col_mf.empty() || p.col_mf[j] < 0) {
+        soma += lj * lj * d[j];
+      } else {
+        lmf[static_cast<std::size_t>(p.col_mf[j])] += lj;
+        continue;   // metafundador nao tem pais; o termo dele entra na forma quadratica
+      }
       const std::int64_t sj = p.pai[j], tj = p.mae[j];
       if (sj >= 0) {
         l[sj] += 0.5 * lj;
@@ -173,8 +272,22 @@ std::vector<double> endogamia(const Pedigree& p) {
         if (!na_fila[tj]) { fila.push(static_cast<std::size_t>(tj)); na_fila[tj] = 1; }
       }
     }
+    // ||K' l_mf||^2 = l_mf' K K' l_mf = l_mf' Gamma l_mf. Com Gamma diagonal K e
+    // diag(sqrt(gamma)) e isto colapsa em soma_j l_j^2 gamma_jj, o comportamento anterior.
+    for (std::size_t c = 0; c < p.n_mf; c++) {
+      double s = 0.0;
+      for (std::size_t a = c; a < p.n_mf; a++) s += lmf[a] * p.gama_chol[a * p.n_mf + c];
+      soma += s * s;
+    }
     f[i] = soma - 1.0;
-    if (f[i] < 0.0) f[i] = 0.0;   // so arredondamento pode levar abaixo de zero
+    // O grampo em zero absorve ARREDONDAMENTO, e so isso. Num pedigree classico um F
+    // negativo e sempre ruido, porque nao ha como dois pais serem menos que nao
+    // aparentados. Com Gamma cheia ha: um gamma_jk NEGATIVO (bases divergidas por selecao
+    // em sentidos opostos, que o artigo permite explicitamente) da a_st < 0 e portanto
+    // F = 0,5 a_st < 0 de verdade. Medido: com Gamma = [[0,5; -0,2],[-0,2; 0,9]] o filho
+    // dos dois metafundadores tem F = -0,10 exato, e grampear isso em zero errava tambem
+    // os tres descendentes dele. Entao clampa-se so a escala do arredondamento.
+    if (f[i] < 0.0 && f[i] > -1e-10) f[i] = 0.0;
     d[i] = mendel(i);
   }
   return f;
@@ -205,12 +318,36 @@ Csc a_inversa(const Pedigree& p, const std::vector<double>& f) {
   std::vector<std::pair<std::size_t, double>> vi;
   vi.reserve(3);
 
+  // O bloco Gamma^-1 entra SOMADO, junto com tudo o mais. As linhas dos metafundadores
+  // tambem recebem as contribuicoes de Henderson vindas dos filhos deles, entao escrever o
+  // bloco por cima no fim apagaria essas contribuicoes. Emitir aqui, como mais um conjunto
+  // de tripletos, deixa a soma por conta do montador de CSC, que ja soma repetidos.
+  //
+  // Com Gamma diagonal, Gamma^-1 = diag(1/gamma_ii) e isto reproduz exatamente a entrada
+  // 1/gamma_ii que o laco por animal emitia antes.
+  if (p.n_mf) {
+    std::vector<std::size_t> linha_do_mf(p.n_mf, 0);
+    for (std::size_t i = 0; i < n; i++)
+      if (!p.col_mf.empty() && p.col_mf[i] >= 0)
+        linha_do_mf[static_cast<std::size_t>(p.col_mf[i])] = i;
+    for (std::size_t a = 0; a < p.n_mf; a++)
+      for (std::size_t b = 0; b <= a; b++) {
+        std::size_t r = linha_do_mf[a], c = linha_do_mf[b];
+        double val = p.gama_inv[a * p.n_mf + b];
+        if (r < c) std::swap(r, c);
+        li.push_back(static_cast<std::uint32_t>(r));
+        cj.push_back(static_cast<std::uint32_t>(c));
+        v.push_back(val);
+      }
+  }
+
   for (std::size_t i = 0; i < n; i++) {
+    // o metafundador ja entrou pelo bloco Gamma^-1 acima; emitir 1/gamma_ii aqui de novo
+    // duplicaria a diagonal dele
+    if (!p.eh_mf.empty() && p.eh_mf[i]) continue;
     const std::int64_t s = p.pai[i], t = p.mae[i];
     double di;
-    if (!p.eh_mf.empty() && p.eh_mf[i])
-      di = p.gama[i];
-    else if (s >= 0 && t >= 0) di = 0.5  - 0.25 * (f[s] + f[t]);
+    if (s >= 0 && t >= 0) di = 0.5  - 0.25 * (f[s] + f[t]);
     else if (s >= 0)           di = 0.75 - 0.25 * f[s];
     else if (t >= 0)           di = 0.75 - 0.25 * f[t];
     else                       di = 1.0;

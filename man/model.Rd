@@ -102,9 +102,16 @@ labels needs no line of its own (any OTHER cited-without-line parent is still a
 declared error). Metafounders enter as virtual base rows of A(Gamma) after
 Legarra et al. (2015)}
 
-\item{gamma}{base self-relationship of each metafounder, in (0, 2); DIAGONAL Gamma
-only in this version (a declared limit). gamma -> 0 collapses onto the classic
-unknown parent}
+\item{gamma}{the base relationship matrix of the metafounders. Either a vector of
+length `n_metafounders`, read as the DIAGONAL, or a full symmetric
+`n_metafounders x n_metafounders` matrix. The off-diagonal `gamma_jk` is the
+ancestral relationship BETWEEN two base populations, which is what a multibreed
+analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
+opposite directions. Admissibility is positive definiteness, tested by a Cholesky,
+plus a diagonal below 2 so that a metafounder's offspring keeps a positive
+Mendelian variance. A singular gamma is refused, which covers `gamma = 0` (the
+unknown-parent-group limit) and two metafounders standing for one population: both
+are meaningful and both need the generalized inverse, not implemented here}
 
 \item{verbose}{print the fit as it walks: one line per AI iteration with the
 -2logL and the relative step (the convergence criterion itself), so a long fit

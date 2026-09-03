@@ -18,12 +18,40 @@ namespace br {
 struct Pedigree {
   std::vector<std::string> ids;
   std::vector<std::int64_t> pai, mae;
-  // metafundadores (Legarra et al. 2015), Gamma DIAGONAL nesta versao: eh_mf marca as
-  // linhas-base virtuais e gama traz o gamma de cada uma (0 < gamma < 2). O truque que
-  // faz tudo generalizar: F(mf) = gamma - 1, e as formulas de variancia mendeliana
-  // existentes ja leem o resto sozinhas.
+  // metafundadores (Legarra et al. 2015). eh_mf marca as linhas-base virtuais, prefixadas
+  // ao pedigree, e gama traz a DIAGONAL de Gamma por linha. O truque que faz a variancia
+  // mendeliana generalizar sozinha: F(mf) = gamma_ii - 1, NEGATIVO quando gamma < 1 e
+  // legitimamente negativo, entao nao pode ser grampeado em zero em lugar nenhum.
+  //
+  // ATENCAO ao pseudo-codigo IMPRESSO no artigo, que traz "F(i) = 1 - gamma(i)": o sinal
+  // esta trocado la, e com ele o proprio Exemplo 1 do artigo nao fecha. O texto corrido diz
+  // o certo: "a self-relationship of a11 = gamma and an individual inbreeding coefficient
+  // of Fi = a11 - 1 = gamma - 1".
+  //
+  // Gamma pode ser CHEIA. O gamma_jk fora da diagonal e a ancestralidade compartilhada
+  // entre duas bases, que e o parametro que interessa em analise multirraca, e ele entra em
+  // TRES lugares, dos quais so o primeiro e obvio:
+  //   1. o bloco Gamma^-1 de A^-1 (gama_inv), SOMADO por cima das contribuicoes que os
+  //      filhos ja jogam nas linhas dos metafundadores;
+  //   2. a endogamia, pelo termo l_mf' Gamma l_mf, computado como ||K' l_mf||^2 com K a
+  //      Cholesky inferior (gama_chol), que e a forma publicada e a numericamente estavel;
+  //   3. INDIRETAMENTE na variancia mendeliana, sempre que um pai for mestico, porque o F
+  //      desse pai ja carrega gamma_jk dentro.
+  // Com Gamma diagonal os tres colapsam no comportamento anterior por construcao. Nao ha
+  // ramo separado para o caso diagonal de proposito: um ramo duplicado e onde os dois
+  // comportamentos divergiriam com o tempo.
+  //
+  // col_mf existe porque a ordenacao topologica REORDENA as linhas: o metafundador k de
+  // Gamma nao fica necessariamente na linha k do pedigree ordenado. col_mf[i] devolve a
+  // coluna de Gamma da linha i, ou -1. Sem isso, um desalinhamento com Gamma diagonal so
+  // trocaria gamma_ii de lugar; com Gamma cheia ele corrompe todos os cruzados de um jeito
+  // dificil de perceber.
   std::vector<char> eh_mf;
   std::vector<double> gama;
+  std::vector<std::int64_t> col_mf;
+  std::size_t n_mf = 0;
+  std::vector<double> gama_chol;   // K triangular inferior, n_mf x n_mf, por linhas
+  std::vector<double> gama_inv;    // Gamma^-1, n_mf x n_mf, por linhas
 };
 Pedigree constroi_pedigree(const std::vector<std::string>&, const std::vector<std::string>&,
                            const std::vector<std::string>&,
