@@ -74,3 +74,30 @@ entregavel e mensagem e documentacao, nao codigo).
   80 colunas. O impressor e um so,  em , para que os quatro
   nao divirjam. Portao: , 11 asserts, incluindo
   o silencio com  e a quebra de linha.
+
+## Quantos tracos, e a que custo (MEDIDO em 2026-09-04)
+
+Nao ha limite declarado em `model_mt()`. O unico limite duro do pacote e `t > 32` no
+AR(1) (`src/ar1b.cpp:24`), e ele e CAP DEFENSIVO e nao estrutural: nao ha bitmask por
+tras, entao o numero podia ser outro.
+
+Segundos por iteracao, nesta maquina, modelo `cbind(...) ~ cg + animal(id)`:
+
+| registros | 3 tracos | 6 tracos | 10 tracos |
+|---|---|---|---|
+| 350 | 0,01 | 0,09 | 0,51 |
+| 1.050 | 0,11 | 0,83 | 4,27 |
+| 2.800 | 1,27 | 10,07 | 50,73 |
+
+Com poucos registros, empurrando so o numero de tracos (dois passos): 15 tracos 5,2 s;
+20 tracos 20,4 s; 25 tracos 67,6 s; 30 tracos 310 s. Memoria nunca passou de 30 MB: o
+gargalo e TEMPO, nao RAM.
+
+**Teto pratico.** Um ajuste real pede 20 a 50 iteracoes. Ate 6 tracos e trivial; 10 tracos
+em alguns milhares de registros e meia hora; 15 a 20 sao horas; 25 a 30 roda e nao e
+usavel. Nos tracos o crescimento e pior que quadratico porque a AI e `ntheta x ntheta` com
+`ntheta = t(t+1)/2` por grupo e e invertida a cada iteracao.
+
+**ABERTO, e o que mais incomoda:** nos REGISTROS o custo medido cresce ~n^2,2, quando um
+modelo misto esparso devia crescer bem melhor. Investigar se o caminho multicaracter faz
+algo denso em n. Isto NAO estava registrado em lugar nenhum.
