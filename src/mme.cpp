@@ -40,21 +40,44 @@ namespace br {
 // Quebra em varias linhas com recuo, para nao arruinar o terminal quando o modelo tem
 // dezenas de componentes. %.4g porque a leitura aqui e de ORDEM DE GRANDEZA e de
 // direcao de caminhada; o valor exato sai no fim, com erro-padrao.
-void imprime_theta(const std::vector<double>& th, const std::vector<std::string>& nomes) {
-  const std::size_t n = th.size();
-  std::string linha = "         ";
-  for (std::size_t k = 0; k < n; k++) {
-    char buf[96];
-    const char* nome = (k < nomes.size()) ? nomes[k].c_str() : "?";
-    std::snprintf(buf, sizeof(buf), "%s=%.4g", nome, th[k]);
-    if (linha.size() > 9 && linha.size() + std::strlen(buf) + 2 > 78) {
-      Rprintf("%s\n", linha.c_str());
-      linha = "         ";
+void imprime_theta(const std::vector<double>& th, const std::vector<std::string>& nomes,
+                   const Modelo& m) {
+  // UMA LINHA POR TERMO, e nao uma fila corrida de componentes. Num grupo de covariancia
+  // os parametros sao o vech de UMA matriz (direto-materno, ou o bloco aditivo de um
+  // multicaracter), e imprimi-los emendados com os de outro termo obriga quem le a
+  // reconstruir a mao quais numeros formam qual matriz. Agrupando por termo, a matriz do
+  // aditivo, a do ambiente permanente e a do residual sao lidas separadamente, que e a
+  // leitura que decide se o ajuste vai bem: a diagonal diz onde cada variancia esta, e o
+  // fora da diagonal diz se uma correlacao esta caminhando para +/-1.
+  auto emite = [&](const std::string& rotulo, std::size_t de, std::size_t ate) {
+    if (de >= ate || de >= th.size()) return;
+    std::string linha = "    " + rotulo;
+    while (linha.size() < 15) linha += " ";
+    const std::size_t recuo = 15;
+    for (std::size_t k = de; k < ate && k < th.size(); k++) {
+      char buf[96];
+      const char* nome = (k < nomes.size()) ? nomes[k].c_str() : "?";
+      std::snprintf(buf, sizeof(buf), "%s=%.4g", nome, th[k]);
+      if (linha.size() > recuo && linha.size() + std::strlen(buf) + 2 > 78) {
+        Rprintf("%s\n", linha.c_str());
+        linha.assign(recuo, ' ');
+      }
+      if (linha.size() > recuo) linha += "  ";
+      linha += buf;
     }
-    if (linha.size() > 9) linha += "  ";
-    linha += buf;
+    if (linha.size() > recuo) Rprintf("%s\n", linha.c_str());
+  };
+
+  for (const Grupo& g : m.grupos) {
+    std::string rot = g.nome;
+    if (rot.empty() && !g.termos.empty() && g.termos[0] < m.termos.size())
+      rot = m.termos[g.termos[0]].nome;
+    if (rot.empty()) rot = "grupo";
+    emite("[" + rot + "]", g.offset, g.offset + g.nparam);
   }
-  if (linha.size() > 9) Rprintf("%s\n", linha.c_str());
+  // Do offset do residual ate o fim: no multicaracter o residual e uma MATRIZ entre
+  // caracteristicas, e no AR(1) o rho mora depois dela. Os dois pertencem a mesma leitura.
+  emite("[residual]", m.offset_residual, th.size());
 }
 
 // C_g do grupo, lida de theta.

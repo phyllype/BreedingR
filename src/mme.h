@@ -59,7 +59,8 @@ Pedigree constroi_pedigree(const std::vector<std::string>&, const std::vector<st
                            const std::vector<double>& = {});
 std::vector<double> endogamia(const Pedigree&);
 // estado das ESTIMATIVAS no verbose, compartilhado pelos tres ajustadores iterativos
-void imprime_theta(const std::vector<double>&, const std::vector<std::string>&);
+void imprime_theta(const std::vector<double>&, const std::vector<std::string>&,
+                   const Modelo&);
 Csc a_inversa(const Pedigree&, const std::vector<double>&);
 
 // ---- linalg.cpp

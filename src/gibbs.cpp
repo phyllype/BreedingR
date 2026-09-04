@@ -111,7 +111,7 @@ GibbsSaida gibbs(const Desenho& d, std::size_t n_iter, std::size_t burnin,
     R_CheckUserInterrupt();
     if (verboso && n_iter >= 10 && (it + 1) % (n_iter / 10) == 0) {
       Rprintf("gibbs %d/%d\n", (int) (it + 1), (int) n_iter);
-      imprime_theta(theta, d.modelo.nomes_theta());
+      imprime_theta(theta, d.modelo.nomes_theta(), d.modelo);
     }
     // ---- 1. localizacoes: (b, u) ~ N(solucao, s2e C_s^-1)
     Montado M = monta_mme(d, theta);

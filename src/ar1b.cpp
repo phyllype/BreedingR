@@ -390,7 +390,7 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, std::size_t maxiter, double tol, bool ve
     if (verboso) {
       Rprintf("iter %3d  -2logL %.6f  relDelta %.3e\n",
               (int) it, cur.neg2logl, R.reldelta);
-      imprime_theta(theta, nomes_theta_ar1(d));
+      imprime_theta(theta, nomes_theta_ar1(d), d.modelo);
     }
     if (R.reldelta < tol) {
       // Ao contrario do univariado, converged aqui continua sendo o criterio de passo:

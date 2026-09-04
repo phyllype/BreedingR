@@ -336,7 +336,7 @@ AjusteMT ajusta_mt(const DesenhoMT& d, std::size_t maxiter, double tol, bool ver
     if (verboso) {
       Rprintf("iter %3d  -2logL %.6f  relDelta %.3e\n",
               (int) it, cur.neg2logl, R.reldelta);
-      imprime_theta(theta, nomes_theta_do_mt(d));
+      imprime_theta(theta, nomes_theta_do_mt(d), d.modelo);
     }
     if (R.reldelta < tol) {
       // Ao contrario do univariado, converged aqui continua sendo o criterio de passo:

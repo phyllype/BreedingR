@@ -73,3 +73,42 @@ test_that("many components wrap instead of running off the terminal", {
   comp <- saida[grepl("var\\(animal@y\\)=", saida)]
   expect_true(all(nchar(comp) <= 80))
 })
+
+test_that("each term gets its OWN line, so a matrix is read as a matrix", {
+  # The parameters of a covariance group are the vech of ONE matrix. Printed run-on with
+  # another term's, the reader has to work out by hand which numbers form which matrix.
+  # One line per term puts the additive matrix, the permanent-environment one and the
+  # residual side by side as separate objects, which is the reading that decides whether
+  # the fit is going well: the diagonal says where each variance is, the off-diagonal
+  # says whether a correlation is walking to the boundary.
+  s <- fixture()
+  d <- s$data
+  d$pe <- d$id
+  saida <- capture.output(
+    model(y ~ cg + animal(id) + pe(pe), rbind(d, d), s$pedigree,
+          maxiter = 2L, verbose = TRUE))
+  expect_true(any(grepl("^    \\[animal\\]", saida)))
+  expect_true(any(grepl("^    \\[pe\\]", saida)))
+  expect_true(any(grepl("^    \\[residual\\]", saida)))
+  # the additive line carries the additive and NOT the residual
+  la <- saida[grepl("^    \\[animal\\]", saida)][1]
+  expect_true(grepl("var\\(animal\\)=", la))
+  expect_false(grepl("var\\(residual\\)=", la))
+})
+
+test_that("a covariance group keeps its covariance on the group's own line", {
+  s <- fixture()
+  d <- s$data
+  d$dam <- s$pedigree$dam[match(d$id, s$pedigree$id)]
+  d <- d[d$dam != "0", ]
+  saida <- capture.output(
+    model(y ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), d, s$pedigree,
+          maxiter = 2L, verbose = TRUE))
+  bloco <- saida[grepl("^    \\[g\\]", saida)]
+  expect_gte(length(bloco), 1)
+  # the group line holds the direct variance AND the direct-maternal covariance
+  expect_true(any(grepl("var\\(animal\\)=", bloco)))
+  expect_true(any(grepl("cov\\(maternal,animal\\)=", bloco)))
+  # and the residual is NOT on it
+  expect_false(any(grepl("var\\(residual\\)=", bloco)))
+})
