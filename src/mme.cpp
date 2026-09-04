@@ -18,9 +18,44 @@
 
 #include "mme.h"
 
+#include <R_ext/Print.h>
+#include <cstring>
+#include <cstdio>
+
 #include <unordered_set>
 
 namespace br {
+
+// Imprime o ESTADO DAS ESTIMATIVAS a cada iteracao, e nao so o tamanho do passo.
+//
+// POR QUE: um verbose que so diz "-2logL caiu, o passo encolheu" informa que o ajuste
+// ANDA, nao PARA ONDE. As tres coisas que decidem se vale esperar ou matar a rodada sao
+// uma variancia caminhando para zero, uma correlacao subindo para +/-1 e um componente
+// explodindo, e as tres so aparecem no vetor. Sem imprimi-lo, elas so viram visiveis no
+// fim, quando o tempo ja foi gasto.
+//
+// PARA QUE: em ajuste longo (multicaracter com muitos tracos, AR(1) em serie comprida,
+// passo unico) a decisao de interromper e trocar start= vale horas.
+//
+// Quebra em varias linhas com recuo, para nao arruinar o terminal quando o modelo tem
+// dezenas de componentes. %.4g porque a leitura aqui e de ORDEM DE GRANDEZA e de
+// direcao de caminhada; o valor exato sai no fim, com erro-padrao.
+void imprime_theta(const std::vector<double>& th, const std::vector<std::string>& nomes) {
+  const std::size_t n = th.size();
+  std::string linha = "         ";
+  for (std::size_t k = 0; k < n; k++) {
+    char buf[96];
+    const char* nome = (k < nomes.size()) ? nomes[k].c_str() : "?";
+    std::snprintf(buf, sizeof(buf), "%s=%.4g", nome, th[k]);
+    if (linha.size() > 9 && linha.size() + std::strlen(buf) + 2 > 78) {
+      Rprintf("%s\n", linha.c_str());
+      linha = "         ";
+    }
+    if (linha.size() > 9) linha += "  ";
+    linha += buf;
+  }
+  if (linha.size() > 9) Rprintf("%s\n", linha.c_str());
+}
 
 // C_g do grupo, lida de theta.
 Densa cov_grupo(const Modelo& m, const std::vector<double>& theta, std::size_t g) {

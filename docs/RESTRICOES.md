@@ -68,6 +68,9 @@ entregavel e mensagem e documentacao, nao codigo).
   ajustador faz com animal medido num traco e nao no outro, serie longitudinal com buraco,
   baia de tamanho desigual, nivel fixo com um registro so, e pedigree em que a maioria nao
   tem fenotipo. A restricao 6 e um caso particular disto.
-- **Verbose com estado das estimativas.** Toda funcao que itera tem de imprimir, a cada
-  iteracao, onde as estimativas estao e nao so o passo. Hoje algumas imprimem -2logL e
-  passo relativo; falta o vetor de componentes.
+- **Verbose com estado das estimativas: FEITO em 2026-09-04.** Os quatro ajustadores
+  iterativos (, , , ) imprimem o vetor de
+  componentes a cada iteracao, com os nomes que o ajuste ja usa, quebrado em linhas de ate
+  80 colunas. O impressor e um so,  em , para que os quatro
+  nao divirjam. Portao: , 11 asserts, incluindo
+  o silencio com  e a quebra de linha.

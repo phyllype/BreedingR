@@ -801,9 +801,11 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
       }
       break;
     }
-    if (verboso)
+    if (verboso) {
       Rprintf("iter %3d  -2logL %.6f  relDelta %.3e\n",
               (int) it, cur.neg2logl, R.reldelta);
+      imprime_theta(theta, d.modelo.nomes_theta());
+    }
     if (R.reldelta < tol) {
       // O PASSO PEQUENO NAO PROVA OTIMO. Com uma componente encostada numa fronteira a AI
       // fica quase singular naquela direcao, o amortecimento cresce, o passo encolhe — e

@@ -373,9 +373,11 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, std::size_t maxiter, double tol, bool ve
       lambda *= 10.0;
     }
     if (!aceitou) { R.mensagem = "nenhum passo amortecido melhorou a verossimilhanca"; break; }
-    if (verboso)
+    if (verboso) {
       Rprintf("iter %3d  -2logL %.6f  relDelta %.3e\n",
               (int) it, cur.neg2logl, R.reldelta);
+      imprime_theta(theta, nomes_theta_ar1(d));
+    }
     if (R.reldelta < tol) {
       // Ao contrario do univariado, converged aqui continua sendo o criterio de passo:
       // este laco anda em theta cru e TRAVA INTEIRO quando uma direcao encosta numa
