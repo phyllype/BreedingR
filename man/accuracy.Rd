@@ -29,14 +29,14 @@ the intercept alone is misleading (the slope's is tiny and the total EBV's depen
 point of the gradient), so the error here tells you to combine the coefficients
 explicitly.
 
-One declared limit: F is read from the PEDIGREE even when the fit was single-step. For a
-genotyped animal the prior variance is the diagonal of H, which in that block is the
-diagonal of G*, and that is not 1 + F_ped. On a simulated population of 510 animals, all
-genotyped, the two diagonals differ by up to 0.18, which moves an individual accuracy by
-up to 0.067 (median 0.011). The two versions agree in the mean (0.6966 against 0.6964),
-so a herd average is unaffected; what moves is the individual, and with it the ranking of
-genotyped animals by accuracy (Spearman correlation between the two vectors, 0.77). Read
-genomic accuracies with that in mind.
+The prior variance is the animal's own. For a pedigree animal it is 1 + F. For a
+GENOTYPED animal in a single-step fit it is the diagonal of H, which in that block is
+the diagonal of G*, and that is a different number: on a simulated population of 510
+animals, all genotyped, the two differ by up to 0.18, moving an individual accuracy by
+up to 0.067 (median 0.011). The herd average barely notices (0.6966 against 0.6964);
+what moves is the individual, and with it the ranking of genotyped animals by accuracy.
+The fit carries the genomic prior when it has one, so this is used automatically and no
+longer has to be read with a caveat.
 }
 \references{
 Henderson, C.R. (1975). Best linear unbiased estimation and prediction

@@ -588,14 +588,14 @@ print.summary.breeding_fit <- function(x, ...) {
 #' point of the gradient), so the error here tells you to combine the coefficients
 #' explicitly.
 #'
-#' One declared limit: F is read from the PEDIGREE even when the fit was single-step. For a
-#' genotyped animal the prior variance is the diagonal of H, which in that block is the
-#' diagonal of G*, and that is not 1 + F_ped. On a simulated population of 510 animals, all
-#' genotyped, the two diagonals differ by up to 0.18, which moves an individual accuracy by
-#' up to 0.067 (median 0.011). The two versions agree in the mean (0.6966 against 0.6964),
-#' so a herd average is unaffected; what moves is the individual, and with it the ranking of
-#' genotyped animals by accuracy (Spearman correlation between the two vectors, 0.77). Read
-#' genomic accuracies with that in mind.
+#' The prior variance is the animal's own. For a pedigree animal it is 1 + F. For a
+#' GENOTYPED animal in a single-step fit it is the diagonal of H, which in that block is
+#' the diagonal of G*, and that is a different number: on a simulated population of 510
+#' animals, all genotyped, the two differ by up to 0.18, moving an individual accuracy by
+#' up to 0.067 (median 0.011). The herd average barely notices (0.6966 against 0.6964);
+#' what moves is the individual, and with it the ranking of genotyped animals by accuracy.
+#' The fit carries the genomic prior when it has one, so this is used automatically and no
+#' longer has to be read with a caveat.
 #' @param fit result of model(), model_mt(), model_ar1() or model_threshold()
 #'   (ordinal mode; the joint threshold fit carries no PEV, a declared limit)
 #' @param pedigree the same data.frame used in the fit
@@ -631,6 +631,19 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
   # and even if the label had a line, gamma = 0 would return F on the wrong base and
   # understate the accuracy of every descendant.
   p <- pedigree(pedigree, metafounders = fit$metafounders, gamma = fit$gamma)
+  # A PRIORI DE CADA ANIMAL. For a pedigree animal it is (1 + F). For a GENOTYPED animal
+  # in a single-step fit it is the diagonal of H, which in that block is the diagonal of
+  # G*, and that is a different number: measured on a simulated population of 510 animals,
+  # all genotyped, the two differ by up to 0.18 and move an individual accuracy by up to
+  # 0.067. The herd mean barely moves (0.6966 against 0.6964); what moves is the
+  # individual, and with it the ranking of genotyped animals by accuracy. The fit carries
+  # the right number when it has one, so this used to be a declared limit and is not.
+  priori <- 1 + p$F
+  if (!is.null(fit$h_prior) && length(fit$h_prior) > 0) {
+    linha <- fit$h_prior_row
+    ok <- linha >= 1 & linha <= length(priori)
+    priori[linha[ok]] <- fit$h_prior[ok]
+  }
   if (length(pv) != nrow(p)) {
     # a group with SEVERAL scalar terms (direct-maternal, direct-indirect) has one
     # block of animals per term, and each block has its own variance: the accuracy is
@@ -649,7 +662,7 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
         if (is.na(vk)) stop("no component 'var(", no_grupo[[k]]$nome,
                             ")' to scale the accuracy of that term")
         bloco <- (k - 1L) * nrow(p) + seq_len(nrow(p))
-        arg <- 1 - pv[bloco] / ((1 + p$F) * vk)
+        arg <- 1 - pv[bloco] / (priori * vk)
         arg[arg < 0] <- 0
         out[bloco] <- sqrt(arg)
       }
@@ -660,7 +673,7 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
          "Combine the coefficients with the base at the desired point of the gradient.")
   }
   if (is.null(va) || is.na(va)) va <- fit$theta[[1]]
-  arg <- 1 - pv / ((1 + p$F) * va)
+  arg <- 1 - pv / (priori * va)
   arg[arg < 0] <- 0     # rounding near zero accuracy
   sqrt(arg)
 }

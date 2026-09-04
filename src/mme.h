@@ -211,6 +211,14 @@ Desenho monta_desenho(const Modelo&, const Tabela&, const Pedigree*,
 struct RelatorioG {
   std::size_t n_imputados = 0;
   std::size_t n_monomorficos = 0;
+  // Diagonal de G* e a LINHA do pedigree de cada genotipado, para que accuracy() possa
+  // dividir pela variancia a priori CERTA. Sob passo unico a priori de um genotipado e a
+  // diagonal de H, que naquele bloco e a de G*, e nao 1 + F do pedigree: medido numa
+  // populacao simulada de 510 animais todos genotipados, as duas diferem ate 0,18 e movem
+  // uma acuracia individual ate 0,067. A media nao muda (0,6966 contra 0,6964); o que muda
+  // e o INDIVIDUO, e com ele o ranqueamento por acuracia.
+  std::vector<double> diag_gstar;
+  std::vector<std::size_t> linha_ped;
 };
 Densa vanraden_g(Densa&, RelatorioG&);
 Densa a22_inversa(const Csc&, const std::vector<std::size_t>&);

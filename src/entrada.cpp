@@ -430,7 +430,8 @@ extern "C++" {
 template <class DES>
 std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& ped,
                                 SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo,
-                                SEXP vk) {
+                                SEXP vk, std::vector<double>* dh = nullptr,
+                                std::vector<std::size_t>* dr = nullptr) {
   if (XLENGTH(gid) == 0) return "";
   if (!pp) Rf_error("genotypes without a pedigree: H^-1 needs A^-1");
   auto gids = textos(gid, "genotypes");
@@ -449,6 +450,9 @@ std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& pe
   if (XLENGTH(anucleo) > 0) nuc = textos(anucleo, "APY core");
   const std::size_t kv = (std::size_t) std::max(0, Rf_asInteger(vk));
   br::RelatorioG rel = br::aplica_genomica(d, ped, gids, mg, Rf_asReal(mistura), nuc, kv);
+  // a priori dos genotipados, para accuracy(): so quem pede recebe
+  if (dh) *dh = rel.diag_gstar;
+  if (dr) *dr = rel.linha_ped;
   std::string nota = "single-step: " + std::to_string(gids.size()) + " genotyped x " +
                      std::to_string(nm2) + " markers, " +
                      std::to_string(rel.n_imputados) + " missing value(s) imputed by the " +
@@ -534,6 +538,10 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
   GUARDA(
     br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente, tdil, tfix);
     br::Tabela t = tabela_do_R(dados, nomes);
+    // a priori dos genotipados sob passo unico, para accuracy(). Vazio sem genomica, e
+    // nesse caso accuracy() segue com o 1 + F do pedigree.
+    std::vector<double> diag_h_geno;
+    std::vector<std::size_t> linha_h_geno;
     br::Pedigree ped;
     const br::Pedigree* pp = nullptr;
     if (XLENGTH(pid) > 0) {
@@ -549,7 +557,7 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw,
                                       ks.empty() ? nullptr : &ks);
 
-    std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
+    std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk,                                           &diag_h_geno, &linha_h_geno);
 
     std::vector<double> th0;
     if (XLENGTH(inicio) > 0) {
@@ -635,10 +643,11 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
 
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
                             "message", "n_used", "n_columns", "ebv", "dropped_x", "pev",
-                            "score", "vcov", "b", "newton_dec"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 16));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 16));
-    for (int q = 0; q < 16; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "score", "vcov", "b", "newton_dec",
+                            "h_prior", "h_prior_row"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 18));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 18));
+    for (int q = 0; q < 18; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
     for (std::size_t k = 0; k < d.saiu_x.size(); k++)
       SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
@@ -658,8 +667,19 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     SET_VECTOR_ELT(out, 13, vc);
     SET_VECTOR_ELT(out, 14, bfix);
     SET_VECTOR_ELT(out, 15, Rf_ScalarReal(r.decremento));
+    // Sob passo unico a variancia a priori de um genotipado e a diagonal de H, que
+    // naquele bloco e a de G*, e nao 1 + F do pedigree. Vao as duas coisas: o valor e a
+    // LINHA do pedigree a que ele pertence, porque accuracy() indexa por linha. Vazio
+    // quando nao houve genomica, e ai accuracy() segue com o F do pedigree.
+    SEXP dh = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) diag_h_geno.size()));
+    SEXP dr = PROTECT(Rf_allocVector(INTSXP, (R_xlen_t) linha_h_geno.size()));
+    for (std::size_t q = 0; q < diag_h_geno.size(); q++) REAL(dh)[q] = diag_h_geno[q];
+    for (std::size_t q = 0; q < linha_h_geno.size(); q++)
+      INTEGER(dr)[q] = (int) linha_h_geno[q] + 1;
+    SET_VECTOR_ELT(out, 16, dh);
+    SET_VECTOR_ELT(out, 17, dr);
     Rf_setAttrib(out, R_NamesSymbol, nms);
-    UNPROTECT(13);
+    UNPROTECT(15);
     return out;
   )
 }

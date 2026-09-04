@@ -427,6 +427,11 @@ static RelatorioG aplica_genomica_em(const Modelo& modelo, std::vector<Csc>& kin
   Densa a22i = a22_inversa(*ainv, idx);
   Densa a22 = inv_pd(a22i);
   Densa gstar = ajusta_g_para_a22(g, a22, mistura);
+  // a priori de cada genotipado, guardada AQUI porque este e o unico ponto em que G*
+  // existe formada; accuracy() a usa no lugar de 1 + F do pedigree
+  rel.diag_gstar.resize(gstar.nlin);
+  for (std::size_t q = 0; q < gstar.nlin; q++) rel.diag_gstar[q] = gstar.at(q, q);
+  rel.linha_ped = idx;
 
   // Com nucleo APY declarado, a inversa de G* e a APY; com vecchia_k, a de Vecchia;
   // sem, a exata. Os gates que sustentam os caminhos aproximados sao os colapsos:
