@@ -162,42 +162,77 @@ Pedigree constroi_pedigree(const std::vector<std::string>& id0,
   // gamma_jk grande demais passa folgado no criterio de variancia mendeliana positiva e
   // ainda assim deixa A(Gamma) indefinida. Testar so d > 0 nao pega isso.
   if (q) {
+    // Gamma pode ser SINGULAR e ainda assim significar alguma coisa: gamma_ii = 0 e o
+    // limite de grupo de pais desconhecidos, e dois metafundadores para a MESMA populacao
+    // dao linhas identicas. O artigo manda usar INVERSA GENERALIZADA nesses casos, e diz
+    // que com Gamma = 0 a pseudo-inversa reproduz exatamente a A^-1 com grupos de pais
+    // desconhecidos. Entao a rota e a decomposicao espectral, nao a Cholesky: ela aceita
+    // autovalor nulo (inverte so o que e positivo, que E a pseudo-inversa de Moore-Penrose)
+    // e continua RECUSANDO autovalor negativo, que e a inadmissibilidade de verdade.
+    //
+    // K, usada na endogamia por ||K' l||^2, sai da mesma decomposicao: K = U sqrt(L). Ela
+    // nao precisa ser triangular, so satisfazer K K' = Gamma, e a forma quadratica nao
+    // distingue as duas.
+    std::vector<double> ev(q), U(q * q);
+    {
+      // Jacobi ciclico: q e tipicamente 2 a 10, entao a simplicidade vale mais que a
+      // velocidade, e ele e exato em simetrica sem depender de LAPACK aqui.
+      std::vector<double> Aw = G;
+      for (std::size_t a = 0; a < q; a++)
+        for (std::size_t b = 0; b < q; b++) U[a * q + b] = (a == b) ? 1.0 : 0.0;
+      for (int varr = 0; varr < 100; varr++) {
+        double fora = 0.0;
+        for (std::size_t a = 0; a < q; a++)
+          for (std::size_t b = a + 1; b < q; b++) fora += Aw[a * q + b] * Aw[a * q + b];
+        if (fora < 1e-30) break;
+        for (std::size_t a = 0; a < q; a++)
+          for (std::size_t b = a + 1; b < q; b++) {
+            if (std::fabs(Aw[a * q + b]) < 1e-300) continue;
+            const double th = 0.5 * (Aw[b * q + b] - Aw[a * q + a]) / Aw[a * q + b];
+            const double t = (th >= 0 ? 1.0 : -1.0) /
+                             (std::fabs(th) + std::sqrt(th * th + 1.0));
+            const double c = 1.0 / std::sqrt(t * t + 1.0), s2 = t * c;
+            for (std::size_t k2 = 0; k2 < q; k2++) {
+              const double ak = Aw[a * q + k2], bk = Aw[b * q + k2];
+              Aw[a * q + k2] = c * ak - s2 * bk;
+              Aw[b * q + k2] = s2 * ak + c * bk;
+            }
+            for (std::size_t k2 = 0; k2 < q; k2++) {
+              const double ka = Aw[k2 * q + a], kb = Aw[k2 * q + b];
+              Aw[k2 * q + a] = c * ka - s2 * kb;
+              Aw[k2 * q + b] = s2 * ka + c * kb;
+              const double ua = U[k2 * q + a], ub = U[k2 * q + b];
+              U[k2 * q + a] = c * ua - s2 * ub;
+              U[k2 * q + b] = s2 * ua + c * ub;
+            }
+          }
+      }
+      for (std::size_t a = 0; a < q; a++) ev[a] = Aw[a * q + a];
+    }
+    double maior = 0.0;
+    for (double e : ev) maior = std::max(maior, std::fabs(e));
+    const double corte = 1e-12 * std::max(maior, 1.0);
+    for (double e : ev)
+      if (e < -corte)
+        throw Erro("gamma is not positive semi-definite: it has a negative eigenvalue, so "
+                   "the relationship matrix it generates is not a covariance matrix at "
+                   "all. A base relationship matrix may be singular, which is the "
+                   "unknown-parent-group limit and is handled, but it may not be "
+                   "indefinite");
     out.gama_chol.assign(q * q, 0.0);
-    for (std::size_t a = 0; a < q; a++) {
-      for (std::size_t b = 0; b <= a; b++) {
-        double s = G[a * q + b];
-        for (std::size_t c = 0; c < b; c++)
-          s -= out.gama_chol[a * q + c] * out.gama_chol[b * q + c];
-        if (a == b) {
-          if (!(s > 0.0))
-            throw Erro("gamma is singular or not positive definite, so it has no inverse "
-                       "to place in A^-1. A base relationship matrix that is not positive "
-                       "definite does not generate one either, however well behaved the "
-                       "Mendelian variances look. This also covers gamma_ii = 0 and two "
-                       "metafounders standing for the same population: both are meaningful "
-                       "limits and both need the generalized inverse, which this version "
-                       "does not implement");
-          out.gama_chol[a * q + a] = std::sqrt(s);
-        } else {
-          out.gama_chol[a * q + b] = s / out.gama_chol[b * q + b];
-        }
-      }
-    }
-    // Gamma^-1 pela propria Cholesky: resolve K K' X = I, coluna a coluna
     out.gama_inv.assign(q * q, 0.0);
-    std::vector<double> y(q);
-    for (std::size_t col = 0; col < q; col++) {
-      for (std::size_t a = 0; a < q; a++) {
-        double s = (a == col) ? 1.0 : 0.0;
-        for (std::size_t c = 0; c < a; c++) s -= out.gama_chol[a * q + c] * y[c];
-        y[a] = s / out.gama_chol[a * q + a];
+    for (std::size_t a = 0; a < q; a++)
+      for (std::size_t c = 0; c < q; c++) {
+        const double raiz = ev[c] > corte ? std::sqrt(ev[c]) : 0.0;
+        out.gama_chol[a * q + c] = U[a * q + c] * raiz;
       }
-      for (std::size_t a = q; a-- > 0;) {
-        double s = y[a];
-        for (std::size_t c = a + 1; c < q; c++) s -= out.gama_chol[c * q + a] * out.gama_inv[c * q + col];
-        out.gama_inv[a * q + col] = s / out.gama_chol[a * q + a];
+    for (std::size_t a = 0; a < q; a++)
+      for (std::size_t b = 0; b < q; b++) {
+        double s3 = 0.0;
+        for (std::size_t c = 0; c < q; c++)
+          if (ev[c] > corte) s3 += U[a * q + c] * U[b * q + c] / ev[c];
+        out.gama_inv[a * q + b] = s3;
       }
-    }
   }
   return out;
 }
@@ -276,7 +311,10 @@ std::vector<double> endogamia(const Pedigree& p) {
     // diag(sqrt(gamma)) e isto colapsa em soma_j l_j^2 gamma_jj, o comportamento anterior.
     for (std::size_t c = 0; c < p.n_mf; c++) {
       double s = 0.0;
-      for (std::size_t a = c; a < p.n_mf; a++) s += lmf[a] * p.gama_chol[a * p.n_mf + c];
+      // a soma vai de ZERO: K vem de uma decomposicao espectral e NAO e triangular, entao
+      // comecar em c descartaria silenciosamente as entradas acima da diagonal. O que K
+      // precisa satisfazer e K K' = Gamma, e a forma quadratica nao distingue as duas.
+      for (std::size_t a = 0; a < p.n_mf; a++) s += lmf[a] * p.gama_chol[a * p.n_mf + c];
       soma += s * s;
     }
     f[i] = soma - 1.0;

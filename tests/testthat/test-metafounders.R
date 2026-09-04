@@ -1,4 +1,4 @@
-# GATES of metafounders (Legarra et al. 2015, diagonal Gamma in this version). The
+# GATES of metafounders (Legarra et al. 2015; full Gamma since 2026-09-04). The
 # anchor is EXACT: A(Gamma) built densely by the tabular recursion with base
 # self-relationships gamma must satisfy a_inverse(Gamma) %*% A(Gamma) = I. The collapse
 # gamma -> 0 must reproduce the classic unknown-parent path.
@@ -109,16 +109,17 @@ test_that("declared errors: inadmissible gamma, length mismatch, label collision
   # was wrong twice over: gamma_ii = 0 is the unknown-parent-group limit rather than an
   # error, and an off-diagonal may be NEGATIVE, which is two bases pulled apart by
   # selection in opposite directions. What decides admissibility is positive definiteness,
-  # and the Cholesky is what tests it: a gamma_12 above sqrt(gamma_11 gamma_22) leaves
+  # and the SPECTRAL test is what checks it: a gamma_12 above sqrt(gamma_11 gamma_22) leaves
   # every Mendelian variance positive and A(Gamma) indefinite all the same.
   expect_error(pedigree(ped_mf, metafounders = c("M1", "M2"), gamma = c(2.5, 0.5)),
                "outside")
   expect_error(pedigree(ped_mf, metafounders = c("M1", "M2"),
                         gamma = matrix(c(0.30, 0.45, 0.45, 0.50), 2, 2)),
-               "positive definite")
-  # gamma = 0 is a meaningful limit, not a typo, and the message says which limit it is
-  expect_error(pedigree(ped_mf, metafounders = c("M1", "M2"), gamma = c(0, 0.5)),
-               "generalized inverse")
+               "semi-definite")
+  # gamma = 0 is not an error at all any more: it is the unknown-parent-group limit, a
+  # SINGULAR Gamma, and it is handled by the generalized inverse the paper prescribes.
+  # What is still refused is an INDEFINITE Gamma, which is the line above.
+  expect_silent(pedigree(ped_mf, metafounders = c("M1", "M2"), gamma = c(0, 0.5)))
   expect_error(pedigree(ped_mf, metafounders = c("M1", "M2"), gamma = 0.5),
                "one entry per metafounder")
   ped_c <- ped_mf; ped_c$id[1] <- "M1"

@@ -50,8 +50,12 @@ struct Pedigree {
   std::vector<double> gama;
   std::vector<std::int64_t> col_mf;
   std::size_t n_mf = 0;
-  std::vector<double> gama_chol;   // K triangular inferior, n_mf x n_mf, por linhas
-  std::vector<double> gama_inv;    // Gamma^-1, n_mf x n_mf, por linhas
+  // K com K K' = Gamma, de decomposicao ESPECTRAL e portanto NAO triangular: e o que
+  // permite Gamma singular (gamma = 0, o limite de grupo de pais desconhecidos, e dois
+  // metafundadores para a mesma populacao). Quem soma ||K' l||^2 tem de varrer a coluna
+  // INTEIRA, nao so o triangulo.
+  std::vector<double> gama_chol;   // n_mf x n_mf, por linhas
+  std::vector<double> gama_inv;    // Gamma^-1 (pseudo-inversa se singular), por linhas
 };
 Pedigree constroi_pedigree(const std::vector<std::string>&, const std::vector<std::string>&,
                            const std::vector<std::string>&,

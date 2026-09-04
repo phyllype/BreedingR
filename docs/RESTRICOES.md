@@ -50,7 +50,7 @@ entregavel e mensagem e documentacao, nao codigo).
 
 | # | origem | restricao | estado |
 |---|---|---|---|
-| 14 | `src/pedigree.cpp` | estimar Gamma dos genotipos; inversa generalizada para Gamma singular | ABERTO |
+| 14 | `src/pedigree.cpp` | estimar Gamma dos genotipos; inversa generalizada para Gamma singular | **PARCIAL** 2026-09-04: pseudo-inversa FEITA; estimar Gamma segue aberto |
 | 15 | `src/genomica.cpp`, `src/sssnp.cpp` | nao chegam ao lado genomico (DEFEITO, o unico nao declarado) | ABERTO |
 
 ## Restantes

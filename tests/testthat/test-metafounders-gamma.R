@@ -117,10 +117,10 @@ test_that("the closed identity for a single metafounder holds", {
 
 test_that("an inadmissible Gamma is refused, and for the right reason", {
   # gamma_12 above sqrt(gamma_11 gamma_22): every Mendelian variance stays positive and
-  # A(Gamma) is still indefinite, so testing d > 0 does not catch this. The Cholesky does.
+  # A(Gamma) is still indefinite, so testing d > 0 does not catch this. The spectral test does.
   expect_error(a_inverse(ped_mf, metafounders = c("1", "2"),
                          gamma = matrix(c(0.30, 0.45, 0.45, 0.50), 2, 2)),
-               "positive definite")
+               "semi-definite")
   expect_error(a_inverse(ped_mf, metafounders = c("1", "2"),
                          gamma = matrix(c(1, 2, 0.5, 1), 2, 2)), "symmetric")
   expect_error(a_inverse(ped_mf, metafounders = c("1", "2"),
@@ -130,4 +130,44 @@ test_that("an inadmissible Gamma is refused, and for the right reason", {
   # gamma_ii = 0 is legitimate: it is the unknown-parent-group limit, not an error
   expect_silent(a_inverse(ped_mf, metafounders = c("1", "2"),
                           gamma = diag(c(1e-8, 0.20))))
+})
+
+test_that("a SINGULAR Gamma is handled by the generalized inverse, not refused", {
+  # gamma = 0 is the unknown-parent-group limit and two metafounders standing for the same
+  # population give identical rows: both are singular and both mean something. The paper
+  # prescribes a generalized inverse there and says that with Gamma = 0 the pseudo-inverse
+  # reproduces the A^-1 of unknown parent groups exactly. That is why the admissibility
+  # test is a spectral decomposition and not a Cholesky: it accepts a zero eigenvalue and
+  # still refuses a negative one, which is the inadmissibility that matters.
+  z0 <- a_inverse(ped_mf, metafounders = c("1", "2"), gamma = diag(c(0, 0)))
+  expect_true(all(is.finite(z0$x)))
+  # with Gamma = 0 the animals' block must equal the PLAIN pedigree, which is the
+  # unknown-parent-group limit stated in the paper. The plain one needs the metafounder
+  # citations replaced by unknown, since a cited parent with no line is a declared error.
+  ped_liso <- ped_mf
+  ped_liso$sire[ped_liso$sire %in% c("1", "2")] <- "0"
+  ped_liso$dam[ped_liso$dam %in% c("1", "2")] <- "0"
+  sem <- densa(a_inverse(ped_liso))
+  com <- densa(z0)[rownames(sem), rownames(sem)]
+  expect_lt(max(abs(com - sem)), 1e-9)
+
+  # two metafounders for ONE population: identical rows, rank deficient, still usable
+  Gs <- matrix(c(0.2, 0.2, 0.2, 0.2), 2, 2)
+  zs <- a_inverse(ped_mf, metafounders = c("1", "2"), gamma = Gs)
+  expect_true(all(is.finite(zs$x)))
+  fs <- pedigree(ped_mf, metafounders = c("1", "2"), gamma = Gs)
+  expect_true(all(is.finite(fs$F)))
+  # A(Gamma) is rank deficient here, so A^-1 is a pseudo-inverse and cannot be inverted
+  # back: the relationship is read from the reference construction instead. The two bases
+  # being one population means animals 8 and 10 ARE related, by gamma_12 itself.
+  A <- a_gamma_ref(ped_mf, c("1", "2"), Gs)
+  expect_gt(A["8", "10"], 0.1)
+})
+
+test_that("an INDEFINITE Gamma is still refused, which is the line that matters", {
+  # singular is meaningful, negative is not: a base relationship matrix with a negative
+  # eigenvalue does not generate a covariance matrix at all.
+  expect_error(a_inverse(ped_mf, metafounders = c("1", "2"),
+                         gamma = matrix(c(0.30, 0.45, 0.45, 0.50), 2, 2)),
+               "semi-definite|positive")
 })
