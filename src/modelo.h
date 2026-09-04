@@ -77,6 +77,18 @@ struct Modelo {
   std::string alvo;
   std::vector<Termo> termos;
   std::vector<Grupo> grupos;
+  // Componentes PRESOS pelo usuario (kernel(..., fixed = v)): 1 = nao anda. O caso que
+  // motiva e a covariancia de erro CONHECIDA, Var(y) = s2a A + s2env I + V_e com V_e de
+  // coeficiente fixo em 1: com a escala livre, V_e e s2env nao sao simultaneamente
+  // identificaveis quando os v_i variam pouco (heterogeneidade aditiva contra
+  // multiplicativa, Thompson & Sharp 1999), e o ajuste devolve h2 = 1 contra verdade 0,6.
+  // Vazio quando nada esta preso, que e o caminho de sempre.
+  // guarda o VALOR em que prender; NaN = livre. Guardar so um sinalizador
+  // congelaria o componente no valor de PARTIDA e nao no pedido.
+  std::vector<double> theta_fixo;
+  bool preso(std::size_t k) const {
+    return !theta_fixo.empty() && theta_fixo[k] == theta_fixo[k];
+  }
   std::size_t offset_residual = 0;
   std::size_t ntheta = 0;
   bool tem_ausente = false;

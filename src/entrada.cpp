@@ -291,7 +291,8 @@ SEXP R_resolve(SEXP i, SEXP j, SEXP x, SEXP n, SEXP b) {
 // continuam chamando com a aridade antiga.
 static br::Modelo modelo_do_R(SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov, SEXP test,
                               SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP ausente,
-                              SEXP usa_ausente, SEXP tdil = R_NilValue) {
+                              SEXP usa_ausente, SEXP tdil = R_NilValue,
+                              SEXP tfix = R_NilValue) {
   const R_xlen_t nt = XLENGTH(tnome);
   std::vector<br::Termo> termos;
   std::vector<std::pair<std::string, std::vector<std::string>>> grupos;
@@ -335,8 +336,32 @@ static br::Modelo modelo_do_R(SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov, SEXP 
     }
     termos.push_back(std::move(t));
   }
-  return br::monta_modelo(CHAR(STRING_ELT(alvo, 0)), std::move(termos), grupos,
-                          Rf_asLogical(usa_ausente) == TRUE, Rf_asReal(ausente));
+  br::Modelo m = br::monta_modelo(CHAR(STRING_ELT(alvo, 0)), std::move(termos), grupos,
+                                  Rf_asLogical(usa_ausente) == TRUE, Rf_asReal(ausente));
+  // kernel(..., fixed = v): PRENDE a variancia daquele termo em v. tfix chega por TERMO e
+  // theta_fixo vive por POSICAO EM THETA, entao o mapeamento e feito aqui, onde os grupos
+  // ja existem. Um kernel forma grupo escalar proprio, entao e a diagonal (0,0) dele.
+  if (tfix != R_NilValue) {
+    if (TYPEOF(tfix) != REALSXP || XLENGTH(tfix) != nt)
+      Rf_error("fixed: expected one numeric value per term");
+    for (R_xlen_t k = 0; k < nt; k++) {
+      if (!R_finite(REAL(tfix)[k])) continue;
+      const std::string nome = CHAR(STRING_ELT(tnome, k));
+      for (const br::Grupo& gr : m.grupos) {
+        bool meu = false;
+        for (std::size_t t : gr.termos) if (m.termos[t].nome == nome) meu = true;
+        if (!meu) continue;
+        if (gr.dim != 1)
+          Rf_error("kernel(fixed=) holds a SCALAR component: term '%s' shares a "
+                   "covariance group, where holding one entry of the matrix and "
+                   "estimating the rest is a different problem", nome.c_str());
+        if (m.theta_fixo.empty())
+          m.theta_fixo.assign(m.ntheta, std::numeric_limits<double>::quiet_NaN());
+        m.theta_fixo[gr.offset] = REAL(tfix)[k];
+      }
+    }
+  }
+  return m;
 }
 
 static br::Tabela tabela_do_R(SEXP dados, SEXP nomes) {
@@ -505,9 +530,9 @@ SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
 SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
                SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP maxiter, SEXP tol, SEXP n_em,
-               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP pesos, SEXP inicio, SEXP kern, SEXP tdil) {
+               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP pesos, SEXP inicio, SEXP kern, SEXP tdil, SEXP tfix) {
   GUARDA(
-    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente, tdil);
+    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente, tdil, tfix);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
     const br::Pedigree* pp = nullptr;
@@ -1254,7 +1279,7 @@ static const R_CallMethodDef metodos[] = {
   {"R_inv_seletiva", (DL_FUNC) &R_inv_seletiva, 5},
   {"R_resolve",      (DL_FUNC) &R_resolve,      5},
   {"R_avaliar",      (DL_FUNC) &R_avaliar,     28},
-  {"R_ajustar",      (DL_FUNC) &R_ajustar,     31},
+  {"R_ajustar",      (DL_FUNC) &R_ajustar,     32},
   {"R_a22_inversa",  (DL_FUNC) &R_a22_inversa,  4},
   {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  20},
   {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  26},

@@ -503,6 +503,10 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
               std::size_t n_em, std::size_t maxiter, double tol, bool verboso) {
   Ajuste R;
   std::vector<double> theta = theta0 ? *theta0 : partida(d);
+  // o componente preso comeca NO VALOR PEDIDO. Sem isto ele congelaria onde a partida o
+  // deixou, que e o oposto do que fixed= promete.
+  for (std::size_t k = 0; k < d.modelo.ntheta; k++)
+    if (d.modelo.preso(k)) theta[k] = d.modelo.theta_fixo[k];
   if (theta.size() != d.modelo.ntheta) {
     R.mensagem = "theta inicial com tamanho errado";
     return R;
@@ -523,6 +527,10 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // Cholesky — um EM que encoste numericamente na singularidade nao vira partida.
   for (std::size_t e = 0; e < n_em; e++) {
     std::vector<double> zt;
+    // o EM tambem respeita o preso: ele recalcula TODOS os componentes por formula
+    // fechada, entao sem esta restauracao ele desfaria o fixed= a cada rodada.
+    for (std::size_t k = 0; k < d.modelo.ntheta; k++)
+      if (d.modelo.preso(k)) cur.em_theta[k] = theta[k];
     if (!z_de_theta(d.modelo, cur.em_theta, zt)) break;
     Avaliacao prox = avalia(d, cur.em_theta, &cs);
     if (!prox.ok) break;
@@ -607,7 +615,10 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     for (const Grupo& gr : d.modelo.grupos)
       for (std::size_t i = 0; i < gr.dim; i++) {
         const std::size_t k = gr.theta_idx(i, i);
-        P.congelado[k] = (zc[k] <= P.piso[k] + 1e-9 && P.sz[k] > 0.0) ? 1 : 0;
+        // preso pelo usuario ou grampeado na fronteira: nos dois casos a direcao sai
+        // do sistema, o score dela e ignorado e o resto e otimizado CONDICIONALMENTE.
+        P.congelado[k] = d.modelo.preso(k) ? 1 :
+            ((zc[k] <= P.piso[k] + 1e-9 && P.sz[k] > 0.0) ? 1 : 0);
         // the certificate's active set, and it is WIDER than the step's on purpose: the
         // walker rests a hair above the clamp without ever being frozen there (the same
         // measured fact the boundary report handles with the same factor-2 tolerance).
@@ -616,7 +627,11 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
         // theta-scale share — measured 1.1499 on a true boundary optimum (seed 11 of
         // test-aireml-boundary.R) where the free directions were flat. On the floor
         // with the score pointing outward is pinned, whether clamped or resting.
-        P.na_parede[k] = (zc[k] <= P.piso[k] + std::log(2.0) && P.sz[k] > 0.0) ? 1 : 0;
+        // um componente PRESO tambem sai do certificado: ele nao pode andar, entao o
+        // score dele nunca zera e cobra-lo impediria qualquer ajuste com fixed= de
+        // convergir. O que se certifica e o otimo CONDICIONAL ao que foi preso.
+        P.na_parede[k] = d.modelo.preso(k) ? 1 :
+            ((zc[k] <= P.piso[k] + std::log(2.0) && P.sz[k] > 0.0) ? 1 : 0);
       }
     return P;
   };
@@ -674,6 +689,9 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     bool ganhou = false;
     for (int e = 0; e < 50; e++) {
       std::vector<double> ze;
+      // mesma restauracao do EM de aquecimento: o resgate tambem recomputa tudo
+      for (std::size_t k = 0; k < d.modelo.ntheta; k++)
+        if (d.modelo.preso(k)) cur.em_theta[k] = theta[k];
       if (!z_de_theta(d.modelo, cur.em_theta, ze)) break;
       std::vector<double> piso; std::vector<char> rel;
       pisos_z(ze, piso, rel);

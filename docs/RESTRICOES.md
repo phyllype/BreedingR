@@ -36,7 +36,7 @@ entregavel e mensagem e documentacao, nao codigo).
 | # | origem | restricao | estado |
 |---|---|---|---|
 | 9 | `src/mme.cpp:433` | `kernel()` so na rota `model()` (mesma familia de 1 e 2) | ABERTO |
-| 10 | `CHECKLIST:743` | nao ha como FIXAR o componente de um `kernel` em 1 | ABERTO |
+| 10 | `CHECKLIST:743` | nao ha como FIXAR o componente de um `kernel` em 1 | **FEITO** 2026-09-04 |
 
 ## Limiar e sobrevivencia
 

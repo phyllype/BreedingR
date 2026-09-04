@@ -190,7 +190,8 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma), w,
              if (is.null(start)) numeric(0) else as.double(start), kern,
-             vapply(terms, function(t) t$dilution, numeric(1)))
+             vapply(terms, function(t) t$dilution, numeric(1)),
+             vapply(terms, function(t) t$kfixo, numeric(1)))
   r$seconds <- proc.time()[["elapsed"]] - t0
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
   # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a
@@ -307,7 +308,7 @@ interpreta_termo <- function(e) {
     n <- as.character(e)
     return(list(nome = n, column = n, estrutura = 0L, covariavel = FALSE,
                 group = "", nested = "", base = "", social = FALSE, dilution = 0,
-                kexpr = NULL))
+                kexpr = NULL, kfixo = NA_real_))
   }
   if (!is.call(e)) stop("did not understand the term: ", deparse(e))
   marc <- as.character(e[[1]])
@@ -366,17 +367,32 @@ interpreta_termo <- function(e) {
   # where no K is wanted (accuracy() re-reads the stored formula), and evaluating a
   # possibly large matrix there would be work done for nobody.
   kexpr <- NULL
+  kfixo <- NA_real_
   if (marc == "kernel") {
     if (is.null(args[["K"]]))
       stop("kernel() requires K = the covariance matrix of its levels: without a K, ",
            "use animal() for the pedigree relationship or random() for the identity")
     kexpr <- args[["K"]]
+    # fixed = v HOLDS this term's variance component at v instead of estimating it. The
+    # case that asks for it is a KNOWN error covariance: Var(y) = s2a A + s2env I + V_e
+    # with V_e entering at coefficient 1. Left free, V_e and s2env are not simultaneously
+    # identifiable when the sampling variances vary little, because V_e is then nearly
+    # proportional to I and the two columns of the variance design collapse. That is the
+    # additive-versus-multiplicative heterogeneity of Thompson and Sharp (1999), and
+    # fitted with the scale free it returns a heritability of 1 against a true 0.6.
+    if (!is.null(args[["fixed"]])) {
+      kfixo <- eval(args[["fixed"]], parent.frame(3L))
+      if (!is.numeric(kfixo) || length(kfixo) != 1L || !is.finite(kfixo) || kfixo <= 0)
+        stop("kernel(): fixed must be a single positive finite number, the value to ",
+             "hold this term's variance at. fixed = 1 is the known-covariance case")
+      kfixo <- as.double(kfixo)
+    }
   }
   estrutura <- switch(marc, animal = , maternal = , sire = , rn = , indirect = 2L,
                       pe = , random = 1L, kernel = 3L, cov = 0L)
   list(nome = nome, column = column, estrutura = estrutura,
        covariavel = marc == "cov", group = group, nested = nested, base = base,
-       social = marc == "indirect", dilution = dilution, kexpr = kexpr)
+       social = marc == "indirect", dilution = dilution, kexpr = kexpr, kfixo = kfixo)
 }
 
 # dilution= only travels down the .Call of model() and eval_internal(). The fitters that
