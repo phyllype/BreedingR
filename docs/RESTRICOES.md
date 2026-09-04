@@ -16,7 +16,7 @@ entregavel e mensagem e documentacao, nao codigo).
 | 2 | `src/ar1b.cpp:73` | `kernel()` nao existe no AR(1) | ABERTO |
 | 3 | `src/multitrait2.cpp:220` | theta cru, sem pisos nem log-Cholesky | ABERTO |
 | 4 | `src/ar1b.cpp:274` | idem | ABERTO |
-| 5 | `CHECKLIST:27` | posto de X sobre a tabela inteira, nao sobre as linhas usadas | ABERTO |
+| 5 | `CHECKLIST:27` | posto de X sobre a tabela inteira, nao sobre as linhas usadas | **FEITO** 2026-09-04 |
 
 ## Dados incompletos
 

@@ -95,8 +95,22 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   Densa xfull(d.nlin, cols.size());
   for (std::size_t j = 0; j < cols.size(); j++)
     for (std::size_t i = 0; i < d.nlin; i++) xfull.at(i, j) = cols[j].second[i];
+  // POSTO DE X SOBRE AS LINHAS QUE ENTRAM, nao sobre a tabela inteira. E o mesmo conserto
+  // que o univariado ja tem (mme.cpp, mesma marca). Um nivel fixo cujos registros TODOS
+  // sairam continua com coluna nao-nula na tabela, entao um posto medido sobre tudo o
+  // mantinha; na montagem, que so anda nas linhas usadas, essa coluna nao recebe nada, a
+  // matriz de coeficientes ganha coluna VAZIA, e a Cholesky morre com "nao
+  // positiva-definida" tres passos longe da causa. Medindo o posto onde o modelo de fato
+  // vive, a coluna sai como dependente e e REPORTADA em dropped_x.
+  std::vector<std::size_t> usadas;
+  usadas.reserve(d.n_usadas());
+  for (std::size_t i = 0; i < d.nlin; i++) if (d.usa[i]) usadas.push_back(i);
+  Densa xusadas(usadas.size(), cols.size());
+  for (std::size_t j = 0; j < cols.size(); j++)
+    for (std::size_t r = 0; r < usadas.size(); r++)
+      xusadas.at(r, j) = cols[j].second[usadas[r]];
   std::vector<std::size_t> fica, sai;
-  posto_completo(xfull, 1e-9, fica, sai);
+  posto_completo(xusadas, 1e-9, fica, sai);
   d.x = Densa(d.nlin, fica.size());
   for (std::size_t jj = 0; jj < fica.size(); jj++) {
     d.nomes_x.push_back(cols[fica[jj]].first);
