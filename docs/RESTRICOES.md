@@ -60,7 +60,7 @@ entregavel e mensagem e documentacao, nao codigo).
 | 16 | `R/model.R:575` | `accuracy()` le F do PEDIGREE mesmo em passo unico | **FEITO** 2026-09-04 |
 | 17 | `R/indirect.R:39` | `indirect_residual()` trata so heterogeneidade de VARIANCIA | ABERTO |
 | 18 | `CHECKLIST:90` | pedigree pai/avo-materno aceito em silencio | ABERTO |
-| 19 | `R/nonadditive.R` | D densa, sem inversa de Hoeschele & VanRaden, so epistasia A x A | ABERTO |
+| 19 | `R/nonadditive.R` | D densa, sem inversa de Hoeschele & VanRaden, so epistasia A x A | **PARCIAL** 2026-09-04: A x D, D x D e ordens superiores feitos; a D densa e a inversa de Hoeschele & VanRaden seguem abertas |
 
 ## Fora da lista, pedido a parte
 

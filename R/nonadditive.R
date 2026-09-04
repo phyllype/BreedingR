@@ -148,6 +148,83 @@ g_epistasis <- function(g) {
   gaa / mean(diag(gaa))
 }
 
+#' Mixed and higher-order epistatic relationship matrices
+#'
+#' The Hadamard construction of [g_epistasis()] is not restricted to additive-by-additive.
+#' Under the orthogonal partition the relationship matrix of an interaction between two
+#' effect types is the elementwise product of their relationship matrices, so with `G` the
+#' additive and `D` the dominance matrix, `G_AD = G * D` and `G_DD = D * D`, each rescaled
+#' so its diagonal averages one. Higher orders follow the same rule: `G_AAA = G * G * G`.
+#'
+#' Two warnings that belong with the formula rather than after it. The orthogonality that
+#' makes these terms separable holds under Hardy-Weinberg and linkage equilibrium; away
+#' from it the terms correlate and the partition of variance stops being clean. And every
+#' order added is a covariance component the data has to support: a fit with additive,
+#' dominance and three epistatic terms asks five variances of a design that usually
+#' struggles to give two, and the components collapse to the boundary rather than
+#' informing anything. Add an order because a hypothesis calls for it, never because the
+#' function exists.
+#'
+#' @param g additive relationship matrix, as from [g_matrix()]
+#' @param d dominance relationship matrix, as from [g_dominance()]
+#' @param order for `g_epistasis_order()`, how many additive factors to multiply: 2 is
+#'   [g_epistasis()], 3 is additive-by-additive-by-additive
+#' @return relationship matrix with the dimnames of the input, rescaled to unit mean
+#'   diagonal; ridge it before `kernel()` if the input was singular
+#' @examples
+#' geno <- list(ids = c("a", "b", "c"),
+#'              m = rbind(c(0, 1, 2), c(2, 1, 0), c(1, 1, 1)))
+#' G <- g_matrix(geno)
+#' D <- g_dominance(geno)
+#' g_epistasis_ad(G, D)["a", "b"]
+#' @name epistasia
+NULL
+
+escala_diagonal <- function(m, quem) {
+  if (!is.matrix(m) || !is.numeric(m) || nrow(m) != ncol(m))
+    stop(quem, ": expected a square numeric relationship matrix")
+  md <- mean(diag(m))
+  if (!is.finite(md) || md == 0)
+    stop(quem, ": the product has a zero or non-finite mean diagonal, so it cannot be ",
+         "rescaled to unit diagonal; check the inputs for monomorphic markers")
+  m / md
+}
+
+#' @rdname epistasia
+#' @export
+g_epistasis_ad <- function(g, d) {
+  if (!is.matrix(d) || nrow(d) != nrow(g) || ncol(d) != ncol(g))
+    stop("g_epistasis_ad(): G and D must have the same dimensions")
+  if (!is.null(dimnames(g)) && !is.null(dimnames(d)) &&
+      !identical(rownames(g), rownames(d)))
+    stop("g_epistasis_ad(): G and D are indexed by different animals; reorder one of them")
+  out <- escala_diagonal(g * d, "g_epistasis_ad")
+  dimnames(out) <- dimnames(g)
+  out
+}
+
+#' @rdname epistasia
+#' @export
+g_epistasis_dd <- function(d) {
+  out <- escala_diagonal(d * d, "g_epistasis_dd")
+  dimnames(out) <- dimnames(d)
+  out
+}
+
+#' @rdname epistasia
+#' @export
+g_epistasis_order <- function(g, order = 2L) {
+  order <- as.integer(order)
+  if (length(order) != 1L || is.na(order) || order < 2L)
+    stop("g_epistasis_order(): order must be an integer >= 2; order 2 is g_epistasis()")
+  out <- g
+  for (k in seq_len(order - 1L)) out <- out * g
+  out <- escala_diagonal(out, "g_epistasis_order")
+  dimnames(out) <- dimnames(g)
+  out
+}
+
+
 #' Genomic inbreeding from marker homozygosity
 #'
 #' `f = 1 - h/N`, the proportion of homozygous SNPs per animal (Mrode & Pocrnic, 4th
