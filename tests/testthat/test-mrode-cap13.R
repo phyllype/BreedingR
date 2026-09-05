@@ -229,12 +229,17 @@ test_that("kernel() refuses what it cannot honor, out loud", {
                      data = dados_c13, start = c(80, 80, 120), maxiter = 0L, n_em = 0L,
                      verbose = FALSE),
                "Name them")
-  # the fitters that do not carry the declared K yet say so instead of fitting I
+  # model_mt() used to refuse the declared K here. It carries it now, through the same
+  # reduz_kernels()/kinv_declarada() pair as model(), so the assertion is the fit itself:
+  # the term's levels come from the K and not from the data, which is what the refusal
+  # was standing in for.
   d2t <- dados_c13
   d2t$ww2 <- d2t$ww + 1
-  expect_error(model_mt(cbind(ww, ww2) ~ pen + kernel(id, K = D), data = d2t,
-                        maxiter = 1L, verbose = FALSE),
-               "not available in this fitter")
+  fmt <- model_mt(cbind(ww, ww2) ~ pen + kernel(id, K = D), data = d2t,
+                  maxiter = 3L, verbose = FALSE)
+  expect_true(any(grepl("kernel", names(fmt$theta))))
+  expect_true(all(is.finite(fmt$theta)))
+  expect_equal(length(ebv(fmt, "kernel", trait = "ww")), nrow(D))
   expect_error(gibbs(ww ~ pen + kernel(id, K = D), data = dados_c13,
                      n_iter = 10L, burnin = 2L, verbose = FALSE),
                "only model\\(\\) and eval_internal\\(\\)")

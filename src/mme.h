@@ -8,6 +8,7 @@
 #ifndef BREEDINGR_MME_H
 #define BREEDINGR_MME_H
 
+#include <unordered_set>
 #include "modelo.h"
 
 #include <limits>
@@ -162,6 +163,15 @@ struct Montado {
   std::vector<std::size_t> offset_grupo;
   bool ok = false;
 };
+// a K declarada de um grupo, compartilhada pelos tres ajustadores
+void reduz_kernels(const Modelo& m, const std::vector<KernelDecl>*& kernels,
+                   std::vector<KernelDecl>& kern_red,
+                   std::vector<std::unordered_set<std::string> >& kern_nulos);
+void casa_niveis_nulos(const Modelo& m, const std::vector<DesenhoTermo*>& aleatorios,
+                       const std::vector<std::unordered_set<std::string> >& kern_nulos,
+                       const Tabela& t, std::size_t nlin);
+void kinv_declarada(const Modelo&, const Grupo&, const std::vector<KernelDecl>*,
+                    std::vector<Csc>&, std::vector<double>&);
 Montado monta_mme(const Desenho&, const std::vector<double>&);
 Densa cov_grupo(const Modelo&, const std::vector<double>&, std::size_t);
 
@@ -309,7 +319,8 @@ struct AvaliacaoMT {
 AvaliacaoMT avalia_mt(const DesenhoMT&, const std::vector<double>&, CacheSimbolica* = nullptr);
 double neg2logl_densa_V_mt(const DesenhoMT&, const std::vector<double>&);
 DesenhoMT monta_desenho_mt(Modelo, const std::vector<std::string>&, const Tabela&,
-                           const Pedigree*);
+                           const Pedigree*,
+                           const std::vector<KernelDecl>* = nullptr);
 std::vector<std::string> nomes_theta_do_mt(const DesenhoMT&);
 struct AjusteMT {
   bool convergiu = false;
@@ -384,7 +395,8 @@ struct AvaliacaoAR {
 AvaliacaoAR avalia_ar1(const DesenhoAR&, const std::vector<double>&, CacheSimbolica* = nullptr);
 double neg2logl_densa_V_ar1(const DesenhoAR&, const std::vector<double>&);
 DesenhoAR monta_desenho_ar1(Modelo, const std::vector<std::string>&, const Tabela&,
-                            const Pedigree*, const std::string&, const std::string&);
+                            const Pedigree*, const std::string&, const std::string&,
+                            const std::vector<KernelDecl>* = nullptr);
 std::vector<std::string> nomes_theta_ar1(const DesenhoAR&);
 AjusteMT ajusta_ar1(const DesenhoAR&, std::size_t, double, bool = false);
 // passo unico no AR(1): o mesmo nucleo do uni, sobre os mesmos campos

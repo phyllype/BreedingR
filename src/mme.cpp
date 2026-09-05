@@ -26,6 +26,83 @@
 
 namespace br {
 
+// LINHA ESTRUTURALMENTE NULA numa K declarada: a linha inteira zero, diagonal inclusive.
+// E o padrao da inversa generalizada das matrizes parciais multirraca (Mrode & Pocrnic,
+// 4a ed., p.243-244): o nivel NAO contribui para este termo, nao ganha equacao, e os
+// registros dele ficam na analise com incidencia zero AQUI, em vez de sair. A distincao
+// com o id AUSENTE da K e deliberada: a linha zero e uma declaracao ("este animal nao
+// carrega genes desta raca"), a ausencia e uma lacuna, e lacuna continua excluindo a linha
+// como sempre. A K reduzida (so os ids nao nulos) e o que segue para a fatoracao e para os
+// NIVEIS do termo, que e a parte que os espelhos nao faziam: sem ela o termo tirava os
+// niveis da tabela, e uma K de 15 ids contra 12 niveis de dados virava "triplet outside
+// the matrix" na montagem. Uma implementacao so, chamada pelos tres.
+void reduz_kernels(const Modelo& m, const std::vector<KernelDecl>*& kernels,
+                   std::vector<KernelDecl>& kern_red,
+                   std::vector<std::unordered_set<std::string> >& kern_nulos) {
+  if (!kernels) return;
+  kern_red = *kernels;
+  kern_nulos.assign(kern_red.size(), std::unordered_set<std::string>());
+  for (std::size_t k = 0; k < kern_red.size(); k++) {
+    KernelDecl& kd = kern_red[k];
+    if (kd.vazia()) continue;
+    const std::size_t nk = kd.ids.size();
+    if (kd.k.nlin != nk || kd.k.ncol != nk) continue;  // shape falha adiante, com erro
+    std::vector<char> nulo(nk, 0);
+    std::size_t nz = 0;
+    for (std::size_t i = 0; i < nk; i++) {
+      bool zera = true;
+      for (std::size_t j = 0; j < nk && zera; j++)
+        if (kd.k.at(i, j) != 0.0) zera = false;
+      if (zera) { nulo[i] = 1; nz++; }
+    }
+    for (std::size_t i = 0; i < nk; i++)
+      if (!nulo[i] && kd.k.at(i, i) == 0.0)
+        throw Erro("K of term '" + m.termos[k].nome + "': the row of '" + kd.ids[i] +
+                   "' has a zero diagonal with nonzero covariances. A null "
+                   "contribution is a whole row of zeros; anything else is not a "
+                   "covariance matrix");
+    if (nz == 0) continue;
+    if (nz == nk)
+      throw Erro("the K of term '" + m.termos[k].nome + "' is entirely zero: there is "
+                 "no covariance to declare. Drop the term instead");
+    std::vector<std::string> ids2;
+    ids2.reserve(nk - nz);
+    for (std::size_t i = 0; i < nk; i++) {
+      if (nulo[i]) kern_nulos[k].insert(kd.ids[i]);
+      else ids2.push_back(kd.ids[i]);
+    }
+    Densa k2(ids2.size(), ids2.size());
+    for (std::size_t j = 0, jj = 0; j < nk; j++) {
+      if (nulo[j]) continue;
+      for (std::size_t i = 0, ii = 0; i < nk; i++) {
+        if (nulo[i]) continue;
+        k2.at(ii, jj) = kd.k.at(i, j);
+        ii++;
+      }
+      jj++;
+    }
+    kd.ids = std::move(ids2);
+    kd.k = std::move(k2);
+  }
+  kernels = &kern_red;
+}
+
+// Registro de um nivel declarado NULO na K: fica na analise, com incidencia zero neste
+// termo. A linha zero da K diz que o efeito e exatamente zero, entao nao ha nada a somar e
+// nada a excluir. Vale para os tres ajustadores.
+void casa_niveis_nulos(const Modelo& m, const std::vector<DesenhoTermo*>& aleatorios,
+                       const std::vector<std::unordered_set<std::string> >& kern_nulos,
+                       const Tabela& t, std::size_t nlin) {
+  for (DesenhoTermo* a : aleatorios) {
+    if (m.termos[a->termo].estrutura != Estrutura::Declarada) continue;
+    if (a->termo >= kern_nulos.size() || kern_nulos[a->termo].empty()) continue;
+    const std::vector<std::string> rot = t.rotulos(m.termos[a->termo].coluna);
+    for (std::size_t i = 0; i < nlin; i++)
+      if (!a->casou[i] && kern_nulos[a->termo].count(rot[i])) a->casou[i] = 1;
+  }
+}
+
+
 // Imprime o ESTADO DAS ESTIMATIVAS a cada iteracao, e nao so o tamanho do passo.
 //
 // POR QUE: um verbose que so diz "-2logL caiu, o passo encolheu" informa que o ajuste
@@ -40,6 +117,68 @@ namespace br {
 // Quebra em varias linhas com recuo, para nao arruinar o terminal quando o modelo tem
 // dezenas de componentes. %.4g porque a leitura aqui e de ORDEM DE GRANDEZA e de
 // direcao de caminhada; o valor exato sai no fim, com erro-padrao.
+// A K DECLARADA de um grupo, em UM lugar so.
+//
+// Estava escrita dentro de monta_desenho() e os dois espelhos (multicaracter e AR(1))
+// recusavam kernel() por nao a terem. Duplicar o bloco resolveria os dois e criaria o
+// problema seguinte: tres copias da mesma inversao densa, do mesmo teste de
+// positividade e da mesma convencao de triangulo, divergindo com o tempo.
+void kinv_declarada(const Modelo& mo, const Grupo& g,
+                    const std::vector<KernelDecl>* kernels,
+                    std::vector<Csc>& kinv, std::vector<double>& kinv_logdet) {
+        // K DECLARADA (kernel): a matriz veio pronta do usuario — D de dominancia, G_AA de
+        // epistasia, uma parcial por raca. A inversao aqui e DENSA de proposito: a K
+        // declarada tem o tamanho do problema que o usuario montou, e a rota esparsa para D
+        // de pedigree grande (Hoeschele & VanRaden 1991) esta registrada no CHECKLIST.
+        if (!kernels)
+          throw Erro("a kernel() term declares its own covariance matrix, and this fitting "
+                     "route does not carry it: in this version only model() and "
+                     "eval_internal() accept kernel()");
+        // O nome do termo so serve para a mensagem, e le-lo de um Modelo que o chamador
+        // ainda nao preencheu foi um acesso fora de faixa que so aparecia no caminho de
+        // ERRO: com K boa a linha nunca era executada. Por isso o indice e conferido.
+        auto nome_do = [&](std::size_t tk) {
+          return tk < mo.termos.size() ? mo.termos[tk].nome : std::string("kernel");
+        };
+        if (g.termos.empty())
+          throw Erro("group '" + g.nome + "' is declared kernel and carries no term");
+        const KernelDecl* kd = nullptr;
+        for (std::size_t tk : g.termos) {
+          if (tk >= kernels->size() || (*kernels)[tk].vazia())
+            throw Erro("term '" + nome_do(tk) +
+                       "' is declared kernel and no K reached the engine");
+          const KernelDecl& c = (*kernels)[tk];
+          if (!kd) kd = &c;
+          else if (kd->ids != c.ids || kd->k.dados != c.k.dados)
+            throw Erro("group '" + g.nome + "' has kernel() terms with different K: the "
+                       "penalty of a group is a single kron(C, K); give the terms the same "
+                       "K or separate groups");
+        }
+        const std::size_t nk = kd->ids.size();
+        if (kd->k.nlin != nk || kd->k.ncol != nk)
+          throw Erro("kernel K of " + std::to_string(kd->k.nlin) + " x " +
+                     std::to_string(kd->k.ncol) + " for " + std::to_string(nk) + " ids");
+        const double ldk = logdet_pd(kd->k);
+        if (std::isnan(ldk))
+          throw Erro("the K of term '" + nome_do(g.termos[0]) + "' is not "
+                     "positive-definite: if it comes from markers, add a small ridge to "
+                     "the diagonal (K + 0.01 I) before the call");
+        Densa ki = inv_pd(kd->k);
+        // para a Csc do triangulo inferior, a MESMA convencao do A^-1 do pedigree
+        std::vector<std::uint32_t> li, cj;
+        std::vector<double> v;
+        for (std::size_t j = 0; j < nk; j++)
+          for (std::size_t i = j; i < nk; i++)
+            if (ki.at(i, j) != 0.0) {
+              li.push_back(static_cast<std::uint32_t>(i));
+              cj.push_back(static_cast<std::uint32_t>(j));
+              v.push_back(ki.at(i, j));
+            }
+        kinv.push_back(de_triplos(nk, nk, li, cj, v));
+        // o campo guarda log|K^-1|, e |K^-1| = 1/|K|
+        kinv_logdet.push_back(-ldk);
+}
+
 void imprime_theta(const std::vector<double>& th, const std::vector<std::string>& nomes,
                    const Modelo& m) {
   // UMA LINHA POR TERMO, e nao uma fila corrida de componentes. Num grupo de covariancia
@@ -402,63 +541,10 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
   if (precisa_ped && !ped)
     throw Erro("there is a term with relationship and no pedigree was given");
 
-  // LINHA ESTRUTURALMENTE NULA numa K declarada: a linha inteira zero, diagonal
-  // inclusive. E o padrao da inversa generalizada das matrizes parciais multirraca
-  // (Mrode & Pocrnic, 4a ed., p.243-244): o nivel NAO contribui para este termo — nao
-  // ganha equacao, e os registros dele ficam na analise com incidencia zero AQUI, em vez
-  // de sair. A distincao com o id AUSENTE da K e deliberada: a linha zero e uma
-  // declaracao ("este animal nao carrega genes desta raca"), a ausencia e uma lacuna, e
-  // lacuna continua excluindo a linha como sempre. A K reduzida (so os ids nao nulos) e
-  // o que segue para a fatoracao e para os niveis do termo.
+  // a reducao da K por linha nula e os niveis que ela define: ver reduz_kernels()
   std::vector<KernelDecl> kern_red;
-  std::vector<std::unordered_set<std::string>> kern_nulos;
-  if (kernels) {
-    kern_red = *kernels;
-    kern_nulos.resize(kern_red.size());
-    for (std::size_t k = 0; k < kern_red.size(); k++) {
-      KernelDecl& kd = kern_red[k];
-      if (kd.vazia()) continue;
-      const std::size_t nk = kd.ids.size();
-      if (kd.k.nlin != nk || kd.k.ncol != nk) continue;  // shape falha adiante, com erro
-      std::vector<char> nulo(nk, 0);
-      std::size_t nz = 0;
-      for (std::size_t i = 0; i < nk; i++) {
-        bool zera = true;
-        for (std::size_t j = 0; j < nk && zera; j++)
-          if (kd.k.at(i, j) != 0.0) zera = false;
-        if (zera) { nulo[i] = 1; nz++; }
-      }
-      for (std::size_t i = 0; i < nk; i++)
-        if (!nulo[i] && kd.k.at(i, i) == 0.0)
-          throw Erro("K of term '" + m.termos[k].nome + "': the row of '" + kd.ids[i] +
-                     "' has a zero diagonal with nonzero covariances. A null "
-                     "contribution is a whole row of zeros; anything else is not a "
-                     "covariance matrix");
-      if (nz == 0) continue;
-      if (nz == nk)
-        throw Erro("the K of term '" + m.termos[k].nome + "' is entirely zero: there is "
-                   "no covariance to declare. Drop the term instead");
-      std::vector<std::string> ids2;
-      ids2.reserve(nk - nz);
-      for (std::size_t i = 0; i < nk; i++) {
-        if (nulo[i]) kern_nulos[k].insert(kd.ids[i]);
-        else ids2.push_back(kd.ids[i]);
-      }
-      Densa k2(ids2.size(), ids2.size());
-      for (std::size_t j = 0, jj = 0; j < nk; j++) {
-        if (nulo[j]) continue;
-        for (std::size_t i = 0, ii = 0; i < nk; i++) {
-          if (nulo[i]) continue;
-          k2.at(ii, jj) = kd.k.at(i, j);
-          ii++;
-        }
-        jj++;
-      }
-      kd.ids = std::move(ids2);
-      kd.k = std::move(k2);
-    }
-    kernels = &kern_red;
-  }
+  std::vector<std::unordered_set<std::string> > kern_nulos;
+  reduz_kernels(m, kernels, kern_red, kern_nulos);
 
   // K^-1 por grupo. O A^-1 e UM so, partilhado pelos grupos com parentesco, e o log|K^-1|
   // vem da fatoracao esparsa dele.
@@ -482,49 +568,7 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
       d.kinv.push_back(ainv);
       d.kinv_logdet.push_back(ld_ainv);
     } else if (g.estrutura == Estrutura::Declarada) {
-      // K DECLARADA (kernel): a matriz veio pronta do usuario — D de dominancia, G_AA de
-      // epistasia, uma parcial por raca. A inversao aqui e DENSA de proposito: a K
-      // declarada tem o tamanho do problema que o usuario montou, e a rota esparsa para D
-      // de pedigree grande (Hoeschele & VanRaden 1991) esta registrada no CHECKLIST.
-      if (!kernels)
-        throw Erro("a kernel() term declares its own covariance matrix, and this fitting "
-                   "route does not carry it: in this version only model() and "
-                   "eval_internal() accept kernel()");
-      const KernelDecl* kd = nullptr;
-      for (std::size_t tk : g.termos) {
-        if (tk >= kernels->size() || (*kernels)[tk].vazia())
-          throw Erro("term '" + m.termos[tk].nome +
-                     "' is declared kernel and no K reached the engine");
-        const KernelDecl& c = (*kernels)[tk];
-        if (!kd) kd = &c;
-        else if (kd->ids != c.ids || kd->k.dados != c.k.dados)
-          throw Erro("group '" + g.nome + "' has kernel() terms with different K: the "
-                     "penalty of a group is a single kron(C, K); give the terms the same "
-                     "K or separate groups");
-      }
-      const std::size_t nk = kd->ids.size();
-      if (kd->k.nlin != nk || kd->k.ncol != nk)
-        throw Erro("kernel K of " + std::to_string(kd->k.nlin) + " x " +
-                   std::to_string(kd->k.ncol) + " for " + std::to_string(nk) + " ids");
-      const double ldk = logdet_pd(kd->k);
-      if (std::isnan(ldk))
-        throw Erro("the K of term '" + m.termos[g.termos[0]].nome + "' is not "
-                   "positive-definite: if it comes from markers, add a small ridge to "
-                   "the diagonal (K + 0.01 I) before the call");
-      Densa ki = inv_pd(kd->k);
-      // para a Csc do triangulo inferior, a MESMA convencao do A^-1 do pedigree
-      std::vector<std::uint32_t> li, cj;
-      std::vector<double> v;
-      for (std::size_t j = 0; j < nk; j++)
-        for (std::size_t i = j; i < nk; i++)
-          if (ki.at(i, j) != 0.0) {
-            li.push_back(static_cast<std::uint32_t>(i));
-            cj.push_back(static_cast<std::uint32_t>(j));
-            v.push_back(ki.at(i, j));
-          }
-      d.kinv.push_back(de_triplos(nk, nk, li, cj, v));
-      // o campo guarda log|K^-1|, e |K^-1| = 1/|K|
-      d.kinv_logdet.push_back(-ldk);
+      kinv_declarada(m, g, kernels, d.kinv, d.kinv_logdet);
     } else {
       d.kinv.push_back(Csc());
       d.kinv_logdet.push_back(0.0);
@@ -559,15 +603,10 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
     d.aleatorios.push_back(monta_termo(m, k, t, nf));
   }
 
-  // registro de um nivel declarado NULO na K: fica na analise, com incidencia zero
-  // neste termo — a linha zero da K diz que o efeito e exatamente zero, entao nao ha
-  // nada a somar e nada a excluir
-  for (DesenhoTermo& a : d.aleatorios) {
-    if (m.termos[a.termo].estrutura != Estrutura::Declarada) continue;
-    if (a.termo >= kern_nulos.size() || kern_nulos[a.termo].empty()) continue;
-    const std::vector<std::string> rot = t.rotulos(m.termos[a.termo].coluna);
-    for (std::size_t i = 0; i < d.nlin; i++)
-      if (!a.casou[i] && kern_nulos[a.termo].count(rot[i])) a.casou[i] = 1;
+  {
+    std::vector<DesenhoTermo*> pa;
+    for (DesenhoTermo& a : d.aleatorios) pa.push_back(&a);
+    casa_niveis_nulos(m, pa, kern_nulos, t, d.nlin);
   }
 
   // linhas que entram: nem ausente, nem nivel sem casar no parentesco.

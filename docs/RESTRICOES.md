@@ -12,11 +12,60 @@ entregavel e mensagem e documentacao, nao codigo).
 
 | # | origem | restricao | estado |
 |---|---|---|---|
-| 1 | `src/multitrait2.cpp:118` | `kernel()` nao existe no multicaracter | ABERTO |
-| 2 | `src/ar1b.cpp:73` | `kernel()` nao existe no AR(1) | ABERTO |
-| 3 | `src/multitrait2.cpp:220` | theta cru, sem pisos nem log-Cholesky | ABERTO |
+| 1 | `src/multitrait2.cpp:118` | `kernel()` nao existe no multicaracter | **FEITO** 2026-09-04 |
+| 2 | `src/ar1b.cpp:73` | `kernel()` nao existe no AR(1) | **FEITO** 2026-09-04 |
+| 3 | `src/multitrait2.cpp:220` | theta cru, sem pisos nem log-Cholesky | ABERTO, com custo MEDIDO |
 | 4 | `src/ar1b.cpp:274` | idem | ABERTO |
 | 5 | `CHECKLIST:27` | posto de X sobre a tabela inteira, nao sobre as linhas usadas | **FEITO** 2026-09-04 |
+
+Os itens 1 e 2 foram fechados montando a K declarada uma unica vez, em
+`kinv_declarada()` (`src/mme.cpp`), que os tres ajustadores passaram a chamar. Nao ha
+segunda implementacao para divergir depois. O portao e `test-kernel-espelhos.R`, pela
+identidade de escala: trocar K por cK e C por C/c tem de deixar -2logL intacto, porque o
+c cancela entre `nl*log|C|` e `dim*log|K|`. Ele reprova se a K for ignorada, se a
+identidade for posta no lugar dela, ou se for invertida errado.
+
+Fechar 1 e 2 nao foi so ligar a inversao: o portao encontrou dois defeitos que ja
+estavam la e ninguem tinha exercitado.
+
+O primeiro DERRUBAVA A SESSAO. Os dois espelhos passavam `d.modelo` para a montagem da K
+enquanto ainda iteravam `m.grupos`, e `d.modelo` so e preenchido bem depois
+(`src/multitrait2.cpp:175`, `src/ar1b.cpp:158`): naquele ponto o modelo esta vazio. A unica
+linha que o lia era a que monta o NOME do termo para a mensagem de erro, entao com uma K
+boa nada acontecia e com uma K nao positiva-definida o indice caia fora do vetor e o R
+morria com segmentation fault, sem erro, sem stack, no meio da suite. O conserto foi passar
+o modelo vivo; a funcao compartilhada tambem passou a conferir o indice antes de usa-lo,
+porque foi exatamente esse o tipo de leitura que escapou.
+
+O segundo trocava o resultado por uma falha de montagem. Num termo com K declarada os
+niveis tem de vir DA K, e nao da tabela: e assim que todo nivel da estrutura ganha equacao,
+com registro ou sem. O univariado fazia isso; os espelhos passavam `nullptr` e tiravam os
+niveis dos dados, de modo que uma K de 12 ids contra menos niveis observados terminava em
+"triplet outside the matrix". Junto vinha a reducao por LINHA NULA da K (a convencao das
+matrizes parciais multirraca, Mrode & Pocrnic 2023, p.243-244), que os espelhos tambem nao
+tinham. As duas coisas viraram `reduz_kernels()` e `casa_niveis_nulos()` em `src/mme.cpp`,
+chamadas pelos tres.
+
+O custo do item 3, medido nesse mesmo portao. A identidade vale na VEROSSIMILHANCA nos
+tres ajustadores, ao zero absoluto:
+
+| ajustador | -2logL em (K, theta) | -2logL em (4K, theta/4) | diferenca |
+|---|---|---|---|
+| univariado | 139.952428 | 139.952428 | 0 |
+| AR(1) | -20.951439 | -20.951439 | 0 |
+| multicaracter | 288.19906066 | 288.19906066 | 0 |
+
+No multicaracter a conta foi refeita tambem pela forma V densa, que nao compartilha
+nenhuma linha de montagem com a esparsa: 288.19906058 contra 288.19906058. A
+verossimilhanca esta certa.
+
+O OTIMIZADOR nao esta. Partindo dos valores iniciais automaticos, o `ajusta_mt` para em
+295.396991 no caso 4K contra 288.199061 no caso K, ou seja 7.2 unidades de -2logL pior, e
+reporta `converged = TRUE`. Univariado e AR(1) chegam ao mesmo ponto nos dois casos. E o
+preco exato de andar em theta cru: o passo nao tem piso, a convergencia nao e certificada
+pelo decremento de Newton e a partida (`partida_mt()`, `src/multitrait2.cpp:185`) sai de
+`var(y)` por traco, sem olhar a escala da K. Por isso o portao trava a identidade na
+verossimilhanca e nao no otimo ajustado: o otimo ajustado mediria o item 3, nao o 1 e o 2.
 
 ## Dados incompletos
 

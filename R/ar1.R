@@ -125,7 +125,8 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
              isTRUE(verbose),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
-             if (is.null(gamma)) numeric(0) else as.double(gamma))
+             if (is.null(gamma)) numeric(0) else as.double(gamma),
+             monta_kernels(terms, environment(formula)))
   r$seconds <- proc.time()[["elapsed"]] - t0
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
   # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a
@@ -186,7 +187,8 @@ eval_internal_ar1 <- function(formula, data, pedigree = NULL, subject, time, the
         subject, time,
         as.double(theta), isTRUE(with_dense),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
-             if (is.null(gamma)) numeric(0) else as.double(gamma))
+             if (is.null(gamma)) numeric(0) else as.double(gamma),
+             monta_kernels(terms, environment(formula)))
 }
 
 #' @export

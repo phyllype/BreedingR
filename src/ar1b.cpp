@@ -14,7 +14,8 @@ namespace br {
 
 DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
                             const Tabela& tab, const Pedigree* ped,
-                            const std::string& col_sujeito, const std::string& col_tempo) {
+                            const std::string& col_sujeito, const std::string& col_tempo,
+                            const std::vector<KernelDecl>* kernels) {
   DesenhoAR d;
   d.nlin = tab.nlin;
   d.alvos = alvos;
@@ -49,6 +50,11 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   }();
   if (precisa_ped && !ped) throw Erro("there is a term with relationship and no pedigree was given");
 
+  // a K declarada passa pela MESMA reducao do univariado antes de qualquer conta
+  std::vector<KernelDecl> kern_red;
+  std::vector<std::unordered_set<std::string> > kern_nulos;
+  reduz_kernels(m, kernels, kern_red, kern_nulos);
+
   Csc ainv;
   double ld_ainv = 0.0;
   std::vector<std::string> niveis_ped;
@@ -68,10 +74,7 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
       d.kinv.push_back(ainv);
       d.kinv_logdet.push_back(ld_ainv);
     } else if (g.estrutura == Estrutura::Declarada) {
-      // Cair no ramo diagonal trocaria a K declarada pela identidade EM SILENCIO — o
-      // ajuste convergiria para outra coisa. Erro declarado ate este desenho carregar K.
-      throw Erro("kernel() is not available in this fitter yet: in this version only "
-                 "model() and eval_internal() carry the declared K");
+      kinv_declarada(m, g, kernels, d.kinv, d.kinv_logdet);
     } else {
       d.kinv.push_back(Csc());
       d.kinv_logdet.push_back(0.0);
@@ -119,8 +122,17 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   for (std::size_t j : sai) d.saiu_x.push_back(cols[j].first);
   for (std::size_t k = 0; k < m.termos.size(); k++) {
     if (!m.termos[k].aleatorio()) continue;
-    const bool com_ped = m.termos[k].estrutura == Estrutura::Parentesco;
-    d.aleatorios.push_back(monta_termo(m, k, tab, com_ped ? &niveis_ped : nullptr));
+    // niveis: do pedigree quando ha parentesco, DA K quando declarada. Todo nivel da
+    // estrutura ganha equacao, com ou sem registro, exatamente como em model().
+    const std::vector<std::string>* nf = nullptr;
+    if (m.termos[k].estrutura == Estrutura::Parentesco) nf = &niveis_ped;
+    else if (m.termos[k].estrutura == Estrutura::Declarada) nf = &(*kernels)[k].ids;
+    d.aleatorios.push_back(monta_termo(m, k, tab, nf));
+  }
+  {
+    std::vector<DesenhoTermo*> pa;
+    for (DesenhoTermo& a : d.aleatorios) pa.push_back(&a);
+    casa_niveis_nulos(m, pa, kern_nulos, tab, d.nlin);
   }
   for (const DesenhoTermo& a : d.aleatorios)
     for (std::size_t i = 0; i < d.nlin; i++)

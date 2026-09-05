@@ -4,8 +4,6 @@ src/*.dll
 src/*.so
 ..Rcheck/
 *.tar.gz
-src/*.dll
-src/*.o
 
 # private: real-data results and the development roadmap live outside the repo
 VALIDATION.md
@@ -18,3 +16,4 @@ revisao_mrode/
 # session junk
 .Rhistory
 vignettes/.Rhistory
+vignettes/*.html
