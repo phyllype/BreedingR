@@ -14,8 +14,8 @@ entregavel e mensagem e documentacao, nao codigo).
 |---|---|---|---|
 | 1 | `src/multitrait2.cpp:118` | `kernel()` nao existe no multicaracter | **FEITO** 2026-09-04 |
 | 2 | `src/ar1b.cpp:73` | `kernel()` nao existe no AR(1) | **FEITO** 2026-09-04 |
-| 3 | `src/multitrait2.cpp:220` | theta cru, sem pisos nem log-Cholesky | ABERTO, com custo MEDIDO |
-| 4 | `src/ar1b.cpp:274` | idem | ABERTO |
+| 3 | `src/multitrait2.cpp:220` | theta cru, sem pisos nem log-Cholesky | **FEITO** 2026-09-04 |
+| 4 | `src/ar1b.cpp:274` | idem | **FEITO** 2026-09-04 |
 | 5 | `CHECKLIST:27` | posto de X sobre a tabela inteira, nao sobre as linhas usadas | **FEITO** 2026-09-04 |
 
 Os itens 1 e 2 foram fechados montando a K declarada uma unica vez, em
@@ -46,26 +46,61 @@ matrizes parciais multirraca, Mrode & Pocrnic 2023, p.243-244), que os espelhos 
 tinham. As duas coisas viraram `reduz_kernels()` e `casa_niveis_nulos()` em `src/mme.cpp`,
 chamadas pelos tres.
 
-O custo do item 3, medido nesse mesmo portao. A identidade vale na VEROSSIMILHANCA nos
-tres ajustadores, ao zero absoluto:
+### O item 3 e o 4, e uma correcao do que eu mesmo tinha escrito aqui
 
-| ajustador | -2logL em (K, theta) | -2logL em (4K, theta/4) | diferenca |
+A primeira medicao que registrei nesta secao dizia que o multicaracter parava 7.2 unidades
+de -2logL acima do otimo com a K escalada por 4, reportando `converged = TRUE`. O numero
+estava certo e a LEITURA estava errada, e a correcao importa porque muda o que se conclui.
+Aquele ajuste usava `y2 = 0.6*y + ruido`, que da correlacao genetica exatamente 1: o otimo
+REML fica ON a fronteira `det(C) = 0`, e num otimo de fronteira o escore NAO zera, por
+construcao. Perturbar o componente em 1e-06 ja devolvia theta inadmissivel. Nada do que se
+media ali separava passo bom de passo ruim.
+
+Refeita a medida num bivariado com correlacao genetica INTERIOR (r_g = 0.56) e com um
+efeito de kernel simulado de verdade, `u ~ N(0, K (x) C)`, a mesma pergunta tem resposta
+limpa. A verossimilhanca e invariante sob `(K, C) -> (cK, C/c)`, entao o otimo AJUSTADO tem
+de ser tambem; isso e propriedade do caminhante, e nao da verossimilhanca.
+
+| escala de K | antes | so com o passo em z | com passo, pisos, conjunto ativo e certificado em z |
 |---|---|---|---|
-| univariado | 139.952428 | 139.952428 | 0 |
-| AR(1) | -20.951439 | -20.951439 | 0 |
-| multicaracter | 288.19906066 | 288.19906066 | 0 |
+| c = 1 | 307.195 (27 it) | 355.146 (1000 it) | **354.571004** (13 it) |
+| c = 4 | 310.876 (37 it) | 355.975 (1000 it) | **354.571101** (15 it) |
+| c = 25 | 453.552 (30 it) | 356.041 (1000 it) | **354.571126** (35 it) |
+| dispersao | 146 unidades | 0.895 | **1.2e-04** |
+| converged | TRUE nos tres | FALSE nos tres | TRUE nos tres |
 
-No multicaracter a conta foi refeita tambem pela forma V densa, que nao compartilha
-nenhuma linha de montagem com a esparsa: 288.19906058 contra 288.19906058. A
-verossimilhanca esta certa.
+Foram tres coisas, e nenhuma sozinha resolvia.
 
-O OTIMIZADOR nao esta. Partindo dos valores iniciais automaticos, o `ajusta_mt` para em
-295.396991 no caso 4K contra 288.199061 no caso K, ou seja 7.2 unidades de -2logL pior, e
-reporta `converged = TRUE`. Univariado e AR(1) chegam ao mesmo ponto nos dois casos. E o
-preco exato de andar em theta cru: o passo nao tem piso, a convergencia nao e certificada
-pelo decremento de Newton e a partida (`partida_mt()`, `src/multitrait2.cpp:185`) sai de
-`var(y)` por traco, sem olhar a escala da K. Por isso o portao trava a identidade na
-verossimilhanca e nao no otimo ajustado: o otimo ajustado mediria o item 3, nao o 1 e o 2.
+A primeira: o passo anda em log-Cholesky por bloco (Pinheiro e Bates, 1996), com o residuo
+como bloco de t x t no multicaracter, e o rho do AR(1) em atanh. A segunda: a partida
+divide pela media geometrica dos autovalores da K, que sai do `log|K^-1|` que o desenho ja
+guarda, sem o que c = 1 e c = 25 partem de pontos diferentes da mesma superficie.
+
+A terceira foi a que faltou por mais tempo, e era o defeito de verdade. O CERTIFICADO ficou
+em theta quando o passo foi para z, com conjunto ativo proprio. O teste que ele usava,
+`lmin < 1e-3 lmax`, e a exata desigualdade que o grampo do passo torna FALSA por
+construcao: no ponto em que o laco para, o grampo deixa `lmin = 1e-3 lmax` e o `<` estrito
+nunca dispara. A direcao grampeada ficava congelada no passo e cobrada integralmente no
+certificado. Medido: decremento parado em 3.25e+03 com -2logL identico por 980 iteracoes,
+num ponto que uma descida por coordenada melhorava em 0.200 unidade.
+
+Duas coisas a mais sairam da mesma investigacao, as duas medidas. Uma direcao cuja
+`dtheta/dz` colapsou (a diagonal presa tem `dtheta/dz = 2L^2`, e L = 4.0e-04 dava 3.2e-07)
+nao carrega curvatura e nao pode ficar nem no passo nem no certificado; deixa-la devolvia
+decremento 14.87 onde a folga real era 0.0063. E a parede prende o BLOCO, nao a coordenada:
+o piso relativo fixa a RAZAO entre as diagonais de Cholesky, entao um bloco encostado nele
+esta confinado a uma face de dimensao menor e a coordenada fora da diagonal, que nao tem
+piso proprio, tambem nao e livre. Exigir score positivo para excluir reprovava o proprio
+otimo restrito quando o multiplicador era numericamente zero: com `sz = -1e-04` o
+decremento ficava em 0.034 num ponto onde 4000 sorteios multivariados e uma busca em linha
+nao acharam melhora nenhuma, e onde perturbar o bloco em 1e-06 ja da theta inadmissivel.
+
+O que sobrou fora dos espelhos e o RESGATE EM. O univariado tem um, os espelhos nao, e a
+consequencia e visivel: numa celula de fronteira o AR(1) precisa de 726 iteracoes para
+certificar um ponto 0.48 unidade melhor que o antigo, onde o univariado andaria. Por isso o
+`maxiter` padrao dos espelhos e 1000 e nao 300. Os itens 14 a 16 do levantamento dizem que
+o porte e viavel: `u`, `tr(K^-1 [C^-1]_ab)` e `q` ja existem nos dois espelhos com os mesmos
+nomes, e sem o fator `s2e` do univariado, porque as MME dos espelhos ja sao absolutas.
 
 ## Dados incompletos
 

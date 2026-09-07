@@ -182,8 +182,12 @@ test_that("single-step under AR(1): blend 1 forces H equal to A across the whole
   f0 <- model_ar1(y ~ cg + animal(id), s$data, s$ped, subject = "id", time = "dia")
   f1 <- model_ar1(y ~ cg + animal(id), s$data, s$ped, subject = "id", time = "dia",
                     genotypes = list(ids = gids, m = m), blend = 1)
+  # A identidade e da VEROSSIMILHANCA, e e nela que a tolerancia e apertada: blend = 1
+  # faz H = A e as duas montagens tem de dar o mesmo -2logL. O theta ajustado sai dos dois
+  # caminhos numericos distintos que levam ao mesmo otimo, entao ele concorda ate a
+  # precisao do proprio otimizador, nao ate a da verossimilhanca.
   expect_equal(f1$neg2logl, f0$neg2logl, tolerance = 1e-8)
-  expect_equal(f1$theta, f0$theta, tolerance = 1e-6)
+  expect_equal(f1$theta, f0$theta, tolerance = 1e-5)
 })
 
 test_that("APY under AR(1) with core = everyone reproduces the exact single-step identically", {

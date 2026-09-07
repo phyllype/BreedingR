@@ -409,75 +409,294 @@ bool chol_pequena(const Densa& c, Densa& L) {
 
 // z shares theta's indexing: z[theta_idx(i,j)] = log L_ii on the diagonal, L_ij below it,
 // and z[offset_residual] = log s2e. False when some C_g is not PD (nothing to map).
-static bool z_de_theta(const Modelo& mo, const std::vector<double>& theta,
-                       std::vector<double>& z) {
-  z.assign(mo.ntheta, 0.0);
-  for (const Grupo& gr : mo.grupos) {
-    Densa cg(gr.dim, gr.dim);
-    for (std::size_t j = 0; j < gr.dim; j++)
-      for (std::size_t i = j; i < gr.dim; i++) {
-        const double v = theta[gr.theta_idx(i, j)];
+// O mapa diz QUAIS pedacos do theta andam em cada coordenada, para que os tres
+// ajustadores usem esta mesma maquinaria. Um bloco e uma covariancia inteira no triangulo
+// do theta (um grupo, ou o R0 de t caracteristicas); um escalar_log e uma variancia
+// isolada, que e como o residuo do univariado sempre andou; e uma correlacao anda em
+// atanh, o que empurra |rho| = 1 para o infinito da mesma forma que o log-Cholesky empurra
+// det(C) = 0.
+static std::size_t idx_tri(std::size_t off, std::size_t dim, std::size_t i, std::size_t j) {
+  if (i < j) std::swap(i, j);
+  return off + (j * (2 * dim - j + 1)) / 2 + (i - j);
+}
+
+bool z_de_theta(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& theta,
+                std::vector<double>& z) {
+  z.assign(ntheta, 0.0);
+  for (std::size_t b = 0; b < mp.blocos.size(); b++) {
+    const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
+    Densa cg(dim, dim);
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++) {
+        const double v = theta[idx_tri(off, dim, i, j)];
         cg.at(i, j) = v;
         cg.at(j, i) = v;
       }
     Densa L;
     if (!chol_pequena(cg, L)) return false;
-    for (std::size_t j = 0; j < gr.dim; j++)
-      for (std::size_t i = j; i < gr.dim; i++)
-        z[gr.theta_idx(i, j)] = (i == j) ? std::log(L.at(i, i)) : L.at(i, j);
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++)
+        z[idx_tri(off, dim, i, j)] = (i == j) ? std::log(L.at(i, i)) : L.at(i, j);
   }
-  if (!(theta[mo.offset_residual] > 0.0)) return false;
-  z[mo.offset_residual] = std::log(theta[mo.offset_residual]);
+  for (std::size_t k : mp.escalares_log) {
+    if (!(theta[k] > 0.0)) return false;
+    z[k] = std::log(theta[k]);
+  }
+  for (std::size_t k : mp.correlacoes) {
+    if (!(std::fabs(theta[k]) < 1.0)) return false;
+    z[k] = std::atanh(theta[k]);
+  }
   return true;
 }
 
-static std::vector<double> theta_de_z(const Modelo& mo, const std::vector<double>& z) {
-  std::vector<double> theta(mo.ntheta, 0.0);
-  for (const Grupo& gr : mo.grupos) {
-    Densa L(gr.dim, gr.dim);
-    for (std::size_t j = 0; j < gr.dim; j++)
-      for (std::size_t i = j; i < gr.dim; i++) {
-        const double v = z[gr.theta_idx(i, j)];
+// Pisos na diagonal de z, por bloco, recalculados no ponto corrente: relativo a maior
+// diagonal de Cholesky do bloco (assim um bloco de uma linha so nunca encosta nele) e
+// absoluto contra a escala residual (o velho piso de variancia, 1e-10 max(1, s2e), lido
+// atraves de l = sqrt(v)). O piso relativo de 1e-3 limita a condicao do bloco a ~1e6, que
+// e o que mantem a inversa do bloco utilizavel: sem ele o passo em z chega a fronteira
+// exata (autovalor medido em 1.5e-14) e a solucao do MME para os efeitos fixos perde
+// digitos contra a mesma GLS montada densa. Escalares em log e correlacoes em atanh nao
+// tem piso: as duas transformacoes ja levam a fronteira ao infinito.
+void pisos_z(const MapaZ& mp, const std::vector<double>& z, double escala_residual,
+             std::vector<double>& piso, std::vector<char>& relativo) {
+  piso.assign(z.size(), -std::numeric_limits<double>::infinity());
+  relativo.assign(z.size(), 0);
+  const double piso_abs = 0.5 * std::log(1e-10 * std::max(1.0, escala_residual));
+  for (std::size_t b = 0; b < mp.blocos.size(); b++) {
+    const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
+    double zmax = -std::numeric_limits<double>::infinity();
+    for (std::size_t i = 0; i < dim; i++)
+      zmax = std::max(zmax, z[idx_tri(off, dim, i, i)]);
+    const double piso_rel = zmax + std::log(1e-3);
+    for (std::size_t i = 0; i < dim; i++) {
+      const std::size_t k = idx_tri(off, dim, i, i);
+      piso[k] = std::max(piso_rel, piso_abs);
+      relativo[k] = piso_rel > piso_abs ? 1 : 0;
+    }
+  }
+}
+
+// TODAS as pecas do passo num ponto, numa chamada: z, o score e a AI levados para z pela
+// regra da cadeia, os pisos, e os DOIS conjuntos ativos. Existe porque separar essas peças
+// entre o passo e o certificado foi um defeito medido: o passo foi portado para z e o
+// certificado ficou em theta, com regra propria. O teste que ele usava, lmin < 1e-3 lmax,
+// e exatamente a desigualdade que o piso do passo torna FALSA por construcao — no ponto em
+// que o laco para, o grampo deixa lmin = 1e-3 lmax exato e o `<` estrito nunca dispara. A
+// direcao grampeada ficava entao congelada no passo (relDelta ~ 0 sempre) e cobrada
+// integralmente no certificado (decremento travado em 3.25e+03), e o ajuste girava ate o
+// maxiter sem mover a verossimilhanca.
+//
+// Os dois conjuntos saem dos MESMOS pisos e da MESMA regra de score apontando para fora, e
+// o do certificado e deliberadamente mais largo (piso + log 2 contra piso + 1e-9): o
+// caminhante descansa um fio acima do grampo sem nunca ser congelado ali, e cobrar essa
+// direcao certificaria um ponto com uma direcao viva ignorada.
+PassoZ passo_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& theta,
+               const std::vector<double>& score, const Densa& ai, double escala_residual) {
+  PassoZ P;
+  P.ok = z_de_theta(mp, ntheta, theta, P.zc);
+  if (!P.ok) return P;
+  std::vector<char> rel;
+  pisos_z(mp, P.zc, escala_residual, P.piso, rel);
+  const Densa J = jacobiano_z(mp, ntheta, P.zc);
+  P.sz.assign(ntheta, 0.0);
+  for (std::size_t m = 0; m < ntheta; m++)
+    for (std::size_t k = 0; k < ntheta; k++) P.sz[m] += J.at(k, m) * score[k];
+  P.az = Densa(ntheta, ntheta);
+  for (std::size_t a = 0; a < ntheta; a++)
+    for (std::size_t b = 0; b < ntheta; b++) {
+      double s = 0.0;
+      for (std::size_t k = 0; k < ntheta; k++) {
+        if (J.at(k, a) == 0.0) continue;
+        double u = 0.0;
+        for (std::size_t l = 0; l < ntheta; l++) u += ai.at(k, l) * J.at(l, b);
+        s += J.at(k, a) * u;
+      }
+      P.az.at(a, b) = s;
+    }
+  P.congelado.assign(ntheta, 0);
+  P.na_parede.assign(ntheta, 0);
+  for (std::size_t i = 0; i < ntheta; i++) {
+    if (!(P.piso[i] > -std::numeric_limits<double>::infinity())) continue;
+    // O PASSO so congela quem esta no grampo com o score empurrando para FORA: se o score
+    // aponta para dentro, a coordenada tem de poder subir e sair do piso sozinha.
+    if (P.sz[i] > 0.0 && P.zc[i] <= P.piso[i] + 1e-9) P.congelado[i] = 1;
+    // O CERTIFICADO nao olha o sinal. Estar descansando no piso depois de o caminhante ter
+    // tido todas as iteracoes para sair dele JA e a evidencia de que a restricao esta
+    // ativa; exigir score positivo ali reprova o proprio otimo restrito quando o
+    // multiplicador e numericamente zero. Medido: um bloco declarado preso em posto 1 com
+    // sz = -1e-04 ficava de fora da exclusao e sustentava o decremento em 0.034 num ponto
+    // onde 4000 sorteios multivariados e uma busca em linha nao acharam melhora NENHUMA, e
+    // onde perturbar o bloco em 1e-06 ja da theta inadmissivel.
+    if (P.zc[i] <= P.piso[i] + std::log(2.0)) P.na_parede[i] = 1;
+  }
+  // e a parede prende o BLOCO, nao a coordenada: o piso relativo fixa a RAZAO entre as
+  // diagonais de Cholesky, entao um bloco encostado nele esta confinado a uma face de
+  // dimensao menor e nenhuma das coordenadas dele — a fora da diagonal inclusive, que nao
+  // tem piso proprio — e uma direcao livre.
+  for (std::size_t b = 0; b < mp.blocos.size(); b++) {
+    const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
+    if (dim < 2) continue;
+    bool preso = false;
+    for (std::size_t i = 0; i < dim && !preso; i++)
+      if (P.na_parede[idx_tri(off, dim, i, i)]) preso = true;
+    if (!preso) continue;
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++) P.na_parede[idx_tri(off, dim, i, j)] = 1;
+  }
+  // O certificado exclui mais que o passo, e por dois motivos distintos.
+  //
+  // O primeiro e o de sempre: uma coordenada na parede com o score apontando para fora
+  // aponta para fora do cone por construcao, o gradiente dela nunca zera, e cobra-la
+  // impediria qualquer ponto de fronteira de se certificar.
+  //
+  // O segundo e numerico e foi MEDIDO. Quando um bloco encosta na singularidade, a
+  // diagonal de Cholesky presa tem dtheta/dz = 2 L^2, que colapsa junto com L: num
+  // bivariado com o grupo declarado preso em posto 1, L = 4.0e-04 dava dtheta/dz = 3.2e-07
+  // e a linha correspondente de AI_z ficava da ordem de 1e-13. O gradiente ali ja tinha
+  // zerado (sz = -1e-04, dentro do arredondamento), entao a regra do score para fora NAO
+  // a excluia, e inverter uma matriz com essa direcao quase nula devolvia decremento 14.87
+  // num ponto onde uma descida por coordenada ainda achava 0.0063 unidade — mil vezes a
+  // folga real. Uma direcao sem curvatura em z nao carrega informacao para o certificado:
+  // a forma quadratica ali e ruido amplificado, nao gap de verossimilhanca.
+  double maior = 0.0;
+  for (std::size_t i = 0; i < ntheta; i++) maior = std::max(maior, std::fabs(P.az.at(i, i)));
+  if (maior > 0.0)
+    for (std::size_t i = 0; i < ntheta; i++)
+      if (std::fabs(P.az.at(i, i)) <= 1e-10 * maior) {
+        P.na_parede[i] = 1;
+        // e o PASSO tambem a congela. Deixa-la no sistema amortecido nao move nada (o
+        // Jacobiano dela colapsou) e ainda estraga as outras direcoes, porque a matriz que
+        // se inverte para achar o passo fica com a mesma direcao quase nula que estragava
+        // o certificado.
+        P.congelado[i] = 1;
+      }
+  return P;
+}
+
+// O decremento de Newton dos componentes LIVRES, g' AI^-1 g nas coordenadas z em que o
+// passo anda e em que os conjuntos ativos estao definidos. Um componente na parede aponta
+// para fora do cone por construcao e o gradiente dele nunca zera; cobra-lo impediria
+// qualquer ponto de fronteira de se certificar. O que se certifica e o otimo CONDICIONAL
+// ao que esta preso.
+double decremento_z(const PassoZ& P) {
+  if (!P.ok) return std::numeric_limits<double>::infinity();
+  Densa m = P.az;
+  std::vector<double> sc = P.sz;
+  bool algum_livre = false;
+  for (std::size_t i = 0; i < m.nlin; i++) {
+    if (P.na_parede[i]) {
+      sc[i] = 0.0;
+      for (std::size_t j = 0; j < m.ncol; j++) { m.at(i, j) = 0.0; m.at(j, i) = 0.0; }
+      m.at(i, i) = 1.0;
+    } else {
+      algum_livre = true;
+    }
+  }
+  if (!algum_livre) return 0.0;
+  // A forma quadratica por PSEUDO-INVERSA TRUNCADA, e nao por inversa. Uma AI_z com uma
+  // direcao mal condicionada nao e uma excecao rara aqui: e o estado normal perto de uma
+  // fronteira de covariancia, onde dtheta/dz encolhe com a diagonal de Cholesky presa.
+  // Invertendo cheio, o decremento devolvia 0.0339 num ponto que uma descida por
+  // coordenada melhorava em 1.3e-05 — duas mil vezes a folga real, e o certificado
+  // reprovava um ajuste que estava no otimo. Truncar em 1e-8 do maior autovalor mede o gap
+  // nas direcoes que existem e descarta as que nao carregam curvatura. E a mesma escolha
+  // ja feita para o Gamma dos metafundadores.
+  std::vector<double> ev;
+  Densa u;
+  jacobi_sim(m, ev, u);
+  double maior_ev = 0.0;
+  for (double e : ev) maior_ev = std::max(maior_ev, std::fabs(e));
+  if (!(maior_ev > 0.0)) return 0.0;
+  const double corte = 1e-8 * maior_ev;
+  double dec = 0.0;
+  for (std::size_t k = 0; k < ev.size(); k++) {
+    if (ev[k] <= corte) continue;
+    double proj = 0.0;
+    for (std::size_t i = 0; i < sc.size(); i++) proj += u.at(i, k) * sc[i];
+    dec += proj * proj / ev[k];
+  }
+  return std::fabs(dec);   // a AI e PSD; negativo aqui e arredondamento, nao curvatura
+}
+
+// O mapa do univariado: cada grupo e um bloco, o residuo e o escalar em log. Escrito assim
+// para que o passo do univariado continue IDENTICO ao que sempre foi.
+static MapaZ mapa_z(const Modelo& mo) {
+  MapaZ mp;
+  for (const Grupo& gr : mo.grupos)
+    mp.blocos.push_back(std::make_pair(gr.offset, gr.dim));
+  mp.escalares_log.push_back(mo.offset_residual);
+  return mp;
+}
+
+static bool z_de_theta(const Modelo& mo, const std::vector<double>& theta,
+                       std::vector<double>& z) {
+  return z_de_theta(mapa_z(mo), mo.ntheta, theta, z);
+}
+
+std::vector<double> theta_de_z(const MapaZ& mp, std::size_t ntheta,
+                               const std::vector<double>& z) {
+  std::vector<double> theta(ntheta, 0.0);
+  for (std::size_t b = 0; b < mp.blocos.size(); b++) {
+    const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
+    Densa L(dim, dim);
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++) {
+        const double v = z[idx_tri(off, dim, i, j)];
         L.at(i, j) = (i == j) ? std::exp(v) : v;
       }
-    for (std::size_t j = 0; j < gr.dim; j++)
-      for (std::size_t i = j; i < gr.dim; i++) {
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++) {
         double s = 0.0;
         for (std::size_t k = 0; k <= j; k++) s += L.at(i, k) * L.at(j, k);
-        theta[gr.theta_idx(i, j)] = s;
+        theta[idx_tri(off, dim, i, j)] = s;
       }
   }
-  theta[mo.offset_residual] = std::exp(z[mo.offset_residual]);
+  for (std::size_t k : mp.escalares_log) theta[k] = std::exp(z[k]);
+  for (std::size_t k : mp.correlacoes) theta[k] = std::tanh(z[k]);
   return theta;
+}
+
+static std::vector<double> theta_de_z(const Modelo& mo, const std::vector<double>& z) {
+  return theta_de_z(mapa_z(mo), mo.ntheta, z);
 }
 
 // J = dtheta/dz, block diagonal by group. For z_m = L entry (a,b) with chain factor
 // s_m (= L_aa on the diagonal, 1 below), and theta_k = C_ij (i >= j):
 //   dC_ij/dz_m = s_m (delta_ia L_jb + delta_ja L_ib)
-static Densa jacobiano_z(const Modelo& mo, const std::vector<double>& z) {
-  Densa J(mo.ntheta, mo.ntheta);
-  for (const Grupo& gr : mo.grupos) {
-    Densa L(gr.dim, gr.dim);
-    for (std::size_t j = 0; j < gr.dim; j++)
-      for (std::size_t i = j; i < gr.dim; i++) {
-        const double v = z[gr.theta_idx(i, j)];
+Densa jacobiano_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& z) {
+  Densa J(ntheta, ntheta);
+  for (std::size_t bl = 0; bl < mp.blocos.size(); bl++) {
+    const std::size_t off = mp.blocos[bl].first, dim = mp.blocos[bl].second;
+    Densa L(dim, dim);
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++) {
+        const double v = z[idx_tri(off, dim, i, j)];
         L.at(i, j) = (i == j) ? std::exp(v) : v;
       }
-    for (std::size_t b = 0; b < gr.dim; b++)
-      for (std::size_t a = b; a < gr.dim; a++) {
-        const std::size_t m = gr.theta_idx(a, b);
+    for (std::size_t b = 0; b < dim; b++)
+      for (std::size_t a = b; a < dim; a++) {
+        const std::size_t m = idx_tri(off, dim, a, b);
         const double sm = (a == b) ? L.at(a, a) : 1.0;
-        for (std::size_t j = 0; j < gr.dim; j++)
-          for (std::size_t i = j; i < gr.dim; i++) {
+        for (std::size_t j = 0; j < dim; j++)
+          for (std::size_t i = j; i < dim; i++) {
             double v = 0.0;
             if (i == a && b <= j) v += L.at(j, b);
             if (j == a && b <= i) v += L.at(i, b);
-            J.at(gr.theta_idx(i, j), m) = sm * v;
+            J.at(idx_tri(off, dim, i, j), m) = sm * v;
           }
       }
   }
-  J.at(mo.offset_residual, mo.offset_residual) = std::exp(z[mo.offset_residual]);
+  for (std::size_t k : mp.escalares_log) J.at(k, k) = std::exp(z[k]);
+  // d tanh(z)/dz = 1 - tanh(z)^2
+  for (std::size_t k : mp.correlacoes) {
+    const double r = std::tanh(z[k]);
+    J.at(k, k) = 1.0 - r * r;
+  }
   return J;
+}
+
+static Densa jacobiano_z(const Modelo& mo, const std::vector<double>& z) {
+  return jacobiano_z(mapa_z(mo), mo.ntheta, z);
 }
 
 // ------------------------------------------------------------------------------- o ajuste
@@ -559,21 +778,9 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // the residual scale (the old variance floor, 1e-10 max(1, s2e), read through l = sqrt v)
   auto pisos_z = [&](const std::vector<double>& zc, std::vector<double>& piso,
                      std::vector<char>& relativo) {
-    piso.assign(zc.size(), -std::numeric_limits<double>::infinity());
-    relativo.assign(zc.size(), 0);
-    const double s2e = std::exp(zc[d.modelo.offset_residual]);
-    const double piso_abs = 0.5 * std::log(1e-10 * std::max(1.0, s2e));
-    for (const Grupo& gr : d.modelo.grupos) {
-      double zmax = -std::numeric_limits<double>::infinity();
-      for (std::size_t i = 0; i < gr.dim; i++)
-        zmax = std::max(zmax, zc[gr.theta_idx(i, i)]);
-      const double piso_rel = zmax + std::log(1e-3);
-      for (std::size_t i = 0; i < gr.dim; i++) {
-        const std::size_t k = gr.theta_idx(i, i);
-        piso[k] = std::max(piso_rel, piso_abs);
-        relativo[k] = piso_rel > piso_abs ? 1 : 0;
-      }
-    }
+    // no univariado o residuo e um escalar em log, entao o mapa tem so os grupos como
+    // blocos e o resultado e o mesmo de sempre
+    br::pisos_z(mapa_z(d.modelo), zc, std::exp(zc[d.modelo.offset_residual]), piso, relativo);
   };
 
   // The pieces of the step at a point, shared by the walker and by the final certificate:

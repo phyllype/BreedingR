@@ -13,7 +13,7 @@ model_mt(
   apy_core = NULL,
   vecchia_k = NULL,
   missing_code = NULL,
-  maxiter = 300L,
+  maxiter = 1000L,
   tol = 1e-08,
   metafounders = NULL,
   gamma = NULL,

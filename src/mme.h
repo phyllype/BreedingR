@@ -176,6 +176,38 @@ Montado monta_mme(const Desenho&, const std::vector<double>&);
 Densa cov_grupo(const Modelo&, const std::vector<double>&, std::size_t);
 
 // ---- aireml.cpp: Cholesky of a small dense covariance group; false when not PD.
+// Coordenadas do PASSO, log-Cholesky por bloco (Pinheiro e Bates, 1996). O racional
+// completo, com a falha medida que obrigou a troca, esta em src/aireml.cpp. O mapa e o que
+// permite aos tres ajustadores usarem a MESMA maquinaria: o univariado tem um residuo
+// escalar, o multicaracter tem um R0 de t x t e o AR(1) tem R0 mais o rho, que anda em
+// atanh para que |rho| = 1 fique no infinito em vez de ser uma parede.
+struct MapaZ {
+  std::vector<std::pair<std::size_t, std::size_t> > blocos;  // (offset, dim) no triangulo
+  std::vector<std::size_t> escalares_log;                    // variancia isolada, em log
+  std::vector<std::size_t> correlacoes;                      // em atanh, |x| < 1
+};
+bool z_de_theta(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& theta,
+                std::vector<double>& z);
+std::vector<double> theta_de_z(const MapaZ& mp, std::size_t ntheta,
+                               const std::vector<double>& z);
+Densa jacobiano_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& z);
+// Todas as pecas do passo num ponto: z, score e AI levados para z, os pisos, e os DOIS
+// conjuntos ativos sobre os mesmos pisos e a mesma regra de score para fora — o do passo
+// (piso + 1e-9) e o do certificado, deliberadamente mais largo (piso + log 2). Ver o
+// racional em src/aireml.cpp.
+struct PassoZ {
+  bool ok = false;                 // false quando o theta corrente esta fora do cone
+  std::vector<double> zc, sz, piso;
+  Densa az;
+  std::vector<char> congelado, na_parede;
+};
+PassoZ passo_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& theta,
+               const std::vector<double>& score, const Densa& ai, double escala_residual);
+double decremento_z(const PassoZ& P);
+
+void pisos_z(const MapaZ& mp, const std::vector<double>& z, double escala_residual,
+             std::vector<double>& piso, std::vector<char>& relativo);
+
 bool chol_pequena(const Densa&, Densa&);
 
 struct Neg2LogL {
@@ -326,8 +358,10 @@ struct AjusteMT {
   bool convergiu = false;
   std::size_t iters = 0;
   double reldelta = 0.0;
-  // Newton decrement at the final point (these walkers have no active set, so it is
-  // g' AI^-1 g whole); NaN when the fit died before a first evaluation.
+  // Newton decrement at the final point, restricted to the OFF-BOUNDARY components and
+  // computed in the log-Cholesky coordinates the step walks in (passo_z / decremento_z),
+  // over the same floors and the same active set the step uses. NaN when the fit died
+  // before a first evaluation.
   double decremento = std::numeric_limits<double>::quiet_NaN();
   double neg2logl = 0.0;
   std::vector<double> theta, se, solucao;

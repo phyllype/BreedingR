@@ -276,11 +276,19 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, std::size_t maxiter, double tol, bool ve
       var_t[tau] = v;
     }
     const double frac = 0.5 / static_cast<double>(d.modelo.grupos.size());
+    std::size_t ig = 0;
     for (const Grupo& g : d.modelo.grupos) {
+      // a mesma equivariancia da partida do multicaracter; o racional esta la
+      double esc = 1.0;
+      if (g.estrutura == Estrutura::Declarada && ig < d.kinv.size() && d.kinv[ig].ncol > 0) {
+        const double gm = std::exp(-d.kinv_logdet[ig] / static_cast<double>(d.kinv[ig].ncol));
+        if (std::isfinite(gm) && gm > 0.0) esc = gm;
+      }
+      ig++;
       const std::size_t por_t = g.dim / t;
       for (std::size_t i = 0; i < g.dim; i++) {
         const std::size_t tau = i / por_t;
-        theta[g.offset + (i * (2 * g.dim - i + 1)) / 2] = frac * var_t[tau];
+        theta[g.offset + (i * (2 * g.dim - i + 1)) / 2] = frac * var_t[tau] / esc;
       }
     }
     for (std::size_t tau = 0; tau < t; tau++) {
@@ -294,109 +302,101 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, std::size_t maxiter, double tol, bool ve
   AvaliacaoAR cur = avalia_ar1(d, theta, &cs);
   if (!cur.ok) { R.mensagem = "o theta inicial e INADMISSIVEL"; return R; }
 
+  // O PASSO anda em log-Cholesky por bloco, como o univariado e o multicaracter. Aqui o
+  // residuo e o bloco R0 de t x t e o rho anda em atanh, o que troca a parede |rho| = 1
+  // por um infinito: um passo que antes era rejeitado por sair de (-1, 1), com o
+  // amortecimento subindo uma ordem de grandeza a cada tentativa, passa a ser um passo
+  // grande e admissivel na coordenada certa.
+  MapaZ mz;
+  for (const Grupo& gr : d.modelo.grupos) mz.blocos.push_back(std::make_pair(gr.offset, gr.dim));
+  mz.blocos.push_back(std::make_pair(d.offset_s2e, t));
+  mz.correlacoes.push_back(d.offset_rho);
+
   // O certificado final, espelhado do ajustador univariado (o racional completo esta em
   // aireml.cpp): passo relativo pequeno nao prova otimo. converged exige tambem o
-  // decremento de Newton, g' AI^-1 g, ~2x o gap em -2logL perto do otimo. Este laco anda
-  // em theta cru, sem pisos e sem log-Cholesky (o limite declarado da etapa 1B), entao o
-  // certificado exclui as fronteiras que consegue reconhecer — variancia diagonal em
-  // zero numerico (<= 1e-6 da escala residual) com o score empurrando para baixo, e todo
-  // componente de um grupo cuja C_g esta a 1e-3 (razao das diagonais do Cholesky) da
-  // singularidade — e a certificacao fica CONDICIONAL a fronteira, dito na mensagem.
-  // rho fica sempre no certificado. AI que nao inverte no bloco livre conta como recusa.
+  // decremento de Newton, g' AI^-1 g, ~2x o gap em -2logL perto do otimo. Ele e computado
+  // nas MESMAS coordenadas z do passo e sobre os MESMOS pisos, por passo_z/decremento_z:
+  // manter dois conjuntos ativos, um por ajustador e em espacos diferentes, foi um defeito
+  // medido. Um bloco descansando no piso sai do certificado inteiro, e a certificacao fica
+  // CONDICIONAL a esse grampo, dito na mensagem. O rho anda em atanh e nunca esta preso.
   const double tol_dec = 2e-4;
-  std::size_t na_fronteira = 0;   // exclusoes da ULTIMA chamada, para a mensagem
-  auto decremento = [&](const AvaliacaoAR& av) -> double {
-    const std::size_t nt = d.modelo.ntheta;
-    std::vector<char> fora(nt, 0);
-    double s2m = 0.0;
+  // Quantos componentes o certificado excluiu, para a mensagem. O conjunto sai de
+  // PassoZ::na_parede, nas mesmas coordenadas e sobre os mesmos pisos que o passo usa.
+  std::size_t na_fronteira = 0;
+  auto pecas = [&](const AvaliacaoAR& av) {
+    double s = 0.0;
     for (std::size_t tau = 0; tau < t; tau++)
-      s2m += theta[d.offset_s2e + (tau * (2 * t - tau + 1)) / 2];
-    s2m = std::max(1.0, s2m / static_cast<double>(t));
-    for (const Grupo& gr : d.modelo.grupos) {
-      Densa cg(gr.dim, gr.dim);
-      for (std::size_t j = 0; j < gr.dim; j++)
-        for (std::size_t i = j; i < gr.dim; i++) {
-          const std::size_t k = gr.offset + (j * (2 * gr.dim - j + 1)) / 2 + (i - j);
-          cg.at(i, j) = theta[k];
-          cg.at(j, i) = theta[k];
-        }
-      Densa L;
-      bool sing = !chol_pequena(cg, L);
-      if (!sing && gr.dim > 1) {
-        double lmax = 0.0, lmin = std::numeric_limits<double>::infinity();
-        for (std::size_t i = 0; i < gr.dim; i++) {
-          lmax = std::max(lmax, L.at(i, i));
-          lmin = std::min(lmin, L.at(i, i));
-        }
-        sing = lmin < 1e-3 * lmax;
-      }
-      for (std::size_t j = 0; j < gr.dim; j++)
-        for (std::size_t i = j; i < gr.dim; i++) {
-          const std::size_t k = gr.offset + (j * (2 * gr.dim - j + 1)) / 2 + (i - j);
-          if (sing) fora[k] = 1;
-          else if (i == j && theta[k] <= 1e-6 * s2m && av.score[k] > 0.0) fora[k] = 1;
-        }
-    }
-    na_fronteira = 0;
-    for (char f2 : fora) na_fronteira += f2;
-    if (na_fronteira == nt) return 0.0;
-    Densa m2 = av.ai;
-    std::vector<double> sc = av.score;
-    for (std::size_t i = 0; i < nt; i++)
-      if (fora[i]) {
-        sc[i] = 0.0;
-        for (std::size_t j = 0; j < nt; j++) { m2.at(i, j) = 0.0; m2.at(j, i) = 0.0; }
-        m2.at(i, i) = 1.0;
-      }
-    Densa minv;
-    try { minv = inv_geral(m2); } catch (const Erro&) {
-      return std::numeric_limits<double>::infinity();
-    }
-    double dec = 0.0;
-    for (std::size_t i = 0; i < nt; i++) {
-      if (sc[i] == 0.0) continue;
-      for (std::size_t j = 0; j < nt; j++) dec += sc[i] * minv.at(i, j) * sc[j];
-    }
-    return std::fabs(dec);
+      s += theta[d.offset_s2e + (tau * (2 * t - tau + 1)) / 2];
+    return passo_z(mz, d.modelo.ntheta, theta, av.score, av.ai,
+                   std::max(1.0, s / static_cast<double>(t)));
+  };
+  auto conta_parede = [&](const PassoZ& P) {
+    std::size_t n = 0;
+    for (char c : P.na_parede) n += c;
+    return n;
   };
 
   double lambda = 1e-2;
+  int parado = 0;         // iteracoes consecutivas aceitas SEM progresso real
   for (std::size_t it = 1; it <= maxiter; it++) {
     R.iters = it;
     R_CheckUserInterrupt();
     bool aceitou = false;
-    for (int tent = 0; tent < 30; tent++) {
-      Densa m2 = cur.ai;
+    const std::size_t ntz = d.modelo.ntheta;
+    const PassoZ P = pecas(cur);
+    for (int tent = 0; tent < 30 && !aceitou; tent++) {
+      Densa m2 = P.ok ? P.az : cur.ai;
       for (std::size_t i = 0; i < m2.nlin; i++) {
         const double di = m2.at(i, i);
         m2.at(i, i) = (di == 0.0) ? lambda : di * (1.0 + lambda);
       }
+      if (P.ok)
+        for (std::size_t i = 0; i < ntz; i++)
+          if (P.congelado[i]) {
+            for (std::size_t j = 0; j < ntz; j++) { m2.at(i, j) = 0.0; m2.at(j, i) = 0.0; }
+            m2.at(i, i) = 1.0;
+          }
       Densa minv;
       try { minv = inv_geral(m2); } catch (const Erro&) { lambda *= 10.0; continue; }
-      std::vector<double> cand = theta;
-      for (std::size_t i = 0; i < cand.size(); i++) {
-        double passo = 0.0;
-        for (std::size_t j = 0; j < cand.size(); j++) passo += minv.at(i, j) * cur.score[j];
-        cand[i] -= passo;
-      }
-      // rho fora de (-1, 1) ou R0 nao positiva-definida: passo rejeitado, amortecimento
-      // sobe — a regra de qualquer theta inadmissivel, nunca projetar em silencio
-      AvaliacaoAR prox = avalia_ar1(d, cand, &cs);
-      if (prox.ok && prox.neg2logl <= cur.neg2logl + 1e-9) {
+      std::vector<double> passo(ntz, 0.0);
+      for (std::size_t i = 0; i < ntz; i++)
+        for (std::size_t j = 0; j < ntz; j++)
+          if (!P.ok || !P.congelado[j]) passo[i] += minv.at(i, j) * (P.ok ? P.sz[j] : cur.score[j]);
+      // busca de COMPRIMENTO na mesma direcao antes de mexer no amortecimento: subir
+      // lambda encurta e GIRA o passo, e o laco alternava entre dois estados sem andar
+      for (const double alpha : {1.0, 0.5, 0.25}) {
+        std::vector<double> cand;
+        if (P.ok) {
+          std::vector<double> zn = P.zc;
+          for (std::size_t i = 0; i < ntz; i++)
+            if (!P.congelado[i]) zn[i] -= alpha * passo[i];
+          for (std::size_t i = 0; i < ntz; i++)
+            if (zn[i] < P.piso[i]) zn[i] = P.piso[i];
+          cand = theta_de_z(mz, ntz, zn);
+        } else {
+          cand = theta;
+          for (std::size_t i = 0; i < ntz; i++) cand[i] -= alpha * passo[i];
+        }
+        // rho fora de (-1, 1) ou R0 nao positiva-definida: passo rejeitado. Em z o rho
+        // anda em atanh e nao ha como sair do intervalo, mas o caminho de resgate cru
+        // ainda pode propor um theta inadmissivel.
+        AvaliacaoAR prox = avalia_ar1(d, cand, &cs);
+        if (!prox.ok || prox.neg2logl > cur.neg2logl + 1e-9) continue;
         double num = 0.0, den = 0.0;
         for (std::size_t i = 0; i < cand.size(); i++) {
           const double dlt = cand[i] - theta[i];
           num += dlt * dlt;
           den += cand[i] * cand[i];
         }
+        const double ganho = cur.neg2logl - prox.neg2logl;
+        parado = (ganho > 1e-8 * std::max(1.0, std::fabs(cur.neg2logl))) ? 0 : parado + 1;
         R.reldelta = std::sqrt(num / std::max(den, 1e-300));
         theta = cand;
         cur = std::move(prox);
         lambda = std::max(lambda / 10.0, 1e-10);
         aceitou = true;
-        break;
       }
-      lambda *= 10.0;
+      if (!aceitou) lambda *= 10.0;
     }
     if (!aceitou) { R.mensagem = "nenhum passo amortecido melhorou a verossimilhanca"; break; }
     if (verboso) {
@@ -404,38 +404,44 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, std::size_t maxiter, double tol, bool ve
               (int) it, cur.neg2logl, R.reldelta);
       imprime_theta(theta, nomes_theta_ar1(d), d.modelo);
     }
-    if (R.reldelta < tol) {
-      // Ao contrario do univariado, converged aqui continua sendo o criterio de passo:
-      // este laco anda em theta cru e TRAVA INTEIRO quando uma direcao encosta numa
-      // fronteira (o defeito declarado da etapa 1B) — reprovar o certificado so faria o
-      // laco travado iterar ate maxiter, empurrando a variancia da fronteira para zero
-      // exato sem ganhar verossimilhanca (medido: a celula sem sinal genetico de
-      // test-fixed-solutions.R termina com var(animal) = 0 exato e a MME de referencia
-      // singular). O decremento e computado e REPORTADO, e um certificado reprovado
-      // vira aviso na mensagem; o portao duro fica para o porte log-Cholesky.
-      R.decremento = decremento(cur);
-      R.convergiu = true;
-      if (R.decremento >= tol_dec) {
+    if (R.reldelta < tol || parado >= 2) {
+      // O CERTIFICADO, nas mesmas coordenadas e sobre os mesmos pisos que o passo. Ele
+      // ficou em theta quando o passo foi para log-Cholesky, e a assimetria era um defeito:
+      // o teste que havia aqui, lmin < 1e-3 lmax, e a exata desigualdade que o grampo do
+      // passo torna FALSA por construcao, de modo que a direcao grampeada ficava congelada
+      // no passo e cobrada integralmente no certificado. converged exige as duas coisas,
+      // como no univariado: passo pequeno E decremento de Newton dos LIVRES na tolerancia.
+      const PassoZ Pc = pecas(cur);
+      na_fronteira = conta_parede(Pc);
+      R.decremento = decremento_z(Pc);
+      if (R.decremento < tol_dec) {
+        R.convergiu = true;
+        break;
+      }
+      if (parado >= 6) {
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%.3g", R.decremento);
-        R.mensagem = std::string("the step criterion converged, but the Newton ") +
-            "decrement of the off-boundary components is " + buf + " against the 2e-4 "
-            "tolerance: this fitter can rest short of the optimum near a covariance "
-            "boundary, so treat the estimates as approximate there (the univariate "
-            "fitter carries the boundary-following walker and the hard certificate)";
+        R.mensagem = std::string("did NOT converge: the step stopped making progress, ") +
+            "but the Newton decrement of the off-boundary components is " + buf +
+            " (tolerance 2e-4 on the -2logL scale), so the point is a stall and not a "
+            "certified optimum. Try a different start=, and profile any component the "
+            "message reports at a boundary";
+        break;
       }
-      break;
+      lambda = 1e-2;
     }
   }
-  if (std::isnan(R.decremento)) R.decremento = decremento(cur);
+  if (std::isnan(R.decremento)) {
+    const PassoZ Pf = pecas(cur);
+    na_fronteira = conta_parede(Pf);
+    R.decremento = decremento_z(Pf);
+  }
   if (na_fronteira > 0)
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
-        std::to_string(na_fronteira) + " component(s) at a covariance boundary (a "
-        "variance at zero, or a group within 1e-3 of singularity) excluded from the "
-        "convergence certificate: this fitter walks in raw theta and cannot follow a "
-        "singular boundary, so the certificate is conditional on it; read the "
-        "components near that boundary with care";
-
+        std::to_string(na_fronteira) + " component(s) resting at a covariance boundary "
+        "excluded from the convergence certificate: a component pinned at a boundary "
+        "points out of the cone by construction, so its gradient never vanishes and the "
+        "certificate is CONDITIONAL on the pinning; read those components with care";
   R.se.assign(d.modelo.ntheta, std::nan(""));
   try {
     Densa inv = inv_geral(cur.ai);

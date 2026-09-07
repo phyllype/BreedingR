@@ -165,14 +165,20 @@ test_that("the multi-trait and AR(1) walkers report the same decrement diagnosti
 })
 
 test_that("an AR(1) fit jammed against the zero boundary says so instead of a clean table", {
-  # the no-genetic-signal cell of test-fixed-solutions.R: var(animal) walks to the zero
-  # boundary and this raw-theta walker jams WHOLE (measured: the off-boundary decrement
-  # rests at 0.92 while relDelta certifies). converged stays the step criterion here —
-  # gating it would only make the jammed loop iterate to maxiter, pushing the variance
-  # to exact zero (measured: the dense reference MME of test-fixed-solutions.R went
-  # numerically singular when it did). What the fit now carries, and the old code did
-  # not, is the diagnostic: newton_dec measured off the boundary, and both warnings in
-  # the message.
+  # The no-genetic-signal cell of test-fixed-solutions.R: var(animal) walks to the zero
+  # boundary. This used to be the cell that showed the mirrors could not certify: the
+  # raw-theta walker jammed at iteration 42 with the off-boundary decrement resting at
+  # 0.92, and converged had to be the step criterion alone, because gating it would have
+  # marked as failure a loop that had no way of doing better.
+  #
+  # With the step in log-Cholesky, the floors and the active set, the same cell converges
+  # to a point 0.48 units of -2logL LOWER (108.4959 against 108.9726) and the decrement
+  # falls to 6.2e-05, inside the 2e-4 tolerance. So converged is now the hard criterion
+  # here too, and this gate asserts the certificate rather than excusing its absence.
+  #
+  # It takes 726 iterations, against 42 for the old jam, and that is the honest cost of
+  # the remaining half: the mirrors have no EM rescue, so along a boundary they crawl
+  # where the univariate walks. The default maxiter is 1000 for that reason.
   set.seed(41)
   n <- 30
   id <- sprintf("m%03d", seq_len(n)); pa <- ma <- rep("0", n)
@@ -187,18 +193,24 @@ test_that("an AR(1) fit jammed against the zero boundary says so instead of a cl
                  verbose = FALSE)
   expect_true(f$converged)
   expect_true(is.finite(f$newton_dec))
-  expect_gt(f$newton_dec, 2e-4)
-  expect_match(f$message, "off-boundary components")
+  expect_lt(f$newton_dec, 2e-4)          # certificado, nao mais so reportado
+  expect_lt(f$neg2logl, 108.9)           # abaixo do ponto onde o laco antigo travava
   expect_match(f$message, "excluded from the convergence certificate")
+  expect_match(f$message, "CONDITIONAL on the pinning")
 })
 
-test_that("maxiter: the default rose to 300 and the ceiling message says how to ask for more", {
+test_that("maxiter: the defaults, and the ceiling message says how to ask for more", {
   # measured by the user: the 2x2 group warm-started from the reduced model still had
   # relDelta 1.6e-4 at iteration 100 — the old default cut a healthy walk short, and
   # the old message ("parou em N iteracoes...") did not say what to do about it.
+  #
+  # The mirrors sit at 1000 and not at 300 for a separate measured reason: they have no
+  # EM rescue, so along a covariance boundary they crawl where the univariate walks. The
+  # AR(1) cell of the certificate gate above needs 726 iterations to certify a point 0.48
+  # units of -2logL below where the old raw-theta loop declared itself done.
   expect_identical(eval(formals(model)$maxiter), 300L)
-  expect_identical(eval(formals(model_mt)$maxiter), 300L)
-  expect_identical(eval(formals(model_ar1)$maxiter), 300L)
+  expect_identical(eval(formals(model_mt)$maxiter), 1000L)
+  expect_identical(eval(formals(model_ar1)$maxiter), 1000L)
 
   s <- simula_ige_forte(seed = 11, cds = -0.9 * sqrt(0.4 * 0.1))
   fit <- model(f_forte, s$data, s$ped, verbose = FALSE, maxiter = 3, n_em = 0)

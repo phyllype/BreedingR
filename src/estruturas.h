@@ -135,6 +135,9 @@ Densa inv_geral(const Densa& a);
 
 // log|A| de uma positiva-definida, ou NaN se nao for.
 double logdet_pd(const Densa& a);
+// Decomposicao espectral de uma simetrica pequena (Jacobi): a rota para quando a matriz
+// pode ser singular e ainda assim precisa ser usada. Ver o corpo em estruturas.cpp.
+void jacobi_sim(const Densa& a, std::vector<double>& ev, Densa& u);
 
 }  // namespace br
 

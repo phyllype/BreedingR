@@ -178,6 +178,45 @@ Densa inv_geral(const Densa& a) {
   return m;
 }
 
+// Decomposicao espectral de uma simetrica pequena por rotacoes de Jacobi. Serve para
+// quando a matriz pode ser SINGULAR e ainda assim precisa ser usada: Cholesky recusa,
+// LU devolve lixo amplificado, e a pseudo-inversa truncada e a resposta certa. E a mesma
+// escolha ja feita para o Gamma dos metafundadores.
+void jacobi_sim(const Densa& a, std::vector<double>& ev, Densa& u) {
+  const std::size_t n = a.nlin;
+  Densa w = a;
+  u = Densa(n, n);
+  for (std::size_t i = 0; i < n; i++) u.at(i, i) = 1.0;
+  for (int varr = 0; varr < 100; varr++) {
+    double fora = 0.0;
+    for (std::size_t p = 0; p < n; p++)
+      for (std::size_t q = p + 1; q < n; q++) fora += w.at(p, q) * w.at(p, q);
+    if (fora < 1e-30) break;
+    for (std::size_t p = 0; p < n; p++)
+      for (std::size_t q = p + 1; q < n; q++) {
+        if (std::fabs(w.at(p, q)) < 1e-300) continue;
+        const double th = 0.5 * (w.at(q, q) - w.at(p, p)) / w.at(p, q);
+        const double tt = (th >= 0 ? 1.0 : -1.0) / (std::fabs(th) + std::sqrt(th * th + 1.0));
+        const double c = 1.0 / std::sqrt(tt * tt + 1.0), s = tt * c;
+        for (std::size_t k = 0; k < n; k++) {
+          const double ak = w.at(p, k), bk = w.at(q, k);
+          w.at(p, k) = c * ak - s * bk;
+          w.at(q, k) = s * ak + c * bk;
+        }
+        for (std::size_t k = 0; k < n; k++) {
+          const double ka = w.at(k, p), kb = w.at(k, q);
+          w.at(k, p) = c * ka - s * kb;
+          w.at(k, q) = s * ka + c * kb;
+          const double ua = u.at(k, p), ub = u.at(k, q);
+          u.at(k, p) = c * ua - s * ub;
+          u.at(k, q) = s * ua + c * ub;
+        }
+      }
+  }
+  ev.assign(n, 0.0);
+  for (std::size_t i = 0; i < n; i++) ev[i] = w.at(i, i);
+}
+
 double logdet_pd(const Densa& a) {
   Densa l = a;
   if (!chol_densa(l)) return std::nan("");

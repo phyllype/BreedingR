@@ -72,7 +72,7 @@
 #' @export
 model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
                         genotypes = NULL, blend = 0.05, apy_core = NULL, vecchia_k = NULL,
-                        missing_code = NULL, maxiter = 300L, tol = 1e-8,
+                        missing_code = NULL, maxiter = 1000L, tol = 1e-8,
                         metafounders = NULL, gamma = NULL, verbose = interactive()) {
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side")
