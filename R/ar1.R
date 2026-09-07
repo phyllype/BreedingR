@@ -20,7 +20,12 @@
 #' @param subject column identifying the subject (typically the animal)
 #' @param time numeric time column; two records of the SAME subject at the SAME time
 #'   are a declared error: with AR(1) the time identifies the record, and simultaneous
-#'   repetition calls for a permanent environment effect
+#'   repetition calls for a permanent environment effect. The column carries a UNIT, and
+#'   the correlation is `rho^dt`, so the same series written in days or in weeks is the
+#'   same model with `rho` reparameterised: what is invariant is `rho^dt`, the correlation
+#'   at the adjacent gap, and that is what to compare across analyses. A NEGATIVE `rho`
+#'   needs an integer grid, and is refused off it: `rho^dt` with `rho < 0` is only a valid
+#'   correlation function when `dt` is a whole number
 #' @param genotypes list with `ids` and `m` (0/1/2 matrix) for single-step; NA is imputed
 #'   with the mean, as in [model()]
 #' @param blend weight of A22 in the G blend (0.05 by default)

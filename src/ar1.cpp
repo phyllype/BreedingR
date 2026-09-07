@@ -73,7 +73,15 @@ static Densa gamma_densa(const std::vector<double>& t, double rho) {
   return g;
 }
 
-// dGamma/drho, densa por sujeito. d(rho^dt)/drho = dt * rho^(dt-1).
+// dGamma/drho, densa por sujeito.
+//
+// Gamma(dt) = s(dt) |rho|^dt, com s(dt) = -1 quando rho < 0 e fmod(dt, 2) != 0, que e a
+// convencao de gamma_densa logo acima. Derivando essa MESMA expressao, para rho < 0 vale
+// |rho| = -rho, logo dGamma/drho = -s(dt) dt |rho|^(dt-1). O sinal e portanto uma funcao de
+// fmod(dt, 2), e nao de fmod(dt - 1, 2): as duas coincidem para dt INTEIRO e divergem fora
+// dele. Com dt = 2.5 e rho < 0, a regra antiga devolvia o sinal trocado, e a
+// verossimilhanca e o gradiente passavam a descrever Gammas diferentes — o caminhante
+// descia uma superficie que nao estava medindo.
 static Densa dgamma_densa(const std::vector<double>& t, double rho) {
   const std::size_t m = t.size();
   Densa g(m, m);
@@ -86,7 +94,7 @@ static Densa dgamma_densa(const std::vector<double>& t, double rho) {
       else if (rho == 0.0) v = 0.0;                      // dt > 1 em rho = 0
       else {
         v = dt * std::pow(std::fabs(rho), dt - 1.0);
-        if (rho < 0.0 && std::fmod(dt - 1.0, 2.0) != 0.0) v = -v;
+        if (rho < 0.0 && std::fmod(dt, 2.0) == 0.0) v = -v;
       }
       g.at(i, j) = v;
     }
@@ -277,6 +285,12 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
                        CacheSimbolica* cache) {
   AvaliacaoAR A;
   const std::size_t t = d.t;
+  // rho NEGATIVO exige grade inteira, e a razao esta no campo tempo_inteiro (mme.h): fora
+  // dela Gamma(dt) = rho^dt com rho < 0 nao e uma funcao de correlacao valida, a
+  // multiplicatividade quebra e as rotas densa e esparsa deixam de concordar. Marcar o
+  // theta como inadmissivel e o mesmo tratamento que uma covariancia fora do cone recebe: o
+  // passo rejeita e o amortecimento sobe, sem projetar nada em silencio.
+  if (!d.tempo_inteiro && theta[d.offset_rho] < 0.0) return A;
   MontadoAR M = monta_mme_ar1(d, theta);
   if (!M.ok) return A;
 

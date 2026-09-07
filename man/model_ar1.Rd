@@ -40,7 +40,12 @@ iid and the multi-trait paths identically)}
 
 \item{time}{numeric time column; two records of the SAME subject at the SAME time
 are a declared error: with AR(1) the time identifies the record, and simultaneous
-repetition calls for a permanent environment effect}
+repetition calls for a permanent environment effect. The column carries a UNIT, and the
+correlation is \code{rho^dt}, so the same series written in days or in weeks is the same
+model with \code{rho} reparameterised: what is invariant is \code{rho^dt}, the correlation
+at the adjacent gap, and that is what to compare across analyses. A NEGATIVE \code{rho}
+needs an integer grid, and is refused off it: \code{rho^dt} with \code{rho < 0} is only a
+valid correlation function when \code{dt} is a whole number}
 
 \item{genotypes}{list with `ids` and `m` (0/1/2 matrix) for single-step; NA is imputed
 with the mean, as in [model()]}

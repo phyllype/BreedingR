@@ -169,6 +169,15 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   m.ntheta = off + t * (t + 1) / 2 + 1;
   d.offset_s2e = off;
   d.offset_rho = off + t * (t + 1) / 2;
+  // grade inteira? (ver o campo em mme.h). Basta olhar os intervalos CONSECUTIVOS: se
+  // todos sao inteiros, toda soma deles tambem e.
+  d.tempo_inteiro = true;
+  for (const std::vector<std::size_t>& s : d.sujeitos)
+    for (std::size_t k = 0; k + 1 < s.size(); k++) {
+      const double g = std::fabs(d.tempo[s[k + 1]] - d.tempo[s[k]]);
+      if (std::fabs(g - std::floor(g + 0.5)) > 1e-9) d.tempo_inteiro = false;
+    }
+
   d.modelo = std::move(m);
 
   // esqueleto: linhas de W em colunas globais COM caracteristica, e colunas por sujeito.
@@ -299,7 +308,35 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
       const std::size_t k = d.offset_s2e + (tau * (2 * t - tau + 1)) / 2;
       theta[k] = 0.5 * var_t[tau];
     }
-    theta[d.offset_rho] = 0.0;
+    // rho NAO parte de zero. Gamma(dt) = rho^dt tem dGamma/drho = dt rho^(dt-1), que em
+    // rho = 0 vale zero para todo dt > 1: se nenhum par de tempos dentro de um sujeito
+    // difere de exatamente 1, a linha inteira da AI e o score do rho nascem nulos, o
+    // caminhante nunca sai de zero e o ajuste devolve rho = 0 com converged = TRUE e
+    // SE = NaN. Medido na mesma serie simulada com rho = 0.6: espacamento 1 recupera
+    // 0.563; espacamentos 2 e 7 devolvem 0.000000 com converged TRUE. Medir em dias ou em
+    // semanas mudava a resposta, o que e um artefato da unidade e nao um resultado. Em
+    // dt fracionario o problema e o oposto e igualmente fatal: a derivada diverge em
+    // rho = 0. Uma partida deslocada resolve os dois, e quem quiser outra usa start=.
+    // A partida do rho e EQUIVARIANTE na unidade do tempo. Gamma(dt) = rho^dt, entao a
+    // mesma serie medida em dias ou em semanas e o mesmo modelo com rho reparametrizado, e
+    // uma partida fixa nao e o mesmo ponto nos dois casos. Fixa-se a CORRELACAO no
+    // espacamento tipico, e nao o rho: rho0 = 0.3^(1/dt), com dt a mediana dos intervalos
+    // entre registros consecutivos do mesmo sujeito.
+    double rho0 = 0.3;
+    {
+      std::vector<double> gaps;
+      for (const std::vector<std::size_t>& s : d.sujeitos)
+        for (std::size_t k = 0; k + 1 < s.size(); k++) {
+          const double g = std::fabs(d.tempo[s[k + 1]] - d.tempo[s[k]]);
+          if (g > 0.0 && std::isfinite(g)) gaps.push_back(g);
+        }
+      if (!gaps.empty()) {
+        std::nth_element(gaps.begin(), gaps.begin() + gaps.size() / 2, gaps.end());
+        const double dtm = gaps[gaps.size() / 2];
+        if (dtm > 0.0) rho0 = std::pow(0.3, 1.0 / dtm);
+      }
+    }
+    theta[d.offset_rho] = rho0;
   }
 
   CacheSimbolica cs;

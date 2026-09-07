@@ -399,6 +399,13 @@ struct DesenhoAR {
   std::size_t nlin = 0;
   std::vector<std::vector<std::size_t>> sujeitos;
   std::vector<double> tempo;
+  // Os intervalos dentro de um sujeito caem todos numa GRADE INTEIRA? A pergunta decide se
+  // rho negativo e um modelo. Gamma(dt) = rho^dt so e uma funcao de correlacao valida com
+  // rho < 0 quando dt e inteiro: fora da grade a convencao de sinal quebra a
+  // multiplicatividade — s(2.5)|rho|^2.5 ao quadrado da +|rho|^5, e s(5)|rho|^5 e -|rho|^5 —
+  // e com ela a propriedade de Markov de que a Gamma^-1 tridiagonal depende. A rota densa e
+  // a esparsa passam a discordar. Em tempo continuo o modelo e o CAR(1), com rho em (0, 1).
+  bool tempo_inteiro = true;
   // Esqueleto pre-computado no desenho (nada disto depende de theta): as linhas de W ja
   // em colunas globais COM a caracteristica, e as colunas distintas de cada sujeito.
   std::vector<std::vector<EntAR>> lw;
