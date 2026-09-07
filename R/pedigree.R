@@ -61,11 +61,14 @@ colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
 #'   `n_metafounders x n_metafounders` matrix. The off-diagonal `gamma_jk` is the
 #'   ancestral relationship BETWEEN two base populations, which is what a multibreed
 #'   analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
-#'   opposite directions. Admissibility is positive definiteness, tested by a Cholesky,
-#'   plus a diagonal below 2 so that a metafounder's offspring keeps a positive
-#'   Mendelian variance. A singular gamma is refused, which covers `gamma = 0` (the
-#'   unknown-parent-group limit) and two metafounders standing for one population: both
-#'   are meaningful and both need the generalized inverse, not implemented here
+#'   opposite directions. Admissibility is positive SEMI-definiteness, tested by a
+#'   spectral decomposition and not by a Cholesky, plus a diagonal below 2 so that a
+#'   metafounder's offspring keeps a positive Mendelian variance. A SINGULAR gamma is
+#'   accepted, through the Moore-Penrose pseudo-inverse: that covers `gamma = 0`, the
+#'   unknown-parent-group limit, where the pseudo-inverse reproduces the A-inverse of
+#'   unknown parent groups exactly, and two metafounders standing for one population,
+#'   whose rows are identical. What is still refused is an INDEFINITE gamma, a negative
+#'   eigenvalue, which does not generate a covariance matrix at all
 #' @references Meuwissen, T.H.E. & Luo, Z. (1992). Computing inbreeding coefficients
 #'   in large populations. Genetics Selection Evolution 24:305-313.
 #'
@@ -117,11 +120,14 @@ print.br_pedigree <- function(x, ...) {
 #'   `n_metafounders x n_metafounders` matrix. The off-diagonal `gamma_jk` is the
 #'   ancestral relationship BETWEEN two base populations, which is what a multibreed
 #'   analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
-#'   opposite directions. Admissibility is positive definiteness, tested by a Cholesky,
-#'   plus a diagonal below 2 so that a metafounder's offspring keeps a positive
-#'   Mendelian variance. A singular gamma is refused, which covers `gamma = 0` (the
-#'   unknown-parent-group limit) and two metafounders standing for one population: both
-#'   are meaningful and both need the generalized inverse, not implemented here
+#'   opposite directions. Admissibility is positive SEMI-definiteness, tested by a
+#'   spectral decomposition and not by a Cholesky, plus a diagonal below 2 so that a
+#'   metafounder's offspring keeps a positive Mendelian variance. A SINGULAR gamma is
+#'   accepted, through the Moore-Penrose pseudo-inverse: that covers `gamma = 0`, the
+#'   unknown-parent-group limit, where the pseudo-inverse reproduces the A-inverse of
+#'   unknown parent groups exactly, and two metafounders standing for one population,
+#'   whose rows are identical. What is still refused is an INDEFINITE gamma, a negative
+#'   eigenvalue, which does not generate a covariance matrix at all
 #' @references Henderson, C.R. (1976). A simple method for computing the inverse of a
 #'   numerator relationship matrix used in prediction of breeding values. Biometrics
 #'   32:69-83.

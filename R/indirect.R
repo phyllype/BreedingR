@@ -117,7 +117,15 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
     w <- 1 / (1 + (n - 1) * k)
     f <- model(formula, data, pedigree, weights = w, verbose = FALSE, start = warm, ...)
     if (all(is.finite(f$theta))) warm <<- unname(f$theta)
-    valor <- f$neg2logl - sum(log(w))
+    # O jacobiano dos pesos sai NA MESMA BASE do -2logL que ele corrige: sobre as linhas
+    # que o ajuste usou, e nao sobre a tabela inteira. Um registro descartado (fenotipo
+    # ausente, id fora do pedigree) entra em sum(log(w)) mas nao entra no -2logL, e como
+    # log(w_i) = -log(1 + (n_i - 1) k) cresce em modulo com k, a diferenca NAO e uma
+    # constante: e uma inclinacao contra k grande, que no limite empurra o minimo do
+    # perfil para a fronteira e faz print() anunciar que nao ha componente social nenhum
+    # num dado que tem.
+    usou <- if (is.null(f$used)) rep(TRUE, length(w)) else f$used
+    valor <- f$neg2logl - sum(log(w[usou]))
     if (isTRUE(verbose))
       cat(sprintf("  k = %.5f  -2logL = %.6f%s\n", k, valor,
                   if (f$converged) "" else "  (NOT converged)"))

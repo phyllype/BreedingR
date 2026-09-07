@@ -97,12 +97,19 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 #'   `n_metafounders x n_metafounders` matrix. The off-diagonal `gamma_jk` is the
 #'   ancestral relationship BETWEEN two base populations, which is what a multibreed
 #'   analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
-#'   opposite directions. Admissibility is positive definiteness, tested by a Cholesky,
-#'   plus a diagonal below 2 so that a metafounder's offspring keeps a positive
-#'   Mendelian variance. A singular gamma is refused, which covers `gamma = 0` (the
-#'   unknown-parent-group limit) and two metafounders standing for one population: both
-#'   are meaningful and both need the generalized inverse, not implemented here
-#' @return an object of class `breeding_fit`: the components `theta` with their `se`,
+#'   opposite directions. Admissibility is positive SEMI-definiteness, tested by a
+#'   spectral decomposition and not by a Cholesky, plus a diagonal below 2 so that a
+#'   metafounder's offspring keeps a positive Mendelian variance. A SINGULAR gamma is
+#'   accepted, through the Moore-Penrose pseudo-inverse: that covers `gamma = 0`, the
+#'   unknown-parent-group limit, where the pseudo-inverse reproduces the A-inverse of
+#'   unknown parent groups exactly, and two metafounders standing for one population,
+#'   whose rows are identical. What is still refused is an INDEFINITE gamma, a negative
+#'   eigenvalue, which does not generate a covariance matrix at all
+#' @return an object of class `breeding_fit`. Besides the fields below it carries
+#'   `used`, one logical per row of `data` saying whether that record entered the
+#'   equations: `n_used` counts them and `used` says WHICH, which is what anything
+#'   that has to sum on the same base as the likelihood needs. The object holds
+#'   the components `theta` with their `se`,
 #'   the fixed-effect solutions `b` (named `term=level`, in the order the columns of X
 #'   entered), `ebv` and `pev` per covariance group, `score`, `vcov`, the convergence
 #'   fields (`converged`, `iters`, `reldelta`, and `newton_dec`, the Newton decrement
