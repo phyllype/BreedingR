@@ -165,6 +165,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
 
+  recusa_mf_genomico(metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
   w <- valida_pesos(weights, data)
   kern <- monta_kernels(terms, environment(formula))
@@ -207,6 +208,31 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
 # Genotype validation, shared by the three fitters: 0/1/2/NA and nothing else. An unknown
 # code must become NA beforehand, to be imputed with the mean and not counted as the zero
 # genotype.
+# Metafundadores e o lado GENOMICO ainda nao se conhecem, e a combinacao e recusada em vez
+# de devolver numeros plausiveis. O pedigree vira A(Gamma), mas src/genomica.cpp e
+# src/sssnp.cpp nao tem uma unica ocorrencia de gamma: a Z continua centrada na frequencia
+# observada por marcador e escalada por soma 2p(1-p), que e VanRaden (2008), e
+# `ajusta_g_para_a22()` ainda traz G a escala de A22 por ajuste afim mais mistura. Sob
+# metafundadores a prescricao e outra (Garcia-Baccino et al., 2017): centrar em 0.5, escalar
+# por s = n/2 e DISPENSAR o ajuste afim, porque e exatamente o que Gamma substitui. Fazer as
+# duas coisas corrige a base duas vezes e o H que sai nao e o do metodo citado.
+#
+# Os dois caminhos nao estao igualmente errados: a ssSNPBLUP ja nao faz ajuste afim, entao
+# la o desencontro e so a centragem, enquanto em model(genotypes=) a correcao dupla e
+# integral. A recusa cobre os dois porque nenhum dos dois esta certo, e um erro declarado e
+# melhor que um H silenciosamente misturado. O plano do conserto de verdade, com o que
+# precisa ser conferido antes, esta em docs/CHECKLIST.md.
+recusa_mf_genomico <- function(metafounders, tem_genotipos) {
+  if (!is.null(metafounders) && length(metafounders) > 0L && isTRUE(tem_genotipos))
+    stop("metafounders and genotypes cannot be combined yet: the pedigree becomes ",
+         "A(Gamma) but the genomic side is not aware of Gamma, so G would still be ",
+         "centred at the observed allele frequencies and tuned to A22, correcting the ",
+         "base twice. Fit with metafounders and no genotypes, or with genotypes and ",
+         "unknown-parent groups, until the metafounder-aware G lands",
+         call. = FALSE)
+  invisible(NULL)
+}
+
 valida_genotipos <- function(genotypes) {
   gid <- character(0); gm <- matrix(numeric(0), 0, 0)
   if (!is.null(genotypes)) {

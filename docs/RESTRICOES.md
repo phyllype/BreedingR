@@ -135,7 +135,7 @@ nomes, e sem o fator `s2e` do univariado, porque as MME dos espelhos ja sao abso
 | # | origem | restricao | estado |
 |---|---|---|---|
 | 14 | `src/pedigree.cpp` | estimar Gamma dos genotipos; inversa generalizada para Gamma singular | **PARCIAL** 2026-09-04: pseudo-inversa FEITA; estimar Gamma segue aberto |
-| 15 | `src/genomica.cpp`, `src/sssnp.cpp` | nao chegam ao lado genomico (DEFEITO, o unico nao declarado) | ABERTO |
+| 15 | `src/genomica.cpp`, `src/sssnp.cpp` | nao chegam ao lado genomico (DEFEITO, o unico nao declarado) | **RECUSADO** (erro declarado) 2026-09-04 |
 
 ## Restantes
 

@@ -55,6 +55,7 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side")
   trait <- deparse(formula[[2]])
+  recusa_mf_genomico(metafounders, TRUE)
   terms <- decompoe_formula(formula[[3]])
   recusa_dilution(terms, "snp_blup()")
 

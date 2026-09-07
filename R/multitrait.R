@@ -101,6 +101,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
     cp <- colunas_pedigree(pedigree)
     ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
+  recusa_mf_genomico(metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
 
   t0 <- proc.time()[["elapsed"]]

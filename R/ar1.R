@@ -108,6 +108,7 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
     cp <- colunas_pedigree(pedigree)
     ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
+  recusa_mf_genomico(metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
 
   t0 <- proc.time()[["elapsed"]]
