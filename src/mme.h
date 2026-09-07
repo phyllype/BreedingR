@@ -369,7 +369,8 @@ struct AjusteMT {
   std::string mensagem;
   std::size_t fora_do_padrao = 0;
 };
-AjusteMT ajusta_mt(const DesenhoMT&, std::size_t, double, bool = false);
+AjusteMT ajusta_mt(const DesenhoMT&, const std::vector<double>*, std::size_t, double,
+                   bool = false);
 // passo unico na multi: o mesmo nucleo do uni, sobre os mesmos campos
 RelatorioG aplica_genomica(DesenhoMT&, const Pedigree&, const std::vector<std::string>&,
                            Densa&, double, const std::vector<std::string>&,
@@ -432,7 +433,8 @@ DesenhoAR monta_desenho_ar1(Modelo, const std::vector<std::string>&, const Tabel
                             const Pedigree*, const std::string&, const std::string&,
                             const std::vector<KernelDecl>* = nullptr);
 std::vector<std::string> nomes_theta_ar1(const DesenhoAR&);
-AjusteMT ajusta_ar1(const DesenhoAR&, std::size_t, double, bool = false);
+AjusteMT ajusta_ar1(const DesenhoAR&, const std::vector<double>*, std::size_t, double,
+                    bool = false);
 // passo unico no AR(1): o mesmo nucleo do uni, sobre os mesmos campos
 RelatorioG aplica_genomica(DesenhoAR&, const Pedigree&, const std::vector<std::string>&,
                            Densa&, double, const std::vector<std::string>&,

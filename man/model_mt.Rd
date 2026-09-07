@@ -13,6 +13,7 @@ model_mt(
   apy_core = NULL,
   vecchia_k = NULL,
   missing_code = NULL,
+  start = NULL,
   maxiter = 1000L,
   tol = 1e-08,
   metafounders = NULL,
@@ -46,6 +47,12 @@ result message says it is an approximation and with which k. Mutually exclusive
 with `apy_core`}
 
 \item{missing_code}{missing-value code}
+
+\item{start}{starting values for the components, in the order the fit reports them.
+Use it to warm-start from a submodel, or to check that the optimum does not depend on
+where the search began. Without it the start comes from \code{var(y)}, divided by the
+geometric mean of a declared kernel's eigenvalues so that the same model with \code{K}
+and with \code{c * K} starts at equivalent points.}
 
 \item{maxiter}{maximum number of iterations; a fit that hits the ceiling says so in
 `message` and how to raise it}

@@ -258,12 +258,16 @@ std::vector<std::string> nomes_theta_ar1(const DesenhoAR& d) {
   return out;
 }
 
-AjusteMT ajusta_ar1(const DesenhoAR& d, std::size_t maxiter, double tol, bool verboso) {
+AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::size_t maxiter,
+                    double tol, bool verboso) {
   AjusteMT R;
   const std::size_t t = d.t;
-  // partida: variancias de var(y) por caracteristica, R0 diagonal, rho = 0
+  // partida: start= do usuario, ou variancias de var(y) por caracteristica, R0 diagonal,
+  // rho = 0
   std::vector<double> theta(d.modelo.ntheta, 0.0);
-  {
+  if (theta0) {
+    theta = *theta0;
+  } else {
     std::vector<double> var_t(t, 1.0);
     for (std::size_t tau = 0; tau < t; tau++) {
       double soma = 0.0, soma2 = 0.0;

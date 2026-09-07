@@ -246,9 +246,13 @@ static std::vector<double> partida_mt(const DesenhoMT& d) {
   return theta;
 }
 
-AjusteMT ajusta_mt(const DesenhoMT& d, std::size_t maxiter, double tol, bool verboso) {
+AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::size_t maxiter,
+                   double tol, bool verboso) {
   AjusteMT R;
-  std::vector<double> theta = partida_mt(d);
+  // start= do usuario, ou a partida automatica. Vale a mesma razao do univariado: a
+  // maneira de conferir que o otimo nao depende de onde a busca comecou, e a saida que a
+  // mensagem de parada recomenda.
+  std::vector<double> theta = theta0 ? *theta0 : partida_mt(d);
   CacheSimbolica cs;
   AvaliacaoMT cur = avalia_mt(d, theta, &cs);
   if (!cur.ok) {

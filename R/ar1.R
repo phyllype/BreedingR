@@ -32,6 +32,11 @@
 #'   result message says it is an approximation and with which k. Mutually exclusive
 #'   with `apy_core`
 #' @param missing_code missing-value code for observations
+#' @param start starting values for the components, in the order the fit reports
+#'   them. Use it to warm-start from a submodel, or to check that the optimum does
+#'   not depend on where the search began. Without it the start comes from `var(y)`,
+#'   divided by the geometric mean of a declared kernel's eigenvalues so that the
+#'   same model with `K` and with `c * K` starts at equivalent points.
 #' @param maxiter maximum number of iterations; a fit that hits the ceiling says so in
 #'   `message` and how to raise it
 #' @param tol relative tolerance on the components, sqrt(sum delta^2 / sum theta^2);
@@ -72,7 +77,7 @@
 #' @export
 model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
                         genotypes = NULL, blend = 0.05, apy_core = NULL, vecchia_k = NULL,
-                        missing_code = NULL, maxiter = 1000L, tol = 1e-8,
+                        missing_code = NULL, start = NULL, maxiter = 1000L, tol = 1e-8,
                         metafounders = NULL, gamma = NULL, verbose = interactive()) {
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side")
@@ -126,7 +131,8 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
              isTRUE(verbose),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
-             monta_kernels(terms, environment(formula)))
+             monta_kernels(terms, environment(formula)),
+             if (is.null(start)) numeric(0) else as.double(start))
   r$seconds <- proc.time()[["elapsed"]] - t0
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
   # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a

@@ -770,7 +770,7 @@ SEXP R_avaliar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
 SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEXP tcov,
                   SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                   SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP maxiter,
-                  SEXP tol, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern) {
+                  SEXP tol, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start) {
   GUARDA(
     SEXP alvo1 = PROTECT(Rf_mkString(CHAR(STRING_ELT(alvos, 0))));
     br::Modelo m = modelo_do_R(alvo1, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
@@ -792,7 +792,12 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
 
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
 
-    br::AjusteMT r = br::ajusta_mt(d, (std::size_t) Rf_asInteger(maxiter), Rf_asReal(tol),
+    std::vector<double> th0(REAL(start), REAL(start) + XLENGTH(start));
+    if (!th0.empty() && th0.size() != d.modelo.ntheta)
+      Rf_error("start with %d entries; the layout asks for %d", (int) th0.size(),
+               (int) d.modelo.ntheta);
+    br::AjusteMT r = br::ajusta_mt(d, th0.empty() ? nullptr : &th0,
+                                   (std::size_t) Rf_asInteger(maxiter), Rf_asReal(tol),
                                   Rf_asLogical(verb) == TRUE);
     if (!nota.empty()) r.mensagem = r.mensagem.empty() ? nota : nota + "; " + r.mensagem;
 
@@ -950,7 +955,7 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
                    SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                    SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP sujeito,
                    SEXP tempo, SEXP maxiter, SEXP tol, SEXP gid, SEXP gm, SEXP mistura,
-                   SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern) {
+                   SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start) {
   GUARDA(
     SEXP alvo1 = PROTECT(Rf_mkString(CHAR(STRING_ELT(alvo, 0))));
     br::Modelo m = modelo_do_R(alvo1, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
@@ -974,7 +979,12 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
 
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
 
-    br::AjusteMT r = br::ajusta_ar1(d, (std::size_t) Rf_asInteger(maxiter), Rf_asReal(tol),
+    std::vector<double> th0(REAL(start), REAL(start) + XLENGTH(start));
+    if (!th0.empty() && th0.size() != d.modelo.ntheta)
+      Rf_error("start with %d entries; the layout asks for %d", (int) th0.size(),
+               (int) d.modelo.ntheta);
+    br::AjusteMT r = br::ajusta_ar1(d, th0.empty() ? nullptr : &th0,
+                                    (std::size_t) Rf_asInteger(maxiter), Rf_asReal(tol),
                                    Rf_asLogical(verb) == TRUE);
     if (!nota.empty()) r.mensagem = r.mensagem.empty() ? nota : nota + "; " + r.mensagem;
     std::vector<std::string> nomes_th = br::nomes_theta_ar1(d);
@@ -1306,9 +1316,9 @@ static const R_CallMethodDef metodos[] = {
   {"R_ajustar",      (DL_FUNC) &R_ajustar,     32},
   {"R_a22_inversa",  (DL_FUNC) &R_a22_inversa,  4},
   {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  21},
-  {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  27},
+  {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  28},
   {"R_avaliar_ar1",  (DL_FUNC) &R_avaliar_ar1, 23},
-  {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 29},
+  {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 30},
     {"R_gibbs", (DL_FUNC) &R_gibbs, 29},
   {"R_snp_blup",   (DL_FUNC) &R_snp_blup,  25},
 {"R_versao",     (DL_FUNC) &R_versao,     0},
