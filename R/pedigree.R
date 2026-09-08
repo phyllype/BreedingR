@@ -16,8 +16,20 @@
 # package's own suite the warning fired 262 times across 18 files without a single true
 # positive. A warning nobody can afford to read is worse than none.
 #
-# So the risk is DOCUMENTED, on the pedigree() page, and not guessed at. If a sex column
-# ever enters the pedigree interface, the check belongs right here.
+# A SECOND detector was tried and measured, 2026-09-04, and it fails for the same reason.
+# The idea: in an MGS file the third column is made of bulls, so offspring per DISTINCT
+# entry should look like the sire column's, while a real dam has few offspring and a real
+# sire many. The statistic is that ratio, col3 over col2. It separates beautifully when
+# dams come from their own pool (true pedigrees 0.026 to 0.864, MGS 1.00 to 1.02, no
+# overlap over 120 configurations) and then collapses on the population that matters:
+# simulate_breeding() itself runs 0.875 to 1.208 with a median of 0.979, sitting exactly on
+# the MGS range. Any pedigree that draws both parents from one pool looks like an MGS file
+# to this statistic, just as it did to the shared-individual one.
+#
+# Two independent signatures, both dead on the same rock: without knowing SEX, the third
+# column of a pedigree that reuses one pool of parents is not distinguishable from a column
+# of grandsires. So the risk is DOCUMENTED, on the pedigree() page, and not guessed at. If
+# a sex column ever enters the pedigree interface, the check belongs right here.
 colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
   pega <- function(k) { v <- as.character(ped[[k]]); v[is.na(v)] <- "0"; v }
   list(id = pega(id), sire = pega(sire), dam = pega(dam))
