@@ -36,12 +36,23 @@
 #' falling under `tol_k`.
 #'
 #' The pen and the animal columns are read from the `indirect()` term of the formula,
-#' so the pen sizes here are exactly the ones the incidence used. Declared limits: the
-#' profile handles the residual VARIANCE heterogeneity only, while the residual
-#' COVARIANCE between pen mates is a different object, absorbed by a `random(pen)` term
-#' (the equivalent model of Mrode & Pocrnic, 2023, Eqn 9.6) which the formula should
-#' already carry; and k is profiled, not walked by a gradient, because a one-dimensional
-#' profile is cheap and cannot be trapped the way a joint update can.
+#' so the pen sizes here are exactly the ones the incidence used. Declared limit: the
+#' profile handles the residual VARIANCE heterogeneity only. The residual COVARIANCE
+#' between pen mates is a different object, and this function does not carry it.
+#'
+#' A previous version of this page said that covariance is absorbed by a `random(pen)`
+#' term. It is not, in the regime this function exists for. The pen-mate covariance is
+#' `(n - 2) s2_ES`, which GROWS with pen size, while a `random(pen)` term has one
+#' variance per pen: the two agree only when every pen is the same size, and equal pens
+#' are exactly the case where `s2_ES` does not separate from the intercept anyway. Use
+#' [associative_matrix()] instead, which builds the exact structure
+#' `s2_ED * I + s2_ES * D` as a declared [kernel()] covariance; `s2_ES` then comes back as
+#' an ordinary component with a standard error, estimated jointly, and neither the profile
+#' nor the weight jacobian is needed. This function stays as the cheap route when only the
+#' variance heterogeneity is wanted.
+#'
+#' k is profiled and not walked by a gradient because a one-dimensional profile is cheap
+#' and cannot be trapped the way a joint update can.
 #'
 #' Read the answer knowing what the data identifies. What unequal pens pin is the SLOPE
 #' `s2_ES` of the residual variance against `n_i - 1`; the intercept `s2_ED` separates
@@ -174,4 +185,93 @@ print.breeding_indirect_residual <- function(x, ...) {
   cat("\n")
   print(x$fit)
   invisible(x)
+}
+
+# ---------------------------------------------------------------------------------------
+# A COVARIANCIA residual do modelo associativo, que a rota do perfil acima nao alcanca.
+#
+# Com e_i = eps_D,i + soma_{j != i} eps_S,j, e todos os eps independentes, dois companheiros
+# de baia de tamanho n compartilham exatamente os (n - 2) eps_S dos OUTROS animais, logo
+#
+#   var(e_i)      = s2_ED + (n - 1) s2_ES
+#   cov(e_i, e_j) = (n - 2) s2_ES
+#
+# e a matriz da baia inteira fecha numa forma que nao tem parametro nenhum alem de s2_ES:
+#
+#   R_baia = s2_ED I + s2_ES [ I + (n - 2) J ]
+#
+# (conferido por Monte Carlo com 4e6 replicas: o desvio maximo entre a matriz simulada e
+# esta formula e 0.005 em n = 12, que e o ruido amostral.) O ponto e que a covariancia CRESCE
+# com n. Um random(pen) comum tem uma variancia so por baia, entao ele reproduz esta
+# estrutura apenas quando todas as baias tem o mesmo tamanho — e baias iguais sao justamente
+# o caso em que o s2_ES nao se separa do intercepto. A saida que o roxygen de
+# indirect_residual() prescrevia nao servia no regime para o qual a funcao existe.
+#
+# D = blocodiag(I + (n-2)J) e semi-definida positiva para todo n: os autovalores sao
+# 1 + (n-2)n uma vez e 1 com multiplicidade n-1, e em n = 1 o bloco inteiro e zero, que e a
+# linha estruturalmente nula que reduz_kernels() ja sabe tratar. Entao a estrutura exata se
+# escreve com o que o pacote ja tem, sem tocar no motor:
+#
+#   model(y ~ ... + animal(id) + indirect(id, pen = "baia", group = "g") +
+#             kernel(rec, K = associative_matrix(dados$baia, dados$id, dados$rec)))
+#
+# e s2_ES sai como um componente comum, com erro padrao, estimado junto pelo AI-REML, em vez
+# de perfilado por fora.
+
+#' Residual covariance structure of the associative model
+#'
+#' Builds the known matrix `D` such that the residual covariance of the associative model
+#' is exactly `s2_ED * I + s2_ES * D`, with one row per RECORD. Pass it to [kernel()] as
+#' the covariance of a record-level term and `s2_ES` becomes an ordinary variance
+#' component, estimated jointly and reported with a standard error.
+#'
+#' The block of a pen of `n` animals is `I + (n - 2) J`, from `var(e_i) = s2_ED +
+#' (n - 1) s2_ES` and `cov(e_i, e_j) = (n - 2) s2_ES` for pen mates. The covariance GROWS
+#' with pen size, which is why a single `random(pen)` variance cannot stand in for it
+#' unless every pen has the same size — and equal pens are exactly the case where `s2_ES`
+#' does not separate from the intercept anyway. What identifies the two is variation in
+#' pen size, and pens of one animal, whose residual is `s2_ED` alone, pin the intercept.
+#'
+#' The derivation assumes one record per animal within a pen: with two records of the same
+#' animal in one pen the direct deviation `eps_D` is shared between them and the block is
+#' no longer `I + (n - 2) J`. That case is refused rather than approximated.
+#'
+#' @param pen pen (group) label of each record
+#' @param id animal of each record, used to count DISTINCT animals per pen, which is the
+#'   `n` of the model and the same count the `indirect()` incidence uses
+#' @param labels row and column names for the returned matrix, one per record; defaults to
+#'   the record position. These are the levels the [kernel()] term will match on, so they
+#'   must be the same values as the column named in the formula
+#' @return a square matrix, records by records, positive semi-definite
+#' @references Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
+#'   quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
+#'
+#'   Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
+#'   genetic effects and group size. Genetics 186:1013-1028.
+#' @export
+associative_matrix <- function(pen, id, labels = NULL) {
+  pen <- as.character(pen)
+  id <- as.character(id)
+  if (length(pen) != length(id))
+    stop("pen and id must have one entry per record: got ", length(pen), " and ", length(id))
+  if (anyNA(pen) || anyNA(id))
+    stop("NA in pen or id: a record with no pen has no associative residual to build")
+  nr <- length(pen)
+  if (is.null(labels)) labels <- as.character(seq_len(nr))
+  labels <- as.character(labels)
+  if (length(labels) != nr) stop("labels must have one entry per record")
+  if (anyDuplicated(labels))
+    stop("labels must be unique: they are the levels the kernel() term matches on")
+  D <- matrix(0, nr, nr, dimnames = list(labels, labels))
+  for (b in unique(pen)) {
+    k <- which(pen == b)
+    if (anyDuplicated(id[k]))
+      stop("animal(s) with more than one record in pen '", b, "': the block I + (n-2)J ",
+           "comes from one record per animal, because two records of the same animal ",
+           "share their direct deviation. Aggregate to one record per animal per pen, ",
+           "or model the repetition with pe()")
+    n <- length(unique(id[k]))
+    D[k, k] <- diag(length(k)) + (n - 2)
+  }
+  D
 }

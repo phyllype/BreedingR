@@ -2,6 +2,7 @@ useDynLib(BreedingR, .registration = TRUE)
 
 export(pedigree)
 export(a_inverse)
+export(associative_matrix)
 export(inv_pd)
 export(br_version)
 export(sparse_chol)

@@ -56,12 +56,22 @@ falling under `tol_k`.
 }
 \details{
 The pen and the animal columns are read from the `indirect()` term of the formula,
-so the pen sizes here are exactly the ones the incidence used. Declared limits: the
-profile handles the residual VARIANCE heterogeneity only, while the residual
-COVARIANCE between pen mates is a different object, absorbed by a `random(pen)` term
-(the equivalent model of Mrode & Pocrnic, 2023, Eqn 9.6) which the formula should
-already carry; and k is profiled, not walked by a gradient, because a one-dimensional
-profile is cheap and cannot be trapped the way a joint update can.
+so the pen sizes here are exactly the ones the incidence used. Declared limit: the
+profile handles the residual VARIANCE heterogeneity only. The residual COVARIANCE
+between pen mates is a different object, and this function does not carry it.
+
+A previous version of this page said that covariance is absorbed by a \code{random(pen)}
+term. It is not, in the regime this function exists for. The pen-mate covariance is
+\code{(n - 2) s2_ES}, which GROWS with pen size, while a \code{random(pen)} term has one
+variance per pen: the two agree only when every pen is the same size, and equal pens are
+exactly the case where \code{s2_ES} does not separate from the intercept anyway. Use
+\code{\link{associative_matrix}} instead, which builds the exact structure
+\code{s2_ED * I + s2_ES * D} as a declared \code{kernel()} covariance; \code{s2_ES} then
+comes back as an ordinary component with a standard error, estimated jointly. This
+function stays as the cheap route when only the variance heterogeneity is wanted.
+
+k is profiled and not walked by a gradient because a one-dimensional profile is cheap and
+cannot be trapped the way a joint update can.
 
 Read the answer knowing what the data identifies. What unequal pens pin is the SLOPE
 `s2_ES` of the residual variance against `n_i - 1`; the intercept `s2_ED` separates
