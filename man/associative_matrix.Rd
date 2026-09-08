@@ -28,11 +28,31 @@ ordinary variance component, estimated jointly and reported with a standard erro
 \details{
 The block of a pen of \code{n} animals is \code{I + (n - 2) J}, from
 \code{var(e_i) = s2_ED + (n - 1) s2_ES} and \code{cov(e_i, e_j) = (n - 2) s2_ES} for pen
-mates. The covariance GROWS with pen size, which is why a single \code{random(pen)}
-variance cannot stand in for it unless every pen has the same size -- and equal pens are
-exactly the case where \code{s2_ES} does not separate from the intercept anyway. What
-identifies the two is variation in pen size, and pens of one animal, whose residual is
-\code{s2_ED} alone, pin the intercept.
+mates. Its eigenvalues are \code{(n - 1)^2} once and 1 with multiplicity \code{n - 1}, so
+it is positive semi-definite for every n, and a pen of one animal gives a block of exactly
+zero. The covariance GROWS with pen size, which is why a single \code{random(pen)}
+variance cannot stand in for it unless every pen has the same size.
+
+Unlike the weights route of \code{\link{indirect_residual}}, this one does NOT need pens of
+different sizes: from \code{n >= 3} the off-diagonal \code{(n - 2) s2_ES} is a signature
+the identity does not have, and the two components separate on a balanced design. At
+\code{n = 2} exactly the block is the identity and nothing separates.
+
+THE BINDING CONSTRAINT IS RELATEDNESS, NOT PEN SIZE. The social GENETIC effect contributes
+\code{Z_S A Z_S' * s2_AS}, and when pen mates are mutually unrelated and non-inbred the A
+restricted to a pen is the identity, so \code{Z_S A Z_S'} is exactly this same \code{D}:
+the genetic and the environmental social components are then perfectly ALIASED and only
+their sum is estimable. Measured, at 192 animals in pens of 8 with a planted
+\code{s2_AS = 0.12} and \code{s2_ES = 0.25}: with families kept apart, so that no pen held
+two half sibs, the fit returned \code{s2_AS = -0.02} and \code{s2_ES = 0.39}, whose sum
+0.369 reproduces the planted 0.37 while the split is meaningless; with the same animals
+rearranged so that half sibs share pens, \code{s2_ES} came back at 0.21. Separation needs
+relatives sharing pens and families split across pens.
+
+Two more things the design has to avoid. A free \code{random(pen)} alongside this term
+spans the same pair of matrices on a balanced design and is a rank deficiency, not a
+refinement. And a \code{pen} that is fixed, or nested inside the contemporary group,
+absorbs the within-pen contrasts that carry the covariance.
 
 The derivation assumes one record per animal within a pen: with two records of the same
 animal in one pen the direct deviation \code{eps_D} is shared between them and the block

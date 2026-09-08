@@ -226,11 +226,34 @@ print.breeding_indirect_residual <- function(x, ...) {
 #' component, estimated jointly and reported with a standard error.
 #'
 #' The block of a pen of `n` animals is `I + (n - 2) J`, from `var(e_i) = s2_ED +
-#' (n - 1) s2_ES` and `cov(e_i, e_j) = (n - 2) s2_ES` for pen mates. The covariance GROWS
+#' (n - 1) s2_ES` and `cov(e_i, e_j) = (n - 2) s2_ES` for pen mates. Its eigenvalues are
+#' `(n - 1)^2` once and 1 with multiplicity `n - 1`, so it is positive semi-definite for
+#' every n, and a pen of one animal gives a block of exactly zero. The covariance GROWS
 #' with pen size, which is why a single `random(pen)` variance cannot stand in for it
-#' unless every pen has the same size — and equal pens are exactly the case where `s2_ES`
-#' does not separate from the intercept anyway. What identifies the two is variation in
-#' pen size, and pens of one animal, whose residual is `s2_ED` alone, pin the intercept.
+#' unless every pen has the same size.
+#'
+#' Unlike the weights route of [indirect_residual()], this one does NOT need pens of
+#' different sizes: from `n >= 3` the off-diagonal `(n - 2) s2_ES` is a signature the
+#' identity does not have, and the two components separate on a balanced design. At `n = 2`
+#' exactly the block is the identity and nothing separates, whatever the number of pens.
+#'
+#' THE BINDING CONSTRAINT IS RELATEDNESS, NOT PEN SIZE. The social GENETIC effect
+#' contributes `Z_S A Z_S' * s2_AS`, and when pen mates are mutually unrelated and
+#' non-inbred the A restricted to a pen is the identity, so `Z_S A Z_S'` is exactly this
+#' same `D`: the genetic and the environmental social components are then perfectly
+#' ALIASED and only their sum is estimable. Measured, at 192 animals in pens of 8 with a
+#' planted `s2_AS = 0.12` and `s2_ES = 0.25`: with families kept apart, so that no pen
+#' held two half sibs, the fit returned `s2_AS = -0.02` and `s2_ES = 0.39`, whose sum
+#' 0.369 reproduces the planted 0.37 while the split is meaningless; with the same
+#' animals rearranged so that half sibs share pens, `s2_ES` came back at 0.21. Separation
+#' needs relatives sharing pens and families split across pens. Pen-size variation does
+#' not buy it; family structure does.
+#'
+#' Two more things the design has to avoid. A free `random(pen)` alongside this term spans
+#' the same pair of matrices on a balanced design and is a rank deficiency, not a
+#' refinement. And a `pen` that is fixed, or nested inside the contemporary group, absorbs
+#' the within-pen contrasts that carry the covariance, leaving only the diagonal slope in
+#' `n_i` — which is what [indirect_residual()] already fits.
 #'
 #' The derivation assumes one record per animal within a pen: with two records of the same
 #' animal in one pen the direct deviation `eps_D` is shared between them and the block is

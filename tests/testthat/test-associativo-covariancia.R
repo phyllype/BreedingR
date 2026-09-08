@@ -97,3 +97,66 @@ test_that("the components come back with the structure, and do NOT without it", 
   expect_gt(m[5], 1.0)
   expect_gt(m[5] - m[3], 0.3)
 })
+
+# ---------------------------------------------------------------------------------------
+# O QUE O DESENHO PRECISA TER, medido em vez de afirmado.
+#
+# A estrutura acima e exata, e isso nao basta: o efeito genetico social entra com
+# Z_S A Z_S' s2_AS, e quando os companheiros de baia nao sao aparentados nem endogamicos a
+# A restrita a baia e a identidade, entao Z_S A Z_S' E EXATAMENTE a mesma D. Os dois
+# componentes ficam perfeitamente aliasados e so a SOMA e estimavel. Quem separa nao e o
+# tamanho da baia: e ter parente dividindo baia.
+
+sim_alias <- function(seed, aparentados, s2AD = 0.5, s2AS = 0.12, s2ED = 0.7, s2ES = 0.25) {
+  set.seed(seed)
+  n_pais <- 24; por_fam <- 8; n <- n_pais * por_fam
+  id <- sprintf("a%04d", seq_len(n))
+  pai <- sprintf("s%02d", rep(seq_len(n_pais), each = por_fam))
+  ped <- rbind(data.frame(id = unique(pai), sire = "0", dam = "0", stringsAsFactors = FALSE),
+               data.frame(id = id, sire = pai, dam = "0", stringsAsFactors = FALSE))
+  # a UNICA diferenca entre os dois desenhos e quem divide baia com quem
+  baia <- if (aparentados) rep(sprintf("b%03d", seq_len(n / 8)), each = 8)
+          else sprintf("b%03d", rep(seq_len(n / 8), times = 8))
+  aP <- matrix(rnorm(n_pais * 2), n_pais, 2) %*% chol(diag(c(s2AD, s2AS)))
+  rownames(aP) <- unique(pai)
+  aD <- 0.5 * aP[pai, 1] + rnorm(n, 0, sqrt(0.75 * s2AD))
+  aS <- 0.5 * aP[pai, 2] + rnorm(n, 0, sqrt(0.75 * s2AS))
+  eD <- rnorm(n, 0, sqrt(s2ED)); eS <- rnorm(n, 0, sqrt(s2ES))
+  soma <- function(v) stats::setNames(tapply(v, baia, sum)[baia], NULL) - v
+  list(d = data.frame(id = id, baia = baia, rec = sprintf("r%04d", seq_len(n)),
+                      g = "g1", cg = rep(c("c1", "c2"), length.out = n),
+                      y = 8 + aD + soma(aS) + eD + soma(eS), stringsAsFactors = FALSE),
+       ped = ped)
+}
+
+ajusta_alias <- function(apar) {
+  est <- t(vapply(1:4, function(sd) {
+    z <- sim_alias(sd, apar); d <- z$d
+    D <- associative_matrix(d$baia, d$id, d$rec)
+    f <- model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "baia", group = "g") +
+                 kernel(rec, K = D, nome = "assoc"), d, z$ped, verbose = FALSE)
+    th <- f$theta
+    c(th[[grep("indirect", names(th), fixed = TRUE)[1]]], th[["var(assoc)"]])
+  }, numeric(2)))
+  colMeans(est)
+}
+
+test_that("without relatives sharing pens, only the SUM of the social components is estimable", {
+  # o desenho tem baias todas de 8, entao o tamanho nao explica nada: o que muda entre as
+  # duas corridas e so a alocacao. Sem parente na baia, Z_S A Z_S' = D e os dois
+  # componentes sao a mesma coluna do modelo.
+  sem <- ajusta_alias(FALSE)
+  # o SPLIT nao vale nada: o genetico social colapsa e o ambiental social absorve tudo
+  expect_lt(sem[1], 0.05)                       # s2_AS medido -0.017 (verdade 0.12)
+  expect_gt(sem[2], 0.32)                       # s2_ES medido  0.386 (verdade 0.25)
+  # e a SOMA reproduz a verdade, que e a assinatura do aliasing
+  expect_lt(abs(sum(sem) - (0.12 + 0.25)), 0.06)   # medido 0.369 contra 0.37
+})
+
+test_that("with half sibs sharing pens the environmental social component separates", {
+  com <- ajusta_alias(TRUE)
+  expect_lt(abs(com[2] - 0.25), 0.10)           # s2_ES medido 0.209
+  # e a estimativa deixa de ser a soma: o ambiental sozinho ja esta perto da verdade
+  sem <- ajusta_alias(FALSE)
+  expect_lt(com[2], sem[2])                     # 0.209 contra 0.386
+})

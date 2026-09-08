@@ -35,7 +35,7 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
     for (std::size_t i = 0; i < d.nlin; i++) {
       const bool falta = !std::isfinite(col[i]) ||
           (m.tem_ausente && std::fabs(col[i] - m.codigo_ausente) < 1e-9);
-      if (falta) d.usa[i] = 0;
+      if (falta && d.usa[i]) { d.usa[i] = 0; d.n_incompletos++; }
       d.y.at(i, tau) = falta ? 0.0 : col[i];
     }
   }
@@ -476,6 +476,19 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
     const PassoZ Pf = pecas(cur);
     na_fronteira = conta_parede(Pf);
     R.decremento = decremento_z(Pf);
+  }
+  // EXCLUSAO POR LISTA, dita em voz alta. Um registro com qualquer caracteristica ausente
+  // sai inteiro desta rota, e junto pode sair um ponto do meio da serie de um sujeito. O
+  // multicaracter comum nao faz isso: la o registro fica e e ajustado contra a submatriz de
+  // R0 do padrao dele. A diferenca tem de aparecer, senao o unico sinal e um n_used menor
+  // que nrow(data).
+  if (d.n_incompletos > 0) {
+    R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
+        std::to_string(d.n_incompletos) + " record(s) dropped ENTIRELY for having at "
+        "least one trait missing: the separable residual Gamma (x) R0 has no conditional "
+        "for a partial pattern, so this fitter deletes listwise where model_mt() keeps the "
+        "record and fits it against the R0 submatrix of its own pattern. Dropping a "
+        "mid-series point also widens the time gaps of that subject";
   }
   if (na_fronteira > 0)
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +

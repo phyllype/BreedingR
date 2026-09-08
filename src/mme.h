@@ -406,6 +406,12 @@ struct DesenhoAR {
   // e com ela a propriedade de Markov de que a Gamma^-1 tridiagonal depende. A rota densa e
   // a esparsa passam a discordar. Em tempo continuo o modelo e o CAR(1), com rho em (0, 1).
   bool tempo_inteiro = true;
+  // Quantos registros sairam por terem alguma caracteristica AUSENTE. O multicaracter
+  // comum mantem esse registro e o ajusta contra a submatriz de R0 do padrao dele; aqui a
+  // separabilidade Gamma (x) R0 nao sobrevive a um padrao parcial e o registro sai inteiro.
+  // E exclusao por lista, e exclusao por lista tem de ser DITA: sem isso o unico sinal e um
+  // n_used menor que nrow(data), que ninguem confere.
+  std::size_t n_incompletos = 0;
   // Esqueleto pre-computado no desenho (nada disto depende de theta): as linhas de W ja
   // em colunas globais COM a caracteristica, e as colunas distintas de cada sujeito.
   std::vector<std::vector<EntAR>> lw;
