@@ -343,6 +343,12 @@ struct AvaliacaoMT {
   bool ok = false;
   double neg2logl = 0.0;
   std::vector<double> solucao;
+  // Proposta EM dos GRUPOS, C_g <- (Q + T)/nl, com os componentes que este laco nao
+  // atualiza deixados no valor corrente. E uma proposta, nao um passo: quem chama so a
+  // aceita se ela baixar a verossimilhanca, entao um EM parcial e seguro por construcao.
+  // O passo EM e multiplicativo, fica no cone e nao encolhe na fronteira, que e onde o
+  // passo AI amortecido trava. Sem o fator s2e do univariado: a MME daqui ja e absoluta.
+  std::vector<double> em_theta;
   std::vector<double> pev;   // diagonal de C^-1 na numeracao original (unidades absolutas)
   std::vector<double> score;
   Densa ai;
@@ -436,6 +442,12 @@ struct AvaliacaoAR {
   bool ok = false;
   double neg2logl = 0.0;
   std::vector<double> solucao, score;
+  // Proposta EM dos GRUPOS, C_g <- (Q + T)/nl, com os componentes que este laco nao
+  // atualiza deixados no valor corrente. E uma proposta, nao um passo: quem chama so a
+  // aceita se ela baixar a verossimilhanca, entao um EM parcial e seguro por construcao.
+  // O passo EM e multiplicativo, fica no cone e nao encolhe na fronteira, que e onde o
+  // passo AI amortecido trava. Sem o fator s2e do univariado: a MME daqui ja e absoluta.
+  std::vector<double> em_theta;
   std::vector<double> pev;   // diagonal de C^-1 na numeracao original (unidades absolutas)
   Densa ai;
   std::size_t fora_do_padrao = 0;

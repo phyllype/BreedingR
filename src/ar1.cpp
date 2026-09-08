@@ -343,6 +343,10 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
 
   const std::size_t ntheta = d.modelo.ntheta;
   A.score.assign(ntheta, 0.0);
+  // proposta EM: comeca no theta corrente, os grupos sao sobrescritos abaixo, e R0 e
+  // rho ficam onde estao — o rho nao tem passo M fechado e o R0 multivariado ainda
+  // nao tem o seu. Quem chama so aceita a proposta se ela baixar a verossimilhanca.
+  A.em_theta = theta;
   A.ai = Densa(ntheta, ntheta);
 
   // ---- grupos: nl C^-1 - C^-1 (Q + T) C^-1, exatamente como na multi
@@ -429,6 +433,11 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
         for (std::size_t k = 0; k < dim; k++) s += CiQT.at(a, k) * cinv.at(k, b);
         Mg.at(a, b) = static_cast<double>(nl) * cinv.at(a, b) - s;
       }
+    // EM do grupo: C_g <- (Q + T) / nl, com o QT que o score ja montou acima
+    for (std::size_t j2 = 0; j2 < dim; j2++)
+      for (std::size_t i2 = j2; i2 < dim; i2++)
+        A.em_theta[gr.offset + vech_idx(i2, j2, dim)] =
+            (QT.at(i2, j2) + QT.at(j2, i2)) / (2.0 * static_cast<double>(nl));
     for (std::size_t j = 0; j < dim; j++)
       for (std::size_t i = j; i < dim; i++) {
         const std::size_t k = gr.offset + vech_idx(i, j, dim);

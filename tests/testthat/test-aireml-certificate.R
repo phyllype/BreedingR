@@ -176,9 +176,9 @@ test_that("an AR(1) fit jammed against the zero boundary says so instead of a cl
   # falls to 6.2e-05, inside the 2e-4 tolerance. So converged is now the hard criterion
   # here too, and this gate asserts the certificate rather than excusing its absence.
   #
-  # It takes 726 iterations, against 42 for the old jam, and that is the honest cost of
-  # the remaining half: the mirrors have no EM rescue, so along a boundary they crawl
-  # where the univariate walks. The default maxiter is 1000 for that reason.
+  # E leva 8 iteracoes, contra 42 do travamento antigo e contra as 726 que precisou
+  # enquanto os espelhos nao tinham resgate EM. O passo EM e multiplicativo, fica no cone e
+  # nao encolhe na fronteira, entao ele anda exatamente onde o passo AI amortecido trava.
   set.seed(41)
   n <- 30
   id <- sprintf("m%03d", seq_len(n)); pa <- ma <- rep("0", n)
@@ -204,13 +204,13 @@ test_that("maxiter: the defaults, and the ceiling message says how to ask for mo
   # relDelta 1.6e-4 at iteration 100 — the old default cut a healthy walk short, and
   # the old message ("parou em N iteracoes...") did not say what to do about it.
   #
-  # The mirrors sit at 1000 and not at 300 for a separate measured reason: they have no
-  # EM rescue, so along a covariance boundary they crawl where the univariate walks. The
-  # AR(1) cell of the certificate gate above needs 726 iterations to certify a point 0.48
-  # units of -2logL below where the old raw-theta loop declared itself done.
+  # Os espelhos estiveram em 1000 por uma razao que deixou de valer: sem resgate EM eles
+  # se arrastavam ao longo de uma fronteira de covariancia, e a celula AR(1) do portao
+  # acima precisava de 726 iteracoes. Com o EM portado ela leva 8, entao o padrao voltou a
+  # ser o mesmo do univariado.
   expect_identical(eval(formals(model)$maxiter), 300L)
-  expect_identical(eval(formals(model_mt)$maxiter), 1000L)
-  expect_identical(eval(formals(model_ar1)$maxiter), 1000L)
+  expect_identical(eval(formals(model_mt)$maxiter), 300L)
+  expect_identical(eval(formals(model_ar1)$maxiter), 300L)
 
   s <- simula_ige_forte(seed = 11, cds = -0.9 * sqrt(0.4 * 0.1))
   fit <- model(f_forte, s$data, s$ped, verbose = FALSE, maxiter = 3, n_em = 0)

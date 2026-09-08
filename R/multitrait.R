@@ -71,7 +71,7 @@
 #' @export
 model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                        apy_core = NULL, vecchia_k = NULL, missing_code = NULL,
-                       start = NULL, maxiter = 1000L, tol = 1e-8, metafounders = NULL, gamma = NULL,
+                       start = NULL, maxiter = 300L, tol = 1e-8, metafounders = NULL, gamma = NULL,
                        verbose = interactive()) {
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side: cbind(p1, p2) ~ ...")

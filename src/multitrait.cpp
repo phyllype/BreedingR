@@ -347,6 +347,10 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
 
   const std::size_t ntheta = d.modelo.ntheta;
   A.score.assign(ntheta, 0.0);
+  // a proposta EM comeca IGUAL ao theta corrente: os grupos serao sobrescritos abaixo e o
+  // R0 fica onde esta, porque o passo M do residuo multivariado ainda nao existe aqui. A
+  // proposta move so o que sabe mover, e quem chama confere se ela melhora.
+  A.em_theta = theta;
   A.ai = Densa(ntheta, ntheta);
 
   // ---------------- score dos grupos: nl C^-1 - C^-1 (Q + T) C^-1, unidades absolutas
@@ -439,6 +443,11 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
         for (std::size_t k = 0; k < dim; k++) s += CiQT.at(a, k) * cinv.at(k, b);
         Mg.at(a, b) = static_cast<double>(nl) * cinv.at(a, b) - s;
       }
+    // EM do grupo: C_g <- (Q + T) / nl. QT ja esta montado logo acima para o score.
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++)
+        A.em_theta[gr.offset + vech_idx(i, j, dim)] =
+            (QT.at(i, j) + QT.at(j, i)) / (2.0 * static_cast<double>(nl));
     for (std::size_t j = 0; j < dim; j++)
       for (std::size_t i = j; i < dim; i++) {
         const std::size_t k = gr.offset + vech_idx(i, j, dim);

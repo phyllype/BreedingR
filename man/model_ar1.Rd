@@ -16,7 +16,7 @@ model_ar1(
   vecchia_k = NULL,
   missing_code = NULL,
   start = NULL,
-  maxiter = 1000L,
+  maxiter = 300L,
   tol = 1e-08,
   metafounders = NULL,
   gamma = NULL,

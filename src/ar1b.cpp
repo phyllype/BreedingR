@@ -371,6 +371,49 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
     return passo_z(mz, d.modelo.ntheta, theta, av.score, av.ai,
                    std::max(1.0, s / static_cast<double>(t)));
   };
+  // RESGATE EM, o que faltava para os espelhos terem a maquinaria completa do univariado.
+  // O passo EM e multiplicativo, fica no cone e nao encolhe na fronteira, entao ele anda
+  // exatamente onde o passo AI amortecido trava. Aqui ele move so os GRUPOS: o passo M do
+  // R0 multivariado, e o do rho no AR(1), nao existem em forma fechada, e por isso a
+  // proposta deixa esses componentes onde estao. Isso e um EM GENERALIZADO e continua
+  // valido, porque cada candidato so entra se BAIXAR a verossimilhanca.
+  //
+  // Cada candidato passa pelo grampo em z antes de ser avaliado: um EM que encoste
+  // numericamente na singularidade daria um -2logL sem sentido, com det(C_g) em underflow.
+  // Ate 15 passos, contra os 50 do univariado, porque aqui cada avaliacao custa mais.
+  auto resgate_em = [&](AvaliacaoAR& atual) -> bool {
+    bool ganhou = false;
+    for (int e = 0; e < 15; e++) {
+      if (atual.em_theta.size() != d.modelo.ntheta) break;
+      std::vector<double> ze;
+      if (!z_de_theta(mz, d.modelo.ntheta, atual.em_theta, ze)) break;
+      const PassoZ Pe = pecas(atual);
+      if (Pe.ok)
+        for (std::size_t i = 0; i < d.modelo.ntheta; i++)
+          if (ze[i] < Pe.piso[i]) ze[i] = Pe.piso[i];
+      std::vector<double> cand = theta_de_z(mz, d.modelo.ntheta, ze);
+      AvaliacaoAR prox = avalia_ar1(d, cand, &cs);
+      // ganho RELEVANTE, e nao qualquer migalha. Este EM move so os grupos: quando o
+      // que falta esta no R0 ele nao alcanca, e aceitar um ganho de 1e-8 so desvia um
+      // caminho saudavel para um ponto de onde o passo AI nao sai (medido: uma celula
+      // que certificava com decremento 1.3e-04 passou a parar em 8.4e-04). Com um piso
+      // relativo, o EM entra onde ele de fato resolve — a fronteira, onde o passo
+      // amortecido trava — e sai da frente onde nao resolve.
+      const double ganho_em = atual.neg2logl - prox.neg2logl;
+      if (!prox.ok || ganho_em < 1e-6 * std::max(1.0, std::fabs(atual.neg2logl))) break;
+      double num = 0.0, den = 0.0;
+      for (std::size_t i = 0; i < cand.size(); i++) {
+        const double dlt = cand[i] - theta[i];
+        num += dlt * dlt;
+        den += cand[i] * cand[i];
+      }
+      R.reldelta = std::sqrt(num / std::max(den, 1e-300));
+      theta = cand;
+      atual = std::move(prox);
+      ganhou = true;
+    }
+    return ganhou;
+  };
   auto conta_parede = [&](const PassoZ& P) {
     std::size_t n = 0;
     for (char c : P.na_parede) n += c;
@@ -452,6 +495,15 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
       // passo torna FALSA por construcao, de modo que a direcao grampeada ficava congelada
       // no passo e cobrada integralmente no certificado. converged exige as duas coisas,
       // como no univariado: passo pequeno E decremento de Newton dos LIVRES na tolerancia.
+      // o EM primeiro: se ele ainda anda, nao havia convergencia nenhuma, e o
+      // amortecimento reinicia para o passo AI voltar a tentar do ponto novo
+      if (resgate_em(cur)) {
+        lambda = 1e-2;
+        parado = 0;
+        if (verboso)
+          Rprintf("      resgate EM: -2logL %.6f (o passo AI tinha travado)\n", cur.neg2logl);
+        continue;
+      }
       const PassoZ Pc = pecas(cur);
       na_fronteira = conta_parede(Pc);
       R.decremento = decremento_z(Pc);
@@ -459,7 +511,11 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
         R.convergiu = true;
         break;
       }
-      if (parado >= 6) {
+      // O corte de estagnacao ficou mais paciente depois que o resgate EM entrou, porque
+      // "nada anda" passou a ser uma afirmacao mais forte: o passo AI travou E o EM
+      // tambem nao move. Um EM bem sucedido reinicia o amortecimento, e o passo AI precisa
+      // de espaco para retomar do ponto novo antes de o laco declarar estagnacao.
+      if (parado >= 25) {
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%.3g", R.decremento);
         R.mensagem = std::string("did NOT converge: the step stopped making progress, ") +

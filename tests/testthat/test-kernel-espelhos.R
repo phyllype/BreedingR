@@ -171,3 +171,54 @@ test_that("the AR(1) mirror carries the same walk, and rho stays inside (-1, 1)"
   expect_true(all(is.finite(f$theta)))
   expect_lt(f$newton_dec, 2e-4)
 })
+
+# O RESGATE EM dos espelhos.
+#
+# O passo AI amortecido trava numa fronteira de covariancia: ele e aditivo, e a trincheira
+# admissivel em torno da crista fica mais fina que qualquer passo. O passo EM e
+# multiplicativo, fica no cone e nao encolhe la, entao ele anda exatamente onde o outro
+# para. O univariado sempre teve um; os espelhos nao tinham, e o preco estava medido: a
+# celula AR(1) sem sinal genetico precisava de 726 iteracoes para certificar.
+#
+# O EM daqui move so os GRUPOS: nao ha passo M fechado para o R0 multivariado nem para o
+# rho, entao a proposta deixa esses componentes onde estao. E um EM GENERALIZADO, e vale
+# porque cada candidato so entra se BAIXAR a verossimilhanca. O ganho exigido e relativo e
+# nao uma migalha: aceitar 1e-8 desviava um caminho saudavel para um ponto de onde o passo
+# AI nao saia (medido: uma celula que certificava com decremento 1.3e-04 parava em 8.4e-04).
+
+test_that("the AR(1) boundary cell certifies in a handful of iterations, not hundreds", {
+  # esta e a celula sem sinal genetico nenhum: var(animal) caminha para a fronteira zero.
+  # Sem o EM ela precisava de 726 iteracoes; com o corte antigo de maxiter parava em 300
+  # sem certificar.
+  set.seed(41)
+  n <- 30
+  id <- sprintf("m%03d", seq_len(n)); pa <- ma <- rep("0", n)
+  for (i in 11:n) { pa[i] <- id[sample(1:10, 1)]; ma[i] <- id[sample(seq_len(i - 1), 1)] }
+  ped <- data.frame(id = id, sire = pa, dam = ma, stringsAsFactors = FALSE)
+  set.seed(42)
+  d <- do.call(rbind, lapply(1:3, function(dia)
+    data.frame(id = ped$id, dia = dia, cg = rep(c("g1", "g2"), length.out = n),
+               stringsAsFactors = FALSE)))
+  d$y <- 5 + (d$cg == "g2") + 0.3 * d$dia + rnorm(nrow(d))
+  f <- model_ar1(y ~ cg + animal(id), d, ped, subject = "id", time = "dia", verbose = FALSE)
+  expect_true(f$converged)
+  expect_lt(f$iters, 60L)             # medido 8, contra 726 sem o resgate
+  expect_lt(f$newton_dec, 2e-4)       # medido 4.2e-10
+  expect_lt(f$neg2logl, 108.5)        # medido 108.4959
+})
+
+test_that("the EM proposal only ever moves the fit DOWNHILL", {
+  # a garantia que torna um EM parcial seguro: candidato que nao baixa -2logL nao entra.
+  # Se algum ponto do laco aceitasse uma proposta pior, o ajuste final estaria acima do que
+  # o mesmo modelo alcanca com o passo AI sozinho, e este portao pegaria.
+  z <- fixture_bi(n = 120, seed = 4)
+  fml <- cbind(p1, p2) ~ cg + animal(id) + kernel(id, K = K, nome = "dom")
+  K <- z$K
+  f <- model_mt(fml, z$data, z$ped, verbose = FALSE)
+  # partindo do proprio otimo o ajuste nao pode PIORAR
+  g <- model_mt(fml, z$data, z$ped, start = f$theta, verbose = FALSE)
+  expect_lte(g$neg2logl, f$neg2logl + 1e-8)
+  # e de um ponto deslocado ele chega ao mesmo lugar
+  h <- model_mt(fml, z$data, z$ped, start = f$theta * 2.5, verbose = FALSE)
+  expect_lt(abs(h$neg2logl - f$neg2logl), 0.01)
+})
