@@ -132,8 +132,9 @@ void kinv_declarada(const Modelo& mo, const Grupo& g,
         // de pedigree grande (Hoeschele & VanRaden 1991) esta registrada no CHECKLIST.
         if (!kernels)
           throw Erro("a kernel() term declares its own covariance matrix, and this fitting "
-                     "route does not carry it: in this version only model() and "
-                     "eval_internal() accept kernel()");
+                     "route does not carry it: kernel() reaches model(), model_mt() and "
+                     "model_ar1() with their eval_internal() companions, but not the "
+                     "Gibbs sampler, whose conditional for a declared K is not written");
         // O nome do termo so serve para a mensagem, e le-lo de um Modelo que o chamador
         // ainda nao preencheu foi um acesso fora de faixa que so aparecia no caminho de
         // ERRO: com K boa a linha nunca era executada. Por isso o indice e conferido.
