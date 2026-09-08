@@ -215,10 +215,24 @@ Csc constroi_hinv(const Csc& ainv, const std::vector<std::size_t>& geno,
       cj.push_back(static_cast<std::uint32_t>(c));
       v.push_back(ainv.valor[k]);
     }
+  // ZERO EXATO NAO VIRA TRIPLO. A APY (e a de Vecchia) produzem uma G^-1 com estrutura: o
+  // bloco jovem x jovem sai so na diagonal, porque Mnn e diagonal, e esses zeros sao
+  // exatos, nunca escritos. O A22^-1 tambem e quase todo zero exato (medido: 97.6% em 400
+  // genotipados, 98.9% em 800). Empurrar os n2(n2+1)/2 pares inteiros para os triplos
+  // enterrava tudo isso: o H^-1 saia denso no bloco genotipado, a fatoracao do MME ficava
+  // O(n_geno^3) por iteracao e a APY comprava so estabilidade numerica, nenhum tempo
+  // (medido: 12.10 s/iter denso contra 11.76 s/iter com nucleo de 300, em 2400
+  // genotipados — dentro do ruido).
+  //
+  // O filtro e por zero EXATO e nao por tolerancia, de proposito: nao ha aproximacao
+  // nenhuma aqui. A fracao de nao-zeros da diferenca e a mesma contando `!= 0` e contando
+  // `|x| > 1e-12` (75.12% e 43.84% nos dois testes), entao o que sai e exatamente o que
+  // nao existe. Um valor pequeno mas real continua entrando.
   for (std::size_t a = 0; a < n2; a++)
     for (std::size_t b = 0; b <= a; b++) {
+      const double x = gstar_inv.at(a, b) - a22_inv.at(a, b);
+      if (x == 0.0) continue;
       std::size_t i = geno[a], j = geno[b];
-      double x = gstar_inv.at(a, b) - a22_inv.at(a, b);
       if (i < j) std::swap(i, j);
       li.push_back(static_cast<std::uint32_t>(i));
       cj.push_back(static_cast<std::uint32_t>(j));
