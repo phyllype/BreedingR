@@ -16,6 +16,8 @@
     "indirect genetic effects", "social genetic effects", "genotype by environment",
     "threshold model", "survival analysis", "multi-trait", "AR(1) residual",
     "metafounders", "dominance", "epistasis", "APY", "Gibbs sampler",
+    "user-defined relationship matrix", "custom covariance structure",
+    "kernel methods", "genomic relationship matrix",
     "selection signatures", "heat stress", "R package"
   ],
   "grants": [

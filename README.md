@@ -51,7 +51,8 @@ The trunk is Gaussian, but the trait does not have to be. An ordered categorical
 fits on a probit liability with `model_threshold()`, alone or jointly with a
 quantitative one; time until failure fits with `model_survival()`, where a
 right-censored record enters as a lower bound rather than a missing value. And a random
-term can carry any DECLARED covariance matrix through `kernel(id, K = )`: the dominance
+term can carry any user-supplied covariance matrix through `kernel(id, K = )`, called a
+DECLARED covariance throughout this package: the dominance
 and epistasis constructions of chapter 13 of Mrode and Pocrnic (2023), and the multibreed
 partial matrices of chapter 14, are matrices built by their own constructors and handed
 to the same engine.

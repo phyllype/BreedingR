@@ -30,8 +30,8 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 #'   grid (say 0, 0.5, 1) and compare `-2logL`, which is comparable across `d` because
 #'   only the incidence changes. A pen of size 1 keeps its zero social row under every
 #'   `d`. See [indirect_residual()] for the residual side of the same problem.
-#'   `kernel(id, K = D)` is a random term with a
-#'   DECLARED covariance matrix: K is a symmetric positive-definite matrix whose rownames
+#'   `kernel(id, K = D)` is a random term with a user-supplied (user-defined)
+#'   covariance matrix, called a DECLARED covariance throughout this package: K is a symmetric positive-definite matrix whose rownames
 #'   are the level identifiers, and every row of K gets an equation, with or without a
 #'   record — a dominance D ([dominance_matrix()], [g_dominance()]), an epistatic G_AA
 #'   ([g_epistasis()]), a partial multibreed matrix ([partial_a()]), or any relationship
