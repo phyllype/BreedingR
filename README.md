@@ -56,11 +56,50 @@ and epistasis constructions of chapter 13 of Mrode and Pocrnic (2023), and the m
 partial matrices of chapter 14, are matrices built by their own constructors and handed
 to the same engine.
 
+### The map
+
+What the package fits, and the term that asks for it. Everything in the first table is the
+same engine and the same `kron(C^-1, K^-1)` penalty, which is why none of these has a
+fitter of its own.
+
+| To fit | Write | The fitter |
+|---|---|---|
+| animal model, repeatability | `animal(id)`, `pe(id)` | `model()` |
+| direct-maternal, correlation estimated | `animal(id, group=)` + `maternal(dam, group=)` | `model()` |
+| reaction norm on a gradient | `rn(id, base=)` | `model()` |
+| indirect (social) genetic effects | `indirect(id, pen=, group=, dilution=)` | `model()` |
+| dominance, epistasis, multibreed, any declared K | `kernel(id, K=)` | `model()` |
+| several traits, full residual matrix | `cbind(y1, y2) ~ ...` | `model_mt()` |
+| serial correlation in the residual | `subject=`, `time=` | `model_ar1()` |
+| the same models, sampled instead of maximised | same formula | `gibbs()` |
+| ordered categorical trait | same formula, components given | `model_threshold()` |
+| time to failure, right-censored | `censor=` | `model_survival()` |
+| competitive ability from grouped contests | contest table | `competition_strength()` |
+
+Relationships and genomics are arguments, not different programs.
+
+| For | Use |
+|---|---|
+| pedigree A-inverse, inbreeding | `pedigree()`, `a_inverse()`, `a22_inverse()` |
+| base populations that are not one pool | `metafounders=`, `gamma=` (full matrix, singular allowed) |
+| single step | `genotypes=`, and `apy_core=` or `vecchia_k=` when G is large |
+| the single step without ever forming G | `snp_blup()` |
+| marker effects from a single-step fit | `snp_effects()` |
+| G, dominance, epistasis to any order | `g_matrix()`, `g_dominance()`, `g_epistasis_ad/dd/order()` |
+| multibreed partial matrices | `partial_a()` |
+| the associative residual, exactly | `associative_matrix()` |
+
+And around the fit: `ebv()`, `accuracy()`, `rg()`, `h2_curve()`, `h2_observed()`,
+`h2_liability()`, `selection_index()`, `rank_drift()`, `profile_theta()`, `se_function()`,
+`qc_genotypes()`, `qc_phenotypes()`, `read_plink()`, `describe()`, `thi()`, `heat_load()`,
+`fst()`, `roh()`, `simulate_breeding()`, `mc_study()`, `suggest_model()`,
+`benchmark_fit()`, `ess()`, `geweke_z()`.
+
 **Where to read next.** Start with *Your first evaluation*, which goes from two files on
 disk to breeding values you can act on, and assumes nothing about this package. After
 that: *Theory and practice* walks a full evaluation in order, explaining each matrix, each
-algorithm and each iteration alongside the code that runs it; *Hands-on* works through 48
-of the 54 exported functions, step by step; *Contest models* derives the
+algorithm and each iteration alongside the code that runs it; *Hands-on* works through 52
+of the 58 exported functions, step by step; *Contest models* derives the
 competitive-ability estimators from the group multinomial, one identity at a time.
 [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
 
@@ -180,8 +219,13 @@ model(y ~ herd + kernel(id, K = pa$K[["A"]], nome = "uA") +
         kernel(id, K = pa$K[["B"]], nome = "uB") +
         kernel(id, K = pa$K[["A:B"]], nome = "uAB"), d, ped)
 
-# unknown-parent groups as metafounders (Legarra et al., 2015), diagonal Gamma
-model(y ~ cg + animal(id), d, ped, metafounders = c("L1", "L2"), gamma = c(0.7, 0.6))
+# unknown-parent groups as metafounders (Legarra et al., 2015). gamma takes a vector for a
+# diagonal, or a full MATRIX whose off-diagonal is the ancestral relationship BETWEEN two
+# base populations, which is the parameter a multibreed analysis exists for. A SINGULAR
+# gamma is accepted through the pseudo-inverse: gamma = 0 is the unknown-parent-group
+# limit, and two metafounders standing for one population have identical rows
+model(y ~ cg + animal(id), d, ped, metafounders = c("L1", "L2"),
+      gamma = matrix(c(0.7, 0.2, 0.2, 0.6), 2, 2))
 
 # marker effects backsolved from the single-step fit
 snp_effects(f, ped, genotypes = list(ids = gids, m = M))
@@ -210,8 +254,8 @@ the data and names the term each shape asks for (and the trap it guards against)
 claims go through `benchmark_fit()`, which replicates at least three times and checks
 the runs returned identical numbers: the package's own timing rule as a tool.
 
-The full map of the 54 functions, grouped by kinship, is in
-[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 48 of them,
+The full map of the 58 functions, grouped by kinship, is in
+[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 52 of them,
 step by step on data simulated in the document itself, is the vignette
 `vignettes/hands-on.Rmd` (every chunk runs at build time, so it cannot rot). The theory
 behind `apy_core=` (why APY works and what the Mendelian residual means) is in
@@ -506,10 +550,16 @@ If this package contributed to published work, please cite it:
 > Freitas, F. A. O. (2026). BreedingR: variance components and breeding values by
 > AI-REML and single step. R package.
 
-Developed during doctoral research at ESALQ/USP (Universidade de São Paulo), supported
-by the São Paulo Research Foundation (FAPESP), grants #2024/15502-6 and #2025/02949-5
-(BEPE). The opinions, hypotheses and conclusions expressed here are the author's own and
-do not necessarily reflect the views of FAPESP.
+Developed during doctoral research at ESALQ/USP (Universidade de São Paulo), supported by
+
+- the São Paulo Research Foundation (FAPESP), grants #2024/15502-6 and #2025/02949-5
+  (BEPE);
+- the Coordenação de Aperfeiçoamento de Pessoal de Nível Superior (CAPES), Finance
+  Code 001;
+- the Conselho Nacional de Desenvolvimento Científico e Tecnológico (CNPq).
+
+The opinions, hypotheses and conclusions expressed here are the author's own and do not
+necessarily reflect the views of the funding agencies.
 
 Work that uses this package should carry the same acknowledgement, as the funding terms
 ask.

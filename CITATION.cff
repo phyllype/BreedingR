@@ -14,7 +14,9 @@ abstract: >-
   markers as equations, metafounders, quality control and selection-signature scans.
   The numerics live in the package itself, in C++, with no run-time dependency.
   Developed during doctoral research at ESALQ/USP with support from the Sao Paulo
-  Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5 (BEPE).
+  Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5 (BEPE); the
+  Coordenacao de Aperfeicoamento de Pessoal de Nivel Superior (CAPES), Finance Code
+  001; and the Conselho Nacional de Desenvolvimento Cientifico e Tecnologico (CNPq).
 keywords:
   - animal breeding
   - quantitative genetics
@@ -22,6 +24,6 @@ keywords:
   - single-step genomic prediction
   - reaction norm
   - indirect genetic effects
-version: 0.1.0
+version: 0.3.0
 license: MIT
 license-url: "https://github.com/phyllype/BreedingR/blob/main/LICENSE"
