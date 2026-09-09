@@ -584,7 +584,8 @@ If this package contributed to published work, please cite it:
 > Freitas, F. A. O. (2026). BreedingR: genetic parameters, breeding values and
 > genomic prediction in R. R package version 0.3.0.
 
-Developed during doctoral research at ESALQ/USP (Universidade de São Paulo), supported by
+Developed during doctoral research at the Escola Superior de Agricultura Luiz de
+Queiroz (ESALQ), Universidade de São Paulo, and at Purdue University, supported by
 
 - the São Paulo Research Foundation (FAPESP), grants #2024/15502-6 and #2025/02949-5
   (BEPE);

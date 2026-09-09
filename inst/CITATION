@@ -14,7 +14,9 @@ bibentry(
 )
 
 citFooter(paste(
-  "Developed during doctoral research at ESALQ/USP with support from the",
+  "Developed during doctoral research at the Escola Superior de Agricultura Luiz de",
+  "Queiroz (ESALQ), Universidade de Sao Paulo, and at Purdue University, with",
+  "support from the",
   "Sao Paulo Research Foundation (FAPESP), grants #2024/15502-6 and #2025/02949-5 (BEPE);",
   "the Coordenacao de Aperfeicoamento de Pessoal de Nivel Superior (CAPES),",
   "Finance Code 001; and the Conselho Nacional de Desenvolvimento Cientifico e",

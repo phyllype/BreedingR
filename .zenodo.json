@@ -7,7 +7,7 @@
   "creators": [
     {
       "name": "Freitas, Felipe Andre Oliveira",
-      "affiliation": "Escola Superior de Agricultura Luiz de Queiroz (ESALQ), Universidade de Sao Paulo"
+      "affiliation": "Escola Superior de Agricultura Luiz de Queiroz (ESALQ), Universidade de Sao Paulo, Brazil; Purdue University, West Lafayette, IN, USA"
     }
   ],
   "keywords": [
@@ -47,6 +47,6 @@
       "id": "10.13039/501100001807::2025/02949-5"
     }
   ],
-  "notes": "Developed during doctoral research at ESALQ/USP with support from the Sao Paulo Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5 (BEPE); the Coordenacao de Aperfeicoamento de Pessoal de Nivel Superior (CAPES), Finance Code 001; and the Conselho Nacional de Desenvolvimento Cientifico e Tecnologico (CNPq). The opinions, hypotheses and conclusions expressed here are the author's own and do not necessarily reflect the views of the funding agencies.",
+  "notes": "Developed during doctoral research at the Escola Superior de Agricultura Luiz de Queiroz (ESALQ), Universidade de Sao Paulo, and at Purdue University, with support from the Sao Paulo Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5 (BEPE); the Coordenacao de Aperfeicoamento de Pessoal de Nivel Superior (CAPES), Finance Code 001; and the Conselho Nacional de Desenvolvimento Cientifico e Tecnologico (CNPq). The opinions, hypotheses and conclusions expressed here are the author's own and do not necessarily reflect the views of the funding agencies.",
   "language": "eng"
 }

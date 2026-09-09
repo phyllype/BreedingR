@@ -5,7 +5,7 @@ type: software
 authors:
   - family-names: Freitas
     given-names: Felipe Andre Oliveira
-    affiliation: "ESALQ, Universidade de Sao Paulo"
+    affiliation: "Escola Superior de Agricultura Luiz de Queiroz (ESALQ), Universidade de Sao Paulo, Brazil; Purdue University, West Lafayette, IN, USA"
 repository-code: "https://github.com/phyllype/BreedingR"
 abstract: >-
   An R package for variance components by AI-REML, breeding values, accuracy and
@@ -13,8 +13,10 @@ abstract: >-
   effect models, AR(1)/CAR(1) residuals, a Gibbs sampler, APY and Vecchia inverses,
   markers as equations, metafounders, quality control and selection-signature scans.
   The numerics live in the package itself, in C++, with no run-time dependency.
-  Developed during doctoral research at ESALQ/USP with support from the Sao Paulo
-  Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5 (BEPE); the
+  Developed during doctoral research at the Escola Superior de Agricultura Luiz de
+  Queiroz (ESALQ), Universidade de Sao Paulo, and at Purdue University, with support
+  from the Sao Paulo Research Foundation (FAPESP), grants 2024/15502-6 and
+  2025/02949-5 (BEPE); the
   Coordenacao de Aperfeicoamento de Pessoal de Nivel Superior (CAPES), Finance Code
   001; and the Conselho Nacional de Desenvolvimento Cientifico e Tecnologico (CNPq).
 keywords:
