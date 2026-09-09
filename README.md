@@ -1,9 +1,11 @@
 # BreedingR
 
-Genetic parameters, breeding values and genomic prediction in R. One engine covers the
-animal model and what usually needs software of its own: direct-maternal, reaction norms,
-indirect genetic effects, several traits at once, a residual with serial correlation,
-ordered categorical and censored traits, and any relationship matrix you supply yourself.
+[![R-CMD-check](https://github.com/phyllype/BreedingR/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/phyllype/BreedingR/actions/workflows/R-CMD-check.yaml)
+
+Genetic parameters, breeding values and genomic prediction in R. One engine fits the
+animal model and a good deal beyond it: direct-maternal, reaction norms, indirect genetic
+effects, several traits at once, a residual with serial correlation, ordered categorical
+and censored traits, and any relationship matrix you supply yourself.
 
 It is where I try out new ideas and put specific models into practice: reaction norms on
 an environmental gradient, indirect genetic effects in group housing, a residual that
@@ -20,7 +22,7 @@ library(BreedingR)
 
 ## What it does
 
-A genetic evaluation is the same chain every time, and the package covers it end to end.
+The package covers the chain end to end.
 The pedigree becomes the relationship matrix `A` and its sparse inverse by Henderson's
 (1976) rules, with inbreeding by the Meuwissen and Luo (1992) trace and, where the base
 population is not one homogeneous pool, metafounders (Legarra et al., 2015). The model
@@ -34,7 +36,7 @@ convergence that takes both a small RELATIVE step and a Newton decrement under t
 so a stalled step cannot pass for an optimum. Breeding values fall out of the same solution, and
 their accuracy out of the selected inverse (Takahashi, Fagan and Chin, 1973).
 
-Genotypes enter as an argument, not a different program: `G` by VanRaden (2008), brought to the
+Genotypes enter as an argument to the same fit: `G` by VanRaden (2008), brought to the
 scale of `A22` by an affine adjustment and a blend, and the single-step `H^-1` built as
 `A^-1` plus a correction on the genotyped block. When the genotyped set is large enough
 that inverting `G*` hurts, the same fit accepts APY (Misztal, Legarra and Aguilar, 2014)
@@ -42,8 +44,8 @@ with a core, the Vecchia (1988) recursion with per-animal conditioning sets, or
 `snp_blup()`, which never builds `G` at all and
 solves the marker equations by conjugate gradients.
 
-The models that usually need their own software are formula terms here, because the unit
-of layout is the covariance group rather than the term: direct-maternal (Willham, 1972),
+Several further model families are formula terms here, because the unit of layout is the
+covariance group rather than the term: direct-maternal (Willham, 1972),
 reaction norms on an environmental gradient (Kirkpatrick, Lofsvold and Bulmer, 1990),
 indirect genetic effects among pen mates (Griffing, 1967; Muir and Schinckel, 2002),
 multi-trait with a full residual covariance, and an AR(1)/CAR(1) residual for repeated
