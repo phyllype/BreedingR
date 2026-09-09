@@ -9,3 +9,6 @@
 ^LICENSE\.md$
 ^\.github$
 ^docs$
+^revisao_mrode$
+^scratchpad$
+^\.Rhistory$

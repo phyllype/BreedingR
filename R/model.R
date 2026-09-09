@@ -12,6 +12,19 @@
 MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indirect",
                 "kernel")
 
+# Which named arguments each marker accepts. A marker looks like a function call but is
+# read symbolically, so R does not check its argument names for us: without this table a
+# typo is simply not found by the reader, and animal(id, grupo = "g") fits a model with no
+# group at all and says nothing. The set below is what interpreta_termo() actually reads;
+# anything else is a typo or a misunderstanding, and both are worth stopping for.
+ARGS_MARCADOR <- local({
+  comum <- c("nome", "group", "nested", "base")
+  list(animal = comum, maternal = comum, sire = comum, pe = comum, random = comum,
+       cov = comum, rn = comum,
+       indirect = c(comum, "pen", "dilution"),
+       kernel = c(comum, "K", "fixed"))
+})
+
 #' Fit a mixed model by AI-REML
 #'
 #' @param formula for example `peso ~ cg + sexo + animal(id)`. An unmarked term is a fixed
@@ -351,6 +364,26 @@ interpreta_termo <- function(e) {
   if (!length(args)) stop("'", marc, "()' without a column")
   sem_nome <- if (is.null(names(args))) rep(TRUE, length(args)) else names(args) == ""
   if (!sem_nome[1]) stop("'", marc, "()' expects the column as the first argument")
+  # An argument the marker does not know is a STOP, not a shrug. A marker is read
+  # symbolically, so R never checks these names for us, and a typo used to pass straight
+  # through: animal(id, grupo = "g") fitted a model with no group and reported nothing.
+  # The suggestion comes from agrep, so a near miss says which name was meant.
+  dados <- names(args)
+  if (!is.null(dados)) {
+    permitidos <- ARGS_MARCADOR[[marc]]
+    maus <- setdiff(dados[nzchar(dados)], permitidos)
+    if (length(maus)) {
+      perto <- unlist(lapply(maus, function(m) agrep(m, permitidos, max.distance = 0.4,
+                                                     value = TRUE, ignore.case = TRUE)))
+      stop("'", marc, "()' does not have argument(s) ",
+           paste0("'", maus, "'", collapse = ", "), ". ",
+           if (length(perto)) paste0("Did you mean ",
+                                     paste0("'", unique(perto), "'", collapse = " or "),
+                                     "? "),
+           "It takes: ", paste(permitidos, collapse = ", "),
+           call. = FALSE)
+    }
+  }
   column <- deparse(args[[1]])
   pega <- function(k, padrao = "") {
     v <- args[[k]]
