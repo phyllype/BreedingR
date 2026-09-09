@@ -1,14 +1,15 @@
 # BreedingR
 
-An R package for variance components by AI-REML, breeding values, accuracy and
-single-step genomics.
+Genetic parameters, breeding values and genomic prediction in R. One engine covers the
+animal model and what usually needs software of its own: direct-maternal, reaction norms,
+indirect genetic effects, several traits at once, a residual with serial correlation,
+ordered categorical and censored traits, and any relationship matrix you supply yourself.
 
-It started as a place to try out a few ideas and to put some specific models into
-practice, reaction norms on an environmental gradient, indirect genetic effects in
-group housing, a residual that carries serial correlation, without waiting on an
-external engine to support them. That is still what it is for: the numerics are written
-in the package itself, in `src/`, and `R CMD INSTALL` compiles them. No separate binary,
-no service, no run-time dependency.
+It is where I try out new ideas and put specific models into practice: reaction norms on
+an environmental gradient, indirect genetic effects in group housing, a residual that
+carries serial correlation. That is still what it is for. The numerics are written in the
+package itself, in `src/`, and `R CMD INSTALL` compiles them. No separate binary, no
+service, no run-time dependency.
 
 ```r
 remotes::install_github("phyllype/BreedingR")   # requires Rtools on Windows
@@ -27,8 +28,10 @@ is written as a formula; the mixed model
 equations are assembled sparse, one record at a time, and factored by a sparse Cholesky
 whose symbolic analysis is computed once and reused. The variance components come from
 AI-REML (Gilmour, Thompson and Cullis, 1995): analytic score, average information, EM
-warm-up (Dempster, Laird and Rubin, 1977), a damped step, and convergence judged on the
-RELATIVE change of the components. Breeding values fall out of the same solution, and
+warm-up and an EM rescue (Dempster, Laird and Rubin, 1977), a damped step that walks in
+log-Cholesky coordinates so a covariance boundary is a limit rather than a wall, and
+convergence that takes both a small RELATIVE step and a Newton decrement under tolerance,
+so a stalled step cannot pass for an optimum. Breeding values fall out of the same solution, and
 their accuracy out of the selected inverse (Takahashi, Fagan and Chin, 1973).
 
 Genotypes enter as an argument, not a different program: `G` by VanRaden (2008), brought to the
@@ -127,8 +130,11 @@ cor(ebv(fit)[names(s$tbv)], s$tbv) # against the simulator's own truth
 ```
 
 A long fit reports itself as it goes. With `verbose = TRUE`, the default in an
-interactive session, each AI iteration prints its -2logL and its relative step, which is
-the convergence criterion itself; Ctrl+C interrupts any fitter.
+interactive session, each AI iteration prints its -2logL, its relative step and the
+current value of every component being estimated, not just the residual, so a run that is
+drifting shows it while there is still time to stop; Ctrl+C interrupts any fitter. What
+`converged` means, and why the relative step alone is not enough, is under
+*Choices worth knowing about*.
 
 ## Quality control before the model
 
@@ -526,17 +532,42 @@ maintainer address in DESCRIPTION.
 
 ## Choices worth knowing about
 
-Convergence is judged on the RELATIVE change in the components,
-`sqrt(sum(dtheta^2) / sum(theta^2)) < tol`, with a default of 1e-8: never an absolute
-threshold on the score, which grows with the number of records. Coming from the BLUPF90
-family, mind the scale: those programs test that quantity squared, so a card's
+Convergence takes TWO things, not one. The step criterion is the RELATIVE change in the
+components, `sqrt(sum(dtheta^2) / sum(theta^2)) < tol`, with a default of 1e-8: never an
+absolute threshold on the score, which grows with the number of records. Coming from the
+BLUPF90 family, mind the scale: those programs test that quantity squared, so a card's
 `conv_crit` is this `tol` squared. A 1e-12 there is `tol = 1e-6` here, and the 1e-8
 default here would be 1e-16 on that scale.
 
-Fits start from `var(y)`, never from a previous fit's estimates, so a run cannot inherit
-a neighbour's answer. A covariance that stops being positive-definite ends the fit
-instead of being nudged back into range, and a fit that did not converge says so in the
-print, in the message and in the object.
+A small step is not an optimum, though. A damped step can accept a tiny move with the
+gradient still far from zero, so `converged` also requires the NEWTON DECREMENT,
+`g' AI^-1 g`, which is about twice the remaining gap in -2logL, to fall under 2e-4. It is
+reported as `newton_dec`, next to `score`, so the certificate can be read rather than
+trusted. Components resting at a covariance boundary are excluded from it, because a
+component pinned there points out of the cone by construction and its gradient never
+vanishes; when that happens the message says how many were excluded, and the
+certification is conditional on that pinning.
+
+Fits start from `var(y)` by default, so a run does not inherit a neighbour's answer by
+accident. Two adjustments in `model_mt()` and `model_ar1()` keep that default meaning the
+same thing when the model is written differently. The share of a term whose covariance is
+user-supplied is divided by the geometric mean of that matrix's eigenvalues, so the same
+model with `K` and with `c * K` starts at equivalent points; without it, `c = 25` used to
+land 146 units of -2logL away from `c = 1`, reporting convergence in both. And the AR(1)
+`rho` starts from the correlation at the typical spacing, `0.3^(1/dt)`, so the same series
+written in days or in weeks starts at the same place; `rho = 0` is a stationary point of
+that parameterisation whenever no two times differ by exactly 1, which used to return
+`rho = 0` with `converged = TRUE`. `model()` carries neither adjustment and does not need
+them: measured on the same cell, it reaches the same optimum from either scaling of `K`.
+
+When you do want a different start, `start=` takes one in `model()`, `model_mt()` and
+`model_ar1()` alike: to warm-start from a submodel, or to check that the optimum does not
+depend on where the search began, which is the only direct evidence of a global optimum a
+non-convex likelihood offers.
+
+A covariance that stops being positive-definite ends the fit instead of being nudged back
+into range, and a fit that did not converge says so in the print, in the message and in
+the object.
 
 The data rules are equally deliberate. An unknown genotype code becomes NA and is
 imputed by the marker mean; it never becomes the zero genotype, which is a real
@@ -548,8 +579,8 @@ cited without a line of its own is an error rather than a new founder.
 
 If this package contributed to published work, please cite it:
 
-> Freitas, F. A. O. (2026). BreedingR: variance components and breeding values by
-> AI-REML and single step. R package.
+> Freitas, F. A. O. (2026). BreedingR: genetic parameters, breeding values and
+> genomic prediction in R. R package version 0.3.0.
 
 Developed during doctoral research at ESALQ/USP (Universidade de São Paulo), supported by
 

@@ -1,6 +1,6 @@
 {
-  "title": "BreedingR: variance components and breeding values by AI-REML and single step",
-  "description": "<p>A self-contained R engine for quantitative genetic evaluation. It grew out of doctoral research as a place to put specific models into practice without waiting on an external engine: reaction norms on an environmental gradient, indirect genetic effects in group housing, and residuals that carry serial correlation. The numerics are written in the package itself, in C++ compiled by R CMD INSTALL, with no run-time dependency on any other package.</p><p><strong>Variance components and breeding values.</strong> AI-REML with an analytic score, average information, EM warm-up and an EM rescue, walking in log-Cholesky coordinates so a covariance boundary is a limit rather than a wall; convergence certified by the Newton decrement of the off-boundary components, not by step size alone. Breeding values and their accuracy come from the same sparse factorisation through the selected inverse. A block Gibbs sampler fits the same designs.</p><p><strong>Model families, as formula terms rather than separate programs.</strong> Animal model and repeatability; direct-maternal with the correlation between the two estimated; reaction norms on a Legendre basis; indirect (social, associative) genetic effects with group-size dilution and the exact associative residual covariance; multi-trait with a full residual matrix and missingness by pattern; AR(1)/CAR(1) residuals for longitudinal data, including the separable multi-trait form. The layout unit is the covariance group, which is why terms that usually need dedicated software share one engine here.</p><p><strong>Beyond the Gaussian trunk.</strong> Ordered categorical traits on a probit liability, alone or jointly with a quantitative trait; time until failure by the Weibull frailty model, where a right-censored record is a lower bound and not a missing value; competitive ability estimated from grouped contests.</p><p><strong>Relationships.</strong> Pedigree A-inverse by Henderson's rules with Meuwissen-Luo inbreeding; metafounders with a full base relationship matrix, singular cases handled by the pseudo-inverse; multibreed partial relationship matrices; dominance and epistasis kernels, including higher orders; and any declared covariance matrix through a kernel term.</p><p><strong>Genomics.</strong> Single-step with the exact G-inverse, APY, or Vecchia recursions; markers as equations by conjugate gradients (ssSNPBLUP), which never forms G; marker effects backsolved from the single-step fit; PLINK input.</p><p><strong>Around the fit.</strong> Genotype and phenotype quality control that reports what it removed, heritability curves, genetic correlations, selection indices, rank drift, likelihood profiles, standard errors of arbitrary functions of the components, thermal indices for heat-stress work, selection-signature scans (Fst and runs of homozygosity), a gene-dropping simulator, and Monte Carlo studies.</p>",
+  "title": "BreedingR: genetic parameters, breeding values and genomic prediction in R",
+  "description": "<p>A self-contained R engine for quantitative genetic evaluation. It grew out of doctoral research and is where the author tries out new ideas and puts specific models into practice: reaction norms on an environmental gradient, indirect genetic effects in group housing, and residuals that carry serial correlation. The numerics are written in the package itself, in C++ compiled by R CMD INSTALL, with no run-time dependency on any other package.</p><p><strong>Variance components and breeding values.</strong> AI-REML with an analytic score, average information, EM warm-up and an EM rescue, walking in log-Cholesky coordinates so a covariance boundary is a limit rather than a wall; convergence certified by the Newton decrement of the off-boundary components, not by step size alone. Breeding values and their accuracy come from the same sparse factorisation through the selected inverse. A block Gibbs sampler fits the same designs.</p><p><strong>Model families, as formula terms rather than separate programs.</strong> Animal model and repeatability; direct-maternal with the correlation between the two estimated; reaction norms on a Legendre basis; indirect (social, associative) genetic effects with group-size dilution and the exact associative residual covariance; multi-trait with a full residual matrix and missingness by pattern; AR(1)/CAR(1) residuals for longitudinal data, including the separable multi-trait form. The layout unit is the covariance group, which is why terms that usually need dedicated software share one engine here.</p><p><strong>Beyond the Gaussian trunk.</strong> Ordered categorical traits on a probit liability, alone or jointly with a quantitative trait; time until failure by the Weibull frailty model, where a right-censored record is a lower bound and not a missing value; competitive ability estimated from grouped contests.</p><p><strong>Relationships.</strong> Pedigree A-inverse by Henderson's rules with Meuwissen-Luo inbreeding; metafounders with a full base relationship matrix, singular cases handled by the pseudo-inverse; multibreed partial relationship matrices; dominance and epistasis kernels, including higher orders; and any declared covariance matrix through a kernel term.</p><p><strong>Genomics.</strong> Single-step with the exact G-inverse, APY, or Vecchia recursions; markers as equations by conjugate gradients (ssSNPBLUP), which never forms G; marker effects backsolved from the single-step fit; PLINK input.</p><p><strong>Around the fit.</strong> Genotype and phenotype quality control that reports what it removed, heritability curves, genetic correlations, selection indices, rank drift, likelihood profiles, standard errors of arbitrary functions of the components, thermal indices for heat-stress work, selection-signature scans (Fst and runs of homozygosity), a gene-dropping simulator, and Monte Carlo studies.</p>",
   "upload_type": "software",
   "license": "MIT",
   "access_right": "open",
@@ -11,18 +11,41 @@
     }
   ],
   "keywords": [
-    "animal breeding", "quantitative genetics", "AI-REML", "variance components",
-    "BLUP", "single-step genomic prediction", "ssGBLUP", "reaction norm",
-    "indirect genetic effects", "social genetic effects", "genotype by environment",
-    "threshold model", "survival analysis", "multi-trait", "AR(1) residual",
-    "metafounders", "dominance", "epistasis", "APY", "Gibbs sampler",
-    "user-defined relationship matrix", "custom covariance structure",
-    "kernel methods", "genomic relationship matrix",
-    "selection signatures", "heat stress", "R package"
+    "animal breeding",
+    "quantitative genetics",
+    "AI-REML",
+    "variance components",
+    "BLUP",
+    "single-step genomic prediction",
+    "ssGBLUP",
+    "reaction norm",
+    "indirect genetic effects",
+    "social genetic effects",
+    "genotype by environment",
+    "threshold model",
+    "survival analysis",
+    "multi-trait",
+    "AR(1) residual",
+    "metafounders",
+    "dominance",
+    "epistasis",
+    "APY",
+    "Gibbs sampler",
+    "user-defined relationship matrix",
+    "custom covariance structure",
+    "kernel methods",
+    "genomic relationship matrix",
+    "selection signatures",
+    "heat stress",
+    "R package"
   ],
   "grants": [
-    {"id": "10.13039/501100001807::2024/15502-6"},
-    {"id": "10.13039/501100001807::2025/02949-5"}
+    {
+      "id": "10.13039/501100001807::2024/15502-6"
+    },
+    {
+      "id": "10.13039/501100001807::2025/02949-5"
+    }
   ],
   "notes": "Developed during doctoral research at ESALQ/USP with support from the Sao Paulo Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5 (BEPE); the Coordenacao de Aperfeicoamento de Pessoal de Nivel Superior (CAPES), Finance Code 001; and the Conselho Nacional de Desenvolvimento Cientifico e Tecnologico (CNPq). The opinions, hypotheses and conclusions expressed here are the author's own and do not necessarily reflect the views of the funding agencies.",
   "language": "eng"

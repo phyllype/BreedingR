@@ -2,14 +2,14 @@ citHeader("To cite BreedingR in publications, use:")
 
 bibentry(
   bibtype = "Manual",
-  title   = "BreedingR: variance components and breeding values by AI-REML and single step",
+  title   = "BreedingR: genetic parameters, breeding values and genomic prediction in R",
   author  = person("Felipe Andre Oliveira", "Freitas"),
   year    = "2026",
   note    = "R package version 0.3.0",
   url     = "https://github.com/phyllype/BreedingR",
   textVersion = paste(
-    "Freitas, F. A. O. (2026). BreedingR: variance components and breeding values",
-    "by AI-REML and single step. R package version 0.3.0.",
+    "Freitas, F. A. O. (2026). BreedingR: genetic parameters, breeding values",
+    "and genomic prediction in R. R package version 0.3.0.",
     "https://github.com/phyllype/BreedingR")
 )
 

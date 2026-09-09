@@ -1,6 +1,6 @@
 Package: BreedingR
 Type: Package
-Title: Variance Components and Breeding Values by AI-REML and Single Step
+Title: Genetic Parameters, Breeding Values and Genomic Prediction
 Version: 0.3.0
 Authors@R: person("Felipe Andre Oliveira", "Freitas", role = c("aut", "cre"),
                   email = "phyllype.freitas@gmail.com")

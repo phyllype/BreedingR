@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: "BreedingR: variance components and breeding values by AI-REML and single step"
+title: "BreedingR: genetic parameters, breeding values and genomic prediction in R"
 message: "If you use this software, please cite it as below."
 type: software
 authors:
