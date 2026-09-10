@@ -5,11 +5,11 @@ bibentry(
   title   = "BreedingR: genetic parameters, breeding values and genomic prediction in R",
   author  = person("Felipe Andre Oliveira", "Freitas"),
   year    = "2026",
-  note    = "R package version 0.3.0",
+  note    = "R package version 0.4.0",
   url     = "https://github.com/phyllype/BreedingR",
   textVersion = paste(
     "Freitas, F. A. O. (2026). BreedingR: genetic parameters, breeding values",
-    "and genomic prediction in R. R package version 0.3.0.",
+    "and genomic prediction in R. R package version 0.4.0.",
     "https://github.com/phyllype/BreedingR")
 )
 

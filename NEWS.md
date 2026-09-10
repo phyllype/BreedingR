@@ -1,3 +1,91 @@
+# BreedingR 0.4.0
+
+## New
+
+* `kernel(id, K = , fixed = v)` holds a declared component at a given value
+  instead of estimating it, and `kernel()` now exists in `model_mt()` and
+  `model_ar1()` as well. The K is built once, in `kinv_declarada()`, which all
+  three fitters call, so there is no second implementation to drift.
+* `start = ` in `model_mt()` and `model_ar1()`, which their own stopping message
+  had been recommending with no way to act on it.
+* Metafounders take a full Gamma matrix and not only its diagonal, so the
+  ancestral relationship BETWEEN two base populations is a parameter rather than
+  an assumption. A singular Gamma goes through the pseudo-inverse instead of
+  being refused: `gamma = 0` is the unknown-parent-group limit.
+* Epistatic relationships beyond additive-by-additive: `g_epistasis_ad()`,
+  `g_epistasis_dd()` and `g_epistasis_order()`.
+* `associative_matrix()`, the exact residual covariance of the associative
+  model, s2_ED I + s2_ES [I + (n-2) J], checked by Monte Carlo and by an
+  independent derivation. It carries the measured warning that without a
+  relative sharing a pen the social genetic and social environmental components
+  are perfectly aliased and only their sum is estimable.
+* Every iterative fitter prints where the estimates are while it runs, grouped
+  by term, so a covariance matrix reads as a matrix.
+
+## Fixed
+
+* The convergence certificate in `model_mt()` and `model_ar1()` was computed in
+  theta while the step had already moved to log-Cholesky coordinates, with an
+  active set of its own. A clamped direction was frozen in the step and charged
+  in full in the certificate: a fit sat 980 iterations with the decrement stuck
+  at 3.25e+03 at a point a coordinate descent improved by 0.200 units.
+* `kernel()` in the mirrors read past the end of a vector when K was not
+  positive definite, which was a segmentation fault with no error and no stack.
+* The AR(1) `rho` depended on the unit the time was measured in. dGamma/drho is
+  zero at rho = 0 for every spacing above 1, and the start was rho = 0, so with
+  no pair of times exactly 1 apart the score and the whole AI row were born
+  null: the same series with rho = 0.6 gave 0.563 at spacing 1 and 0.000000 at
+  spacings 2 and 7, both reporting `converged = TRUE`. The start now fixes the
+  correlation at the typical spacing, rho0 = 0.3^(1/dt).
+* The jacobian of the `indirect_residual()` profile summed log(w) over the whole
+  table while the -2logL covers only the rows used. With equal pens the correct
+  profile is exactly flat; the old one was a ramp whose minimum is always at
+  k = 0, which reported no social residual component on data that has one.
+* `accuracy()` divided by the prior the animal actually has, in a two-term
+  covariance group.
+* The mirrors measured the rank of X over the whole table instead of over the
+  rows that entered the equations.
+* A marker argument with a misspelled name passed silently. `animal(grupo = )`
+  now says the argument does not exist, suggests `group`, and lists what the
+  marker takes.
+* Metafounders combined with genotypes are refused rather than silently
+  correcting the base twice.
+* `br_version()` reported 0.1.0 while the package was at 0.3.0: the string is a
+  constant in `src/entrada.cpp` and nothing tied it to DESCRIPTION. It is now
+  compared against `packageVersion()` by a gate, so the two cannot drift again.
+
+## Performance
+
+* The single step by APY delivers the speed it exists for. `H^-1` was storing
+  the exact zeros of the young block, so the factorization stayed cubic in the
+  genotyped animals and APY bought numerical stability and nothing else:
+  12.10 s/iter dense against 11.76 with a core of 300, and at 600 genotyped it
+  was 4 times SLOWER. Total time to convergence now, median of 3 runs:
+  16.4 to 8.2 s at 600 genotyped, 50.9 to 28.7 s at 1200, 111.3 to 29.4 s at
+  2400. The gate asserts the structure, `nc(nc+1)/2 + nc*nj + nj` nonzeros,
+  rather than the clock.
+
+## Gates
+
+* The 19 declared restrictions of `docs/RESTRICOES.md` carry the file and line
+  they came from, and each one says whether it is open, done, or a limit that is
+  mathematically correct and whose deliverable is a message.
+* New gates for the declared kernels in the mirrors, the equivariant starts, the
+  refusal of genomic metafounders, the AR(1) time unit, the `indirect_residual()`
+  jacobian, the associative covariance, the marker arguments, the APY sparsity,
+  and the version constant.
+* `R CMD check` runs on every push through GitHub Actions, on macOS, on Windows
+  and on three versions of R under Ubuntu.
+
+## Docs
+
+* Every help page has a `alue` section, and a reference to another function is
+  a link rather than the literal text `[model()]`: roxygen markdown is on.
+* `CONTRIBUTING.md`, plus `URL` and `BugReports` in DESCRIPTION, so the package
+  says from the inside where it lives and where a problem should go.
+* A vignette deriving the contest estimators from the multinomial, and a guide
+  that starts where a session starts, at the files.
+
 # BreedingR 0.3.0
 
 ## New

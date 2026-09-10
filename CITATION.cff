@@ -26,6 +26,6 @@ keywords:
   - single-step genomic prediction
   - reaction norm
   - indirect genetic effects
-version: 0.3.0
+version: 0.4.0
 license: MIT
 license-url: "https://github.com/phyllype/BreedingR/blob/main/LICENSE"
