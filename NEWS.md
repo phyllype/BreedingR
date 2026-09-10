@@ -65,6 +65,18 @@
   2400. The gate asserts the structure, `nc(nc+1)/2 + nc*nj + nj` nonzeros,
   rather than the clock.
 
+## License
+
+* GPL-3, replacing MIT, decided before the repository was ever made public and so
+  with nothing already granted to anyone. MIT let anyone take the engine, extend
+  it and ship the result closed; GPL-3 asks that a distributed derivative carry
+  the same licence and ship its source. Research use and publication are
+  unaffected, which is where citation comes from.
+* The MIT two-line stub in `LICENSE` is gone, because it exists only for template
+  licences. `License: GPL-3` in DESCRIPTION is a standard R abbreviation and needs
+  no file: `LICENSE.md` carries the full text for anyone reading the repository,
+  and stays out of the tarball as R asks, since R already ships a copy.
+
 ## Gates
 
 * The 19 declared restrictions of `docs/RESTRICOES.md` carry the file and line

@@ -588,6 +588,21 @@ https://github.com/phyllype/BreedingR/issues
 `CONTRIBUTING.md` says what makes a report easy to act on, and what a pull request is
 checked against.
 
+## License
+
+GPL-3. Copyright (C) 2026 Felipe Andre Oliveira Freitas.
+
+This program is free software: you can redistribute it and modify it under the terms of
+the GNU General Public License, version 3, as published by the Free Software Foundation.
+It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY, without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. The
+full text is in `LICENSE.md` and at <https://www.gnu.org/licenses/>.
+
+What that means day to day: use it, read it, change it and pass it on. What it asks in
+return is that anything built on it and distributed carries the same licence and ships
+its source. Running it for research and publishing the results is exactly what it is for,
+and the citation below is the only thing asked there.
+
 ## Citation and funding
 
 If this package contributed to published work, please cite it:

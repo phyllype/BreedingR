@@ -19,7 +19,7 @@ Description: Variance component estimation by AI-REML, breeding values, accuracy
     Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5; the Coordenacao de
     Aperfeicoamento de Pessoal de Nivel Superior (CAPES), Finance Code 001; and the
     Conselho Nacional de Desenvolvimento Cientifico e Tecnologico (CNPq).
-License: MIT + file LICENSE
+License: GPL-3
 URL: https://github.com/phyllype/BreedingR
 BugReports: https://github.com/phyllype/BreedingR/issues
 Encoding: UTF-8
