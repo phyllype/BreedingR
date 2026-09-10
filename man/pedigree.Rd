@@ -21,8 +21,8 @@ declared error). Metafounders enter as virtual base rows of A(Gamma) after
 Legarra et al. (2015)}
 
 \item{gamma}{the base relationship matrix of the metafounders. Either a vector of
-length `n_metafounders`, read as the DIAGONAL, or a full symmetric
-`n_metafounders x n_metafounders` matrix. The off-diagonal `gamma_jk` is the
+length \code{n_metafounders}, read as the DIAGONAL, or a full symmetric
+\verb{n_metafounders x n_metafounders} matrix. The off-diagonal \code{gamma_jk} is the
 ancestral relationship BETWEEN two base populations, which is what a multibreed
 analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
 opposite directions. Admissibility is positive SEMI-definiteness, tested by a
@@ -62,8 +62,8 @@ not separate an MGS pedigree from any pedigree that draws both parents from one 
 }
 \references{
 Meuwissen, T.H.E. & Luo, Z. (1992). Computing inbreeding coefficients
-  in large populations. Genetics Selection Evolution 24:305-313.
+in large populations. Genetics Selection Evolution 24:305-313.
 
-  Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
-  Ancestral relationships using metafounders. Genetics 200:455-468.
+Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
+Ancestral relationships using metafounders. Genetics 200:455-468.
 }

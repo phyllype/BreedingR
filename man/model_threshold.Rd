@@ -18,9 +18,9 @@ model_threshold(
 )
 }
 \arguments{
-\item{formula}{as in [model()]: fixed class effects, `cov()` covariates, and random
-terms among `animal()`, `sire()` and `random()`. `rn()`, `indirect()` and
-`group=` are not available here. `cbind(quant, bin)` on the left-hand side
+\item{formula}{as in \code{\link[=model]{model()}}: fixed class effects, \code{cov()} covariates, and random
+terms among \code{animal()}, \code{sire()} and \code{random()}. \code{rn()}, \code{indirect()} and
+\verb{group=} are not available here. \code{cbind(quant, bin)} on the left-hand side
 switches to the joint analysis.}
 
 \item{data}{data.frame with the columns referenced. The categorical trait can be
@@ -28,17 +28,17 @@ integer codes, character or factor; categories are ordered by factor level order
 or by sort order otherwise. In the joint mode the second trait must have exactly
 two values (the larger one is the "difficulty").}
 
-\item{pedigree}{data.frame animal, sire, dam; required with `animal()` or `sire()`
-unless `k_inverse` is given}
+\item{pedigree}{data.frame animal, sire, dam; required with \code{animal()} or \code{sire()}
+unless \code{k_inverse} is given}
 
 \item{start}{MANDATORY. Ordinal mode: one variance per random term, in formula
-order, on the liability scale (the residual is fixed at 1 and is not in `start`).
-Joint mode: `list(G = 2x2 genetic matrix, R = 2x2 residual matrix)`.}
+order, on the liability scale (the residual is fixed at 1 and is not in \code{start}).
+Joint mode: \verb{list(G = 2x2 genetic matrix, R = 2x2 residual matrix)}.}
 
 \item{k_inverse}{the inverse of the relationship matrix for the relationship term,
-replacing the `A^-1` built from `pedigree`: either triplets
-`list(i, j, x, n, id)` as [a_inverse()] returns, or a dense symmetric matrix with
-the ids as `dimnames`. This is the door for a relationship the pedigree path
+replacing the \code{A^-1} built from \code{pedigree}: either triplets
+\code{list(i, j, x, n, id)} as \code{\link[=a_inverse]{a_inverse()}} returns, or a dense symmetric matrix with
+the ids as \code{dimnames}. This is the door for a relationship the pedigree path
 cannot build -- the book's sire / maternal-grandsire matrix of Example 15.2
 (p.278) enters here.}
 
@@ -51,62 +51,63 @@ normal quantiles of the cumulative category proportions, as the book does (p.267
 \item{maxiter}{maximum number of Fisher scoring iterations}
 
 \item{tol}{RELATIVE tolerance on the full solution vector,
-`sqrt(sum(delta^2) / sum(sol^2))`, same convention as the other fitters}
+\code{sqrt(sum(delta^2) / sum(sol^2))}, same convention as the other fitters}
 
 \item{verbose}{print one line per scoring iteration with the relative step (the
 convergence criterion itself)}
 }
 \value{
-an object of class `breeding_fit_thr`. Ordinal mode: `thresholds` (with
-  `se_thresholds` from the generalized inverse, the book's p.271 column), `theta`
-  (the GIVEN components plus `var(residual) = 1`), `b` and `se_b` (named
-  `term=level`), `ebv` and `pev` per random term (liability scale; [ebv()] and
-  [accuracy()] work), `categories`, and the convergence fields of every fitter.
-  [predict()] on the fit returns the per-category probabilities, the number the
-  book actually delivers (p.272-273). Joint mode: `b` and `ebv` come named
-  `...|trait`; `nu` holds the corrected liability solutions, `b_regression` the
-  residual regression, and `G`, `R`, `Gc` the matrices used; `pev` and
-  `predict()` are not available there (a declared limit).
+an object of class \code{breeding_fit_thr}. Ordinal mode: \code{thresholds} (with
+\code{se_thresholds} from the generalized inverse, the book's p.271 column), \code{theta}
+(the GIVEN components plus \code{var(residual) = 1}), \code{b} and \code{se_b} (named
+\code{term=level}), \code{ebv} and \code{pev} per random term (liability scale; \code{\link[=ebv]{ebv()}} and
+\code{\link[=accuracy]{accuracy()}} work), \code{categories}, and the convergence fields of every fitter.
+\code{\link[=predict]{predict()}} on the fit returns the per-category probabilities, the number the
+book actually delivers (p.272-273). Joint mode: \code{b} and \code{ebv} come named
+\code{...|trait}; \code{nu} holds the corrected liability solutions, \code{b_regression} the
+residual regression, and \code{G}, \code{R}, \code{Gc} the matrices used; \code{pev} and
+\code{predict()} are not available there (a declared limit).
 }
 \description{
 The trait is a set of m ordered categories (binary is the m = 2 case). The model
 lives on an unobserved normal liability with m - 1 thresholds: the probability of
-category k is `F(t_k - a) - F(t_(k-1) - a)` with `a = x'b + z'u` (probit link,
+category k is \code{F(t_k - a) - F(t_(k-1) - a)} with \verb{a = x'b + z'u} (probit link,
 Eqn 15.5 of Mrode & Pocrnic). The system of Gianola & Foulley (1983) is solved by
-Fisher scoring, with the same `A^-1` penalty on the genetic term the Gaussian
+Fisher scoring, with the same \code{A^-1} penalty on the genetic term the Gaussian
 fitters use.
 }
 \details{
-TWO CONVENTIONS, both forced by identifiability and both different from [model()]:
+TWO CONVENTIONS, both forced by identifiability and both different from \code{\link[=model]{model()}}:
+\itemize{
+\item the residual variance on the liability scale is FIXED at 1. The liability is not
+observed, so it is only defined up to scale; s2e = 1 sets the scale, as the book
+does throughout chapter 15.
+\item there is NO implicit intercept: the thresholds take its place, and the FIRST level
+of every fixed class factor is dropped (solution zero), which sets the origin.
+Levels come in factor order when the column is a factor, alphabetical order
+otherwise. To compare against a table that zeroes some other level, compare
+CONTRASTS, or pass the column as a factor with the reference level first.
+}
 
-* the residual variance on the liability scale is FIXED at 1. The liability is not
-  observed, so it is only defined up to scale; s2e = 1 sets the scale, as the book
-  does throughout chapter 15.
-* there is NO implicit intercept: the thresholds take its place, and the FIRST level
-  of every fixed class factor is dropped (solution zero), which sets the origin.
-  Levels come in factor order when the column is a factor, alphabetical order
-  otherwise. To compare against a table that zeroes some other level, compare
-  CONTRASTS, or pass the column as a factor with the reference level first.
-
-THE COMPONENTS ARE GIVEN, NOT ESTIMATED. `start=` is mandatory: one variance per
+THE COMPONENTS ARE GIVEN, NOT ESTIMATED. \verb{start=} is mandatory: one variance per
 random term, on the liability scale. That is how the book uses the model (both
 examples of chapter 15 fix the components), and it is a declared limit of this
 fitter: REML estimation on the liability scale needs a marginal likelihood this
 package does not compute. Estimate the components on a related Gaussian trait, take
-them from literature, or convert an observed-scale h2 with [h2_liability()].
+them from literature, or convert an observed-scale h2 with \code{\link[=h2_liability]{h2_liability()}}.
 
 JOINT QUANTITATIVE + BINARY ANALYSIS (Foulley et al. 1983; section 15.3 of the
-book). With `cbind(quant, bin)` on the left-hand side the fit is the joint one: a
+book). With \code{cbind(quant, bin)} on the left-hand side the fit is the joint one: a
 linear model for the quantitative trait and a threshold model for the binary one,
-tied by the residual regression `b1 = r12 / (sqrt(r11) sqrt(1 - r12^2))`
-(Eqn 15.22) and the reparametrized genetic covariance `Gc = C G C'` (Eqn 15.16).
-In this mode `start = list(G =, R =)` with the 2x2 genetic and residual matrices
-(`R[2,2]` on the liability scale), the FIRST fixed class factor keeps all its
+tied by the residual regression \verb{b1 = r12 / (sqrt(r11) sqrt(1 - r12^2))}
+(Eqn 15.22) and the reparametrized genetic covariance \verb{Gc = C G C'} (Eqn 15.16).
+In this mode \code{start = list(G =, R =)} with the 2x2 genetic and residual matrices
+(\code{R[2,2]} on the liability scale), the FIRST fixed class factor keeps all its
 levels (it carries the quantitative intercept and absorbs the threshold, which the
 book says "has no interest", p.275), exactly one relationship term is accepted, and
-the EBV of the binary trait is `u2 = nu + b1 * u1` -- the value the book recommends
+the EBV of the binary trait is \code{u2 = nu + b1 * u1} -- the value the book recommends
 for ranking (p.281), already using the quantitative information. The genetic
-parameters reported in `theta` are read from G, NOT from Gc: reading h2 off Gc is
+parameters reported in \code{theta} are read from G, NOT from Gc: reading h2 off Gc is
 the documented trap (g22 of Gc gives 0.117 where the book prints 0.18).
 }
 \examples{
@@ -134,10 +135,10 @@ ebv(fit)                # the four sires on the liability scale
 }
 \references{
 Gianola, D. & Foulley, J.L. (1983) Sire evaluation for ordered
-  categorical data with a threshold model. Genet. Sel. Evol. 15, 201-224.
-  Foulley, J.L., Gianola, D. & Thompson, R. (1983) Prediction of genetic merit from
-  data on binary and quantitative variates with an application to calving
-  difficulty, birth weight and pelvic opening. Genet. Sel. Evol. 15, 401-424.
-  Mrode, R.A. & Pocrnic, I. (2023) Linear Models for the Prediction of the Genetic
-  Merit of Animals, 4th ed., chapter 15.
+categorical data with a threshold model. Genet. Sel. Evol. 15, 201-224.
+Foulley, J.L., Gianola, D. & Thompson, R. (1983) Prediction of genetic merit from
+data on binary and quantitative variates with an application to calving
+difficulty, birth weight and pelvic opening. Genet. Sel. Evol. 15, 401-424.
+Mrode, R.A. & Pocrnic, I. (2023) Linear Models for the Prediction of the Genetic
+Merit of Animals, 4th ed., chapter 15.
 }

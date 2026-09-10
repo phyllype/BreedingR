@@ -22,18 +22,18 @@ model_mt(
 )
 }
 \arguments{
-\item{formula}{with `cbind()` on the left-hand side: `cbind(p1, p2) ~ cg + animal(id)`. The
+\item{formula}{with \code{cbind()} on the left-hand side: \code{cbind(p1, p2) ~ cg + animal(id)}. The
 same effects apply to all traits; each covariance group gains the GENETIC
 covariances between traits, and the residual becomes the full R0 matrix.
-A missing trait (NA or the `missing_code` code) does not drop the record: it enters
+A missing trait (NA or the \code{missing_code} code) does not drop the record: it enters
 with the R0 submatrix of its observation pattern.}
 
 \item{data}{data.frame}
 
 \item{pedigree}{data.frame animal, sire, dam}
 
-\item{genotypes}{list with `ids` and `m` (0/1/2 matrix) for single-step; NA is imputed
-by the mean, as in [model()]}
+\item{genotypes}{list with \code{ids} and \code{m} (0/1/2 matrix) for single-step; NA is imputed
+by the mean, as in \code{\link[=model]{model()}}}
 
 \item{blend}{weight of A22 in the G blend (0.05 by default)}
 
@@ -44,26 +44,26 @@ animal conditions on its k strongest previous relationships instead of a global
 core (the generalization of APY; Henderson's A^-1 is the pedigree case, with the
 parents as the conditioning set). k >= n - 1 reproduces the exact inverse; the
 result message says it is an approximation and with which k. Mutually exclusive
-with `apy_core`}
+with \code{apy_core}}
 
 \item{missing_code}{missing-value code}
 
-\item{start}{starting values for the components, in the order the fit reports them.
-Use it to warm-start from a submodel, or to check that the optimum does not depend on
-where the search began. Without it the start comes from \code{var(y)}, divided by the
-geometric mean of a declared kernel's eigenvalues so that the same model with \code{K}
-and with \code{c * K} starts at equivalent points.}
+\item{start}{starting values for the components, in the order the fit reports
+them. Use it to warm-start from a submodel, or to check that the optimum does
+not depend on where the search began. Without it the start comes from \code{var(y)},
+divided by the geometric mean of a declared kernel's eigenvalues so that the
+same model with \code{K} and with \code{c * K} starts at equivalent points.}
 
 \item{maxiter}{maximum number of iterations; a fit that hits the ceiling says so in
-`message` and how to raise it}
+\code{message} and how to raise it}
 
 \item{tol}{relative tolerance on the components, sqrt(sum delta^2 / sum theta^2);
-see the BLUPF90 scale note in [model()]. The Newton decrement g' AI^-1 g is
-computed at the final point and reported in `newton_dec` (components at a
+see the BLUPF90 scale note in \code{\link[=model]{model()}}. The Newton decrement g' AI^-1 g is
+computed at the final point and reported in \code{newton_dec} (components at a
 covariance boundary excluded, since this walker cannot follow a singular
-boundary), but unlike [model()] it does not gate `converged` here: this fitter
+boundary), but unlike \code{\link[=model]{model()}} it does not gate \code{converged} here: this fitter
 steps in raw theta and can jam whole against a boundary, so a decrement above
-2e-4 becomes a WARNING in `message` instead — read it before trusting a fit
+2e-4 becomes a WARNING in \code{message} instead — read it before trusting a fit
 near a boundary. The hard certificate lives in the univariate fitter}
 
 \item{metafounders}{labels of unknown-parent groups; a parent with one of these
@@ -72,8 +72,8 @@ declared error). Metafounders enter as virtual base rows of A(Gamma) after
 Legarra et al. (2015)}
 
 \item{gamma}{the base relationship matrix of the metafounders. Either a vector of
-length `n_metafounders`, read as the DIAGONAL, or a full symmetric
-`n_metafounders x n_metafounders` matrix. The off-diagonal `gamma_jk` is the
+length \code{n_metafounders}, read as the DIAGONAL, or a full symmetric
+\verb{n_metafounders x n_metafounders} matrix. The off-diagonal \code{gamma_jk} is the
 ancestral relationship BETWEEN two base populations, which is what a multibreed
 analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
 opposite directions. Admissibility is positive SEMI-definiteness, tested by a
@@ -91,10 +91,10 @@ is a progress report instead of silence. Defaults to interactive() — live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 }
 \value{
-an object of class `breeding_fit_mt`; besides the fields of [model()], the
-  fixed-effect solutions `b` come named `term=level|trait`, one entry per column of X
-  and per trait. The parametrization note of [model()] applies: dropped columns are
-  in `dropped_x` and only contrasts compare against a reference-level convention.
+an object of class \code{breeding_fit_mt}; besides the fields of \code{\link[=model]{model()}}, the
+fixed-effect solutions \code{b} come named \code{term=level|trait}, one entry per column of X
+and per trait. The parametrization note of \code{\link[=model]{model()}} applies: dropped columns are
+in \code{dropped_x} and only contrasts compare against a reference-level convention.
 }
 \description{
 Fits a multi-trait mixed model by AI-REML

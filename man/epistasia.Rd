@@ -14,23 +14,23 @@ g_epistasis_dd(d)
 g_epistasis_order(g, order = 2L)
 }
 \arguments{
-\item{g}{additive relationship matrix, as from [g_matrix()]}
+\item{g}{additive relationship matrix, as from \code{\link[=g_matrix]{g_matrix()}}}
 
-\item{d}{dominance relationship matrix, as from [g_dominance()]}
+\item{d}{dominance relationship matrix, as from \code{\link[=g_dominance]{g_dominance()}}}
 
-\item{order}{for `g_epistasis_order()`, how many additive factors to multiply: 2 is
-[g_epistasis()], 3 is additive-by-additive-by-additive}
+\item{order}{for \code{g_epistasis_order()}, how many additive factors to multiply: 2 is
+\code{\link[=g_epistasis]{g_epistasis()}}, 3 is additive-by-additive-by-additive}
 }
 \value{
 relationship matrix with the dimnames of the input, rescaled to unit mean
-  diagonal; ridge it before `kernel()` if the input was singular
+diagonal; ridge it before \code{kernel()} if the input was singular
 }
 \description{
-The Hadamard construction of [g_epistasis()] is not restricted to additive-by-additive.
+The Hadamard construction of \code{\link[=g_epistasis]{g_epistasis()}} is not restricted to additive-by-additive.
 Under the orthogonal partition the relationship matrix of an interaction between two
-effect types is the elementwise product of their relationship matrices, so with `G` the
-additive and `D` the dominance matrix, `G_AD = G * D` and `G_DD = D * D`, each rescaled
-so its diagonal averages one. Higher orders follow the same rule: `G_AAA = G * G * G`.
+effect types is the elementwise product of their relationship matrices, so with \code{G} the
+additive and \code{D} the dominance matrix, \code{G_AD = G * D} and \code{G_DD = D * D}, each rescaled
+so its diagonal averages one. Higher orders follow the same rule: \code{G_AAA = G * G * G}.
 }
 \details{
 Two warnings that belong with the formula rather than after it. The orthogonality that

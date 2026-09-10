@@ -7,17 +7,17 @@
 genomic_inbreeding(genotypes)
 }
 \arguments{
-\item{genotypes}{list with `ids` and `m` (animals x markers, 0/1/2 coded); markers
+\item{genotypes}{list with \code{ids} and \code{m} (animals x markers, 0/1/2 coded); markers
 with NA are left out of that animal's denominator}
 }
 \value{
 named vector of genomic inbreeding coefficients, one per genotyped animal
 }
 \description{
-`f = 1 - h/N`, the proportion of homozygous SNPs per animal (Mrode & Pocrnic, 4th
-ed., Eqn 13.10-13.11, p.234-235). Fitted as a fixed covariate, `cov(f)`, its
+\code{f = 1 - h/N}, the proportion of homozygous SNPs per animal (Mrode & Pocrnic, 4th
+ed., Eqn 13.10-13.11, p.234-235). Fitted as a fixed covariate, \code{cov(f)}, its
 regression coefficient is the inbreeding depression — the number Example 13.4
-publishes, read back from `fit$b`. This is input data, not a model: join the vector
+publishes, read back from \code{fit$b}. This is input data, not a model: join the vector
 to the data by animal before the fit.
 }
 \examples{

@@ -198,6 +198,8 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
 #' @param term name of the term (for example "animal")
 #' @param t1 name of the first trait
 #' @param t2 name of the second
+#' @return a single number, the genetic correlation. No standard error travels with it, for the
+#'   reason given above.
 #' @export
 rg <- function(fit, term = "animal", t1 = NULL, t2 = NULL) {
   if (!inherits(fit, "breeding_fit_mt")) stop("expected the result of model_mt()")

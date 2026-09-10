@@ -7,7 +7,7 @@
 selection_index(ebvs, weights, standardize = TRUE)
 }
 \arguments{
-\item{ebvs}{a named list of named vectors (one per trait, as [ebv()] returns), or a
+\item{ebvs}{a named list of named vectors (one per trait, as \code{\link[=ebv]{ebv()}} returns), or a
 matrix with animals in rows and traits in columns}
 
 \item{weights}{named vector of economic weights, names matching the traits}
@@ -17,10 +17,10 @@ by default)}
 }
 \value{
 named vector of index values, sorted best first, with the number of dropped
-  animals as attribute `n_dropped`
+animals as attribute \code{n_dropped}
 }
 \description{
-`I = sum_t w_t ebv_t`, optionally with each trait standardized to unit EBV standard
+\verb{I = sum_t w_t ebv_t}, optionally with each trait standardized to unit EBV standard
 deviation first (then the weights read as "relative emphasis in genetic standard
 deviations", the scale-free form). Animals are matched BY NAME across traits, and an
 animal missing in any trait is dropped with a count — silently keeping it at zero

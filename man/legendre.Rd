@@ -13,21 +13,25 @@ legendre(x, order = 1L, limits = NULL)
 
 \item{limits}{minimum and maximum for scaling; if omitted, the observed ones are used}
 }
+\value{
+a numeric matrix with one row per element of \code{x} and \code{order + 1} columns, named
+\code{phi0} to \code{phiN}, ready to be bound to the data.
+}
 \description{
 Kirkpatrick's normalization, phi_n(x) = sqrt((2n+1)/2) P_n(x), with x scaled to
-[-1, 1] by the OBSERVED minimum and maximum (or by the given limits). Returns a matrix
+\verb{[-1, 1]} by the OBSERVED minimum and maximum (or by the given limits). Returns a matrix
 with order+1 columns, phi0..phiN, ready to enter as the basis of a reaction-norm
 term:
 }
 \details{
 d <- cbind(d, legendre(d$thi, order = 1))
-  model(y ~ cg + rn(id, base = c("phi0", "phi1")), d, ped)
+model(y ~ cg + rn(id, base = c("phi0", "phi1")), d, ped)
 
 Scaling by the observed range is part of the MODEL: two data sets with different ranges
-give different bases. To compare fits, fix `limits`.
+give different bases. To compare fits, fix \code{limits}.
 }
 \references{
 Kirkpatrick, M., Lofsvold, D. & Bulmer, M. (1990). Analysis of the
-  inheritance, selection and evolution of growth trajectories. Genetics
-  124:979-993.
+inheritance, selection and evolution of growth trajectories. Genetics
+124:979-993.
 }

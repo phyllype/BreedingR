@@ -21,7 +21,7 @@ qc_phenotypes(
 \item{missing_code}{the missing-value code in use (NA is always treated as missing)}
 
 \item{classes}{optional class columns (contemporary group, pen) to scan for levels
-with fewer than `min_class_n` observed records}
+with fewer than \code{min_class_n} observed records}
 
 \item{fence}{Tukey multiplier: outliers fall outside quartiles +/- fence * IQR
 (3 by default, the "far out" fence; 1.5 flags far more)}
@@ -30,12 +30,12 @@ with fewer than `min_class_n` observed records}
 (default 2: singleton and empty levels)}
 }
 \value{
-list with `data` (outliers turned into missing), `n_missing` (before the
-  outlier pass), `n_outliers`, `fences` (the two cutoffs), and `small_classes`
-  (per class column, HOW MANY levels fall under `min_class_n`)
+list with \code{data} (outliers turned into missing), \code{n_missing} (before the
+outlier pass), \code{n_outliers}, \code{fences} (the two cutoffs), and \code{small_classes}
+(per class column, HOW MANY levels fall under \code{min_class_n})
 }
 \description{
-The mirror of [qc_genotypes()] for the observation side: flags the missing code,
+The mirror of \code{\link[=qc_genotypes]{qc_genotypes()}} for the observation side: flags the missing code,
 flags Tukey-fence outliers (turning them into missing rather than DROPPING the
 row — removing a row silently changes contemporary groups and pen compositions),
 and reports contemporary-group levels too small to estimate. Everything it does

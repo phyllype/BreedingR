@@ -15,9 +15,9 @@ rank_drift(old, new, top = 100)
 at the number of common animals)}
 }
 \value{
-list with `n_common`, `pearson`, `spearman`, `retention` (how many of the
-  old top-`top` remain in the new top-`top`), `top`, and `movers` (the ten largest
-  rank changes, positive = climbed)
+list with \code{n_common}, \code{pearson}, \code{spearman}, \code{retention} (how many of the
+old top-\code{top} remain in the new top-\code{top}), \code{top}, and \code{movers} (the ten largest
+rank changes, positive = climbed)
 }
 \description{
 The honest form of the "sequential update" question: after new data (or a new model),

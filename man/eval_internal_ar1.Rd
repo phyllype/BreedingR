@@ -34,9 +34,9 @@ eval_internal_ar1(
 
 \item{with_dense}{TRUE also computes the dense V form}
 
-\item{metafounders}{as in [model()]}
+\item{metafounders}{as in \code{\link[=model]{model()}}}
 
-\item{gamma}{as in [model()]}
+\item{gamma}{as in \code{\link[=model]{model()}}}
 }
 \description{
 Internal AR(1) evaluation, for the gates

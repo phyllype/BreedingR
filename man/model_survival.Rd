@@ -19,67 +19,67 @@ model_survival(
 )
 }
 \arguments{
-\item{formula}{fixed class effects, `cov()` covariates, and exactly ONE random term
-among `animal()`, `sire()` and `random()` -- the frailty. `rn()`, `indirect()`,
-`pe()`, `kernel()` and `group=` are not available here (`k_inverse=` is the door
+\item{formula}{fixed class effects, \code{cov()} covariates, and exactly ONE random term
+among \code{animal()}, \code{sire()} and \code{random()} -- the frailty. \code{rn()}, \code{indirect()},
+\code{pe()}, \code{kernel()} and \verb{group=} are not available here (\verb{k_inverse=} is the door
 for a relationship matrix the pedigree cannot build). The left-hand side is the
 time column, strictly positive.}
 
 \item{data}{data.frame with the columns referenced. Records with a missing time or
 a missing censoring indicator are dropped and counted.}
 
-\item{pedigree}{data.frame animal, sire, dam; required with `animal()` or `sire()`
-unless `k_inverse` is given}
+\item{pedigree}{data.frame animal, sire, dam; required with \code{animal()} or \code{sire()}
+unless \code{k_inverse} is given}
 
 \item{censor}{MANDATORY: the censoring indicator, as a column name or a vector --
 1 (or TRUE) for a complete record, 0 (or FALSE) for a right-censored one. If no
 record is censored, say so explicitly with a column of ones.}
 
-\item{rho}{the Weibull shape: `NULL` (default) estimates it inside the Newton
-system; a positive number fixes it (`rho = 1` is the exponential, the book's
-choice in Example 16.1). Risk rises with age when `rho > 1` and falls when
-`rho < 1`.}
+\item{rho}{the Weibull shape: \code{NULL} (default) estimates it inside the Newton
+system; a positive number fixes it (\code{rho = 1} is the exponential, the book's
+choice in Example 16.1). Risk rises with age when \code{rho > 1} and falls when
+\code{rho < 1}.}
 
-\item{lambda}{the Weibull scale: `NULL` (default) estimates it through the
+\item{lambda}{the Weibull scale: \code{NULL} (default) estimates it through the
 intercept; a positive number fixes the baseline and drops the intercept
-(`lambda = 1` reproduces the book's parametrization, reference classes at
+(\code{lambda = 1} reproduces the book's parametrization, reference classes at
 risk 1)}
 
-\item{sigma2}{the frailty variance: `NULL` (default) estimates it by Laplace;
+\item{sigma2}{the frailty variance: \code{NULL} (default) estimates it by Laplace;
 a positive number takes it as GIVEN (Example 16.1 publishes its solutions under
-`sigma2 = 0.4` -- see the note in the gate file about the misprinted 20)}
+\code{sigma2 = 0.4} -- see the note in the gate file about the misprinted 20)}
 
 \item{k_inverse}{the inverse of the relationship matrix for the frailty term,
-replacing the `A^-1` built from `pedigree`: either triplets
-`list(i, j, x, n, id)` as [a_inverse()] returns, or a dense symmetric matrix
-with the ids as `dimnames`}
+replacing the \code{A^-1} built from \code{pedigree}: either triplets
+\code{list(i, j, x, n, id)} as \code{\link[=a_inverse]{a_inverse()}} returns, or a dense symmetric matrix
+with the ids as \code{dimnames}}
 
 \item{maxiter}{maximum Newton iterations per inner fit}
 
 \item{tol}{RELATIVE tolerance on the full solution vector,
-`sqrt(sum(delta^2) / sum(sol^2))`, same convention as the other fitters}
+\code{sqrt(sum(delta^2) / sum(sol^2))}, same convention as the other fitters}
 
 \item{verbose}{print one line per Newton iteration, and one per variance
-evaluation when `sigma2` is being estimated}
+evaluation when \code{sigma2} is being estimated}
 }
 \value{
-an object of class `breeding_fit_surv`: `rho`, `lambda` (with
-  `se_log_rho` when `rho` was estimated), `theta` (the frailty variance, with an
-  `se` from the curvature of the Laplace profile when it was estimated), `b` and
-  `se_b` (named `term=level`, log relative risks), `ebv` and `pev` per the frailty
-  term (log-frailty scale; [ebv()] works, and `exp(ebv())` is the RRS of the
-  book's table), `n_censored`, `loglik_joint` (the penalized joint log-likelihood
-  at the mode), `marginal_loglik` (the Laplace value, when computed), the
-  convergence fields of every fitter, and [predict()] for relative risks and
-  survival probabilities `S(t)` -- the book's p.292 numbers.
+an object of class \code{breeding_fit_surv}: \code{rho}, \code{lambda} (with
+\code{se_log_rho} when \code{rho} was estimated), \code{theta} (the frailty variance, with an
+\code{se} from the curvature of the Laplace profile when it was estimated), \code{b} and
+\code{se_b} (named \code{term=level}, log relative risks), \code{ebv} and \code{pev} per the frailty
+term (log-frailty scale; \code{\link[=ebv]{ebv()}} works, and \code{exp(ebv())} is the RRS of the
+book's table), \code{n_censored}, \code{loglik_joint} (the penalized joint log-likelihood
+at the mode), \code{marginal_loglik} (the Laplace value, when computed), the
+convergence fields of every fitter, and \code{\link[=predict]{predict()}} for relative risks and
+survival probabilities \code{S(t)} -- the book's p.292 numbers.
 }
 \description{
 The trait is the time until failure (length of productive life, days to culling)
 and some records are RIGHT-CENSORED: the animal was still alive when recording
 stopped, so its time is a lower bound, not an observation. The hazard is
-`h(t) = rho * lambda * (lambda t)^(rho-1) * exp(x'b + z'a)` (Eqns 16.3 and 16.4 of
+\verb{h(t) = rho * lambda * (lambda t)^(rho-1) * exp(x'b + z'a)} (Eqns 16.3 and 16.4 of
 Mrode & Pocrnic): a Weibull baseline scaled by the fixed risk factors and by the
-log-frailty `a`, which carries the usual `A^-1` penalty. The mode of the joint
+log-frailty \code{a}, which carries the usual \code{A^-1} penalty. The mode of the joint
 log-likelihood (Eqn 16.5) is found by damped Newton, whose fixed-point form is
 exactly the iterative system of Eqn 16.6 (Kachman 1999).
 }
@@ -87,29 +87,29 @@ exactly the iterative system of Eqn 16.6 (Kachman 1999).
 CENSORING IS NOT MISSINGNESS, and that is why this fitter exists. A missing time
 says nothing; a censored time says "at least this much". Treating a censored record
 as complete biases the evaluation against the animals still alive -- the best ones --
-and dropping it throws away exactly the selection candidates. The `censor=`
+and dropping it throws away exactly the selection candidates. The \verb{censor=}
 indicator is therefore mandatory: 1 for a complete (uncensored) record, 0 for a
 censored one. Left- or interval-censoring and time-dependent covariates are outside
 this fitter (a declared limit; the book points to the Survival Kit for them).
 
 WHAT IS ESTIMATED AND HOW. The fixed effects and the log-frailties always. The
-Weibull `rho` joins the Newton system as one more coordinate unless it is given.
-`lambda` is the same parameter as the intercept (`intercept = rho * log(lambda)`,
+Weibull \code{rho} joins the Newton system as one more coordinate unless it is given.
+\code{lambda} is the same parameter as the intercept (\code{intercept = rho * log(lambda)},
 Eqn 16.3): estimating it adds the intercept column, giving it fixes the baseline
 and removes the intercept, so the reference classes sit at risk 1 -- the convention
-of Example 16.1, which fixes `rho = 1` and `lambda = 1`. The frailty variance
-`sigma2` is estimated by maximizing the Laplace approximation of the marginal
+of Example 16.1, which fixes \code{rho = 1} and \code{lambda = 1}. The frailty variance
+\code{sigma2} is estimated by maximizing the Laplace approximation of the marginal
 likelihood -- the frailty is integrated at its conditional mode, the fixed effects
-and `rho` are profiled -- because the marginal has no closed form here and the
+and \code{rho} are profiled -- because the marginal has no closed form here and the
 package's AI-REML machinery needs a Gaussian residual this model does not have.
-Give `sigma2=` to skip that (the book's route: its example takes the variance as
+Give \verb{sigma2=} to skip that (the book's route: its example takes the variance as
 known).
 
-NO IMPLICIT INTERCEPT unless `lambda` is estimated, and the FIRST level of every
+NO IMPLICIT INTERCEPT unless \code{lambda} is estimated, and the FIRST level of every
 fixed class factor is dropped (solution zero), as the book does. Levels come in
 factor order when the column is a factor, alphabetical order otherwise. Solutions
-read as log relative risks: `exp(b)` is the risk ratio RRS against the reference
-level, and `exp(a)` the frailty of the animal -- POSITIVE means MORE risk of
+read as log relative risks: \code{exp(b)} is the risk ratio RRS against the reference
+level, and \code{exp(a)} the frailty of the animal -- POSITIVE means MORE risk of
 failure, so a good animal has a negative solution.
 }
 \examples{
@@ -136,8 +136,8 @@ predict(fit, data.frame(herd = "1", ysp = "4", cow = "1"), time = 40,
 }
 \references{
 Kachman, S.D. (1999) Applications in survival analysis. J. Anim. Sci.
-  77 (suppl. 2), 147-153. Ducrocq, V. (1997) Survival analysis, a statistical tool
-  for longevity data. 48th Annual Meeting of the EAAP, Vienna. Mrode, R.A. &
-  Pocrnic, I. (2023) Linear Models for the Prediction of the Genetic Merit of
-  Animals, 4th ed., chapter 16.
+77 (suppl. 2), 147-153. Ducrocq, V. (1997) Survival analysis, a statistical tool
+for longevity data. 48th Annual Meeting of the EAAP, Vienna. Mrode, R.A. &
+Pocrnic, I. (2023) Linear Models for the Prediction of the Genetic Merit of
+Animals, 4th ed., chapter 16.
 }

@@ -7,18 +7,18 @@
 h2_liability(h2, incidence)
 }
 \arguments{
-\item{h2}{heritability on the observed (0/1) scale, in `[0, 1]`}
+\item{h2}{heritability on the observed (0/1) scale, in \verb{[0, 1]}}
 
 \item{incidence}{proportion of the "affected" category, strictly inside (0, 1);
 vectorized}
 }
 \value{
 heritability on the liability scale. A warning fires when the pair
-  implies a liability h2 above 1: the two numbers are then not consistent with
-  the threshold model.
+implies a liability h2 above 1: the two numbers are then not consistent with
+the threshold model.
 }
 \description{
-The inverse of [h2_observed()]: `h2_lat = h2_obs * p (1 - p) / z^2`
+The inverse of \code{\link[=h2_observed]{h2_observed()}}: \code{h2_lat = h2_obs * p (1 - p) / z^2}
 (Dempster & Lerner 1950). This is the direction a user needs when a linear model
 was fit to a 0/1 trait and the estimate has to be reported on the scale the
 threshold literature uses.
@@ -28,5 +28,5 @@ h2_liability(0.093, 0.234)   # back to ~0.178
 }
 \references{
 Dempster, E.R. & Lerner, I.M. (1950) Heritability of threshold
-  characters. Genetics 35, 212-236.
+characters. Genetics 35, 212-236.
 }

@@ -11,27 +11,27 @@ vecchia_inverse(m = NULL, k = 100, lambda = 0.01, g = NULL)
 should come ancestors first: conditioning on the past is what the recursion means}
 
 \item{k}{neighbors per animal, chosen as the k strongest |g_ij| among the PREVIOUS
-rows (deterministic ties by index). `k >= n - 1` reproduces the exact inverse}
+rows (deterministic ties by index). \code{k >= n - 1} reproduces the exact inverse}
 
-\item{lambda}{shrinkage on the diagonal of G, as in [apy_inverse()]}
+\item{lambda}{shrinkage on the diagonal of G, as in \code{\link[=apy_inverse]{apy_inverse()}}}
 
-\item{g}{optionally, a ready relationship matrix (then `m` is ignored): the
+\item{g}{optionally, a ready relationship matrix (then \code{m} is ignored): the
 recursion applies to any symmetric positive-definite matrix, the pedigree A
 included — with the parents as neighbors it reproduces Henderson's A^-1 exactly}
 }
 \value{
 list with i, j, x, n (triplets of the lower triangle of the approximate
-  G^-1), the diagnostic `mendeliano` (the conditional residual d_i of each animal;
-  tiny = collinear with its neighborhood) and the parameters used
+G^-1), the diagnostic \code{mendeliano} (the conditional residual d_i of each animal;
+tiny = collinear with its neighborhood) and the parameters used
 }
 \description{
 Inverse of G by the Vecchia recursion
 }
 \references{
 Vecchia, A.V. (1988). Estimation and model identification for
-  continuous spatial processes. Journal of the Royal Statistical Society B
-  50:297-312.
+continuous spatial processes. Journal of the Royal Statistical Society B
+50:297-312.
 
-  Schafer, F., Katzfuss, M. & Owhadi, H. (2021). SIAM Journal on Scientific
-  Computing 43:A2019-A2046.
+Schafer, F., Katzfuss, M. & Owhadi, H. (2021). SIAM Journal on Scientific
+Computing 43:A2019-A2046.
 }

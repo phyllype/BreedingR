@@ -20,21 +20,21 @@ snp_blup(
 )
 }
 \arguments{
-\item{formula}{as in [model()]; the relationship term must be a scalar group
+\item{formula}{as in \code{\link[=model]{model()}}; the relationship term must be a scalar group
 (declared limit of this version)}
 
 \item{data}{data.frame}
 
 \item{pedigree}{data.frame animal, sire, dam (required: the model is single step)}
 
-\item{genotypes}{list with `ids` and `m` (0/1/2 matrix); NA is imputed with the mean}
+\item{genotypes}{list with \code{ids} and \code{m} (0/1/2 matrix); NA is imputed with the mean}
 
-\item{theta}{variance components, in the order [model()] reports for this formula
+\item{theta}{variance components, in the order \code{\link[=model]{model()}} reports for this formula
 (each random group, then the residual). This is a solver at fixed components:
-estimate them with [model()] (pedigree or single step) and solve here at scale}
+estimate them with \code{\link[=model]{model()}} (pedigree or single step) and solve here at scale}
 
 \item{rpg}{residual polygenic proportion, in (0, 1); plays the role the blend plays
-in the `genotypes=` path}
+in the \verb{genotypes=} path}
 
 \item{missing_code}{missing-value code for the trait}
 
@@ -42,9 +42,9 @@ in the `genotypes=` path}
 
 \item{maxiter}{maximum conjugate-gradient iterations}
 
-\item{metafounders}{as in [model()]}
+\item{metafounders}{as in \code{\link[=model]{model()}}}
 
-\item{gamma}{as in [model()]}
+\item{gamma}{as in \code{\link[=model]{model()}}}
 
 \item{verbose}{print the fit as it walks: one line per AI iteration with the
 -2logL and the relative step (the convergence criterion itself), so a long fit
@@ -52,29 +52,29 @@ is a progress report instead of silence. Defaults to interactive() — live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 }
 \value{
-list with `b` (fixed-effect solutions, named `term=level`; the parametrization
-  note of [model()] applies), `ebv` (per covariance group, all animals;
-  [ebv()] works on it), `g` (marker effects in trait units per allele dose, NA for
-  monomorphic markers), `converged`, `iters`, `resnorm`, `message`
+list with \code{b} (fixed-effect solutions, named \code{term=level}; the parametrization
+note of \code{\link[=model]{model()}} applies), \code{ebv} (per covariance group, all animals;
+\code{\link[=ebv]{ebv()}} works on it), \code{g} (marker effects in trait units per allele dose, NA for
+monomorphic markers), \code{converged}, \code{iters}, \code{resnorm}, \code{message}
 }
 \description{
 Fits the equivalent model of the single step with the marker effects as unknowns:
-`u_g = Z g + p_g`, with `g ~ N(0, I (1-rpg) s2u / k)` and the residual polygenic
-`p_g ~ N(0, rpg s2u A22)`, `k = 2 sum p(1-p)`. The implied genomic relationship is
-`G* = (1-rpg) Z Z' / k + rpg A22`, WITHOUT the affine adjustment the `genotypes=`
+\verb{u_g = Z g + p_g}, with \verb{g ~ N(0, I (1-rpg) s2u / k)} and the residual polygenic
+\verb{p_g ~ N(0, rpg s2u A22)}, \verb{k = 2 sum p(1-p)}. The implied genomic relationship is
+\verb{G* = (1-rpg) Z Z' / k + rpg A22}, WITHOUT the affine adjustment the \verb{genotypes=}
 path applies; in populations far from the base the two paths differ by construction,
-and that difference is declared, not hidden. Every application of `A22^-1` uses the
-identity `A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v` over the sparse blocks of
-`A^-1`, with one sparse factorization of the non-genotyped block.
+and that difference is declared, not hidden. Every application of \code{A22^-1} uses the
+identity \verb{A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v} over the sparse blocks of
+\code{A^-1}, with one sparse factorization of the non-genotyped block.
 }
 \references{
 Liu, Z., Goddard, M.E., Reinhardt, F. & Reents, R. (2014). A
-  single-step genomic model with direct estimation of marker effects. Journal of
-  Dairy Science 97:5833-5850.
+single-step genomic model with direct estimation of marker effects. Journal of
+Dairy Science 97:5833-5850.
 
-  Masuda, Y. et al. (2017). Avoiding the direct inversion of the numerator
-  relationship matrix... Journal of Animal Science 95:49-52.
+Masuda, Y. et al. (2017). Avoiding the direct inversion of the numerator
+relationship matrix... Journal of Animal Science 95:49-52.
 
-  Vandenplas, J., Eding, H., Calus, M.P.L. & Vuik, C. (2018). Genetics Selection
-  Evolution 50:51; Vandenplas, J. et al. (2019) 51:30.
+Vandenplas, J., Eding, H., Calus, M.P.L. & Vuik, C. (2018). Genetics Selection
+Evolution 50:51; Vandenplas, J. et al. (2019) 51:30.
 }

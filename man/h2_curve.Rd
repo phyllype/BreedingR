@@ -7,13 +7,17 @@
 h2_curve(fit, group = NULL, limits, points = 101L)
 }
 \arguments{
-\item{fit}{result of [model()] with an rn() term}
+\item{fit}{result of \code{\link[=model]{model()}} with an rn() term}
 
 \item{group}{name of the reaction-norm group}
 
-\item{limits}{the same ones passed to [legendre()] when preparing the data}
+\item{limits}{the same ones passed to \code{\link[=legendre]{legendre()}} when preparing the data}
 
 \item{points}{where to evaluate the curve}
+}
+\value{
+a data.frame with \code{x}, the point on the gradient, \code{va}, the additive variance there,
+and \code{h2}, the heritability at that point.
 }
 \description{
 h2(x) = phi(x)' C phi(x) / (phi(x)' C phi(x) + other variances + residual), with C the

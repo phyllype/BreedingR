@@ -24,5 +24,5 @@ Per-marker Fst between groups (Weir & Cockerham)
 }
 \references{
 Weir, B.S. & Cockerham, C.C. (1984). Estimating F-statistics for the
-  analysis of population structure. Evolution 38:1358-1370.
+analysis of population structure. Evolution 38:1358-1370.
 }

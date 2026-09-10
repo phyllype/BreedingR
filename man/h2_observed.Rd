@@ -7,7 +7,7 @@
 h2_observed(h2, incidence)
 }
 \arguments{
-\item{h2}{heritability on the liability scale, in `[0, 1]`}
+\item{h2}{heritability on the liability scale, in \verb{[0, 1]}}
 
 \item{incidence}{proportion of the "affected" category, strictly inside (0, 1);
 vectorized, so a whole column of incidences converts in one call}
@@ -16,8 +16,8 @@ vectorized, so a whole column of incidences converts in one call}
 heritability on the observed (0/1) scale
 }
 \description{
-`h2_obs = h2_lat * z^2 / (p (1 - p))`, with `p` the incidence and `z` the normal
-density at the threshold `qnorm(p)`. Dempster & Lerner (1950). The transformation
+\code{h2_obs = h2_lat * z^2 / (p (1 - p))}, with \code{p} the incidence and \code{z} the normal
+density at the threshold \code{qnorm(p)}. Dempster & Lerner (1950). The transformation
 is NOT in the 4th edition of Mrode & Pocrnic -- chapter 15 works entirely on the
 liability scale -- but it is what translates a liability h2 into the number a
 linear analysis of the 0/1 trait estimates. At the incidence of the book's
@@ -29,5 +29,5 @@ h2_observed(0.1781, 0.234)   # the 0.178 of Example 15.2 publishes as 0.093
 }
 \references{
 Dempster, E.R. & Lerner, I.M. (1950) Heritability of threshold
-  characters. Genetics 35, 212-236.
+characters. Genetics 35, 212-236.
 }

@@ -13,7 +13,7 @@ roh(m, min_snp = 30L, max_het = 0L, pos = NULL, min_kb = NULL, chr = NULL)
 
 \item{max_het}{heterozygotes tolerated inside a run (0 = none)}
 
-\item{pos}{positions in base pairs, optional; with them `min_kb` also filters}
+\item{pos}{positions in base pairs, optional; with them \code{min_kb} also filters}
 
 \item{min_kb}{minimum length in kb, used only when pos is given}
 
@@ -23,13 +23,13 @@ Without a map, the run is defined by the COUNT of consecutive markers, and the l
 is stated: panels of different density give different runs with the same min_snp.}
 }
 \value{
-list with `animal` (F_ROH = fraction of the markers in ROH) and `marker`
-  (frequency of animals in ROH at each marker: the peaks are the islands)
+list with \code{animal} (F_ROH = fraction of the markers in ROH) and \code{marker}
+(frequency of animals in ROH at each marker: the peaks are the islands)
 }
 \description{
 Runs of homozygosity: F_ROH per animal and per-marker frequency
 }
 \references{
 McQuillan, R. et al. (2008). Runs of homozygosity in European
-  populations. American Journal of Human Genetics 83:359-372.
+populations. American Journal of Human Genetics 83:359-372.
 }

@@ -16,11 +16,11 @@ suggest_model(data, trait, animal, time = NULL, missing_code = NULL)
 \item{time}{optional name of a time column (age, day); with repeated records it
 triggers the serial-correlation suggestions}
 
-\item{missing_code}{optional missing-value code used in `trait`}
+\item{missing_code}{optional missing-value code used in \code{trait}}
 }
 \value{
 character vector of suggestions (empty when the shape asks for nothing),
-  invisibly; they are also printed
+invisibly; they are also printed
 }
 \description{
 Reads the structure — repeated records, a time axis, missing observations — and

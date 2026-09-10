@@ -16,17 +16,17 @@ indirect_residual(
 )
 }
 \arguments{
-\item{formula}{the same formula passed to [model()]; it must contain an `indirect()`
+\item{formula}{the same formula passed to \code{\link[=model]{model()}}; it must contain an \code{indirect()}
 term, which is where the pen column comes from}
 
 \item{data}{data.frame with the columns referenced}
 
-\item{pedigree}{data.frame animal, sire, dam, as in [model()]}
+\item{pedigree}{data.frame animal, sire, dam, as in \code{\link[=model]{model()}}}
 
 \item{k_max}{upper end of the k search; a minimum found AT this boundary is reported
-in `message` and asks for a rerun with a larger `k_max`}
+in \code{message} and asks for a rerun with a larger \code{k_max}}
 
-\item{n_grid}{points of the coarse grid on `[0, k_max]` that brackets the minimum
+\item{n_grid}{points of the coarse grid on \verb{[0, k_max]} that brackets the minimum
 before the golden-section refinement}
 
 \item{tol_k}{absolute tolerance on k: the golden-section search stops when its
@@ -34,62 +34,63 @@ interval is narrower than this}
 
 \item{verbose}{print one line per profiled k}
 
-\item{...}{passed on to every inner [model()] call (`maxiter`, `tol`, `n_em`, ...).
-`weights` and `start` are used by the profile itself and are refused here}
+\item{...}{passed on to every inner \code{\link[=model]{model()}} call (\code{maxiter}, \code{tol}, \code{n_em}, ...).
+\code{weights} and \code{start} are used by the profile itself and are refused here}
 }
 \value{
-a list of class `breeding_indirect_residual`: `k` (the estimate), `s2_ED`
-  (the `var(residual)` of the fit at k), `s2_ES` (`k * s2_ED`), `fit` (the
-  [model()] object at the estimated k, whose `-2logL` is on the WEIGHTED scale as
-  always), `profile` (data.frame of every k evaluated and its corrected `-2logL`),
-  `n` (the pen size of each record) and `message`
+a list of class \code{breeding_indirect_residual}: \code{k} (the estimate), \code{s2_ED}
+(the \code{var(residual)} of the fit at k), \code{s2_ES} (\code{k * s2_ED}), \code{fit} (the
+\code{\link[=model]{model()}} object at the estimated k, whose \verb{-2logL} is on the WEIGHTED scale as
+always), \code{profile} (data.frame of every k evaluated and its corrected \verb{-2logL}),
+\code{n} (the pen size of each record) and \code{message}
 }
 \description{
-Fits `var(e_i) = s2_ED + (n_i - 1) s2_ES`, with `n_i` the number of distinct animals
-in the pen of record i, by profiling the ratio `k = s2_ES / s2_ED`: each candidate k
-is a [model()] fit with `weights = 1 / (1 + (n_i - 1) k)` (exact REML at that k), the
-reported `-2logL` is brought to the standard scale by subtracting `sum(log w)` (the
+Fits \verb{var(e_i) = s2_ED + (n_i - 1) s2_ES}, with \code{n_i} the number of distinct animals
+in the pen of record i, by profiling the ratio \code{k = s2_ES / s2_ED}: each candidate k
+is a \code{\link[=model]{model()}} fit with \verb{weights = 1 / (1 + (n_i - 1) k)} (exact REML at that k), the
+reported \verb{-2logL} is brought to the standard scale by subtracting \verb{sum(log w)} (the
 weight jacobian, constant in theta but not in k), and the minimum over k is located by
-a coarse grid followed by golden-section search ([stats::optimize()]) in the
+a coarse grid followed by golden-section search (\code{\link[stats:optimize]{stats::optimize()}}) in the
 bracketing interval. The declared stopping rule is the golden-section interval width
-falling under `tol_k`.
+falling under \code{tol_k}.
 }
 \details{
-The pen and the animal columns are read from the `indirect()` term of the formula,
+The pen and the animal columns are read from the \code{indirect()} term of the formula,
 so the pen sizes here are exactly the ones the incidence used. Declared limit: the
 profile handles the residual VARIANCE heterogeneity only. The residual COVARIANCE
 between pen mates is a different object, and this function does not carry it.
 
 A previous version of this page said that covariance is absorbed by a \code{random(pen)}
 term. It is not, in the regime this function exists for. The pen-mate covariance is
-\code{(n - 2) s2_ES}, which GROWS with pen size, while a \code{random(pen)} term has one
-variance per pen: the two agree only when every pen is the same size, and equal pens are
-exactly the case where \code{s2_ES} does not separate from the intercept anyway. Use
-\code{\link{associative_matrix}} instead, which builds the exact structure
-\code{s2_ED * I + s2_ES * D} as a declared \code{kernel()} covariance; \code{s2_ES} then
-comes back as an ordinary component with a standard error, estimated jointly. This
-function stays as the cheap route when only the variance heterogeneity is wanted.
+\verb{(n - 2) s2_ES}, which GROWS with pen size, while a \code{random(pen)} term has one
+variance per pen: the two agree only when every pen is the same size, and equal pens
+are exactly the case where \code{s2_ES} does not separate from the intercept anyway. Use
+\code{\link[=associative_matrix]{associative_matrix()}} instead, which builds the exact structure
+\code{s2_ED * I + s2_ES * D} as a declared \code{\link[=kernel]{kernel()}} covariance; \code{s2_ES} then comes back as
+an ordinary component with a standard error, estimated jointly, and neither the profile
+nor the weight jacobian is needed. This function stays as the cheap route when only the
+variance heterogeneity is wanted.
 
-k is profiled and not walked by a gradient because a one-dimensional profile is cheap and
-cannot be trapped the way a joint update can.
+k is profiled and not walked by a gradient because a one-dimensional profile is cheap
+and cannot be trapped the way a joint update can.
 
 Read the answer knowing what the data identifies. What unequal pens pin is the SLOPE
-`s2_ES` of the residual variance against `n_i - 1`; the intercept `s2_ED` separates
+\code{s2_ES} of the residual variance against \code{n_i - 1}; the intercept \code{s2_ED} separates
 from the genetic variance only through relatives when every animal has one record, so
 the RATIO k inherits that noise and its profile can be flat on the high side
-(measured on 780 simulated records with a planted k of 1: `s2_ES` came back between
+(measured on 780 simulated records with a planted k of 1: \code{s2_ES} came back between
 5.8 and 6.7 for a truth of 6 across seeds, k between 0.77 and 1.77 -- the gate in
-test-indirect-dilution.R encodes exactly this). `profile` is returned so the flatness
-can be seen instead of guessed; pens of size 1, whose residual is `s2_ED` alone, are
+test-indirect-dilution.R encodes exactly this). \code{profile} is returned so the flatness
+can be seen instead of guessed; pens of size 1, whose residual is \code{s2_ED} alone, are
 the observations that pin the intercept.
 }
 \references{
 Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
-  quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
+quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
 
-  Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
-  genetic effects and group size. Genetics 186:1013-1028.
+Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
+genetic effects and group size. Genetics 186:1013-1028.
 
-  Mrode, R.A. & Pocrnic, I. (2023). Linear Models for the Prediction of the Genetic
-  Merit of Animals, 4th ed. CABI, ch. 9.
+Mrode, R.A. & Pocrnic, I. (2023). Linear Models for the Prediction of the Genetic
+Merit of Animals, 4th ed. CABI, ch. 9.
 }

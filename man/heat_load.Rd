@@ -7,7 +7,7 @@
 heat_load(x, threshold = 68)
 }
 \arguments{
-\item{x}{environmental gradient (typically the [thi()])}
+\item{x}{environmental gradient (typically the \code{\link[=thi]{thi()}})}
 
 \item{threshold}{comfort limit; heat load is zero at or below it}
 }
@@ -15,7 +15,7 @@ heat_load(x, threshold = 68)
 pmax(0, x - threshold)
 }
 \description{
-`max(0, x - threshold)`: the broken-stick transform that turns an environmental
+\code{max(0, x - threshold)}: the broken-stick transform that turns an environmental
 gradient into a heat-load covariate, zero in the comfort zone and linear above it.
 The threshold is part of the model choice — 68 to 72 THI points are the usual pig and
 cattle comfort limits, but the honest way to pick one is to compare fits.

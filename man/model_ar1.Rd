@@ -24,10 +24,10 @@ model_ar1(
 )
 }
 \arguments{
-\item{formula}{as in [model()], including reaction norm (`rn(id, base = ...)`); a
-`cbind(t1, t2)` left-hand side fits the multi-trait AR(1)/CAR(1) with the separable
-residual `Gamma (x) R0` (full R0 between traits, one rho in time). Declared limit of
-this version: with `cbind()`, records must be complete across traits (partial
+\item{formula}{as in \code{\link[=model]{model()}}, including reaction norm (\code{rn(id, base = ...)}); a
+\code{cbind(t1, t2)} left-hand side fits the multi-trait AR(1)/CAR(1) with the separable
+residual \verb{Gamma (x) R0} (full R0 between traits, one rho in time). Declared limit of
+this version: with \code{cbind()}, records must be complete across traits (partial
 missingness breaks the separability). Both combinations carry their own gates: V
 form, finite differences on every parameter, and collapse (rho = 0 reproduces the
 iid and the multi-trait paths identically)}
@@ -40,15 +40,15 @@ iid and the multi-trait paths identically)}
 
 \item{time}{numeric time column; two records of the SAME subject at the SAME time
 are a declared error: with AR(1) the time identifies the record, and simultaneous
-repetition calls for a permanent environment effect. The column carries a UNIT, and the
-correlation is \code{rho^dt}, so the same series written in days or in weeks is the same
-model with \code{rho} reparameterised: what is invariant is \code{rho^dt}, the correlation
+repetition calls for a permanent environment effect. The column carries a UNIT, and
+the correlation is \code{rho^dt}, so the same series written in days or in weeks is the
+same model with \code{rho} reparameterised: what is invariant is \code{rho^dt}, the correlation
 at the adjacent gap, and that is what to compare across analyses. A NEGATIVE \code{rho}
-needs an integer grid, and is refused off it: \code{rho^dt} with \code{rho < 0} is only a
-valid correlation function when \code{dt} is a whole number}
+needs an integer grid, and is refused off it: \code{rho^dt} with \code{rho < 0} is only a valid
+correlation function when \code{dt} is a whole number}
 
-\item{genotypes}{list with `ids` and `m` (0/1/2 matrix) for single-step; NA is imputed
-with the mean, as in [model()]}
+\item{genotypes}{list with \code{ids} and \code{m} (0/1/2 matrix) for single-step; NA is imputed
+with the mean, as in \code{\link[=model]{model()}}}
 
 \item{blend}{weight of A22 in the G blend (0.05 by default)}
 
@@ -59,26 +59,26 @@ animal conditions on its k strongest previous relationships instead of a global
 core (the generalization of APY; Henderson's A^-1 is the pedigree case, with the
 parents as the conditioning set). k >= n - 1 reproduces the exact inverse; the
 result message says it is an approximation and with which k. Mutually exclusive
-with `apy_core`}
+with \code{apy_core}}
 
 \item{missing_code}{missing-value code for observations}
 
-\item{start}{starting values for the components, in the order the fit reports them.
-Use it to warm-start from a submodel, or to check that the optimum does not depend on
-where the search began. Without it the start comes from \code{var(y)}, divided by the
-geometric mean of a declared kernel's eigenvalues so that the same model with \code{K}
-and with \code{c * K} starts at equivalent points.}
+\item{start}{starting values for the components, in the order the fit reports
+them. Use it to warm-start from a submodel, or to check that the optimum does
+not depend on where the search began. Without it the start comes from \code{var(y)},
+divided by the geometric mean of a declared kernel's eigenvalues so that the
+same model with \code{K} and with \code{c * K} starts at equivalent points.}
 
 \item{maxiter}{maximum number of iterations; a fit that hits the ceiling says so in
-`message` and how to raise it}
+\code{message} and how to raise it}
 
 \item{tol}{relative tolerance on the components, sqrt(sum delta^2 / sum theta^2);
-see the BLUPF90 scale note in [model()]. The Newton decrement g' AI^-1 g is
-computed at the final point and reported in `newton_dec` (components at a
+see the BLUPF90 scale note in \code{\link[=model]{model()}}. The Newton decrement g' AI^-1 g is
+computed at the final point and reported in \code{newton_dec} (components at a
 covariance boundary excluded, since this walker cannot follow a singular
-boundary), but unlike [model()] it does not gate `converged` here: this fitter
+boundary), but unlike \code{\link[=model]{model()}} it does not gate \code{converged} here: this fitter
 steps in raw theta and can jam whole against a boundary, so a decrement above
-2e-4 becomes a WARNING in `message` instead — read it before trusting a fit
+2e-4 becomes a WARNING in \code{message} instead — read it before trusting a fit
 near a boundary. The hard certificate lives in the univariate fitter}
 
 \item{metafounders}{labels of unknown-parent groups; a parent with one of these
@@ -87,8 +87,8 @@ declared error). Metafounders enter as virtual base rows of A(Gamma) after
 Legarra et al. (2015)}
 
 \item{gamma}{the base relationship matrix of the metafounders. Either a vector of
-length `n_metafounders`, read as the DIAGONAL, or a full symmetric
-`n_metafounders x n_metafounders` matrix. The off-diagonal `gamma_jk` is the
+length \code{n_metafounders}, read as the DIAGONAL, or a full symmetric
+\verb{n_metafounders x n_metafounders} matrix. The off-diagonal \code{gamma_jk} is the
 ancestral relationship BETWEEN two base populations, which is what a multibreed
 analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
 opposite directions. Admissibility is positive SEMI-definiteness, tested by a
@@ -106,18 +106,18 @@ is a progress report instead of silence. Defaults to interactive() — live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 }
 \value{
-besides the components, `rho(residual)` with its standard error; |rho| >= 1
-  is never a result: a step that leaves the interval is rejected like any
-  inadmissible theta. The fixed-effect solutions come in `b`, named `term=level`
-  (with `|trait` appended under `cbind()`); the parametrization note of [model()]
-  applies -- dropped columns are in `dropped_x` and only contrasts compare against a
-  reference-level convention
+besides the components, \code{rho(residual)} with its standard error; |rho| >= 1
+is never a result: a step that leaves the interval is rejected like any
+inadmissible theta. The fixed-effect solutions come in \code{b}, named \code{term=level}
+(with \verb{|trait} appended under \code{cbind()}); the parametrization note of \code{\link[=model]{model()}}
+applies -- dropped columns are in \code{dropped_x} and only contrasts compare against a
+reference-level convention
 }
 \description{
 Fits a model with AR(1)/CAR(1) residual by AI-REML
 }
 \references{
 Wade, K.M. & Quaas, R.L. (1993). Solutions to a system of equations
-  involving a first-order autoregressive process. Journal of Dairy Science
-  76:3026-3032.
+involving a first-order autoregressive process. Journal of Dairy Science
+76:3026-3032.
 }

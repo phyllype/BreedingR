@@ -7,17 +7,17 @@
 benchmark_fit(fun, reps = 3)
 }
 \arguments{
-\item{fun}{function of no arguments, e.g. `function() model(y ~ cg + animal(id), d, p)`}
+\item{fun}{function of no arguments, e.g. \code{function() model(y ~ cg + animal(id), d, p)}}
 
 \item{reps}{replicates, at least 3 (fewer is a declared error, not a default to
 argue with: one timing on a busy machine can be off by 70 percent)}
 }
 \value{
-list with `seconds` (all runs), `min`/`median`/`max`, `identical` (TRUE when
-  every run returned bit-identical components), and `fit` (the first run's result)
+list with \code{seconds} (all runs), \code{min}/\code{median}/\code{max}, \code{identical} (TRUE when
+every run returned bit-identical components), and \code{fit} (the first run's result)
 }
 \description{
-Runs `fun` (a function of no arguments returning a fit) `reps` times, reports the
+Runs \code{fun} (a function of no arguments returning a fit) \code{reps} times, reports the
 spread, and CHECKS that the numerical results are identical across runs — a timing
 whose results differ between replicates is measuring two different things.
 }

@@ -7,26 +7,26 @@
 se_function(fit, f, h = 1e-06)
 }
 \arguments{
-\item{fit}{result of [model()]}
+\item{fit}{result of \code{\link[=model]{model()}}}
 
 \item{f}{function of the component vector, returning one number. It receives the
-NAMED vector, so `f = function(th) th[["var(animal)"]] / sum(th)` reads well}
+NAMED vector, so \code{f = function(th) th[["var(animal)"]] / sum(th)} reads well}
 
 \item{h}{relative step of the numerical gradient}
 }
 \value{
-list with `estimate`, `se`, and the `gradient` used
+list with \code{estimate}, \code{se}, and the \code{gradient} used
 }
 \description{
-`se_function(fit, f)` evaluates `f` at the estimated components and propagates their
+\code{se_function(fit, f)} evaluates \code{f} at the estimated components and propagates their
 sampling covariance through a numerical gradient:
-`Var(f) = g' V g`, with `V = 2 AI^-1` the covariance of the components and `g` the
-gradient of `f`.
+\verb{Var(f) = g' V g}, with \verb{V = 2 AI^-1} the covariance of the components and \code{g} the
+gradient of \code{f}.
 }
 \details{
-The delta method assumes `f` is close to linear over the region the components could
+The delta method assumes \code{f} is close to linear over the region the components could
 plausibly occupy, and that they are approximately normal. Neither holds near a
 boundary — a variance pinned at zero, a correlation at +/-1 — and there the interval
-is not meaningful no matter how small it looks. Use [profile_theta()] instead when a
+is not meaningful no matter how small it looks. Use \code{\link[=profile_theta]{profile_theta()}} instead when a
 component sits at an edge.
 }

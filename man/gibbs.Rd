@@ -23,17 +23,17 @@ gibbs(
 )
 }
 \arguments{
-\item{formula}{as in [model()] (all the same markers, including rn() and indirect())}
+\item{formula}{as in \code{\link[=model]{model()}} (all the same markers, including rn() and indirect())}
 
 \item{data}{data.frame}
 
 \item{pedigree}{data.frame animal, sire, dam}
 
-\item{genotypes}{single step as in [model()]}
+\item{genotypes}{single step as in \code{\link[=model]{model()}}}
 
-\item{blend}{as in [model()]}
+\item{blend}{as in \code{\link[=model]{model()}}}
 
-\item{apy_core}{as in [model()]}
+\item{apy_core}{as in \code{\link[=model]{model()}}}
 
 \item{missing_code}{missing-value code for the trait}
 
@@ -42,13 +42,13 @@ animal conditions on its k strongest previous relationships instead of a global
 core (the generalization of APY; Henderson's A^-1 is the pedigree case, with the
 parents as the conditioning set). k >= n - 1 reproduces the exact inverse; the
 result message says it is an approximation and with which k. Mutually exclusive
-with `apy_core`}
+with \code{apy_core}}
 
 \item{n_iter}{total iterations of the chain}
 
 \item{burnin}{iterations discarded from the start}
 
-\item{thin}{keep one sample every `thin` iterations}
+\item{thin}{keep one sample every \code{thin} iterations}
 
 \item{theta_fixed}{fix the variance components at this vector and sample only the
 locations (the mode the gates use: the sample mean must reproduce the BLUP and the
@@ -60,8 +60,8 @@ declared error). Metafounders enter as virtual base rows of A(Gamma) after
 Legarra et al. (2015)}
 
 \item{gamma}{the base relationship matrix of the metafounders. Either a vector of
-length `n_metafounders`, read as the DIAGONAL, or a full symmetric
-`n_metafounders x n_metafounders` matrix. The off-diagonal `gamma_jk` is the
+length \code{n_metafounders}, read as the DIAGONAL, or a full symmetric
+\verb{n_metafounders x n_metafounders} matrix. The off-diagonal \code{gamma_jk} is the
 ancestral relationship BETWEEN two base populations, which is what a multibreed
 analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
 opposite directions. Admissibility is positive SEMI-definiteness, tested by a
@@ -79,19 +79,19 @@ is a progress report instead of silence. Defaults to interactive() — live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 }
 \value{
-samples matrix (kept iterations x parameters), posterior `mean` and `sd`,
-  effective sample sizes, Geweke z, and the posterior mean/sd of every random effect
-  (`ebv`, `ebv_sd`), and of every fixed effect (`b`, `b_sd`, named `term=level` as in
-  [model()], whose parametrization note applies: dropped columns are in `dropped_x`
-  and only contrasts compare against a reference-level convention)
+samples matrix (kept iterations x parameters), posterior \code{mean} and \code{sd},
+effective sample sizes, Geweke z, and the posterior mean/sd of every random effect
+(\code{ebv}, \code{ebv_sd}), and of every fixed effect (\code{b}, \code{b_sd}, named \code{term=level} as in
+\code{\link[=model]{model()}}, whose parametrization note applies: dropped columns are in \code{dropped_x}
+and only contrasts compare against a reference-level convention)
 }
 \description{
 Gibbs sampler for a single-trait mixed model
 }
 \references{
 Geman, S. & Geman, D. (1984). Stochastic relaxation, Gibbs
-  distributions, and the Bayesian restoration of images. IEEE TPAMI 6:721-741.
+distributions, and the Bayesian restoration of images. IEEE TPAMI 6:721-741.
 
-  Wang, C.S., Rutledge, J.J. & Gianola, D. (1993). Genetics Selection Evolution
-  25:41-62; (1994) 26:91-115.
+Wang, C.S., Rutledge, J.J. & Gianola, D. (1993). Genetics Selection Evolution
+25:41-62; (1994) 26:91-115.
 }

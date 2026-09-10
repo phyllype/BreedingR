@@ -7,16 +7,16 @@
 dominance_matrix(ped)
 }
 \arguments{
-\item{ped}{data.frame with animal, sire and dam, as in [model()]; unknown parent 0 or NA}
+\item{ped}{data.frame with animal, sire and dam, as in \code{\link[=model]{model()}}; unknown parent 0 or NA}
 }
 \value{
 dominance relationship matrix, rows and columns named by animal in the
-  topological order of [pedigree()] — ready for `kernel(id, K = )`
+topological order of \code{\link[=pedigree]{pedigree()}} — ready for \code{kernel(id, K = )}
 }
 \description{
 The D of Cockerham (1954), Eqn 13.1 of Mrode & Pocrnic (4th ed., p.226): between
 animal x with parents s, d and animal y with parents f, m,
-`d_xy = 0.25 (a_sf a_dm + a_sd a_fm)`, with a the additive relationship and the
+\verb{d_xy = 0.25 (a_sf a_dm + a_sd a_fm)}, with a the additive relationship and the
 diagonal equal to 1. The formula assumes a non-inbred population; with inbreeding in
 the pedigree the off-diagonals are the classic approximation, not an exact identity.
 }

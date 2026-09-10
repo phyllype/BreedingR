@@ -40,8 +40,8 @@ longer has to be read with a caveat.
 }
 \references{
 Henderson, C.R. (1975). Best linear unbiased estimation and prediction
-  under a selection model. Biometrics 31:423-447.
+under a selection model. Biometrics 31:423-447.
 
-  Mrode, R.A. & Pocrnic, I. (2023). Linear Models for the Prediction of the Genetic
-  Merit of Animals, 4th ed. CABI, ch. 3.
+Mrode, R.A. & Pocrnic, I. (2023). Linear Models for the Prediction of the Genetic
+Merit of Animals, 4th ed. CABI, ch. 3.
 }

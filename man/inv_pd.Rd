@@ -9,6 +9,9 @@ inv_pd(m)
 \arguments{
 \item{m}{symmetric positive-definite matrix}
 }
+\value{
+the inverse, a symmetric matrix with the dimension of \code{m}.
+}
 \description{
 Inverse of a symmetric positive-definite matrix, by block Cholesky
 }

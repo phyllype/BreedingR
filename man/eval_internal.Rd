@@ -33,20 +33,20 @@ eval_internal(
 
 \item{with_dense}{TRUE also computes the dense V form, which only handles a small problem}
 
-\item{metafounders}{as in [model()]}
+\item{metafounders}{as in \code{\link[=model]{model()}}}
 
-\item{gamma}{as in [model()]}
+\item{gamma}{as in \code{\link[=model]{model()}}}
 
-\item{weights}{as in [model()]}
+\item{weights}{as in \code{\link[=model]{model()}}}
 
-\item{genotypes}{as in [model()]: the single-step path is available here too, so a
+\item{genotypes}{as in \code{\link[=model]{model()}}: the single-step path is available here too, so a
 likelihood loop written outside the package can walk the genomic model}
 
-\item{blend}{as in [model()]}
+\item{blend}{as in \code{\link[=model]{model()}}}
 
-\item{apy_core}{as in [model()]}
+\item{apy_core}{as in \code{\link[=model]{model()}}}
 
-\item{vecchia_k}{as in [model()]}
+\item{vecchia_k}{as in \code{\link[=model]{model()}}}
 }
 \description{
 This exists for the tests: the MME identity against the V form, and the score against

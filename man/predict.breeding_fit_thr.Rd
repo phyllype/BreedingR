@@ -7,25 +7,25 @@
 \method{predict}{breeding_fit_thr}(object, newdata, type = c("probability", "liability"), ...)
 }
 \arguments{
-\item{object}{result of [model_threshold()] (ordinal mode; the joint fit does not
+\item{object}{result of \code{\link[=model_threshold]{model_threshold()}} (ordinal mode; the joint fit does not
 have a predict method -- the book's Eqn 15.25 needs a covariate point, compute it
-from `coef()`, `fit$nu` and `fit$b_regression`)}
+from \code{coef()}, \code{fit$nu} and \code{fit$b_regression})}
 
 \item{newdata}{data.frame with the fixed and random columns of the formula}
 
-\item{type}{`"probability"` (default) for the n x m matrix of category
-probabilities, `"liability"` for the linear predictor}
+\item{type}{\code{"probability"} (default) for the n x m matrix of category
+probabilities, \code{"liability"} for the linear predictor}
 
 \item{...}{unused, kept for the generic}
 }
 \value{
-a matrix with one row per row of `newdata` and the categories as columns,
-  or the numeric liability vector
+a matrix with one row per row of \code{newdata} and the categories as columns,
+or the numeric liability vector
 }
 \description{
-The product the book actually delivers (p.272-273): for each row of `newdata`, the
-probability of response in each category, `F(t_k - a) - F(t_(k-1) - a)` with
-`a = x'b + z'u` at that row's levels. A level dropped from the design (a reference
+The product the book actually delivers (p.272-273): for each row of \code{newdata}, the
+probability of response in each category, \code{F(t_k - a) - F(t_(k-1) - a)} with
+\verb{a = x'b + z'u} at that row's levels. A level dropped from the design (a reference
 level, or a dropped dependent column) contributes zero; a level absent from the
 fit's data is an error, not a silent zero.
 }

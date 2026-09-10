@@ -17,8 +17,12 @@ a22_inverse(ped, geno, id = 1L, sire = 2L, dam = 3L)
 
 \item{dam}{the dam column}
 }
+\value{
+a dense numeric matrix, one row and column per genotyped animal, in the order of
+\code{geno}. It carries no dimnames: the order is the one that was passed in.
+}
 \description{
-`geno` are 1-based indices in the TOPOLOGICAL order returned by [pedigree()]. The
+\code{geno} are 1-based indices in the TOPOLOGICAL order returned by \code{\link[=pedigree]{pedigree()}}. The
 non-genotyped block is never formed dense. It is exposed for the gates: it is checked
 against the inverse of the block of the tabular A, and against the classic trap, the 22
 block of A^-1, which has the same shape and is NOT the same matrix.

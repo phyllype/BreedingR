@@ -4,9 +4,17 @@
 \name{BreedingR-package}
 \alias{BreedingR}
 \alias{BreedingR-package}
-\title{BreedingR: Variance Components and Breeding Values by AI-REML and Single Step}
+\title{BreedingR: Genetic Parameters, Breeding Values and Genomic Prediction}
 \description{
-Variance component estimation by AI-REML, breeding values, accuracy and single-step genomics (ssGBLUP), with reaction norms, direct-maternal models, indirect genetic effects (the associative model), threshold models for ordered categorical traits, Weibull frailty models for censored survival times, declared covariance kernels (dominance, epistasis, multibreed partial matrices), APY and selection-signature scans (Fst and runs of homozygosity). The numerics live in the package itself, in C++ with no external dependency, checked against independent paths: the dense V form, central finite differences, recovery of simulated components, and the published examples of Mrode and Pocrnic (2023). No package dependency at run time. Developed with support from the Sao Paulo Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5.
+Variance component estimation by AI-REML, breeding values, accuracy and single-step genomics (ssGBLUP), with reaction norms, direct-maternal models, indirect genetic effects (the associative model), threshold models for ordered categorical traits, Weibull frailty models for censored survival times, and declared covariance kernels, that is user-supplied relationship matrices (dominance, epistasis, multibreed partial matrices). Single step also by APY and Vecchia inverses or by markers as equations, with selection-signature scans (Fst and runs of homozygosity) and quality control alongside. The numerics live in the package itself, in C++ with no external dependency, checked against independent paths: the dense V form, central finite differences, recovery of simulated components, and the published examples of Mrode and Pocrnic (2023). No package dependency at run time. Developed with support from the Sao Paulo Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5; the Coordenacao de Aperfeicoamento de Pessoal de Nivel Superior (CAPES), Finance Code 001; and the Conselho Nacional de Desenvolvimento Cientifico e Tecnologico (CNPq).
+}
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/phyllype/BreedingR}
+  \item Report bugs at \url{https://github.com/phyllype/BreedingR/issues}
+}
+
 }
 \author{
 \strong{Maintainer}: Felipe Andre Oliveira Freitas \email{phyllype.freitas@gmail.com}

@@ -11,6 +11,9 @@ sparse_solve(a, b)
 
 \item{b}{right-hand side}
 }
+\value{
+the solution, a numeric vector as long as \code{b}.
+}
 \description{
 Solve A x = b with A sparse symmetric positive-definite
 }

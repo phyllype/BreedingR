@@ -16,5 +16,5 @@ model_survival() or snp_blup()}
 }
 \description{
 Works for all the fitters. In the multi-trait case the coefficients come named
-"level|trait"; use `trait=` to slice out one trait.
+"level|trait"; use \verb{trait=} to slice out one trait.
 }

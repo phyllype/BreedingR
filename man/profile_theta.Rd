@@ -17,7 +17,7 @@ profile_theta(
 )
 }
 \arguments{
-\item{formula, data, pedigree}{as in [model()]}
+\item{formula, data, pedigree}{as in \code{\link[=model]{model()}}}
 
 \item{k}{index or name of the component to profile}
 
@@ -28,19 +28,19 @@ here if not given}
 
 \item{maxit}{maximum Nelder-Mead iterations per grid point}
 
-\item{tol}{relative convergence tolerance of each inner optimization (`reltol` of
-[stats::optim()])}
+\item{tol}{relative convergence tolerance of each inner optimization (\code{reltol} of
+\code{\link[stats:optim]{stats::optim()}})}
 
-\item{...}{passed to [model()] and [eval_internal()] (missing_code, genotypes,
+\item{...}{passed to \code{\link[=model]{model()}} and \code{\link[=eval_internal]{eval_internal()}} (missing_code, genotypes,
 weights, ...)}
 }
 \value{
-data.frame with `value`, `neg2logl` and `converged` (whether the inner
-  optimizer met `tol` within `maxit`), plus the fitted minimum as attribute
-  `neg2logl_min`
+data.frame with \code{value}, \code{neg2logl} and \code{converged} (whether the inner
+optimizer met \code{tol} within \code{maxit}), plus the fitted minimum as attribute
+\code{neg2logl_min}
 }
 \description{
-Fixes component `k` at each value of a grid, RE-OPTIMIZES every other component with
+Fixes component \code{k} at each value of a grid, RE-OPTIMIZES every other component with
 it held there, and returns the profile of -2logL. Where the delta method assumes a
 parabola, this draws the actual curve — which is what you want when a component sits
 near zero, when a correlation approaches its boundary, or when a reviewer asks how
@@ -48,20 +48,20 @@ flat the optimum really is.
 }
 \details{
 The re-optimization is the whole point. Evaluating the likelihood at the estimated
-theta with only component `k` swapped is a SLICE, not a profile: the slice rises
+theta with only component \code{k} swapped is a SLICE, not a profile: the slice rises
 faster than the profile everywhere except at the estimate itself (the other
 components are pinned where they no longer belong), so an interval read off a slice
 is too narrow — anticonservative, and worst exactly when components are correlated,
 which is when the profile is wanted. An earlier version of this function computed the
 slice while its documentation promised the profile; the gates in
-`test-inference-profile.R` now hold the difference.
+\code{test-inference-profile.R} now hold the difference.
 
-Each grid point is a Nelder-Mead optimization over [eval_internal()] (variances in
+Each grid point is a Nelder-Mead optimization over \code{\link[=eval_internal]{eval_internal()}} (variances in
 log scale, covariances free; an inadmissible candidate is refused by the engine and
-scored as a penalty). Expect the whole profile to cost roughly `length(grid)` times
-`maxit` likelihood evaluations — minutes where one fit takes seconds. The grid is
+scored as a penalty). Expect the whole profile to cost roughly \code{length(grid)} times
+\code{maxit} likelihood evaluations — minutes where one fit takes seconds. The grid is
 walked outward from the estimate, each point warm-started from the previous optimum,
 because the profile is continuous.
 
-The 95% profile interval is where -2logL rises 3.84 above its minimum.
+The 95\% profile interval is where -2logL rises 3.84 above its minimum.
 }

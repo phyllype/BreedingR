@@ -7,9 +7,9 @@
 \method{coef}{breeding_fit}(object, effects = c("components", "fixed"), ...)
 }
 \arguments{
-\item{object}{result of [model()], [model_mt()] or [model_ar1()]}
+\item{object}{result of \code{\link[=model]{model()}}, \code{\link[=model_mt]{model_mt()}} or \code{\link[=model_ar1]{model_ar1()}}}
 
-\item{effects}{`"components"` (default) for `theta`, `"fixed"` for `b`}
+\item{effects}{\code{"components"} (default) for \code{theta}, \code{"fixed"} for \code{b}}
 
 \item{...}{unused, kept for the generic}
 }
@@ -17,8 +17,8 @@
 a named numeric vector
 }
 \description{
-The default keeps what `coef()` always returned here, the vector of variance
-components. `effects = "fixed"` returns the fixed-effect solutions instead, the same
-vector stored in `fit$b`; see the parametrization note in [model()] before comparing
+The default keeps what \code{coef()} always returned here, the vector of variance
+components. \code{effects = "fixed"} returns the fixed-effect solutions instead, the same
+vector stored in \code{fit$b}; see the parametrization note in \code{\link[=model]{model()}} before comparing
 them against anything that zeroes a reference level.
 }

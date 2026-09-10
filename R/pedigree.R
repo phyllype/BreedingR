@@ -158,10 +158,12 @@ a_inverse <- function(ped, id = 1L, sire = 2L, dam = 3L,
 
 #' Inverse of a symmetric positive-definite matrix, by block Cholesky
 #' @param m symmetric positive-definite matrix
+#' @return the inverse, a symmetric matrix with the dimension of `m`.
 #' @export
 inv_pd <- function(m) .Call(R_inv_pd, m)
 
 #' Package version
+#' @return the package version, a single string.
 #' @export
 br_version <- function() .Call(R_versao)
 
@@ -175,6 +177,8 @@ br_version <- function() .Call(R_versao)
 #' dense block cannot see them.
 #' @param a list i, j, x, n with the triplets of one triangle of the symmetric matrix
 #' @param reorder FALSE factors in the natural order, so the tests can compare
+#' @return a list with `L`, the factor in triplets, `perm`, the permutation that was applied,
+#'   `logdet`, the log-determinant, and `dense_block`, the size of the final dense block.
 #' @export
 sparse_chol <- function(a, reorder = TRUE) {
   .Call(R_chol_esparsa, as.integer(a$i), as.integer(a$j), as.double(a$x),
@@ -193,6 +197,9 @@ sparse_chol <- function(a, reorder = TRUE) {
 #' @param block 0 detects the dense tail and uses the closed form; 1 forces the pure
 #'   recurrence, which exists so the tests can compare the two paths.
 #' @param a list i, j, x, n with the triplets
+#' @return a list `i`, `j`, `x`, `n` with the computed elements of the inverse in triplets, on
+#'   the pattern of the factor. A position outside that pattern is absent, which is not
+#'   the same as being zero.
 #' @references Takahashi, K., Fagan, J. & Chin, M.-S. (1973). Formation of a sparse
 #'   bus impedance matrix and its application to short circuit study. Proceedings of
 #'   the 8th PICA Conference, 63-69.
@@ -205,6 +212,7 @@ selected_inverse <- function(a, block = 0L) {
 #' Solve A x = b with A sparse symmetric positive-definite
 #' @param a list i, j, x, n with the triplets
 #' @param b right-hand side
+#' @return the solution, a numeric vector as long as `b`.
 #' @export
 sparse_solve <- function(a, b) {
   .Call(R_resolve, as.integer(a$i), as.integer(a$j), as.double(a$x),
@@ -222,6 +230,8 @@ sparse_solve <- function(a, b) {
 #' @param id the animal column
 #' @param sire the sire column
 #' @param dam the dam column
+#' @return a dense numeric matrix, one row and column per genotyped animal, in the order of
+#'   `geno`. It carries no dimnames: the order is the one that was passed in.
 #' @export
 a22_inverse <- function(ped, geno, id = 1L, sire = 2L, dam = 3L) {
   cp <- colunas_pedigree(ped, id, sire, dam)
@@ -231,7 +241,7 @@ a22_inverse <- function(ped, geno, id = 1L, sire = 2L, dam = 3L) {
 #' Normalized Legendre polynomials, evaluated on a gradient
 #'
 #' Kirkpatrick's normalization, phi_n(x) = sqrt((2n+1)/2) P_n(x), with x scaled to
-#' [-1, 1] by the OBSERVED minimum and maximum (or by the given limits). Returns a matrix
+#' `[-1, 1]` by the OBSERVED minimum and maximum (or by the given limits). Returns a matrix
 #' with order+1 columns, phi0..phiN, ready to enter as the basis of a reaction-norm
 #' term:
 #'
@@ -243,6 +253,8 @@ a22_inverse <- function(ped, geno, id = 1L, sire = 2L, dam = 3L) {
 #' @param x the observed gradient
 #' @param order polynomial order, 0 to 6
 #' @param limits minimum and maximum for scaling; if omitted, the observed ones are used
+#' @return a numeric matrix with one row per element of `x` and `order + 1` columns, named
+#'   `phi0` to `phiN`, ready to be bound to the data.
 #' @references Kirkpatrick, M., Lofsvold, D. & Bulmer, M. (1990). Analysis of the
 #'   inheritance, selection and evolution of growth trajectories. Genetics
 #'   124:979-993.

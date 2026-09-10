@@ -16,16 +16,16 @@ the default 0.01 is the usual one and is REPORTED in the result}
 }
 \value{
 list with i, j, x, n (triplets of the lower triangle of G_APY^-1), the diagnostic
-  `mendeliano` (the m_i of the young animals; very small = young animal almost collinear
-  with the core) and the parameters used
+\code{mendeliano} (the m_i of the young animals; very small = young animal almost collinear
+with the core) and the parameters used
 }
 \description{
 Inverse of G by the APY algorithm
 }
 \references{
 Misztal, I., Legarra, A. & Aguilar, I. (2014). Journal of Dairy Science
-  97:3943-3952.
+97:3943-3952.
 
-  Fragomeni, B.O. et al. (2015). Journal of Dairy Science 98:4090-4094; Pocrnic, I.
-  et al. (2016). Genetics 203:573-581.
+Fragomeni, B.O. et al. (2015). Journal of Dairy Science 98:4090-4094; Pocrnic, I.
+et al. (2016). Genetics 203:573-581.
 }

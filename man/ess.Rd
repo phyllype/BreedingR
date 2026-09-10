@@ -9,11 +9,14 @@ ess(x)
 \arguments{
 \item{x}{numeric vector (one chain)}
 }
+\value{
+a single number, the effective sample size of the chain.
+}
 \description{
 Geyer's initial positive sequence: sum consecutive pairs of autocovariances while the
 pair sums stay positive. Honest for reversible chains; iid draws give ess ~ n.
 }
 \references{
 Geyer, C.J. (1992). Practical Markov chain Monte Carlo. Statistical
-  Science 7:473-483.
+Science 7:473-483.
 }

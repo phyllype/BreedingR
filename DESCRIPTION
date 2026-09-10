@@ -28,4 +28,5 @@ Suggests: testthat (>= 3.0.0), knitr, rmarkdown
 Config/testthat/edition: 3
 VignetteBuilder: knitr
 NeedsCompilation: yes
+Roxygen: list(markdown = TRUE)
 Config/roxygen2/version: 8.1.0

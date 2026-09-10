@@ -15,6 +15,10 @@ rg(fit, term = "animal", t1 = NULL, t2 = NULL)
 
 \item{t2}{name of the second}
 }
+\value{
+a single number, the genetic correlation. No standard error travels with it, for the
+reason given above.
+}
 \description{
 r_g = cov(a@t1, a@t2) / sqrt(var(a@t1) var(a@t2)), read by parameter NAME. The standard
 error is NOT given: it needs the delta method with the covariance between components, and

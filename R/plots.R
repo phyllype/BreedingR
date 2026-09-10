@@ -13,6 +13,8 @@
 #' @param group name of the reaction-norm group
 #' @param limits the same ones passed to [legendre()] when preparing the data
 #' @param points where to evaluate the curve
+#' @return a data.frame with `x`, the point on the gradient, `va`, the additive variance there,
+#'   and `h2`, the heritability at that point.
 #' @export
 h2_curve <- function(fit, group = NULL, limits, points = 101L) {
   if (!inherits(fit, "breeding_fit")) stop("expected the result of model()")

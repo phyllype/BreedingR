@@ -21,8 +21,8 @@ declared error). Metafounders enter as virtual base rows of A(Gamma) after
 Legarra et al. (2015)}
 
 \item{gamma}{the base relationship matrix of the metafounders. Either a vector of
-length `n_metafounders`, read as the DIAGONAL, or a full symmetric
-`n_metafounders x n_metafounders` matrix. The off-diagonal `gamma_jk` is the
+length \code{n_metafounders}, read as the DIAGONAL, or a full symmetric
+\verb{n_metafounders x n_metafounders} matrix. The off-diagonal \code{gamma_jk} is the
 ancestral relationship BETWEEN two base populations, which is what a multibreed
 analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
 opposite directions. Admissibility is positive SEMI-definiteness, tested by a
@@ -36,15 +36,15 @@ eigenvalue, which does not generate a covariance matrix at all}
 }
 \description{
 Returns the lower triangle in triplets. It becomes a sparse matrix from the Matrix package
-with `Matrix::sparseMatrix(i = a$i, j = a$j, x = a$x, dims = c(a$n, a$n), symmetric = TRUE)`,
+with \code{Matrix::sparseMatrix(i = a$i, j = a$j, x = a$x, dims = c(a$n, a$n), symmetric = TRUE)},
 but this package does not depend on Matrix: the matrix is returned in triplets so anyone
 can use whatever they prefer.
 }
 \references{
 Henderson, C.R. (1976). A simple method for computing the inverse of a
-  numerator relationship matrix used in prediction of breeding values. Biometrics
-  32:69-83.
+numerator relationship matrix used in prediction of breeding values. Biometrics
+32:69-83.
 
-  Quaas, R.L. (1976). Computing the diagonal elements and inverse of a large
-  numerator relationship matrix. Biometrics 32:949-953.
+Quaas, R.L. (1976). Computing the diagonal elements and inverse of a large
+numerator relationship matrix. Biometrics 32:949-953.
 }

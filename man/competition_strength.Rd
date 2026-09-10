@@ -15,7 +15,7 @@ competition_strength(
 )
 }
 \arguments{
-\item{wins}{number of outcomes competitor `competitor[k]` won in group `group[k]`}
+\item{wins}{number of outcomes competitor \code{competitor[k]} won in group \code{group[k]}}
 
 \item{group}{the contest each row belongs to (a litter, a pen, a match)}
 
@@ -34,13 +34,13 @@ likelihood (which diverges for a competitor with no wins)}
 \item{maxiter}{maximum MM rounds}
 }
 \value{
-list with `strength` (named, scaled to geometric mean one), `log_strength`,
-  `se` (from the diagonal of the observed information, so it ignores the correlation
-  between competitors and is optimistic when contests are few; NA outside the core of
-  the win graph, where it does not exist), `identifiable` (named logical: is this
-  competitor in the largest strongly connected component of the win graph), `wins`,
-  `contests`, `exposure_total`, `loglik`, `converged`, `iters`, `delta` (the last change
-  in the log-strengths), `n_zero_wins` and `n_unidentifiable`
+list with \code{strength} (named, scaled to geometric mean one), \code{log_strength},
+\code{se} (from the diagonal of the observed information, so it ignores the correlation
+between competitors and is optimistic when contests are few; NA outside the core of
+the win graph, where it does not exist), \code{identifiable} (named logical: is this
+competitor in the largest strongly connected component of the win graph), \code{wins},
+\code{contests}, \code{exposure_total}, \code{loglik}, \code{converged}, \code{iters}, \code{delta} (the last change
+in the log-strengths), \code{n_zero_wins} and \code{n_unidentifiable}
 }
 \description{
 Estimates each competitor's strength from counts of outcomes won inside groups, with
@@ -54,18 +54,18 @@ whenever i won an outcome in a contest j also entered — is strongly connected.
 competitor outside that core, someone who only ever lost or only ever won, sits on a
 likelihood that keeps improving in one direction: the Gamma prior is what keeps his
 estimate finite, and there is no curvature for a standard error to read. The result marks
-him in `identifiable` and gives him `se = NA`, and the call warns how many there are. In
-a real panel this is not a rare corner: on two independent cuts it reached 0.5%
-and 5% of the competitors. Filter on `identifiable` before ranking or before any
-variance decomposition.
+him in \code{identifiable} and gives him \code{se = NA}, and the call warns how many there are. In
+a real panel this is not a rare corner: on two independent cuts it reached 0.5\% and 5\%
+of the competitors. Filter on \code{identifiable} before ranking or before any variance
+decomposition.
 }
 \references{
 Bradley, R.A. & Terry, M.E. (1952). Biometrika 39:324-345; Plackett,
-  R.L. (1975). Applied Statistics 24:193-202; Luce, R.D. (1959). Individual Choice
-  Behavior. Wiley.
+R.L. (1975). Applied Statistics 24:193-202; Luce, R.D. (1959). Individual Choice
+Behavior. Wiley.
 
-  Ford, L.R., Jr. (1957). American Mathematical Monthly 64:28-33.
+Ford, L.R., Jr. (1957). American Mathematical Monthly 64:28-33.
 
-  Hunter, D.R. (2004). MM algorithms for generalized Bradley-Terry models. Annals
-  of Statistics 32:384-406.
+Hunter, D.R. (2004). MM algorithms for generalized Bradley-Terry models. Annals
+of Statistics 32:384-406.
 }

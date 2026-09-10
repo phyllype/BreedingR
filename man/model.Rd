@@ -24,34 +24,34 @@ model(
 )
 }
 \arguments{
-\item{formula}{for example `peso ~ cg + sexo + animal(id)`. An unmarked term is a fixed
-class effect; `cov(x)` is a fixed covariate; `animal(id)`, `maternal(dam)` and
-`sire(sire)` are random with relationship; `pe(id)` and `random(lote)` are random
-without relationship. `group = "nome"` puts two random terms in the SAME covariance
-matrix, with the correlation estimated. `indirect(id, pen = "pen")` is the indirect
+\item{formula}{for example \code{peso ~ cg + sexo + animal(id)}. An unmarked term is a fixed
+class effect; \code{cov(x)} is a fixed covariate; \code{animal(id)}, \code{maternal(dam)} and
+\code{sire(sire)} are random with relationship; \code{pe(id)} and \code{random(lote)} are random
+without relationship. \code{group = "nome"} puts two random terms in the SAME covariance
+matrix, with the correlation estimated. \code{indirect(id, pen = "pen")} is the indirect
 (associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a
-record marks the animal's DISTINCT pen mates, and it shares a group with `animal()`
-so the direct-social covariance is estimated. Its `dilution = d` argument scales the
-entry of every mate to `(n_i - 1)^(-d)`, where `n_i` is the number of distinct
-animals in the pen of record i: `d = 0`, the default, is the book's plain sum
-(coefficient 1 per mate, exactly the old behaviour); `d = 1` is the mate mean; any
-`d >= 0` in between is the dilution of Bijma (2010). With pens of unequal size the
-sum grows with `n_i - 1` and the choice of `d` is an empirical question: fit a small
-grid (say 0, 0.5, 1) and compare `-2logL`, which is comparable across `d` because
+record marks the animal's DISTINCT pen mates, and it shares a group with \code{animal()}
+so the direct-social covariance is estimated. Its \code{dilution = d} argument scales the
+entry of every mate to \code{(n_i - 1)^(-d)}, where \code{n_i} is the number of distinct
+animals in the pen of record i: \code{d = 0}, the default, is the book's plain sum
+(coefficient 1 per mate, exactly the old behaviour); \code{d = 1} is the mate mean; any
+\code{d >= 0} in between is the dilution of Bijma (2010). With pens of unequal size the
+sum grows with \code{n_i - 1} and the choice of \code{d} is an empirical question: fit a small
+grid (say 0, 0.5, 1) and compare \verb{-2logL}, which is comparable across \code{d} because
 only the incidence changes. A pen of size 1 keeps its zero social row under every
-`d`. See [indirect_residual()] for the residual side of the same problem.
-`kernel(id, K = D)` is a random term with a user-supplied (user-defined)
+\code{d}. See \code{\link[=indirect_residual]{indirect_residual()}} for the residual side of the same problem.
+\code{kernel(id, K = D)} is a random term with a user-supplied (user-defined)
 covariance matrix, called a DECLARED covariance throughout this package: K is a symmetric positive-definite matrix whose rownames
 are the level identifiers, and every row of K gets an equation, with or without a
-record — a dominance D ([dominance_matrix()], [g_dominance()]), an epistatic G_AA
-([g_epistasis()]), a partial multibreed matrix ([partial_a()]), or any relationship
+record — a dominance D (\code{\link[=dominance_matrix]{dominance_matrix()}}, \code{\link[=g_dominance]{g_dominance()}}), an epistatic G_AA
+(\code{\link[=g_epistasis]{g_epistasis()}}), a partial multibreed matrix (\code{\link[=partial_a]{partial_a()}}), or any relationship
 the pedigree and the markers do not already provide. A row of K that is ENTIRELY
 zero, diagonal included, declares a level with no contribution to this term: it
 gets no equation and its records stay in the analysis with zero incidence here —
 the generalized-inverse pattern of the multibreed partial matrices (Mrode &
 Pocrnic, 4th ed., p.243-244). An id absent from K altogether still excludes the
 record, as with an animal missing from the pedigree: a zero row is a declaration,
-an absence is a gap. Two kernel terms need `nome=` to tell their components apart.
+an absence is a gap. Two kernel terms need \verb{nome=} to tell their components apart.
 The inversion of K is dense, so the declared route is for matrices of moderate
 size — the size of a genotyped set, not of a national pedigree.}
 
@@ -59,7 +59,7 @@ size — the size of a genotyped set, not of a national pedigree.}
 
 \item{pedigree}{data.frame animal, sire, dam; required with a relationship term}
 
-\item{genotypes}{list with `ids` and `m` (0/1/2 matrix) for single-step; NA is imputed
+\item{genotypes}{list with \code{ids} and \code{m} (0/1/2 matrix) for single-step; NA is imputed
 with the marker mean, never converted to zero}
 
 \item{blend}{weight of A22 in the adjusted G, the usual 0.05}
@@ -73,7 +73,7 @@ animal conditions on its k strongest previous relationships instead of a global
 core (the generalization of APY; Henderson's A^-1 is the pedigree case, with the
 parents as the conditioning set). k >= n - 1 reproduces the exact inverse; the
 result message says it is an approximation and with which k. Mutually exclusive
-with `apy_core`}
+with \code{apy_core}}
 
 \item{missing_code}{missing-value code for observations, for example -999}
 
@@ -81,17 +81,17 @@ with `apy_core`}
 raised from 100 after a measured case: a direct-indirect model warm-started from
 the reduced fit still had relDelta 1.6e-4 at iteration 100 — no defect, a model
 that walks slowly along a covariance boundary. A fit that hits the ceiling says so
-in `message` and reports `converged = FALSE`}
+in \code{message} and reports \code{converged = FALSE}}
 
 \item{tol}{RELATIVE tolerance on the components, sqrt(sum delta^2 / sum theta^2).
 BLUPF90 note: airemlf90/blupf90+ VCE test the SQUARED quantity, so their
 conv_crit equals this tol squared (their 1e-10 is tol = 1e-5 here; this 1e-8
 default is 1e-16 on their scale). A small step alone never certifies convergence:
-`converged = TRUE` additionally requires the Newton decrement of the free
+\code{converged = TRUE} additionally requires the Newton decrement of the free
 components, g' AI^-1 g restricted to the components not held at a boundary, to
 fall under 2e-4 — near the optimum the decrement is about twice the -2logL gap
 to it, so the certificate bounds that gap by ~1e-4. The value is reported in
-`newton_dec`. Measured motivation: a fit that stalled against the singularity
+\code{newton_dec}. Measured motivation: a fit that stalled against the singularity
 boundary with relDelta 5.1e-9 and the score far from zero sat 6.9 -2logL units
 above the optimum, and the step criterion alone declared it converged}
 
@@ -103,8 +103,8 @@ declared error). Metafounders enter as virtual base rows of A(Gamma) after
 Legarra et al. (2015)}
 
 \item{gamma}{the base relationship matrix of the metafounders. Either a vector of
-length `n_metafounders`, read as the DIAGONAL, or a full symmetric
-`n_metafounders x n_metafounders` matrix. The off-diagonal `gamma_jk` is the
+length \code{n_metafounders}, read as the DIAGONAL, or a full symmetric
+\verb{n_metafounders x n_metafounders} matrix. The off-diagonal \code{gamma_jk} is the
 ancestral relationship BETWEEN two base populations, which is what a multibreed
 analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
 opposite directions. Admissibility is positive SEMI-definiteness, tested by a
@@ -121,48 +121,52 @@ eigenvalue, which does not generate a covariance matrix at all}
 is a progress report instead of silence. Defaults to interactive() — live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 
-\item{weights}{a column of `data`, or a numeric vector: a record of weight w has
-residual variance `s2e / w`. Weights enter as a row scaling by sqrt(w), so the
+\item{weights}{a column of \code{data}, or a numeric vector: a record of weight w has
+residual variance \code{s2e / w}. Weights enter as a row scaling by sqrt(w), so the
 normal equations solved are the weighted ones. Use them when records are means of
 different sizes, or estimates that carry their own precision — a two-step analysis,
 a de-regressed proof}
 
 \item{start}{starting values for the components, in the order the fit reports them.
 Use it to warm-start from a submodel, or to check that the optimum does not depend
-on where the search began. Without it the start comes from `var(y)`}
+on where the search began. Without it the start comes from \code{var(y)}}
 }
 \value{
-an object of class `breeding_fit`: the components `theta` with their `se`,
-  the fixed-effect solutions `b` (named `term=level`, in the order the columns of X
-  entered), `ebv` and `pev` per covariance group, `score`, `vcov`, the convergence
-  fields (`converged`, `iters`, `reldelta`, and `newton_dec`, the Newton decrement
-  of the free components at the final point) and `message`. PARAMETRIZATION OF `b`, and it matters when comparing against
-  a book or another program: the model carries an implicit intercept and drops
-  linearly dependent columns (listed in `dropped_x`; a dropped level has solution
-  zero). A program that instead zeroes some other level -- Mrode's examples zero one
-  level per factor and fit no intercept -- agrees with `b` only on CONTRASTS,
-  differences between levels of the same factor, never on the raw values.
+an object of class \code{breeding_fit}. Besides the fields below it carries
+\code{used}, one logical per row of \code{data} saying whether that record entered the
+equations: \code{n_used} counts them and \code{used} says WHICH, which is what anything
+that has to sum on the same base as the likelihood needs. The object holds
+the components \code{theta} with their \code{se},
+the fixed-effect solutions \code{b} (named \code{term=level}, in the order the columns of X
+entered), \code{ebv} and \code{pev} per covariance group, \code{score}, \code{vcov}, the convergence
+fields (\code{converged}, \code{iters}, \code{reldelta}, and \code{newton_dec}, the Newton decrement
+of the free components at the final point) and \code{message}. PARAMETRIZATION OF \code{b}, and it matters when comparing against
+a book or another program: the model carries an implicit intercept and drops
+linearly dependent columns (listed in \code{dropped_x}; a dropped level has solution
+zero). A program that instead zeroes some other level -- Mrode's examples zero one
+level per factor and fit no intercept -- agrees with \code{b} only on CONTRASTS,
+differences between levels of the same factor, never on the raw values.
 }
 \description{
 Fit a mixed model by AI-REML
 }
 \references{
 Patterson, H.D. & Thompson, R. (1971). Recovery of inter-block
-  information when block sizes are unequal. Biometrika 58:545-554.
+information when block sizes are unequal. Biometrika 58:545-554.
 
-  Gilmour, A.R., Thompson, R. & Cullis, B.R. (1995). Average information REML.
-  Biometrics 51:1440-1450.
+Gilmour, A.R., Thompson, R. & Cullis, B.R. (1995). Average information REML.
+Biometrics 51:1440-1450.
 
-  VanRaden, P.M. (2008). Efficient methods to compute genomic predictions. Journal
-  of Dairy Science 91:4414-4423.
+VanRaden, P.M. (2008). Efficient methods to compute genomic predictions. Journal
+of Dairy Science 91:4414-4423.
 
-  Aguilar, I. et al. (2010). A unified approach... Journal of Dairy Science
-  93:743-752; Christensen, O.F. & Lund, M.S. (2010). Genetics Selection Evolution
-  42:2.
+Aguilar, I. et al. (2010). A unified approach... Journal of Dairy Science
+93:743-752; Christensen, O.F. & Lund, M.S. (2010). Genetics Selection Evolution
+42:2.
 
-  Misztal, I., Legarra, A. & Aguilar, I. (2014). Using recursion to compute the
-  inverse of the genomic relationship matrix. Journal of Dairy Science 97:3943-3952.
+Misztal, I., Legarra, A. & Aguilar, I. (2014). Using recursion to compute the
+inverse of the genomic relationship matrix. Journal of Dairy Science 97:3943-3952.
 
-  Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
-  genetic effects and group size. Genetics 186:1013-1028.
+Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
+genetic effects and group size. Genetics 186:1013-1028.
 }

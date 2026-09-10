@@ -11,6 +11,10 @@ sparse_chol(a, reorder = TRUE)
 
 \item{reorder}{FALSE factors in the natural order, so the tests can compare}
 }
+\value{
+a list with \code{L}, the factor in triplets, \code{perm}, the permutation that was applied,
+\code{logdet}, the log-determinant, and \code{dense_block}, the size of the final dense block.
+}
 \description{
 Orders by minimum degree, permutes, and factors. Returns L in triplets, the permutation,
 the log-determinant and the size of the final dense block.

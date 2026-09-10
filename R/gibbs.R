@@ -137,6 +137,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
 #' Geyer's initial positive sequence: sum consecutive pairs of autocovariances while the
 #' pair sums stay positive. Honest for reversible chains; iid draws give ess ~ n.
 #' @param x numeric vector (one chain)
+#' @return a single number, the effective sample size of the chain.
 #' @references Geyer, C.J. (1992). Practical Markov chain Monte Carlo. Statistical
 #'   Science 7:473-483.
 #' @export
@@ -160,6 +161,8 @@ ess <- function(x) {
 #' Compares the mean of the first tenth of the chain against the mean of the last half;
 #' under convergence the standardized difference is approximately standard normal.
 #' @param x numeric vector (one chain)
+#' @return a single number, the z-score. Values beyond about 2 in absolute value are the
+#'   usual sign that the chain has not settled.
 #' @references Geweke, J. (1992). Evaluating the accuracy of sampling-based approaches
 #'   to the calculation of posterior moments. In Bayesian Statistics 4. Oxford
 #'   University Press.

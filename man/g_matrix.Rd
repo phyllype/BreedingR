@@ -7,19 +7,19 @@
 g_matrix(genotypes)
 }
 \arguments{
-\item{genotypes}{list with `ids` and `m` (animals x markers, 0/1/2 coded); NA is
+\item{genotypes}{list with \code{ids} and \code{m} (animals x markers, 0/1/2 coded); NA is
 imputed with the marker mean, and monomorphic markers are left out}
 }
 \value{
-genomic relationship matrix, rows and columns named by `ids`
+genomic relationship matrix, rows and columns named by \code{ids}
 }
 \description{
 The G of VanRaden (2008), first method: genotypes centered by twice the allele
-frequency, `G = Z Z' / (2 sum p q)`, frequencies from the genotyped animals
+frequency, \verb{G = Z Z' / (2 sum p q)}, frequencies from the genotyped animals
 themselves. This is the RAW G of the book's worked examples (Mrode & Pocrnic, 4th
 ed., Example 13.3, p.233) — no blending with A22 and no affine adjustment, which are
-the single-step steps that `model(genotypes = )` performs internally. With few
-animals G is singular; add a small ridge before declaring it, `G + diag(0.01, n)`,
+the single-step steps that \code{model(genotypes = )} performs internally. With few
+animals G is singular; add a small ridge before declaring it, \code{G + diag(0.01, n)},
 as the book does in its examples.
 }
 \examples{

@@ -7,17 +7,17 @@
 g_epistasis(g)
 }
 \arguments{
-\item{g}{additive relationship matrix, usually [g_matrix()]; any square symmetric
+\item{g}{additive relationship matrix, usually \code{\link[=g_matrix]{g_matrix()}}; any square symmetric
 relationship works}
 }
 \value{
-epistatic relationship matrix with the dimnames of `g`, raw like the input —
-  ridge it before `kernel()` if `g` was singular
+epistatic relationship matrix with the dimnames of \code{g}, raw like the input —
+ridge it before \code{kernel()} if \code{g} was singular
 }
 \description{
 The G_AA behind the book's epistatic GBLUP (Mrode & Pocrnic, 4th ed., Eqn 13.13 and
 Example 13.5, p.237-238): the Hadamard square of the additive genomic relationship,
-rescaled so the diagonal averages 1, `G_AA = (G * G) / mean(diag(G * G))`. Cheap on
+rescaled so the diagonal averages 1, \code{G_AA = (G * G) / mean(diag(G * G))}. Cheap on
 purpose — once a G exists, epistasis is one elementwise product away. The book notes
 this is the one non-additive term that visibly reordered the animals in its example.
 }

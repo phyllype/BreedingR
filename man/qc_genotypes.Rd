@@ -16,8 +16,8 @@ qc_genotypes(m, min_call_rate = 0.9, min_maf = 0.01, hwe_p = NULL)
 \item{hwe_p}{if not NULL, drop markers whose HWE chi-square p-value falls below it}
 }
 \value{
-list with `m` (filtered matrix), and the counts `n_call`, `n_maf`, `n_hwe`
-  removed by each filter (applied in that order)
+list with \code{m} (filtered matrix), and the counts \code{n_call}, \code{n_maf}, \code{n_hwe}
+removed by each filter (applied in that order)
 }
 \description{
 Filters markers by call rate, minor allele frequency and (optionally) a Hardy-Weinberg

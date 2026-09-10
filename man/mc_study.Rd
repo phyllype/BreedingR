@@ -9,24 +9,24 @@ mc_study(n_rep = 20, formula = y ~ cg + animal(id), h2 = 0.4, seed = 1, ...)
 \arguments{
 \item{n_rep}{number of replicates}
 
-\item{formula}{passed to [model()]; the additive term must be named `animal` for the
-heritability slice (the component `var(animal)`)}
+\item{formula}{passed to \code{\link[=model]{model()}}; the additive term must be named \code{animal} for the
+heritability slice (the component \code{var(animal)})}
 
-\item{h2}{simulated heritability, passed to [simulate_breeding()]}
+\item{h2}{simulated heritability, passed to \code{\link[=simulate_breeding]{simulate_breeding()}}}
 
-\item{seed}{base seed; replicate r uses `seed + r`}
+\item{seed}{base seed; replicate r uses \code{seed + r}}
 
-\item{...}{other arguments for [simulate_breeding()] (population size and depth)}
+\item{...}{other arguments for \code{\link[=simulate_breeding]{simulate_breeding()}} (population size and depth)}
 }
 \value{
-data.frame with one row per replicate (`h2_est`, `converged`, `seconds`),
-  with the simulated value, the mean bias and the empirical standard deviation as
-  attributes `h2_true`, `bias`, `sd`
+data.frame with one row per replicate (\code{h2_est}, \code{converged}, \code{seconds}),
+with the simulated value, the mean bias and the empirical standard deviation as
+attributes \code{h2_true}, \code{bias}, \code{sd}
 }
 \description{
-Simulates `n_rep` populations with [simulate_breeding()], fits each with [model()]
+Simulates \code{n_rep} populations with \code{\link[=simulate_breeding]{simulate_breeding()}}, fits each with \code{\link[=model]{model()}}
 and the given formula, and reports the estimated heritability against the simulated
-one. Each replicate gets its own seed (`seed + rep`), and every fit starts cold from
-`var(y)` like any other fit — the harness never warm-starts, by the package's own
+one. Each replicate gets its own seed (\code{seed + rep}), and every fit starts cold from
+\code{var(y)} like any other fit — the harness never warm-starts, by the package's own
 rule.
 }

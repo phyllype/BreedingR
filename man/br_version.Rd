@@ -6,6 +6,9 @@
 \usage{
 br_version()
 }
+\value{
+the package version, a single string.
+}
 \description{
 Package version
 }

@@ -7,11 +7,11 @@
 snp_effects(fit, pedigree, genotypes, blend = 0.05, group = "animal")
 }
 \arguments{
-\item{fit}{result of [model()] fitted with `genotypes=`}
+\item{fit}{result of \code{\link[=model]{model()}} fitted with \verb{genotypes=}}
 
 \item{pedigree}{the same pedigree used in the fit}
 
-\item{genotypes}{the same list `ids`/`m` used in the fit}
+\item{genotypes}{the same list \code{ids}/\code{m} used in the fit}
 
 \item{blend}{the same blend used in the fit}
 
@@ -19,7 +19,7 @@ snp_effects(fit, pedigree, genotypes, blend = 0.05, group = "animal")
 }
 \value{
 vector of marker effects, in the units of the trait per allele-dose,
-  plus the allele frequencies used, as attributes
+plus the allele frequencies used, as attributes
 }
 \description{
 Backsolve SNP effects from a single-step fit
@@ -27,7 +27,7 @@ Backsolve SNP effects from a single-step fit
 \references{
 VanRaden, P.M. (2008). Journal of Dairy Science 91:4414-4423.
 
-  Wang, H., Misztal, I., Aguilar, I., Legarra, A. & Muir, W.M. (2012). Genome-wide
-  association mapping including phenotypes from relatives without genotypes.
-  Genetics Research 94:73-83.
+Wang, H., Misztal, I., Aguilar, I., Legarra, A. & Muir, W.M. (2012). Genome-wide
+association mapping including phenotypes from relatives without genotypes.
+Genetics Research 94:73-83.
 }

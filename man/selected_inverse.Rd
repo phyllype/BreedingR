@@ -12,6 +12,11 @@ selected_inverse(a, block = 0L)
 \item{block}{0 detects the dense tail and uses the closed form; 1 forces the pure
 recurrence, which exists so the tests can compare the two paths.}
 }
+\value{
+a list \code{i}, \code{j}, \code{x}, \code{n} with the computed elements of the inverse in triplets, on
+the pattern of the factor. A position outside that pattern is absent, which is not
+the same as being zero.
+}
 \description{
 The elements of A^-1 at the positions of the factor's pattern. It is what PEV and accuracy
 read, and the only part of the inverse one can afford: the full inverse of the coefficient
@@ -23,6 +28,6 @@ ones that were computed.
 }
 \references{
 Takahashi, K., Fagan, J. & Chin, M.-S. (1973). Formation of a sparse
-  bus impedance matrix and its application to short circuit study. Proceedings of
-  the 8th PICA Conference, 63-69.
+bus impedance matrix and its application to short circuit study. Proceedings of
+the 8th PICA Conference, 63-69.
 }

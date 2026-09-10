@@ -28,9 +28,9 @@ eval_internal_mt(
 
 \item{with_dense}{TRUE also computes the dense V form}
 
-\item{metafounders}{as in [model()]}
+\item{metafounders}{as in \code{\link[=model]{model()}}}
 
-\item{gamma}{as in [model()]}
+\item{gamma}{as in \code{\link[=model]{model()}}}
 }
 \description{
 Internal multi-trait evaluation, for the gates

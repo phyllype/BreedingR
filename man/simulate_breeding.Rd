@@ -27,8 +27,8 @@ simulate_breeding(
 \item{seed}{RNG seed}
 }
 \value{
-list with `pedigree` (id/sire/dam), `data` (id, cg, y), `tbv` (true breeding
-  values, named), and `genotypes` (NULL, or the `list(ids, m)` shape)
+list with \code{pedigree} (id/sire/dam), \code{data} (id, cg, y), \code{tbv} (true breeding
+values, named), and \code{genotypes} (NULL, or the \code{list(ids, m)} shape)
 }
 \description{
 Founders, discrete generations by random mating, true breeding values by Mendelian

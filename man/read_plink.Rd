@@ -2,7 +2,7 @@
 % Please edit documentation in R/io_qc.R
 \name{read_plink}
 \alias{read_plink}
-\title{Read PLINK genotypes into the `genotypes=` shape}
+\title{Read PLINK genotypes into the \verb{genotypes=} shape}
 \usage{
 read_plink(prefix)
 }
@@ -10,12 +10,12 @@ read_plink(prefix)
 \item{prefix}{path without extension}
 }
 \value{
-list with `ids` (from the .fam IID or .raw IID) and `m` (dosage matrix with
-  marker names), ready for `genotypes=`
+list with \code{ids} (from the .fam IID or .raw IID) and \code{m} (dosage matrix with
+marker names), ready for \verb{genotypes=}
 }
 \description{
-Reads the binary trio `prefix.bed` / `prefix.bim` / `prefix.fam` (SNP-major .bed), or
-a `prefix.raw` from `plink --recode A`. Dosages COUNT THE A1 ALLELE of the .bim (in
+Reads the binary trio \code{prefix.bed} / \code{prefix.bim} / \code{prefix.fam} (SNP-major .bed), or
+a \code{prefix.raw} from \verb{plink --recode A}. Dosages COUNT THE A1 ALLELE of the .bim (in
 the .bed encoding: 00 = A1A1 -> 2, 10 = het -> 1, 11 = A2A2 -> 0, 01 = missing ->
 NA). Stated because half the silent bugs in genomic pipelines are an allele-counting
 convention nobody wrote down.

@@ -7,7 +7,7 @@
 partial_a(ped, breed)
 }
 \arguments{
-\item{ped}{data.frame with animal, sire and dam, as in [model()]; unknown parent 0 or
+\item{ped}{data.frame with animal, sire and dam, as in \code{\link[=model]{model()}}; unknown parent 0 or
 NA. Every animal must have both parents known or neither: with a single known
 parent the breed fractions are undefined — add the missing parent as a founder
 with a declared breed}
@@ -17,29 +17,29 @@ founder ids, values the breed labels. Non-founders take the mean of their parent
 fractions, so declaring them is an error, not a convenience}
 }
 \value{
-list with three pieces, all rows in the topological order of [pedigree()]:
-  `f`, the matrix of breed fractions (animals x breeds) — the fixed breed regression
-  of the book's model enters the data from here; `h`, the matrix of segregation
-  coefficients (animals x breed pairs, columns named `"p:q"`); and `K`, the named
-  list of partial relationship matrices ready for `kernel(id, K = )` — one per breed,
-  plus one per breed pair that actually segregates (an all-zero segregation matrix is
-  left out, there is nothing to estimate from it)
+list with three pieces, all rows in the topological order of \code{\link[=pedigree]{pedigree()}}:
+\code{f}, the matrix of breed fractions (animals x breeds) — the fixed breed regression
+of the book's model enters the data from here; \code{h}, the matrix of segregation
+coefficients (animals x breed pairs, columns named \code{"p:q"}); and \code{K}, the named
+list of partial relationship matrices ready for \code{kernel(id, K = )} — one per breed,
+plus one per breed pair that actually segregates (an all-zero segregation matrix is
+left out, there is nothing to estimate from it)
 }
 \description{
 Splits the numerator relationship by breed of origin after Garcia-Cortes and Toro
 (2006), the formulation of Mrode & Pocrnic (4th ed., section 14.3, Eqn 14.10,
 p.241-242). Each breed p gets a partial matrix built by the tabular method with the
-breed contribution on the diagonal, `a_ii = c_i + 0.5 a_SD`, where `c_i` is the
+breed contribution on the diagonal, \verb{a_ii = c_i + 0.5 a_SD}, where \code{c_i} is the
 fraction of genes from breed p; each pair of breeds gets a segregation matrix from the
-same recursion with `c_i = 2 (f_pS f_qS + f_pD f_qD)`. The combined additive
+same recursion with \verb{c_i = 2 (f_pS f_qS + f_pD f_qD)}. The combined additive
 covariance is the variance-weighted sum of all of them (Eqn 14.1), and a model with
-one random term per matrix — `kernel(id, K = )`, one variance each — is the
+one random term per matrix — \code{kernel(id, K = )}, one variance each — is the
 equivalent model 14.8, returning breed-specific breeding values that sum to the
 combined ones.
 }
 \details{
 An animal with no genes from a breed has a whole row of zeros in that partial matrix.
-Passed to [kernel()][model()] as they come, those rows declare the level out of the
+Passed to \link[=model]{kernel()} as they come, those rows declare the level out of the
 term: no equation, zero incidence, exactly the generalized inverse with null rows the
 book uses (p.243-244). Do not trim or ridge them.
 
