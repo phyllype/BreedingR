@@ -2,7 +2,7 @@ Package: BreedingR
 Type: Package
 Title: Genetic Parameters, Breeding Values and Genomic Prediction
 Version: 0.4.0
-Authors@R: person("Felipe Andre Oliveira", "Freitas", role = c("aut", "cre"),
+Authors@R: person("Felipe Andre Oliveira", "Freitas", role = c("aut", "cre", "cph"),
                   email = "phyllype.freitas@gmail.com")
 Description: Variance component estimation by AI-REML, breeding values, accuracy and
     single-step genomics (ssGBLUP), with reaction norms, direct-maternal models,

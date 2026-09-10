@@ -17,11 +17,11 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Felipe Andre Oliveira Freitas \email{phyllype.freitas@gmail.com}
+\strong{Maintainer}: Felipe Andre Oliveira Freitas \email{phyllype.freitas@gmail.com} [copyright holder]
 
 Authors:
 \itemize{
-  \item Felipe Andre Oliveira Freitas \email{phyllype.freitas@gmail.com}
+  \item Felipe Andre Oliveira Freitas \email{phyllype.freitas@gmail.com} [copyright holder]
 }
 
 }
