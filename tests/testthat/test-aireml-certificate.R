@@ -1,6 +1,6 @@
 # GATES for the CONVERGENCE CERTIFICATE (the Newton decrement) and the maxiter contract.
 #
-# The defect, measured on real data (docs/CHECKLIST.md, 2026-09-02): a
+# The defect, measured on real data (2026-09-02): a
 # direct + indirect fit (2x2 covariance group) ended converged TRUE with relDelta
 # 5.1e-09 and scores up to -506050 on the group components, sitting 6.9 -2logL units
 # ABOVE the optimum a manual restart loop reached. The damped AI step and the EM rescue

@@ -129,7 +129,7 @@ void kinv_declarada(const Modelo& mo, const Grupo& g,
         // K DECLARADA (kernel): a matriz veio pronta do usuario — D de dominancia, G_AA de
         // epistasia, uma parcial por raca. A inversao aqui e DENSA de proposito: a K
         // declarada tem o tamanho do problema que o usuario montou, e a rota esparsa para D
-        // de pedigree grande (Hoeschele & VanRaden 1991) esta registrada no CHECKLIST.
+        // de pedigree grande (Hoeschele & VanRaden 1991) segue por fazer.
         if (!kernels)
           throw Erro("a kernel() term declares its own covariance matrix, and this fitting "
                      "route does not carry it: kernel() reaches model(), model_mt() and "

@@ -12,7 +12,8 @@
 # Estes portoes travam a estrutura, e nao o relogio. Uma medida de tempo tem ruido, depende
 # da maquina e do BLAS, e a regra deste projeto e que cronometragem de uma corrida nao e
 # medicao; a contagem de nao-zeros e deterministica e e a CAUSA do tempo. O tempo medido
-# fica registrado em docs/CHECKLIST.md, onde uma medida com sua incerteza pertence.
+# fica na mensagem do commit que fez o conserto, que e onde uma medida com a sua
+# incerteza pertence.
 
 cel <- function(ng, nc, nm = 400, seed = 5) {
   set.seed(seed)

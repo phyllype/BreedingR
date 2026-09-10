@@ -220,8 +220,7 @@ Wright, S. (1922). Coefficients of inbreeding and relationship. *American Natura
 
 ## Surveyed, not implemented
 
-Read for methods the package does not implement; the notes on when each would matter
-live in docs/CHECKLIST.md.
+Read for methods the package does not implement.
 
 Arakawa, A. et al. (2022). Performance of the No-U-Turn sampler in multi-trait variance
 component estimation using genomic data. *Genetics Selection Evolution* 54:29.

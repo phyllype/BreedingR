@@ -20,8 +20,7 @@
 # make var(e_i) = s2e (1 + (n_i - 1) k) with s2e = s2_ED, and the weighted fit is exact
 # REML for that k. One correction is due before comparing across k: the -2logL a weighted
 # fit reports is that of the sqrt(w)-rescaled data, offset from the standard value by
-# exactly sum(log w) (measured; see docs/CHECKLIST.md, "O -2logL com weights= fica
-# sum(log w) acima do REML padrao"). The offset is constant in theta, so it never moves
+# exactly sum(log w) (measured). The offset is constant in theta, so it never moves
 # any single fit, but it DOES depend on k through w, so the profile below removes it.
 
 #' Estimate the pen-size heterogeneous residual of the associative model

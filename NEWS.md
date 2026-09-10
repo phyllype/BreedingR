@@ -116,7 +116,7 @@
 * `indirect_residual()`: the group-size residual
   var(e_i) = s2_ED + (n_i - 1) s2_ES, profiled over k = s2_ES/s2_ED through the
   weights machinery with the Jacobian correction. Recovers a planted k on
-  unequal pens; the in-engine version's cost is stated in docs/CHECKLIST.md.
+  unequal pens.
 * The sibling fitters (`model_mt()`, `model_ar1()`, `gibbs()`, `snp_blup()`)
   refuse `dilution > 0` with a clear error instead of silently fitting the
   undiluted sum.
@@ -131,8 +131,8 @@
 
 * Counts counted: 54 exported functions, 48 exercised by the hands-on vignette,
   every number re-derived by execution. The reference list cites like a
-  reference list again - the when-this-would-matter notes moved to
-  docs/CHECKLIST.md. Suite: 860 expectations, 0 failures; R CMD check on the
+  reference list again - the when-this-would-matter notes moved out of it.
+  Suite: 860 expectations, 0 failures; R CMD check on the
   tarball: Status OK.
 
 # BreedingR 0.2.0

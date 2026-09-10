@@ -8,6 +8,7 @@ src/*.so
 # private: real-data results and the development roadmap live outside the repo
 VALIDATION.md
 PLAN.md
+docs/CHECKLIST.md
 
 # revisao interna contra Mrode & Pocrnic: contem o texto extraido do livro (material
 # com direitos autorais) e nao deve entrar no historico em hipotese nenhuma

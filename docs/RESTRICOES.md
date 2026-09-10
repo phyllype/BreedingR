@@ -1,8 +1,8 @@
 # As 19 restricoes declaradas, e o estado de cada uma
 
 Levantadas por varredura do fonte em 2026-09-03 (`grep` por "declared limit", "nesta
-versao", "not implemented", "por enquanto" em `R/` e `src/`), mais os itens ABERTO do
-CHECKLIST. Cada linha tem arquivo e linha de origem, para que ninguem precise confiar na
+versao", "not implemented", "por enquanto" em `R/` e `src/`), mais os itens em aberto do
+roteiro de desenvolvimento, que nao e publicado. Cada linha tem arquivo e linha de origem, para que ninguem precise confiar na
 memoria de quem escreveu.
 
 Estado: ABERTO / EM CURSO / FEITO / PROJETO (a restricao e matematicamente correta e o
@@ -16,7 +16,7 @@ entregavel e mensagem e documentacao, nao codigo).
 | 2 | `src/ar1b.cpp:73` | `kernel()` nao existe no AR(1) | **FEITO** 2026-09-04 |
 | 3 | `src/multitrait2.cpp:220` | theta cru, sem pisos nem log-Cholesky | **FEITO** 2026-09-04 |
 | 4 | `src/ar1b.cpp:274` | idem | **FEITO** 2026-09-04 |
-| 5 | `CHECKLIST:27` | posto de X sobre a tabela inteira, nao sobre as linhas usadas | **FEITO** 2026-09-04 |
+| 5 | roteiro de desenvolvimento | posto de X sobre a tabela inteira, nao sobre as linhas usadas | **FEITO** 2026-09-04 |
 
 Os itens 1 e 2 foram fechados montando a K declarada uma unica vez, em
 `kinv_declarada()` (`src/mme.cpp`), que os tres ajustadores passaram a chamar. Nao ha
@@ -120,7 +120,7 @@ nomes, e sem o fator `s2e` do univariado, porque as MME dos espelhos ja sao abso
 | # | origem | restricao | estado |
 |---|---|---|---|
 | 9 | `src/mme.cpp:433` | `kernel()` so na rota `model()` (mesma familia de 1 e 2) | ABERTO |
-| 10 | `CHECKLIST:743` | nao ha como FIXAR o componente de um `kernel` em 1 | **FEITO** 2026-09-04 |
+| 10 | roteiro de desenvolvimento | nao ha como FIXAR o componente de um `kernel` em 1 | **FEITO** 2026-09-04 |
 
 ## Limiar e sobrevivencia
 

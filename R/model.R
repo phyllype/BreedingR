@@ -240,8 +240,8 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
 # Os dois caminhos nao estao igualmente errados: a ssSNPBLUP ja nao faz ajuste afim, entao
 # la o desencontro e so a centragem, enquanto em model(genotypes=) a correcao dupla e
 # integral. A recusa cobre os dois porque nenhum dos dois esta certo, e um erro declarado e
-# melhor que um H silenciosamente misturado. O plano do conserto de verdade, com o que
-# precisa ser conferido antes, esta em docs/CHECKLIST.md.
+# melhor que um H silenciosamente misturado. O conserto de verdade, com o que precisa
+# ser conferido antes dele, segue por fazer.
 recusa_mf_genomico <- function(metafounders, tem_genotipos) {
   if (!is.null(metafounders) && length(metafounders) > 0L && isTRUE(tem_genotipos))
     stop("metafounders and genotypes cannot be combined yet: the pedigree becomes ",

@@ -843,8 +843,8 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     return P;
   };
 
-  // THE CONVERGENCE CERTIFICATE, measured missing on real data (docs/CHECKLIST.md,
-  // 2026-09-02): a direct+indirect fit ended converged TRUE with relDelta 5.1e-09 and
+  // THE CONVERGENCE CERTIFICATE, measured missing on real data (2026-09-02): a
+  // direct+indirect fit ended converged TRUE with relDelta 5.1e-09 and
   // group scores up to -506050, sitting 6.9 -2logL units ABOVE the optimum. The damped
   // AI step and the EM step can stall together against the singularity wall with the
   // gradient far from zero, and neither the small step nor the EM confirmation sees it.
