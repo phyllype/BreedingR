@@ -41,6 +41,24 @@ The numerics are C++ under `src/`, compiled by `R CMD INSTALL`, and the package 
 run-time dependency. A change that would add one is a design question rather than a
 detail, so it is worth raising in an issue before the code gets written.
 
+## Copyright on what you contribute
+
+You keep the copyright on what you write. By opening a pull request you also grant the
+maintainer the right to license your contribution under the licence this project carries
+now, GPL-3, and under any other licence the project may adopt later.
+
+The reason is worth stating plainly, because a clause like this is easy to resent. A
+project whose copyright is spread across many authors cannot change its licence without
+tracking down every one of them and getting each to agree; projects have been frozen that
+way, sometimes by a single contributor nobody could reach years later. This keeps that
+door open. It takes nothing away from you: your name stays on the commit, and whatever
+version your work was released in stays under the licence it was released under, for
+everyone who received it. Relicensing is never retroactive.
+
+If you would rather not grant that, say so in the pull request. The contribution can
+still be discussed, and often the same result is reached by describing the problem well
+enough that the fix is written here.
+
 ## Building from a clone
 
 ```r

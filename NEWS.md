@@ -72,6 +72,11 @@
   it and ship the result closed; GPL-3 asks that a distributed derivative carry
   the same licence and ship its source. Research use and publication are
   unaffected, which is where citation comes from.
+* `CONTRIBUTING.md` asks a contributor to grant the right to license their
+  contribution under a licence the project may adopt later. Without it the
+  copyright spreads with the first merged pull request and the licence can no
+  longer be changed without finding every author. Nothing about it is
+  retroactive: a released version keeps the licence it was released under.
 * The MIT two-line stub in `LICENSE` is gone, because it exists only for template
   licences. `License: GPL-3` in DESCRIPTION is a standard R abbreviation and needs
   no file: `LICENSE.md` carries the full text for anyone reading the repository,
