@@ -93,8 +93,8 @@ test_that("the declared errors are declared", {
 # (Ford 1957). Outside it the likelihood keeps improving in one direction, so the Gamma
 # prior is the only thing holding the estimate down and there is no curvature for a
 # standard error to read. Before this, `se` came back NA for those competitors and nothing
-# said why: on real panels it reached 0.5% in one cut and 5% in another, and a
-# single NA killed a sum(se^2) three functions downstream with
+# said why: on real panels it reached 0.5% of the competitors in one cut and 5% in
+# another, and a single NA killed a sum(se^2) three functions downstream with
 # "missing value where TRUE/FALSE needed".
 #
 # The graph here is disconnected ON PURPOSE: a competitor who only ever wins has no arrow

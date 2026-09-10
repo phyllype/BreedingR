@@ -38,9 +38,9 @@
 #' likelihood that keeps improving in one direction: the Gamma prior is what keeps his
 #' estimate finite, and there is no curvature for a standard error to read. The result marks
 #' him in `identifiable` and gives him `se = NA`, and the call warns how many there are. In
-#' a real panel this is not a rare corner: on two independent cuts it reached 0.5%
-#' and 5% of the competitors. Filter on `identifiable` before ranking or before any
-#' variance decomposition.
+#' a real panel this is not a rare corner: on two independent cuts it reached 0.5% and 5%
+#' of the competitors. Filter on `identifiable` before ranking or before any variance
+#' decomposition.
 #'
 #' @param wins number of outcomes competitor `competitor[k]` won in group `group[k]`
 #' @param group the contest each row belongs to (a litter, a pen, a match)

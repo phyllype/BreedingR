@@ -1,5 +1,5 @@
-# GATES for describe(). The case that motivated the main one: in real data, a large batch of
-# records had the trait observed and the age covariate equal to the missing-value code,
+# GATES for describe(). The case that motivated the main one: in real data, a large batch
+# of records had the trait observed and the age covariate equal to the missing-value code,
 # which only applies to the trait, and it entered TWO programs' regressions literally
 # without either one warning. describe() now measures exactly that leakage.
 
