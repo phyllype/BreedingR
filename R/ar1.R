@@ -139,7 +139,7 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
              isTRUE(verbose),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
-             if (is.null(gamma)) numeric(0) else as.double(gamma),
+             if (is.null(gamma)) numeric(0) else as.double(gamma),
              monta_kernels(terms, environment(formula)),
              if (is.null(start)) numeric(0) else as.double(start))
   r$seconds <- proc.time()[["elapsed"]] - t0
@@ -202,7 +202,7 @@ eval_internal_ar1 <- function(formula, data, pedigree = NULL, subject, time, the
         subject, time,
         as.double(theta), isTRUE(with_dense),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
-             if (is.null(gamma)) numeric(0) else as.double(gamma),
+             if (is.null(gamma)) numeric(0) else as.double(gamma),
              monta_kernels(terms, environment(formula)))
 }
 

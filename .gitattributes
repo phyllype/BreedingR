@@ -1,0 +1,24 @@
+# O repositorio guarda texto com LF. Cada checkout recebe o final de linha nativo da
+# plataforma, e o que e gravado de volta volta normalizado. Sem isso um commit feito no
+# Windows podia reescrever um arquivo inteiro so pelo CR: aconteceu duas vezes aqui, uma
+# delas com 2648 linhas em src/entrada.cpp sem uma linha de conteudo mudada.
+* text=auto
+
+# fontes e documentacao, sempre LF no repositorio
+*.R      text
+*.Rd     text
+*.cpp    text
+*.h      text
+*.md     text
+*.Rmd    text
+*.yaml   text
+*.yml    text
+*.json   text
+*.cff    text
+
+# binarios nunca sao tocados
+*.png    binary
+*.jpg    binary
+*.pdf    binary
+*.gz     binary
+*.rds    binary
