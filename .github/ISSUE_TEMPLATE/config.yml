@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and suggestions
+    url: mailto:felipeoliveirafreitas@usp.br
+    about: How to specify a model, what a number means, or a model the package does not fit yet.

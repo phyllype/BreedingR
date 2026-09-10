@@ -577,6 +577,17 @@ observation. A pen mate missing from the pedigree is an error rather than a sile
 discard, because dropping him would quietly change who competed with whom. A parent
 cited without a line of its own is an error rather than a new founder.
 
+## Questions and problems
+
+Questions and suggestions are welcome at felipeoliveirafreitas@usp.br. If something
+looks like a defect, opening an issue keeps the answer where the next person who hits
+it will find it:
+
+https://github.com/phyllype/BreedingR/issues
+
+`CONTRIBUTING.md` says what makes a report easy to act on, and what a pull request is
+checked against.
+
 ## Citation and funding
 
 If this package contributed to published work, please cite it:
