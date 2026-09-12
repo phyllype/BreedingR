@@ -321,6 +321,18 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
 
     for (std::uint32_t iu : lp) {
       const std::size_t i = iu;
+      // O MESMO DESVIO TEM DE ESTAR NOS DOIS LACOS, e a primeira versao so o pos no de
+      // baixo. Medido: com a guarda so la, o nucleo era adiado certo na inicializacao, mas
+      // cada eliminacao de um NAO-nucleo ainda arrastava os k do nucleo por aqui, e av[i] de
+      // um no do clique tem k entradas. Da O(k^2) por eliminacao, 2.533 x 5.923 num caso
+      // real, e o ganho caiu para ~2x em vez dos ~1000x que a conta pedia.
+      //
+      // Pular isto e seguro por um invariante: av[i] e ev[i] so sao LIDOS por viz(i), e
+      // viz(i) nunca roda para um no adiado, porque ele nao entra em balde (nao vira pivo) e
+      // o laco de baixo o desvia. Manter a adjacencia de quem nunca mais sera consultado e
+      // trabalho jogado fora. O que NAO pode ganhar guarda e o laco de selo acima: a
+      // absorcao le no_lp[x] para x em le[e], e esses x incluem nos adiados.
+      if (adiado[i]) continue;
       auto& a_i = av[i];
       a_i.erase(std::remove_if(a_i.begin(), a_i.end(),
                                [&](std::uint32_t x) { return x == p || !vivo[x]; }), a_i.end());
@@ -336,8 +348,6 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
     }
     for (std::uint32_t iu : lp) {
       const std::size_t i = iu;
-      // e aqui que o k^3 morre: sem este desvio, viz(i) roda O(k) para cada um dos k
-      // membros do clique, a cada uma das k eliminacoes
       if (adiado[i]) continue;
       const std::size_t d = viz(i).size();
       grau[i] = d;
