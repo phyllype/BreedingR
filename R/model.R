@@ -620,25 +620,34 @@ ebv <- function(fit, group = NULL, trait = NULL) {
 }
 
 #' @export
-summary.breeding_fit <- function(object, ...) {
-  th <- object$theta
-  out <- list(trait = object$trait, converged = object$converged, neg2logl = object$neg2logl,
-              components = data.frame(component = names(th), estimate = unname(th),
-                                       std_error = unname(object$se),
-                                       proportion = unname(th) / sum(th), row.names = NULL),
-              fixed = object$b, dropped_x = object$dropped_x)
-  structure(out, class = "summary.breeding_fit")
-}
+summary.breeding_fit <- function(object, ...)
+  # a tabela vem de tabela_componentes(), a MESMA que o print usa. Antes nao era: o print
+  # dividia pela soma das variancias e o summary pela soma de tudo, entao o mesmo ajuste
+  # direto-materno dava duas razoes diferentes conforme por onde se olhasse.
+  resumo_comum(object, paste0("AI-REML fit of '", object$trait, "'"),
+               list(neg2logl = object$neg2logl, trait = object$trait))
 
 #' @export
 print.summary.breeding_fit <- function(x, ...) {
-  cat("Trait:", x$trait, "\n-2logL:", format(x$neg2logl, digits = 10),
-      if (x$converged) "" else "(DID NOT CONVERGE)", "\n\n")
+  cat(x$titulo, if (isTRUE(x$converged)) "" else "  (DID NOT CONVERGE)", "\n", sep = "")
+  if (!is.null(x$neg2logl)) cat("  -2logL ", format(x$neg2logl, digits = 10), "\n", sep = "")
+  if (!is.null(x$n_censored)) cat("  ", x$n_censored, " right-censored\n", sep = "")
+  cat("\n")
   print(x$components, digits = 6)
-  mostra_fixos(x$fixed, x$dropped_x)
-  cat("\nThe 'proportion' is the component over the sum of all of them. The standard error\n",
-      "of that ratio needs the covariance between components and is NOT given here: making\n",
-      "the number up would be worse than giving none.\n", sep = "")
+  if (!is.null(x$thresholds)) {
+    cat("\nthresholds (liability scale):\n")
+    print(rbind(estimate = x$thresholds, std_error = x$se_thresholds), digits = 4)
+  }
+  if (!is.null(x$rho))
+    cat("\nrho ", format(x$rho, digits = 4), ",  lambda ", format(x$lambda, digits = 4),
+        "\n", sep = "")
+  if (!is.null(x$fixed)) mostra_fixos(x$fixed, x$dropped_x)
+  cat("\nThe 'share' column is each VARIANCE over the sum of the variances, and it is NOT a\n",
+      "heritability: the covariance components are outside that denominator. h2() divides by\n",
+      "the phenotypic variance, covariances included, and refuses the cases where the ratio\n",
+      "is not a number. No standard error travels with either: it needs the delta method over\n",
+      "the covariance between components, and making it up would be worse than giving none.\n",
+      sep = "")
   invisible(x)
 }
 

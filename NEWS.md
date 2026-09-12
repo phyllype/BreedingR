@@ -1,3 +1,48 @@
+# BreedingR 0.4.0.9000 (development)
+
+## New
+
+* `solutions(fit, pedigree)`: one call, one data.frame with `id`, `ebv`, `se` and
+  `acc`, sorted by breeding value. It is what an evaluation is for, and until now
+  the caller assembled it by hand, joining the vector from `ebv()` to the vector
+  from `accuracy()` by name.
+* `h2(fit)`: heritability with the denominator stated. It is the phenotypic
+  variance, covariances included, because in a direct-maternal model
+  sigma_am belongs in it (Willham, 1972) and dropping it inflates the ratio. In a
+  multi-trait fit it returns one per trait, each divided by the components of that
+  trait alone. It REFUSES a reaction norm, where the heritability is a function of
+  the gradient and not a number, and points at `h2_curve()`.
+* `summary()` for `model_mt()`, `model_ar1()`, `model_threshold()` and
+  `model_survival()`.
+
+## Fixed
+
+* `summary()` existed for one of the five fit classes. On the other four it fell
+  through to `summary.default`, which treated the fit as an atomic vector and
+  returned a `summaryDefault table`: output with the shape of a result, no error,
+  nothing to tell the caller it was meaningless.
+* `summary()` and `print()` divided by different denominators on the same fit. The
+  print used the sum of the variances, the summary the sum of everything, so a fit
+  with a covariance component gave two different ratios depending on which one you
+  looked at. Both now come from `tabela_componentes()`, and the column is `share`,
+  which is not a heritability and says so.
+* The ordering by minimum degree cost k^3 on a clique rather than scaling with the
+  nonzeros, which on a single-step fit with an APY core is the whole genotyped
+  block. Found on real data: ten minutes inside the ordering, before the first
+  AI-REML iteration. A node whose degree passes 80 percent of what is still alive
+  leaves the degree game and goes to the end of the order. Measured, median of 3,
+  on `sparse_chol` over an H^-1 with an APY core: 0.64 to 0.06 s at core 600,
+  3.80 to 0.23 s at core 1000, 7.51 to 0.68 s at core 1400, with the same
+  `dense_block` and the same `nnz(L)` to the number. Ordering never changes a
+  result, only speed and fill: it is similarity by permutation.
+
+## Version
+
+* The version now carries a development suffix. `v0.4.0` is a tag, and what comes
+  after it is not `0.4.0`: the previous round let the DESCRIPTION say `0.3.0` for
+  51 commits, and whoever installed from the tag and whoever installed from main
+  got different packages with no way to tell them apart.
+
 # BreedingR 0.4.0
 
 ## New

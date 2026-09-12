@@ -1310,7 +1310,7 @@ SEXP R_snp_blup(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP t
   )
 }
 
-SEXP R_versao(void) { return Rf_mkString("0.4.0"); }
+SEXP R_versao(void) { return Rf_mkString("0.4.0.9000"); }
 
 static const R_CallMethodDef metodos[] = {
   {"R_pedigree",   (DL_FUNC) &R_pedigree,   5},
