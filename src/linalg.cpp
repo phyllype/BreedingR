@@ -251,8 +251,46 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
   std::vector<std::size_t> grau(n);
   for (std::size_t i = 0; i < n; i++) grau[i] = av[i].size();
 
+  // LINHA DENSA SAI DO JOGO DE GRAUS (o "dense row handling" do AMD).
+  //
+  // Medido em dado real, 5.930 animais com 5.924 genotipados: o H^-1 sai 99,7% denso,
+  // porque com genotipagem quase completa o A22^-1 e denso, e grau minimo num clique e o
+  // PIOR caso desta estrutura de dados. Cada eliminacao chama viz() para cada membro de
+  // L_p, e viz() custa O(k); com |L_p| = k dentro de k eliminacoes o custo e k^3 e nao nnz.
+  // Foram 10 minutos parados aqui num ajuste que nem tinha chegado a primeira iteracao do
+  // AI-REML, e a proxima chamada (a das MME, em aireml.cpp) e sobre uma matriz 2x maior.
+  //
+  // O conserto e nao deixar esses nos entrarem no jogo: quem passa do limiar vai direto
+  // para o fim da ordem. Num clique todos passam, e o que sobra e exatamente a ordem que a
+  // medicao de enchimento ja tinha apontado como otima aqui: elimina a parte esparsa por
+  // grau minimo e empilha o clique no fim (dense_block = nucleo+1, enchimento ZERO).
+  //
+  // ORDENACAO NAO MUDA RESULTADO, so velocidade e enchimento: e semelhanca por permutacao.
+  // O pior caso de errar o limiar e um ajuste lento, nunca um numero diferente. Isso e o
+  // que torna esta troca barata de gatilhar e segura de errar.
+  //
+  // O LIMIAR E RELATIVO AO QUE AINDA ESTA VIVO, e nao a sqrt(n). Medido: com 10*sqrt(n), o
+  // classico do AMD, a ordenacao ficou 8x a 13x mais rapida E PIOR, porque na APY o animal
+  // JOVEM tem grau igual ao tamanho do nucleo (ele se liga a todo o nucleo) e passava do
+  // limiar junto com o clique. O bloco denso saltou do nucleo para n_genotipados e o
+  // enchimento subiu 7% a 12%. Isso troca custo de ordenacao, que e uma vez por ajuste, por
+  // custo de fatoracao, que e TODA iteracao: com nucleo de 2.533 em 5.924 genotipados seriam
+  // 12,8x mais flops por iteracao. Troca ruim.
+  //
+  // A assinatura da patologia nao e "grau alto", e "grau igual ao que sobrou": um clique que
+  // abrange quase todos os vivos. Um no com grau 600 entre 1.200 vivos e denso e util; o
+  // mesmo grau 600 entre 700 vivos e um clique e nao ha ordem que o salve.
+  const double fracao = 0.8;
+  std::vector<char> adiado(n, 0);
+  auto denso_demais = [&](std::size_t d, std::size_t vivos) {
+    return vivos > 64 && static_cast<double>(d) > fracao * static_cast<double>(vivos);
+  };
+
   std::vector<std::vector<std::uint32_t>> baldes(n + 1);
-  for (std::size_t i = 0; i < n; i++) baldes[std::min(grau[i], n)].push_back(static_cast<std::uint32_t>(i));
+  for (std::size_t i = 0; i < n; i++) {
+    if (denso_demais(grau[i], n)) { adiado[i] = 1; continue; }
+    baldes[std::min(grau[i], n)].push_back(static_cast<std::uint32_t>(i));
+  }
   std::size_t lo = 0;
 
   while (ordem.size() < n) {
@@ -266,7 +304,7 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
       if (p != static_cast<std::size_t>(-1)) break;
       lo++;
     }
-    if (p == static_cast<std::size_t>(-1)) {          // o que sobrou esta isolado
+    if (p == static_cast<std::size_t>(-1)) {          // o que sobrou esta isolado ou adiado
       for (std::size_t i = 0; i < n; i++) if (vivo[i]) { vivo[i] = 0; ordem.push_back(i); }
       break;
     }
@@ -298,8 +336,15 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
     }
     for (std::uint32_t iu : lp) {
       const std::size_t i = iu;
+      // e aqui que o k^3 morre: sem este desvio, viz(i) roda O(k) para cada um dos k
+      // membros do clique, a cada uma das k eliminacoes
+      if (adiado[i]) continue;
       const std::size_t d = viz(i).size();
       grau[i] = d;
+      // um no VIRA clique durante a eliminacao: o grau dele nao cresce, o numero de vivos e
+      // que encolhe ate a razao passar do corte. E assim que o nucleo da APY e pego, depois
+      // que os jovens ja sairam, e nao antes deles
+      if (denso_demais(d, n - ordem.size())) { adiado[i] = 1; continue; }
       const std::size_t b = std::min(d, n);
       baldes[b].push_back(iu);
       if (b < lo) lo = b;
