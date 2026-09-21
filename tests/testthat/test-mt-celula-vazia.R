@@ -84,25 +84,49 @@ test_that("theta inadmissivel de verdade continua sendo chamado de theta", {
 })
 
 test_that("os EBV saem do lugar CERTO da solucao quando pares caem", {
-  # O portao que faltava, e a falta dele passou EBV errado adiante. O bloco fixo encolheu
-  # quando o posto passou a ser por caracter, mas a extracao dos EBV em entrada.cpp ainda
+  # O portao que faltava em 8f09322, e a falta dele passou EBV errado adiante. O bloco fixo
+  # encolheu quando o posto passou a ser por caracter, mas a extracao em entrada.cpp ainda
   # calculava o inicio do bloco aleatorio como x.ncol * t, o tamanho do kron CHEIO. O offset
   # passava do lugar, os EBV vinham de outra parte do vetor solucao, e nada parecia errado:
-  # eram finitos, com os nomes certos e na quantidade certa. Medido: a correlacao com o
-  # ajuste separado era 0.0074; com o offset certo e 0.9964.
+  # finitos, com os nomes certos, na quantidade certa. Tambem era leitura fora de faixa, que
+  # derrubava a sessao em ajustes ADIANTE.
   #
-  # Tambem era corrupcao de heap. Nas ultimas posicoes off + c passa do fim de r.solucao, e a
-  # sessao caia em ajustes ADIANTE, em celula que mudava entre execucoes.
-  #
-  # Os componentes e a verossimilhanca NAO pegavam isto, porque o ajuste estava certo: so a
-  # leitura do resultado nao estava. Por isso o portao olha EBV.
-  z <- cel(aninhado())
-  f <- model_mt(fm, data = z$d, pedigree = z$ped, maxiter = 30L, verbose = FALSE)
-  d1 <- z$d[!is.na(z$d$y1), ]; d1$CG <- droplevels(d1$CG)
-  f1 <- model(y1 ~ CG + animal(IDENT), data = d1, pedigree = z$ped, verbose = FALSE)
-  e <- ebv(f, trait = "y1"); e1 <- ebv(f1)
-  com <- intersect(names(e), names(e1))
-  expect_gt(length(com), 300)
+  # O dado aqui tem SINAL GENETICO de verdade, e essa parte importa. A primeira versao deste
+  # portao usava fenotipo rnorm puro e comparava com o ajuste univariado: com h2 = 0 e rg
+  # pinado em +-1 os EBV sao ruido, a correlacao vai de 0.15 a 0.99 entre sementes, e o
+  # portao acusava defeito onde nao havia. Com valor genetico plantado, o EBV tem de
+  # recuperar o valor VERDADEIRO.
+  n <- 400
+  set.seed(3)
+  ped <- data.frame(ANIMAL = 1:n, SIRE = 0, DAM = 0)
+  ped$SIRE[101:n] <- sample(1:50, n - 100, TRUE)
+  ped$DAM[101:n]  <- sample(51:100, n - 100, TRUE)
+  a1 <- a2 <- numeric(n)
+  a1[1:100] <- rnorm(100); a2[1:100] <- 0.8 * a1[1:100] + sqrt(1 - 0.64) * rnorm(100)
+  for (i in 101:n) {
+    a1[i] <- 0.5 * (a1[ped$SIRE[i]] + a1[ped$DAM[i]]) + sqrt(0.5) * rnorm(1)
+    a2[i] <- 0.5 * (a2[ped$SIRE[i]] + a2[ped$DAM[i]]) + sqrt(0.5) * rnorm(1)
+  }
+  d <- data.frame(IDENT = 1:n, CG = factor(aninhado()), y1 = NA_real_, y2 = NA_real_)
+  d$y1[1:200] <- a1[1:200] + rnorm(200)
+  d$y2[201:n] <- a2[201:n] + rnorm(200)
+  f <- model_mt(fm, data = d, pedigree = ped, maxiter = 40L, verbose = FALSE)
+  e <- ebv(f, trait = "y1")
+  expect_equal(length(e), n)
   expect_true(all(is.finite(e)))
-  expect_gt(stats::cor(e[com], e1[com]), 0.9)
+  # com o offset errado o EBV vem de outro pedaco do vetor e nao recupera nada: medido, a
+  # correlacao com o valor verdadeiro cai para perto de zero
+  expect_gt(stats::cor(e[as.character(1:n)], a1), 0.5)
+})
+
+test_that("onde nada cai, o EBV e IDENTICO ao que o fitter dava antes da cirurgia", {
+  # o portao de regressao da mudanca de layout, e o mais forte dela: quando todo par sobrevive
+  # eq_fixa[k] == k, o bloco fixo tem o tamanho de sempre, e nenhum numero pode se mover.
+  # Valor conferido contra a build anterior a cirurgia, no mesmo dado e mesma semente.
+  z <- cel(rep(1:8, length.out = 400))
+  f <- model_mt(fm, data = z$d, pedigree = z$ped, maxiter = 40L, verbose = FALSE)
+  expect_equal(length(f$b), 16L)
+  e <- ebv(f, trait = "y1")
+  expect_equal(sum(e), -1.2784002552, tolerance = 1e-8)
+  expect_equal(unname(e[1:3]), c(0.13661494, 0.10212621, 0.14661163), tolerance = 1e-6)
 })
