@@ -17,6 +17,23 @@
 
 ## Fixed
 
+* A fixed level with no record for one trait is now refused by name instead of
+  reported as a bad starting theta. The rank of X is measured over the rows USED,
+  and a row counts as used when ANY trait was observed in it; with a contemporary
+  group nested in the trait, X has rank 8 of 8 over the used rows and rank 4 of 8
+  inside each trait. The equations are built per trait, so the (level, trait)
+  equation was born empty, the Cholesky of the coefficient matrix died, and
+  `avalia_mt()` returned the same failure a non positive-definite covariance
+  returns. The fit then said the starting theta was inadmissible about a theta that
+  was diagonal and positive-definite on both blocks. The message now names the
+  pairs, for example `'CG=5' for y1`, and says that changing `start=` will not
+  help. Proven three ways: an explicit admissible start fails identically, one
+  linking record per level makes it converge, and the crossed and single-group
+  designs with the same ZERO phenotypic overlap both fit.
+* `AvaliacaoMT` carries why it failed. The two returns of `avalia_mt()` are a
+  covariance that is not positive-definite, where the theta is the cause, and a
+  singular coefficient matrix, where the design is; they were indistinguishable to
+  the caller, which wrote the theta message for both.
 * `summary()` existed for one of the five fit classes. On the other four it fell
   through to `summary.default`, which treated the fit as an atomic vector and
   returned a `summaryDefault table`: output with the shape of a result, no error,

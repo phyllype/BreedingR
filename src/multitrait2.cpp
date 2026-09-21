@@ -166,6 +166,45 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
   }
   for (std::size_t j : sai) d.saiu_x.push_back(cols[j].first);
 
+  // NIVEL FIXO SEM REGISTRO PARA UM CARACTER.
+  //
+  // O posto acima e medido sobre as linhas USADAS, e uma linha e usada quando QUALQUER
+  // caracter foi observado nela. Isso deixa passar exatamente um caso, e ele aparece em dado
+  // de verdade quando dois caracteres foram medidos em coortes diferentes: a coluna tem
+  // registro no conjunto e nao tem para um caracter especifico. O MME e montado POR
+  // CARACTER, a equacao (coluna, caracter) nasce vazia, a matriz de coeficientes fica
+  // singular, e a Cholesky morre tres passos longe da causa.
+  //
+  // Medido no desenho que motivou isto, CG aninhado no caracter: X tem posto 8 de 8 sobre as
+  // linhas usadas e posto 4 de 8 DENTRO de cada caracter. Um unico registro de ligacao por
+  // nivel ja e suficiente para o ajuste andar, o que confirma que a causa e a celula vazia e
+  // nao a partida: com start diagonal e as duas covariancias positivas-definidas, falha
+  // igual.
+  {
+    std::vector<std::string> vazias;
+    for (std::size_t jj = 0; jj < d.nomes_x.size(); jj++)
+      for (std::size_t tau = 0; tau < d.t; tau++) {
+        bool tem = false;
+        for (std::size_t i = 0; i < d.nlin && !tem; i++)
+          if (d.usa[i] && d.obs[i * d.t + tau] && d.x.at(i, jj) != 0.0) tem = true;
+        if (!tem) vazias.push_back("'" + d.nomes_x[jj] + "' for " + d.alvos[tau]);
+      }
+    if (!vazias.empty()) {
+      std::string lista;
+      const std::size_t mostra = std::min<std::size_t>(vazias.size(), 6);
+      for (std::size_t k = 0; k < mostra; k++) lista += (k ? ", " : "") + vazias[k];
+      if (vazias.size() > mostra)
+        lista += " and " + std::to_string(vazias.size() - mostra) + " more";
+      throw Erro(
+        "fixed level(s) with no record for a trait, so that equation is empty and the effect "
+        "is not estimable: " + lista + ". A multi-trait fit shares the fixed effects across "
+        "traits, so a level seen only for one trait has no data to estimate the other trait's "
+        "effect with. This is the design, not the start: changing start= will not help. "
+        "Either coarsen the effect until every level has records for every trait, or fit the "
+        "traits separately.");
+    }
+  }
+
   for (std::size_t k = 0; k < m.termos.size(); k++) {
     if (!m.termos[k].aleatorio()) continue;
     // niveis: do pedigree quando ha parentesco, DA K quando declarada. Todo nivel da
@@ -256,7 +295,10 @@ AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::s
   CacheSimbolica cs;
   AvaliacaoMT cur = avalia_mt(d, theta, &cs);
   if (!cur.ok) {
-    R.mensagem = "o theta inicial e INADMISSIVEL";
+    R.mensagem = cur.motivo == 2
+      ? "a matriz de coeficientes e SINGULAR no theta inicial: o desenho nao identifica "
+        "algum efeito, e mexer em start= nao resolve"
+      : "o theta inicial e INADMISSIVEL: alguma covariancia nao e positiva-definida";
     return R;
   }
 

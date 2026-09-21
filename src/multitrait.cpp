@@ -269,7 +269,7 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
                       CacheSimbolica* cache) {
   AvaliacaoMT A;
   MontadoMT M = monta_mme_mt(d, theta);
-  if (!M.ok) return A;
+  if (!M.ok) { A.motivo = 1; return A; }
   const std::size_t t = d.t;
 
   CacheSimbolica local;
@@ -284,7 +284,7 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
   const Simbolica& sb = cs->sb;
   Csc pc = permuta_sim(M.c, perm);
   Csc L;
-  if (!cholesky(pc, sb, L)) return A;
+  if (!cholesky(pc, sb, L)) { A.motivo = 2; return A; }
 
   std::vector<double> pb(M.total);
   for (std::size_t k = 0; k < M.total; k++) pb[k] = M.rhs[perm[k]];

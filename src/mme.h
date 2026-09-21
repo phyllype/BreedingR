@@ -341,6 +341,12 @@ struct DesenhoMT {
 };
 struct AvaliacaoMT {
   bool ok = false;
+  // POR QUE falhou, quando ok e false, e as duas causas pedem acoes opostas de quem
+  // chama. Antes as duas saiam com a mesma mensagem, a de theta, e quem usava mexia no
+  // start para sempre sem chegar perto do problema.
+  //   1 = alguma covariancia nao e positiva-definida. O THETA e a causa.
+  //   2 = a matriz de coeficientes e singular. O DESENHO e a causa, e start nao resolve.
+  int motivo = 0;
   double neg2logl = 0.0;
   std::vector<double> solucao;
   // Proposta EM dos GRUPOS, C_g <- (Q + T)/nl, com os componentes que este laco nao
