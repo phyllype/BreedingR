@@ -118,7 +118,7 @@ MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
     M.logdet_r += M.ld_mask[mk];
   }
 
-  M.n_fixo = d.x.ncol * t;
+  M.n_fixo = d.n_fixa;
   M.offset_grupo.resize(d.modelo.grupos.size());
   std::size_t acc = M.n_fixo;
   for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
@@ -160,9 +160,12 @@ MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
     for (std::size_t j = 0; j < d.x.ncol; j++) {
       const double v = d.x.at(r, j);
       if (v == 0.0) continue;
-      for (std::size_t tau = 0; tau < t; tau++)
-        lin.push_back({static_cast<std::uint32_t>(j * t + tau),
+      for (std::size_t tau = 0; tau < t; tau++) {
+        const int e = d.eq_fixa[j * t + tau];
+        if (e < 0) continue;
+        lin.push_back({static_cast<std::uint32_t>(e),
                        static_cast<std::uint32_t>(tau), v});
+      }
     }
     // Z: coluna c do termo (coef ct, nivel nv) na caracteristica tau vai para
     // col0 + (tau * n_coef + ct) * n_niveis + nv  — caracteristica major no coeficiente
@@ -303,8 +306,10 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
       if (!d.usa[r]) continue;
       for (std::size_t tau = 0; tau < t; tau++) {
         double wb = 0.0;
-        for (std::size_t j = 0; j < d.x.ncol; j++)
-          wb += d.x.at(r, j) * A.solucao[j * t + tau];
+        for (std::size_t j = 0; j < d.x.ncol; j++) {
+          const int e = d.eq_fixa[j * t + tau];
+          if (e >= 0) wb += d.x.at(r, j) * A.solucao[e];
+        }
         ehat.at(r, tau) = d.y.at(r, tau) - wb;
       }
     }
@@ -542,9 +547,12 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
       for (std::size_t j = 0; j < d.x.ncol; j++) {
         const double v = d.x.at(r, j);
         if (v == 0.0) continue;
-        for (std::size_t tau = 0; tau < t; tau++)
-          lin.push_back({static_cast<std::uint32_t>(j * t + tau),
+        for (std::size_t tau = 0; tau < t; tau++) {
+          const int e = d.eq_fixa[j * t + tau];
+          if (e < 0) continue;
+          lin.push_back({static_cast<std::uint32_t>(e),
                          static_cast<std::uint32_t>(tau), v});
+        }
       }
       for (std::size_t g = 0; g < slots.size(); g++)
         for (const auto& [a, col0] : slots[g]) {
@@ -680,9 +688,12 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
         for (std::size_t j = 0; j < d.x.ncol; j++) {
           const double v = d.x.at(r, j);
           if (v == 0.0) continue;
-          for (std::size_t tau = 0; tau < t; tau++)
-            lin.push_back({static_cast<std::uint32_t>(j * t + tau),
+          for (std::size_t tau = 0; tau < t; tau++) {
+            const int e = d.eq_fixa[j * t + tau];
+            if (e < 0) continue;
+            lin.push_back({static_cast<std::uint32_t>(e),
                            static_cast<std::uint32_t>(tau), v});
+          }
         }
         for (std::size_t g = 0; g < slots.size(); g++)
           for (const auto& [a, col0] : slots[g]) {
@@ -825,14 +836,16 @@ double neg2logl_densa_V_mt(const DesenhoMT& d, const std::vector<double>& theta)
   if (std::isnan(logdet_V)) return std::nan("");
   Densa Vinv = inv_pd(V);
 
-  const std::size_t p = d.x.ncol * t;
+  const std::size_t p = d.n_fixa;
   Densa X(N, p);
   std::vector<double> y(N);
   for (std::size_t q = 0; q < N; q++) {
     const std::size_t r = obs[q].first, tau = obs[q].second;
     y[q] = d.y.at(r, tau);
-    for (std::size_t j = 0; j < d.x.ncol; j++)
-      X.at(q, j * t + tau) = d.x.at(r, j);
+    for (std::size_t j = 0; j < d.x.ncol; j++) {
+      const int e = d.eq_fixa[j * t + tau];
+      if (e >= 0) X.at(q, e) = d.x.at(r, j);
+    }
   }
 
   Densa XtVi(p, N);

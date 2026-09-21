@@ -166,44 +166,51 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
   }
   for (std::size_t j : sai) d.saiu_x.push_back(cols[j].first);
 
-  // NIVEL FIXO SEM REGISTRO PARA UM CARACTER.
+  // POSTO DE X POR CARACTER, e nao so ausencia de registro por caracter.
   //
-  // O posto acima e medido sobre as linhas USADAS, e uma linha e usada quando QUALQUER
-  // caracter foi observado nela. Isso deixa passar exatamente um caso, e ele aparece em dado
-  // de verdade quando dois caracteres foram medidos em coortes diferentes: a coluna tem
-  // registro no conjunto e nao tem para um caracter especifico. O MME e montado POR
-  // CARACTER, a equacao (coluna, caracter) nasce vazia, a matriz de coeficientes fica
-  // singular, e a Cholesky morre tres passos longe da causa.
+  // O posto acima e medido sobre as linhas USADAS, e uma linha conta como usada quando
+  // QUALQUER caracter foi observado nela. Isso deixa passar o caso que aparece em dado de
+  // verdade quando dois caracteres foram medidos em coortes diferentes. Medido no desenho que
+  // motivou isto, CG aninhado no caracter: X tem posto 8 de 8 sobre as linhas usadas e 4 de 8
+  // DENTRO de cada caracter. As equacoes sao montadas por caracter, entao a deficiencia
+  // aparece la, a matriz de coeficientes fica singular e a Cholesky morre tres passos longe
+  // da causa.
   //
-  // Medido no desenho que motivou isto, CG aninhado no caracter: X tem posto 8 de 8 sobre as
-  // linhas usadas e posto 4 de 8 DENTRO de cada caracter. Um unico registro de ligacao por
-  // nivel ja e suficiente para o ajuste andar, o que confirma que a causa e a celula vazia e
-  // nao a partida: com start diagonal e as duas covariancias positivas-definidas, falha
-  // igual.
+  // O univariado ja derruba coluna inestimavel e a reporta em dropped_x. Aqui a coluna pode
+  // ser estimavel para um caracter e nao para outro, entao a unidade que cai e o PAR
+  // (coluna, caracter).
+  //
+  // NAO BASTA testar se o par tem registro: depois de tirar os pares vazios, o que sobra para
+  // um caracter continua podendo ser COLINEAR. No desenho acima y1 fica com intercepto mais
+  // CG1..CG4, que somam ao intercepto: posto 4 e nao 5. Por isso aqui roda o mesmo
+  // posto_completo() de cima, uma vez por caracter, sobre as linhas em que aquele caracter foi
+  // observado. Ausencia de registro e o caso particular de coluna nula, que o posto ja pega.
+  //
+  // A numeracao final segue a ordem antiga, j externo e tau interno, entao quando nada cai
+  // eq_fixa[k] == k e n_fixa == x.ncol * t: o layout antigo e caso particular deste, e nenhum
+  // ajuste que ja andava muda de numero.
+  d.eq_fixa.assign(d.nomes_x.size() * d.t, -1);
   {
-    std::vector<std::string> vazias;
-    for (std::size_t jj = 0; jj < d.nomes_x.size(); jj++)
-      for (std::size_t tau = 0; tau < d.t; tau++) {
-        bool tem = false;
-        for (std::size_t i = 0; i < d.nlin && !tem; i++)
-          if (d.usa[i] && d.obs[i * d.t + tau] && d.x.at(i, jj) != 0.0) tem = true;
-        if (!tem) vazias.push_back("'" + d.nomes_x[jj] + "' for " + d.alvos[tau]);
-      }
-    if (!vazias.empty()) {
-      std::string lista;
-      const std::size_t mostra = std::min<std::size_t>(vazias.size(), 6);
-      for (std::size_t k = 0; k < mostra; k++) lista += (k ? ", " : "") + vazias[k];
-      if (vazias.size() > mostra)
-        lista += " and " + std::to_string(vazias.size() - mostra) + " more";
-      throw Erro(
-        "fixed level(s) with no record for a trait, so that equation is empty and the effect "
-        "is not estimable: " + lista + ". A multi-trait fit shares the fixed effects across "
-        "traits, so a level seen only for one trait has no data to estimate the other trait's "
-        "effect with. This is the design, not the start: changing start= will not help. "
-        "Either coarsen the effect until every level has records for every trait, or fit the "
-        "traits separately.");
+    for (std::size_t tau = 0; tau < d.t; tau++) {
+      std::vector<std::size_t> lin_tau;
+      for (std::size_t i = 0; i < d.nlin; i++)
+        if (d.usa[i] && d.obs[i * d.t + tau]) lin_tau.push_back(i);
+      Densa xt(lin_tau.size(), d.x.ncol);
+      for (std::size_t j = 0; j < d.x.ncol; j++)
+        for (std::size_t r = 0; r < lin_tau.size(); r++)
+          xt.at(r, j) = d.x.at(lin_tau[r], j);
+      std::vector<std::size_t> fica_t, sai_t;
+      posto_completo(xt, 1e-9, fica_t, sai_t);
+      for (std::size_t j : fica_t) d.eq_fixa[j * d.t + tau] = -2;
+      for (std::size_t j : sai_t)  d.saiu_x.push_back(d.nomes_x[j] + "|" + d.alvos[tau]);
     }
+    int prox = 0;
+    for (std::size_t j = 0; j < d.x.ncol; j++)
+      for (std::size_t tau = 0; tau < d.t; tau++)
+        if (d.eq_fixa[j * d.t + tau] == -2) d.eq_fixa[j * d.t + tau] = prox++;
+    d.n_fixa = static_cast<std::size_t>(prox);
   }
+  if (d.n_fixa == 0) throw Erro("no estimable fixed effect for any trait");
 
   for (std::size_t k = 0; k < m.termos.size(); k++) {
     if (!m.termos[k].aleatorio()) continue;

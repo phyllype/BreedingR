@@ -313,6 +313,13 @@ struct DesenhoMT {
   Modelo modelo;
   std::vector<std::string> alvos;
   std::size_t t = 0;
+  // eq_fixa[j*t + tau] -> indice da equacao fixa, ou -1 quando o par (coluna, caracter)
+  // nao tem nenhum registro e portanto nao e estimavel. O bloco fixo era kron CHEIO,
+  // todas as colunas vezes todos os caracteres, e um par sem registro nascia como equacao
+  // vazia que matava a Cholesky. Quando nada cai, eq_fixa[k] == k e n_fixa == x.ncol * t:
+  // o layout antigo e caso particular deste, o que deixa intacto todo ajuste que ja andava.
+  std::vector<int> eq_fixa;
+  std::size_t n_fixa = 0;
   Densa x;
   std::vector<std::string> nomes_x;
   std::vector<std::string> saiu_x;

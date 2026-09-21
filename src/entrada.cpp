@@ -865,15 +865,18 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
 
     // Solucoes dos efeitos fixos: a coluna j da caracteristica tau vive em j*t + tau (a
     // convencao do bloco fixo da montagem), nomeada "coluna|caracteristica" como o ebv.
-    const std::size_t nb = d.x.ncol * d.t;
+    // b segue o MAPA, nao o produto cheio: o par (coluna, caracter) sem registro nao tem
+    // equacao, entao nao tem estimativa, e sai em dropped_x com o nome dele.
+    const std::size_t nb = d.n_fixa;
     SEXP bfix = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) nb));
     SEXP bnms = PROTECT(Rf_allocVector(STRSXP,  (R_xlen_t) nb));
     for (std::size_t j = 0; j < d.x.ncol; j++)
       for (std::size_t tau = 0; tau < d.t; tau++) {
-        const std::size_t k = j * d.t + tau;
-        REAL(bfix)[k] = r.solucao.empty() ? NA_REAL : r.solucao[k];
+        const int e = d.eq_fixa[j * d.t + tau];
+        if (e < 0) continue;
+        REAL(bfix)[e] = r.solucao.empty() ? NA_REAL : r.solucao[e];
         const std::string nm = d.nomes_x[j] + "|" + d.alvos[tau];
-        SET_STRING_ELT(bnms, (R_xlen_t) k, Rf_mkChar(nm.c_str()));
+        SET_STRING_ELT(bnms, (R_xlen_t) e, Rf_mkChar(nm.c_str()));
       }
     Rf_setAttrib(bfix, R_NamesSymbol, bnms);
     SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
