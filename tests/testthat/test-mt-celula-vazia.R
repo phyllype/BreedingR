@@ -82,3 +82,27 @@ test_that("theta inadmissivel de verdade continua sendo chamado de theta", {
   expect_true(grepl("theta", f$message, fixed = TRUE))
   expect_false(grepl("SINGULAR", f$message, fixed = TRUE))
 })
+
+test_that("os EBV saem do lugar CERTO da solucao quando pares caem", {
+  # O portao que faltava, e a falta dele passou EBV errado adiante. O bloco fixo encolheu
+  # quando o posto passou a ser por caracter, mas a extracao dos EBV em entrada.cpp ainda
+  # calculava o inicio do bloco aleatorio como x.ncol * t, o tamanho do kron CHEIO. O offset
+  # passava do lugar, os EBV vinham de outra parte do vetor solucao, e nada parecia errado:
+  # eram finitos, com os nomes certos e na quantidade certa. Medido: a correlacao com o
+  # ajuste separado era 0.0074; com o offset certo e 0.9964.
+  #
+  # Tambem era corrupcao de heap. Nas ultimas posicoes off + c passa do fim de r.solucao, e a
+  # sessao caia em ajustes ADIANTE, em celula que mudava entre execucoes.
+  #
+  # Os componentes e a verossimilhanca NAO pegavam isto, porque o ajuste estava certo: so a
+  # leitura do resultado nao estava. Por isso o portao olha EBV.
+  z <- cel(aninhado())
+  f <- model_mt(fm, data = z$d, pedigree = z$ped, maxiter = 30L, verbose = FALSE)
+  d1 <- z$d[!is.na(z$d$y1), ]; d1$CG <- droplevels(d1$CG)
+  f1 <- model(y1 ~ CG + animal(IDENT), data = d1, pedigree = z$ped, verbose = FALSE)
+  e <- ebv(f, trait = "y1"); e1 <- ebv(f1)
+  com <- intersect(names(e), names(e1))
+  expect_gt(length(com), 300)
+  expect_true(all(is.finite(e)))
+  expect_gt(stats::cor(e[com], e1[com]), 0.9)
+})

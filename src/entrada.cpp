@@ -827,7 +827,13 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     SEXP pev = PROTECT(Rf_allocVector(VECSXP, (R_xlen_t) d.modelo.grupos.size()));
     SEXP ebv_nomes = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.modelo.grupos.size()));
     {
-      std::size_t off = d.x.ncol * d.t;
+      // ONDE O BLOCO ALEATORIO COMECA, e isto tem de ser n_fixa e nao x.ncol * t.
+      // Desde que o posto passou a ser medido por caracter, o bloco fixo nao e mais o kron
+      // cheio: o par (coluna, caracter) sem posto nao tem equacao. Com o tamanho antigo o
+      // offset passa do lugar e a leitura dos EBV sai do fim de r.solucao. E corrupcao de
+      // heap silenciosa: a sessao sobrevive aos primeiros ajustes e cai num deles adiante,
+      // em celula que varia entre execucoes, que foi exatamente como ela apareceu.
+      std::size_t off = d.n_fixa;
       for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
         const std::size_t larg = d.largura(g);
         SEXP v = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) larg));
