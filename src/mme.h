@@ -106,6 +106,8 @@ std::size_t bloco_denso_final(const Csc&);
 // o mesmo numero lido do padrao simbolico, antes de fatorar: quantas colunas finais de L
 // sao completamente cheias. E o k do custo k^3 de cada fatoracao.
 std::size_t bloco_denso_simbolico(const Simbolica&);
+// aviso de matriz de informacao singular, com os componentes que o dado nao separa
+std::string aviso_informacao(const Densa& ai, const std::vector<std::string>& nomes);
 SelInv inversa_seletiva(const Csc&, std::size_t);
 
 // Uma matriz de covariancia DECLARADA pelo usuario (kernel(id, K=)): os ids que nomeiam

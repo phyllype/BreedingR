@@ -36,6 +36,47 @@
 #include <R_ext/Utils.h>
 
 namespace br {
+// MATRIZ DE INFORMACAO SINGULAR, dita pelo nome dos componentes.
+//
+// O erro padrao sai de 2 AI^-1, e quando a AI e singular numa direcao ele sai NaN sem que o
+// ajuste diga por que. Medido num direto + indireto com 800 animais e poucas baias com
+// parentes: var(animal), cov e var(indirect) com erro padrao NaN, e tres pontos bem
+// diferentes -- var(indirect) 0.27, 0.16 e 0.02 -- com o MESMO -2logL. O dado nao separava
+// os tres, e o numero reportado era um ponto arbitrario de uma crista plana. Quem le o
+// ajuste precisa saber disso por escrito, e saber QUAIS componentes.
+//
+// O corte e o do certificado: autovalor abaixo de 1e-8 do maior e direcao sem curvatura. Os
+// componentes com peso >= 0.2 no autovetor dessa direcao sao os que o dado nao separa.
+std::string aviso_informacao(const Densa& ai, const std::vector<std::string>& nomes) {
+  const std::size_t n = ai.nlin;
+  if (n == 0 || nomes.size() != n) return "";
+  for (std::size_t i = 0; i < n; i++)
+    for (std::size_t j = 0; j < n; j++)
+      if (!std::isfinite(ai.at(i, j))) return "";
+  std::vector<double> ev;
+  Densa u;
+  jacobi_sim(ai, ev, u);
+  double maior = 0.0;
+  for (double e : ev) maior = std::max(maior, std::fabs(e));
+  if (!(maior > 0.0)) return "";
+  const double corte = 1e-8 * maior;
+  std::string grupos;
+  for (std::size_t k = 0; k < ev.size(); k++) {
+    if (ev[k] > corte) continue;
+    std::string lista;
+    for (std::size_t i = 0; i < n; i++)
+      if (std::fabs(u.at(i, k)) >= 0.2) lista += (lista.empty() ? "" : ", ") + nomes[i];
+    if (!lista.empty()) grupos += (grupos.empty() ? "" : "; and ") + lista;
+  }
+  if (grupos.empty()) return "";
+  return "the information matrix is SINGULAR: the data do not separate " + grupos +
+      ". Along that direction every combination of those components fits the data "
+      "equally well, so their standard errors are NaN and the point estimate is one "
+      "arbitrary point of a flat ridge, not an estimate. This is the design, not a failed "
+      "fit: it needs more information (relatives sharing the pen or group, more records "
+      "per level), a simpler model, or some of those components held fixed";
+}
+
 
 // ---------------------------------------------------------------- as pecas de uma avaliacao
 
@@ -1189,6 +1230,10 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
           R.pev[perm[k]] = diag[k] * M.s2e;
       }
     }
+  }
+  if (cur.ok) {
+    const std::string av = aviso_informacao(cur.ai, d.modelo.nomes_theta());
+    if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
   }
   return R;
 }

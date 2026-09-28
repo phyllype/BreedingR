@@ -580,6 +580,10 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
   R.solucao = cur.solucao;
   R.pev = cur.pev;
   R.fora_do_padrao = cur.fora_do_padrao;
+  if (cur.ok) {
+    const std::string av = aviso_informacao(cur.ai, nomes_theta_ar1(d));
+    if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
+  }
   return R;
 }
 

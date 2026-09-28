@@ -573,6 +573,10 @@ AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::s
   R.solucao = cur.solucao;
   R.pev = cur.pev;
   R.fora_do_padrao = cur.fora_do_padrao;
+  if (cur.ok) {
+    const std::string av = aviso_informacao(cur.ai, nomes_theta_mt(d.modelo, d.alvos));
+    if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
+  }
   return R;
 }
 

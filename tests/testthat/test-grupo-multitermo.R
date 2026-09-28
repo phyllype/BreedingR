@@ -78,3 +78,17 @@ test_that("longe do otimo, o fim do orcamento continua FALSE", {
   expect_gt(f$newton_dec, 2e-4)
   expect_false(f$converged)
 })
+
+test_that("matriz de informacao singular e DITA, com os componentes pelo nome", {
+  # erro padrao NaN sem explicacao era o que existia: tres pontos com var(indirect) 0.27,
+  # 0.16 e 0.02 davam o MESMO -2logL, e o ajuste nao dizia que o dado nao separava nada
+  z <- fix_ige(nf = 100)
+  f <- model(update(fml, y ~ .), z$d, z$ped, verbose = FALSE)
+  expect_true(any(!is.finite(f$se[1:3])))
+  expect_true(grepl("SINGULAR", f$message, fixed = TRUE))
+  expect_true(grepl("var(indirect)", f$message, fixed = TRUE))
+  # e nao dispara onde o dado identifica: modelo animal simples, erros padrao finitos
+  f0 <- model(y ~ animal(id), z$d, z$ped, verbose = FALSE)
+  expect_true(all(is.finite(f0$se)))
+  expect_false(grepl("SINGULAR", f0$message, fixed = TRUE))
+})
