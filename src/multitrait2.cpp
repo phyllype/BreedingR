@@ -25,14 +25,27 @@ static void expande_layout_mt(Modelo& m, std::size_t t) {
 }
 
 // Nomes de theta no caso multi: coeficiente rotulado "termo[c]@trait".
+//
+// A ORDEM DOS ROTULOS TEM DE SER A ORDEM DO LAYOUT, e nao era. A dimensao do grupo e
+// numerada TERMO por fora, caracteristica, coeficiente por dentro: e como o Z e montado
+// (col0 + (tau * n_coef + ct) * n_niveis por termo) e como os EBV sao lidos. Os rotulos
+// andavam caracteristica por fora e termo por dentro. Com UM termo por grupo as duas ordens
+// coincidem, que e o caso de quase todo ajuste, e por isso nada acusava. Com dois termos no
+// mesmo grupo -- direto e indireto, direto e materno -- num ajuste de dois caracteres os
+// componentes saiam com o NOME ERRADO: o que se chamava var(indirect@y) era var(animal@y2),
+// e rg(), accuracy() e start= por nome liam o numero de outro componente.
+//
+// Medido pela identidade que tem de fechar exatamente: com as covariancias entre
+// caracteres em zero, o -2logL bivariado e a soma dos dois univariados. Montando o theta
+// pela ordem dos rotulos antigos a diferenca era 43.9; pela ordem do layout, 1.7e-10.
 static std::vector<std::string> nomes_theta_mt(const Modelo& m,
                                                const std::vector<std::string>& alvos) {
   const std::size_t t = alvos.size();
   std::vector<std::string> out(m.ntheta);
   for (const Grupo& g : m.grupos) {
     std::vector<std::string> rot;
-    for (std::size_t tau = 0; tau < t; tau++)
-      for (std::size_t tm : g.termos) {
+    for (std::size_t tm : g.termos)
+      for (std::size_t tau = 0; tau < t; tau++) {
         const Termo& te = m.termos[tm];
         for (std::size_t c = 0; c < te.n_coef(); c++) {
           std::string b = te.nome;

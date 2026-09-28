@@ -238,11 +238,14 @@ std::vector<std::string> nomes_theta_ar1(const DesenhoAR& d) {
     out = base;
     out[d.offset_s2e] = "var(residual)";
   } else {
-    // como na multi: coeficiente rotulado "termo[c]@alvo", tau-major sobre os termos
+    // como na multi: coeficiente rotulado "termo[c]@alvo". A ORDEM segue o layout do Z,
+    // termo por fora e caracteristica por dentro (colbase avanca z.ncol*t por termo). Andava
+    // ao contrario, e com dois termos no mesmo grupo os componentes saiam com o nome de
+    // outro; ver nomes_theta_mt() em multitrait2.cpp, onde isto foi medido.
     for (const Grupo& g : d.modelo.grupos) {
       std::vector<std::string> rot;
-      for (std::size_t tau = 0; tau < t; tau++)
-        for (std::size_t tm : g.termos) {
+      for (std::size_t tm : g.termos)
+        for (std::size_t tau = 0; tau < t; tau++) {
           const Termo& te = d.modelo.termos[tm];
           for (std::size_t c = 0; c < te.n_coef(); c++) {
             std::string b = te.nome;

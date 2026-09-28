@@ -1057,6 +1057,25 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // the decrement at the final point, whatever the exit: the certificate the user can
   // read next to fit$score, and the number the maxiter message reports
   if (std::isnan(R.decremento)) R.decremento = decremento_livre(pecas_z(z, cur));
+  // CRISTA PLANA NO FIM DO ORCAMENTO. O certificado so e consultado depois que relDelta cai
+  // abaixo da tolerancia, e isso e deliberado: parar pelo decremento a cada iteracao encerra
+  // cedo demais, com o -2logL ja otimo mas theta ainda impreciso, e reprova os portoes de
+  // exatidao (medido: 19 falhas). Sobra um caso em que a regra mentia. Quando a
+  // verossimilhanca e plana ao longo de uma direcao pouco identificada, os componentes
+  // deslizam por ela, relDelta nunca cai, e o laco esgotava maxiter dizendo converged FALSE
+  // com o decremento ja abaixo da tolerancia. Medido num direto + indireto com 800 animais:
+  // 300 iteracoes, relDelta 2.2e-4, decremento 1.3e-6 contra 2e-4. O model_mt() convergia no
+  // mesmo dado. Aqui o veredicto passa a seguir o certificado, e a mensagem diz que a
+  // direcao e plana, que e a informacao que importa para ler aqueles componentes.
+  if (!R.convergiu && R.iters >= maxiter && R.decremento < tol_dec) {
+    R.convergiu = true;
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.3g", R.reldelta);
+    R.mensagem = std::string("converged by the Newton decrement while the components were "
+        "still moving (relDelta ") + buf + "): the likelihood is flat along some direction, "
+        "so the values along it are about equally supported. Read the standard errors and "
+        "the correlation between the components before trusting any one of them";
+  }
   // norma do score no ponto final, para quem quiser conferir que ele de fato zerou:
   // e a evidencia direta de otimo, que o tamanho do passo nao da.
   R.score = cur.score;
