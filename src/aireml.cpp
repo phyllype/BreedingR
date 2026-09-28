@@ -72,9 +72,11 @@ std::string aviso_informacao(const Densa& ai, const std::vector<std::string>& no
   return "the information matrix is SINGULAR: the data do not separate " + grupos +
       ". Along that direction every combination of those components fits the data "
       "equally well, so their standard errors are NaN and the point estimate is one "
-      "arbitrary point of a flat ridge, not an estimate. This is the design, not a failed "
-      "fit: it needs more information (relatives sharing the pen or group, more records "
-      "per level), a simpler model, or some of those components held fixed";
+      "arbitrary point of a flat ridge, not an estimate: refitting from another start= "
+      "lands elsewhere on the ridge with the same -2logL. Only combinations of them are "
+      "estimable. This is the design, not a failed fit: it needs more information "
+      "(relatives sharing the pen or group, more records per level; for indirect effects, "
+      "pens of DIFFERENT sizes), a simpler model, or some of those components held fixed";
 }
 
 
