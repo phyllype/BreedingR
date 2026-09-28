@@ -644,10 +644,10 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
                             "message", "n_used", "n_columns", "ebv", "dropped_x", "pev",
                             "score", "vcov", "b", "newton_dec",
-                            "h_prior", "h_prior_row", "used"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 19));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 19));
-    for (int q = 0; q < 19; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "h_prior", "h_prior_row", "used", "dense_block"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 20));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 20));
+    for (int q = 0; q < 20; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
     for (std::size_t k = 0; k < d.saiu_x.size(); k++)
       SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
@@ -685,8 +685,17 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     SEXP usadas = PROTECT(Rf_allocVector(LGLSXP, (R_xlen_t) d.nlin));
     for (std::size_t q = 0; q < d.nlin; q++) LOGICAL(usadas)[q] = d.usa[q] ? TRUE : FALSE;
     SET_VECTOR_ELT(out, 18, usadas);
+    // o bloco denso final do fator e o total de colunas: o k do custo k^3 por iteracao
+    SEXP db = PROTECT(Rf_allocVector(INTSXP, 2));
+    INTEGER(db)[0] = (int) r.bloco_denso;
+    INTEGER(db)[1] = (int) r.colunas_fator;
+    SEXP dbn = PROTECT(Rf_allocVector(STRSXP, 2));
+    SET_STRING_ELT(dbn, 0, Rf_mkChar("dense"));
+    SET_STRING_ELT(dbn, 1, Rf_mkChar("columns"));
+    Rf_setAttrib(db, R_NamesSymbol, dbn);
+    SET_VECTOR_ELT(out, 19, db);
     Rf_setAttrib(out, R_NamesSymbol, nms);
-    UNPROTECT(16);
+    UNPROTECT(18);
     return out;
   )
 }

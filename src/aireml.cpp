@@ -733,9 +733,23 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
 
   CacheSimbolica cs;
   Avaliacao cur = avalia(d, theta, &cs);
-  if (verboso)
+  // O BLOCO DENSO FINAL DO FATOR, dito na hora. Ele e o k do custo k^3 de cada iteracao, e o
+  // caso que motivou isto e silencioso: num passo unico sem apy_core= o bloco genotipado e
+  // um clique e k e o numero de genotipados, medido 400 -> 400, 800 -> 800, 1600 -> 1600,
+  // contra nucleo + 1 com a APY. Quem pagava k^3 sem querer so descobria montando o H na
+  // mao. O numero sai do padrao simbolico, que ja existe, sem custo extra.
+  if (cs.pronto) {
+    R.bloco_denso = bloco_denso_simbolico(cs.sb);
+    R.colunas_fator = cs.sb.n;
+  }
+  if (verboso) {
     Rprintf("AI-REML: %d record(s), %d column(s), %d component(s)\n",
             (int) d.n_usadas(), (int) d.total_colunas(), (int) d.modelo.ntheta);
+    if (R.colunas_fator > 0)
+      Rprintf("  dense block of the factor: %d of %d columns, about %.3g flops per "
+              "factorization in it\n", (int) R.bloco_denso, (int) R.colunas_fator,
+              std::pow((double) R.bloco_denso, 3.0) / 3.0);
+  }
   if (!cur.ok) {
     R.mensagem = "o theta inicial e INADMISSIVEL: alguma covariancia nao e positiva-definida";
     return R;

@@ -121,7 +121,11 @@ ARGS_MARCADOR <- local({
 #' @return an object of class `breeding_fit`. Besides the fields below it carries
 #'   `used`, one logical per row of `data` saying whether that record entered the
 #'   equations: `n_used` counts them and `used` says WHICH, which is what anything
-#'   that has to sum on the same base as the likelihood needs. The object holds
+#'   that has to sum on the same base as the likelihood needs. `dense_block` is
+#'   `c(dense = k, columns = n)`: the last `k` of the `n` columns of the Cholesky factor
+#'   are completely full, and each factorization costs about `k^3 / 3` there. In a single
+#'   step without `apy_core =`, `k` is the number of genotyped animals; with it, the core
+#'   size plus one. The object holds
 #'   the components `theta` with their `se`,
 #'   the fixed-effect solutions `b` (named `term=level`, in the order the columns of X
 #'   entered), `ebv` and `pev` per covariance group, `score`, `vcov`, the convergence

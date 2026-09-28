@@ -135,3 +135,23 @@ test_that("a ordenacao poe o clique do nucleo no FIM e nao enche o fator", {
   expect_equal(f$dense_block, nc + 1L)          # o clique inteiro ficou no fim
   expect_equal(sum(f$L$x != 0), nrow(ij))       # enchimento ZERO
 })
+
+test_that("o ajuste DIZ o tamanho do bloco denso, e ele mostra se a APY esta ligada", {
+  # sem apy_core= o bloco genotipado e um clique e o k de k^3 e o numero de genotipados;
+  # com ela, o nucleo. Quem pagava k^3 sem querer so descobria montando o H na mao
+  n <- 1200; set.seed(3)
+  id <- sprintf("a%05d", seq_len(n)); pa <- ma <- rep("0", n)
+  for (i in 101:n) { pa[i] <- id[sample(1:50, 1)]; ma[i] <- id[sample(51:100, 1)] }
+  ped <- data.frame(id = id, sire = pa, dam = ma, stringsAsFactors = FALSE)
+  d <- data.frame(id = id, cg = sample(c("c1", "c2", "c3"), n, TRUE), y = rnorm(n),
+                  stringsAsFactors = FALSE)
+  gid <- id[1:600]
+  g <- list(ids = gid, m = matrix(sample(0:2, 600 * 300, TRUE), 600, 300))
+  f1 <- model(y ~ cg + animal(id), d, ped, genotypes = g, maxiter = 2L, verbose = FALSE)
+  f2 <- model(y ~ cg + animal(id), d, ped, genotypes = g, apy_core = gid[1:150],
+              maxiter = 2L, verbose = FALSE)
+  expect_named(f1$dense_block, c("dense", "columns"))
+  expect_equal(f1$dense_block[["columns"]], f2$dense_block[["columns"]])
+  expect_gte(f1$dense_block[["dense"]], 600)            # medido 601
+  expect_lte(f2$dense_block[["dense"]], 150 + 10)        # medido 153
+})

@@ -135,7 +135,11 @@ on where the search began. Without it the start comes from \code{var(y)}}
 an object of class \code{breeding_fit}. Besides the fields below it carries
 \code{used}, one logical per row of \code{data} saying whether that record entered the
 equations: \code{n_used} counts them and \code{used} says WHICH, which is what anything
-that has to sum on the same base as the likelihood needs. The object holds
+that has to sum on the same base as the likelihood needs. \code{dense_block} is
+\code{c(dense = k, columns = n)}: the last \code{k} of the \code{n} columns of the Cholesky factor
+are completely full, and each factorization costs about \code{k^3 / 3} there. In a single
+step without \verb{apy_core =}, \code{k} is the number of genotyped animals; with it, the core
+size plus one. The object holds
 the components \code{theta} with their \code{se},
 the fixed-effect solutions \code{b} (named \code{term=level}, in the order the columns of X
 entered), \code{ebv} and \code{pev} per covariance group, \code{score}, \code{vcov}, the convergence

@@ -103,6 +103,9 @@ struct SelInv {
   std::vector<double> diagonal() const;
 };
 std::size_t bloco_denso_final(const Csc&);
+// o mesmo numero lido do padrao simbolico, antes de fatorar: quantas colunas finais de L
+// sao completamente cheias. E o k do custo k^3 de cada fatoracao.
+std::size_t bloco_denso_simbolico(const Simbolica&);
 SelInv inversa_seletiva(const Csc&, std::size_t);
 
 // Uma matriz de covariancia DECLARADA pelo usuario (kernel(id, K=)): os ids que nomeiam
@@ -235,6 +238,8 @@ Avaliacao avalia(const Desenho&, const std::vector<double>&, CacheSimbolica* = n
 
 struct Ajuste {
   bool convergiu = false;
+  // tamanho do bloco denso final do fator, e o total de colunas: o k de k^3 por iteracao
+  std::size_t bloco_denso = 0, colunas_fator = 0;
   std::size_t iters = 0;
   double reldelta = 0.0;
   // Newton decrement of the FREE components at the final point, g' AI^-1 g with the

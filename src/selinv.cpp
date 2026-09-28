@@ -29,6 +29,17 @@ namespace br {
 // a covariancia do grupo o propaga: as ultimas colunas de L ficam cheias. Detectar esse bloco
 // e o que permite a forma fechada, e ele so existe se a ordenacao deixou o clique no FIM —
 // que e por que o pacote ordena por grau minimo e nao por Cuthill-McKee reverso.
+std::size_t bloco_denso_simbolico(const Simbolica& sb) {
+  const std::size_t n = sb.n;
+  std::size_t t = n;
+  while (t > 0) {
+    const std::size_t j = t - 1;
+    if (sb.colptr[j + 1] - sb.colptr[j] != n - j) break;
+    t--;
+  }
+  return n - t;
+}
+
 std::size_t bloco_denso_final(const Csc& L) {
   const std::size_t n = L.ncol;
   std::size_t t = n;
