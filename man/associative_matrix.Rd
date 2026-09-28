@@ -4,7 +4,7 @@
 \alias{associative_matrix}
 \title{Residual covariance structure of the associative model}
 \usage{
-associative_matrix(pen, id, labels = NULL)
+associative_matrix(pen, id, labels = NULL, dilution = 0)
 }
 \arguments{
 \item{pen}{pen (group) label of each record}
@@ -15,6 +15,11 @@ associative_matrix(pen, id, labels = NULL)
 \item{labels}{row and column names for the returned matrix, one per record; defaults to
 the record position. These are the levels the \code{\link[=kernel]{kernel()}} term will match on, so they
 must be the same values as the column named in the formula}
+
+\item{dilution}{the same \code{d} as in \code{indirect(dilution = d)}: each mate's social
+environmental deviation enters with weight \code{(n - 1)^(-d)}, so the block of a pen
+becomes \verb{(n - 1)^(-2d) [I + (n - 2) J]}. Keep it equal to the formula's value; with
+a mismatch the residual describes a different model from the genetic side.}
 }
 \value{
 a square matrix, records by records, positive semi-definite

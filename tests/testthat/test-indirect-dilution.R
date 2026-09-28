@@ -14,10 +14,12 @@
 # Unequal pens with the genetics simulated by RECURSION (never through a factored A) and
 # each pen holding TWO full-sib families: the design in which indirect effects are
 # identifiable (Bijma, 2010). d_true is the simulated dilution of the social sum and
-# k_res the planted residual ratio, var(e_i) = s2e (1 + (n_i - 1) k_res).
+# k_res the planted residual ratio, var(e_i) = s2e (1 + (n_i - 1)^(1 - 2 d_res) k_res): the
+# social environmental deviation of each mate enters with the same (n_i - 1)^(-d) weight as
+# the genetic one when d_res = d_true, which is the model indirect(dilution = d) declares.
 simula_pools <- function(seed, n_pens, sizes = c(2, 3, 4, 5, 6, 8, 10, 12),
                          SG = matrix(c(4, 1, 1, 2), 2), s2e = 6, d_true = 1,
-                         k_res = 0) {
+                         k_res = 0, d_res = 0) {
   set.seed(seed)
   tam <- rep(sizes, length.out = n_pens)
   n <- sum(tam)
@@ -56,7 +58,7 @@ simula_pools <- function(seed, n_pens, sizes = c(2, 3, 4, 5, 6, 8, 10, 12),
       mates <- setdiff(quem, i)
       soc <- if (length(mates)) sum(aS[rec[mates]]) / length(mates)^d_true else 0
       y[i] <- 10 + ef[cg[i]] + aD[rec[i]] + soc +
-        rnorm(1, 0, sqrt(s2e * (1 + length(mates) * k_res)))
+        rnorm(1, 0, sqrt(s2e * (1 + (if (length(mates)) length(mates)^(1 - 2 * d_res) else 0) * k_res)))
     }
   }
   list(data = data.frame(id = id[rec], baia = baia, cg = cg, y = y,
@@ -216,25 +218,26 @@ test_that("indirect_residual() recovers a planted s2_ES / s2_ED ratio", {
   # (0.77 to 1.77 for a truth of 1). Hence a tight gate on s2_ES and on the profile
   # geometry, a broad one on k itself.
   s <- simula_pools(seed = 42, n_pens = 150,
-                    sizes = c(1, 1, 2, 3, 4, 5, 6, 8, 10, 12), k_res = 1)
+                    sizes = c(1, 1, 2, 3, 4, 5, 6, 8, 10, 12), k_res = 1,
+                    d_true = 0, d_res = 0)
   h <- indirect_residual(y ~ cg + animal(id, group = "g") +
-                           indirect(id, pen = "baia", group = "g", dilution = 1),
+                           indirect(id, pen = "baia", group = "g", dilution = 0),
                          s$data, s$ped, k_max = 4, n_grid = 5L, tol_k = 0.01,
                          verbose = FALSE)
   expect_s3_class(h, "breeding_indirect_residual")
-  # measured: k_hat 1.119, s2_ED 5.990, s2_ES 6.705
+  # measured, all d = 0: k_hat 0.976, s2_ED 6.939, s2_ES 6.771
   expect_lt(abs(h$k - 1), 0.5)
   expect_lt(abs(h$s2_ED - 6), 2)
   expect_lt(abs(h$s2_ES - 6), 1.5)
   # the homogeneous residual is REJECTED on the profile scale: the k = 0 point sits
-  # measured 88.0 units above the minimum (3.84 is the 95% cutoff of a 1-df profile),
-  # while the TRUE k = 1 sits 0.057 units above it, comfortably inside
+  # measured 79.4 units above the minimum (3.84 is the 95% cutoff of a 1-df profile),
+  # while the TRUE k = 1 sits 0.003 units above it, comfortably inside
   expect_gt(h$profile$neg2logl[h$profile$k == 0] - min(h$profile$neg2logl), 50)
   expect_lt(h$profile$neg2logl[h$profile$k == 1] - min(h$profile$neg2logl), 3.84)
   # EXACTNESS anchor: at k = 0 every weight is 1, the jacobian is zero, and the profile
   # point must BE the plain unweighted fit
   liso <- model(y ~ cg + animal(id, group = "g") +
-                  indirect(id, pen = "baia", group = "g", dilution = 1),
+                  indirect(id, pen = "baia", group = "g", dilution = 0),
                 s$data, s$ped, verbose = FALSE)
   expect_equal(h$profile$neg2logl[h$profile$k == 0], liso$neg2logl, tolerance = 1e-9)
 
@@ -245,4 +248,45 @@ test_that("indirect_residual() recovers a planted s2_ES / s2_ED ratio", {
                                    indirect(id, pen = "baia", group = "g"),
                                  s$data, s$ped, weights = rep(1, nrow(s$data))),
                "pass neither")
+})
+
+test_that("com dilution = d, o residuo e diluido pelo MESMO d, e o perfil recupera o k", {
+  # O defeito: indirect(dilution = d) diluia o lado GENETICO e o residuo seguia como se d
+  # fosse 0. indirect_residual() montava os pesos por 1 + (n_i - 1) k e associative_matrix()
+  # o bloco I + (n - 2) J, os dois do modelo NAO diluido. Com dilution = 0.5 o usuario
+  # ajustava um modelo e o residuo descrevia outro, sem aviso. Agora os pesos sao
+  # 1 + (n_i - 1)^(1 - 2d) k, com o d lido do proprio termo da formula.
+  #
+  # Aqui tudo e d = 1, genetica e residuo, que e o modelo que a formula declara.
+  s <- simula_pools(seed = 42, n_pens = 150,
+                    sizes = c(1, 1, 2, 3, 4, 5, 6, 8, 10, 12), k_res = 1,
+                    d_true = 1, d_res = 1)
+  h <- indirect_residual(y ~ cg + animal(id, group = "g") +
+                           indirect(id, pen = "baia", group = "g", dilution = 1),
+                         s$data, s$ped, k_max = 4, n_grid = 5L, tol_k = 0.01,
+                         verbose = FALSE)
+  # medido: k 1.424, s2_ED 6.035, s2_ES 8.595; o k = 1 verdadeiro a 0.244 do minimo e o
+  # k = 0 a 4.6. Diluido, o sinal residual e (n_i - 1)^(1 - 2d) e nao n_i - 1, entao o perfil
+  # separa menos que no caso d = 0 (79.4), e o k sai menos preciso: o portao e mais largo
+  expect_equal(h$dilution, 1)
+  expect_lt(abs(h$k - 1), 0.6)
+  expect_lt(h$profile$neg2logl[h$profile$k == 1] - min(h$profile$neg2logl), 3.84)
+})
+
+test_that("associative_matrix(dilution = d) e o bloco que o Monte Carlo mede", {
+  # e_i = eD_i + (n - 1)^(-d) sum_{j != i} eS_j. Para d = 0 tem de ser o bloco de antes,
+  # I + (n - 2) J, bit a bit; para d > 0, esse bloco vezes (n - 1)^(-2d)
+  A0 <- associative_matrix(rep("x", 5), letters[1:5])
+  expect_equal(unname(A0), unname(diag(5) + 3))
+  expect_identical(associative_matrix(rep("x", 5), letters[1:5], dilution = 0), A0)
+  A1 <- associative_matrix(rep("x", 5), letters[1:5], dilution = 1)
+  expect_equal(unname(A1), unname((diag(5) + 3) / 16))
+  set.seed(1)
+  R <- replicate(60000, { eS <- rnorm(5, sd = sqrt(0.4))
+    rnorm(5) + (sum(eS) - eS) / 4 })
+  C <- stats::cov(t(R))
+  expect_equal(mean(diag(C)), 1 + 0.4 * A1[1, 1], tolerance = 0.02)
+  expect_equal(mean(C[upper.tri(C)]), 0.4 * A1[1, 2], tolerance = 0.1)
+  # a baia de um animal nao tem companheiro: bloco zero para qualquer d, sem 0^negativo
+  expect_equal(unname(associative_matrix("x", "a", dilution = 2)), matrix(0, 1, 1))
 })

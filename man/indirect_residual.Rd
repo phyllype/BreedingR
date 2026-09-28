@@ -45,9 +45,13 @@ always), \code{profile} (data.frame of every k evaluated and its corrected \verb
 \code{n} (the pen size of each record) and \code{message}
 }
 \description{
-Fits \verb{var(e_i) = s2_ED + (n_i - 1) s2_ES}, with \code{n_i} the number of distinct animals
-in the pen of record i, by profiling the ratio \code{k = s2_ES / s2_ED}: each candidate k
-is a \code{\link[=model]{model()}} fit with \verb{weights = 1 / (1 + (n_i - 1) k)} (exact REML at that k), the
+Fits \verb{var(e_i) = s2_ED + (n_i - 1)^(1 - 2d) s2_ES}, with \code{n_i} the number of distinct
+animals in the pen of record i and \code{d} the \code{dilution} of the \code{indirect()} term in the
+formula (\code{d = 0}, the default, gives the book's \verb{(n_i - 1) s2_ES}). The same \code{d} that
+dilutes the genetic side dilutes the social environmental one, so the residual and the
+genetic incidence describe one model. The ratio \code{k = s2_ES / s2_ED} is profiled: each
+candidate k is a \code{\link[=model]{model()}} fit with \verb{weights = 1 / (1 + (n_i - 1)^(1 - 2d) k)} (exact
+REML at that k), the
 reported \verb{-2logL} is brought to the standard scale by subtracting \verb{sum(log w)} (the
 weight jacobian, constant in theta but not in k), and the minimum over k is located by
 a coarse grid followed by golden-section search (\code{\link[stats:optimize]{stats::optimize()}}) in the

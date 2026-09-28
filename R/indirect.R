@@ -23,11 +23,20 @@
 # exactly sum(log w) (measured). The offset is constant in theta, so it never moves
 # any single fit, but it DOES depend on k through w, so the profile below removes it.
 
+# coeficiente de s2_ES em var(e_i) numa baia de n animais distintos, com diluicao d:
+# (n - 1)^(1 - 2d). Uma baia de um animal nao tem companheiro, e o coeficiente e 0 para
+# qualquer d (sem isto, 0^(1-2d) explodiria para d > 1/2).
+coef_social <- function(n, d) ifelse(n > 1, (n - 1)^(1 - 2 * d), 0)
+
 #' Estimate the pen-size heterogeneous residual of the associative model
 #'
-#' Fits `var(e_i) = s2_ED + (n_i - 1) s2_ES`, with `n_i` the number of distinct animals
-#' in the pen of record i, by profiling the ratio `k = s2_ES / s2_ED`: each candidate k
-#' is a [model()] fit with `weights = 1 / (1 + (n_i - 1) k)` (exact REML at that k), the
+#' Fits `var(e_i) = s2_ED + (n_i - 1)^(1 - 2d) s2_ES`, with `n_i` the number of distinct
+#' animals in the pen of record i and `d` the `dilution` of the `indirect()` term in the
+#' formula (`d = 0`, the default, gives the book's `(n_i - 1) s2_ES`). The same `d` that
+#' dilutes the genetic side dilutes the social environmental one, so the residual and the
+#' genetic incidence describe one model. The ratio `k = s2_ES / s2_ED` is profiled: each
+#' candidate k is a [model()] fit with `weights = 1 / (1 + (n_i - 1)^(1 - 2d) k)` (exact
+#' REML at that k), the
 #' reported `-2logL` is brought to the standard scale by subtracting `sum(log w)` (the
 #' weight jacobian, constant in theta but not in k), and the minimum over k is located by
 #' a coarse grid followed by golden-section search ([stats::optimize()]) in the
@@ -108,6 +117,11 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
     stop("the formula needs exactly one indirect() term: that is where the pen comes from")
   pen_col <- soc[[1]]$nested
   id_col <- soc[[1]]$column
+  # a DILUICAO vem do proprio termo indirect() da formula. Antes o residuo ignorava o d e
+  # seguia o modelo nao diluido, entao com dilution = 0.5 o lado genetico era diluido e o
+  # residual nao, e as duas rotas residuais ajustavam um modelo diferente do declarado.
+  # Lendo daqui nao ha como os dois lados divergirem.
+  dil <- soc[[1]]$dilution
   if (!all(c(pen_col, id_col) %in% names(data)))
     stop("no column(s) in the data: ",
          paste(setdiff(c(pen_col, id_col), names(data)), collapse = ", "))
@@ -124,7 +138,7 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
   avaliadas <- list()
   warm <- NULL
   perfil <- function(k) {
-    w <- 1 / (1 + (n - 1) * k)
+    w <- 1 / (1 + coef_social(n, dil) * k)
     f <- model(formula, data, pedigree, weights = w, verbose = FALSE, start = warm, ...)
     if (all(is.finite(f$theta))) warm <<- unname(f$theta)
     # O jacobiano dos pesos sai NA MESMA BASE do -2logL que ele corrige: sobre as linhas
@@ -168,13 +182,15 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
   s2_ed <- unname(fit$theta[["var(residual)"]])
   structure(list(k = ks[melhor], s2_ED = s2_ed, s2_ES = ks[melhor] * s2_ed, fit = fit,
                  profile = data.frame(k = ks, neg2logl = vs)[order(ks), ],
-                 n = n, tol_k = tol_k, message = trimws(mensagem)),
+                 n = n, dilution = dil, tol_k = tol_k, message = trimws(mensagem)),
             class = "breeding_indirect_residual")
 }
 
 #' @export
 print.breeding_indirect_residual <- function(x, ...) {
-  cat("Heterogeneous residual of the associative model, var(e_i) = s2_ED + (n_i - 1) s2_ES\n")
+  d <- if (is.null(x$dilution)) 0 else x$dilution
+  cat("Heterogeneous residual of the associative model, var(e_i) = s2_ED + ",
+      if (d == 0) "(n_i - 1)" else sprintf("(n_i - 1)^(1 - 2*%g)", d), " s2_ES\n", sep = "")
   cat(sprintf("  pens of %d to %d animals across %d record(s)\n",
               min(x$n), max(x$n), length(x$n)))
   cat(sprintf("  k = s2_ES / s2_ED = %.5f (profile REML, golden section to tol_k = %g)\n",
@@ -261,6 +277,10 @@ print.breeding_indirect_residual <- function(x, ...) {
 #' @param pen pen (group) label of each record
 #' @param id animal of each record, used to count DISTINCT animals per pen, which is the
 #'   `n` of the model and the same count the `indirect()` incidence uses
+#' @param dilution the same `d` as in `indirect(dilution = d)`: each mate's social
+#'   environmental deviation enters with weight `(n - 1)^(-d)`, so the block of a pen
+#'   becomes `(n - 1)^(-2d) [I + (n - 2) J]`. Keep it equal to the formula's value; with
+#'   a mismatch the residual describes a different model from the genetic side.
 #' @param labels row and column names for the returned matrix, one per record; defaults to
 #'   the record position. These are the levels the [kernel()] term will match on, so they
 #'   must be the same values as the column named in the formula
@@ -271,7 +291,9 @@ print.breeding_indirect_residual <- function(x, ...) {
 #'   Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
 #'   genetic effects and group size. Genetics 186:1013-1028.
 #' @export
-associative_matrix <- function(pen, id, labels = NULL) {
+associative_matrix <- function(pen, id, labels = NULL, dilution = 0) {
+  if (!is.numeric(dilution) || length(dilution) != 1L || !is.finite(dilution) || dilution < 0)
+    stop("dilution must be a single non-negative number, the same d as in indirect()")
   pen <- as.character(pen)
   id <- as.character(id)
   if (length(pen) != length(id))
@@ -293,7 +315,9 @@ associative_matrix <- function(pen, id, labels = NULL) {
            "share their direct deviation. Aggregate to one record per animal per pen, ",
            "or model the repetition with pe()")
     n <- length(unique(id[k]))
-    D[k, k] <- diag(length(k)) + (n - 2)
+    # (n - 1)^(-2d) [I + (n - 2) J]: cada desvio social ambiental entra com peso
+    # (n - 1)^(-d), e o bloco e o nao diluido vezes o quadrado do peso
+    D[k, k] <- (if (n > 1) (n - 1)^(-2 * dilution) else 0) * (diag(length(k)) + (n - 2))
   }
   D
 }
