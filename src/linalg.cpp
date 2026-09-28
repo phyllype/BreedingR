@@ -293,16 +293,61 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
   }
   std::size_t lo = 0;
 
+  // GRAU PREGUICOSO PARA OS HUBS. Medido no multicaracter com pedigree real de estrutura
+  // comum, poucos pais para muitos filhos: a ordenacao era 98% do tempo de uma avaliacao e
+  // crescia ~n^1.8 (0.06 s com 2 mil animais, 2.36 s com 16 mil), enquanto a Cholesky
+  // numerica levava 0.014 s. A causa e o hub: um touro com centenas de filhos, ou a
+  // equacao de um grupo contemporaneo ligada a todos os animais dele. A cada filho
+  // eliminado, o touro estava em L_p, e o laco limpava a lista dele e recalculava o grau
+  // dele com viz(), as duas coisas O(filhos). Sao n eliminacoes vezes O(n / touros).
+  //
+  // E o grau de um hub nao importa ate o fim: ele nunca e o minimo enquanto tem filhos.
+  // Entao o no de lista grande so e MARCADO sujo em L_p, e a limpeza e o viz() acontecem
+  // uma vez, quando ele e retirado do balde como candidato. No de lista pequena continua
+  // sendo atualizado na hora, exatamente como antes, e onde nao ha hub a ordem sai igual.
+  // Ordenacao nao muda resultado, so enchimento; o que se confere e que o enchimento nao
+  // piorou.
+  const std::size_t lista_grande = 16;
+  // e so quando o elemento NOVO e pequeno. A preguica compensa porque cada filho do touro
+  // traz um elemento de dois ou tres membros, e adiar a absorcao deles e barato. No nucleo
+  // da APY cada jovem eliminado traz um elemento do tamanho do nucleo inteiro; adiado, isso
+  // incha a lista ate o proximo recalculo, e medido, deixou a fatoracao da APY 2x MAIS
+  // LENTA com enchimento identico. Com L_p grande vale o caminho antigo, exato.
+  const std::size_t lp_pequeno = 32;
+  std::vector<char> sujo(n, 0);
+  auto limpa = [&](std::size_t i) {
+    auto& a_i = av[i];
+    a_i.erase(std::remove_if(a_i.begin(), a_i.end(),
+                             [&](std::uint32_t x) { return !vivo[x]; }), a_i.end());
+    auto& e_i = ev[i];
+    std::sort(e_i.begin(), e_i.end());
+    e_i.erase(std::unique(e_i.begin(), e_i.end()), e_i.end());
+  };
+
   while (ordem.size() < n) {
     std::size_t p = static_cast<std::size_t>(-1);
     while (lo <= n) {
-      while (!baldes[lo].empty()) {
-        const std::uint32_t cand = baldes[lo].back();
-        baldes[lo].pop_back();
-        if (vivo[cand] && std::min(grau[cand], n) == lo) { p = cand; break; }
+      if (baldes[lo].empty()) { lo++; continue; }
+      const std::uint32_t cand = baldes[lo].back();
+      baldes[lo].pop_back();
+      if (!vivo[cand] || adiado[cand] || std::min(grau[cand], n) != lo) continue;
+      if (sujo[cand]) {
+        // o hub chegou a frente com um grau velho: agora sim ele e limpo e medido, e volta
+        // ao balde certo. Se o grau verdadeiro for menor que lo, a busca recomeca dali
+        limpa(cand);
+        sujo[cand] = 0;
+        const std::size_t d = viz(cand).size();
+        grau[cand] = d;
+        if (denso_demais(d, n - ordem.size())) { adiado[cand] = 1; continue; }
+        const std::size_t b = std::min(d, n);
+        if (b != lo) {
+          baldes[b].push_back(cand);
+          if (b < lo) lo = b;
+          continue;
+        }
       }
-      if (p != static_cast<std::size_t>(-1)) break;
-      lo++;
+      p = cand;
+      break;
     }
     if (p == static_cast<std::size_t>(-1)) {          // o que sobrou esta isolado ou adiado
       for (std::size_t i = 0; i < n; i++) if (vivo[i]) { vivo[i] = 0; ordem.push_back(i); }
@@ -333,6 +378,14 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
       // trabalho jogado fora. O que NAO pode ganhar guarda e o laco de selo acima: a
       // absorcao le no_lp[x] para x em le[e], e esses x incluem nos adiados.
       if (adiado[i]) continue;
+      if (lp.size() <= lp_pequeno && (sujo[i] || av[i].size() + ev[i].size() > lista_grande)) {
+        // hub: so registra o elemento novo; limpeza e grau ficam para quando ele sair do
+        // balde. viz() ja filtra os mortos, entao a lista suja nao muda o grau medido
+        ev[i].push_back(static_cast<std::uint32_t>(p));
+        sujo[i] = 1;
+        continue;
+      }
+      if (sujo[i]) { limpa(i); sujo[i] = 0; }
       auto& a_i = av[i];
       a_i.erase(std::remove_if(a_i.begin(), a_i.end(),
                                [&](std::uint32_t x) { return x == p || !vivo[x]; }), a_i.end());
@@ -348,7 +401,7 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
     }
     for (std::uint32_t iu : lp) {
       const std::size_t i = iu;
-      if (adiado[i]) continue;
+      if (adiado[i] || sujo[i]) continue;
       const std::size_t d = viz(i).size();
       grau[i] = d;
       // um no VIRA clique durante a eliminacao: o grau dele nao cresce, o numero de vivos e
