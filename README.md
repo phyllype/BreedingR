@@ -122,7 +122,7 @@ And around the fit: `solutions()`, `h2()`, `t2()`, `ebv()`, `accuracy()`, `rg()`
 `h2_liability()`, `selection_index()`, `rank_drift()`, `profile_theta()`, `se_function()`,
 `qc_genotypes()`, `qc_phenotypes()`, `read_plink()`, `describe()`, `thi()`, `heat_load()`,
 `fst()`, `roh()`, `simulate_breeding()`, `mc_study()`, `suggest_model()`,
-`benchmark_fit()`, `ess()`, `geweke_z()`.
+`benchmark_fit()`, `ess()`, `geweke_z()`, `rhat()`.
 
 **Where to read next.** Start with *Your first evaluation*, which goes from two files on
 disk to breeding values you can act on, and assumes nothing about this package. After

@@ -70,7 +70,10 @@ model_survival(stop ~ herd + dz + animal(cow), d, ped, censor = "q",
 ```
 
 `gibbs()` takes `prior = "jeffreys"` (the default), `"flat"`, `"uniform_sd"` or a proper
-`c(df =, scale =)`. `model_threshold(estimate = TRUE)` runs LOW for a binary trait with few
+`c(df =, scale =)`, and `chains = k, cores = c` for independent chains (seeds drawn from R's
+generator, so `set.seed()` governs all of them and series and parallel agree); the
+result pools the chains and reports `rhat` (rank-normalized split R-hat, Vehtari et al.
+2021; above 1.01 means not mixed), also available alone as `rhat()`. `model_threshold(estimate = TRUE)` runs LOW for a binary trait with few
 records per level of the random effect (Tempelman 1998); `gibbs(family = "probit")` is the
 unbiased route there. In `model_survival()` each row is an elementary record
 `(entry, stop]` of one subject, with `censor = 1` only on the last piece of a subject that
@@ -172,8 +175,9 @@ h_inverse(ped, gen)                  # the same H^-1 as triplets, for k_inverse=
 affine adjustment and then blended. `blend = 1` collapses `H^-1` to `A^-1` exactly:
 a useful sanity check. `apy_core` and `vecchia_k` are mutually exclusive. The same
 `genotypes=`, `apy_core=` and `vecchia_k=` work in `model_mt()`, `model_ar1()`,
-`gibbs()`, `model_threshold()` and `model_survival()`; metafounders with genotypes are
-refused. `fit$dense_block` gives the k of the k^3/3 each factorization pays: without
+`gibbs()`, `model_threshold()` and `model_survival()`; metafounders with genotypes build
+H(Gamma) (G05, no affine adjustment) in every H^-1 fitter and in `snp_blup()`.
+`fit$dense_block` gives the k of the k^3/3 each factorization pays: without
 `apy_core=` it is at least the number of genotyped animals, with it at least the core
 size plus one. `apy_core_select()` warns when one factorization with its core costs more
 than half of the exact one, which on a small genotyped set is the usual answer.

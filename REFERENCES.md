@@ -85,6 +85,9 @@ values. *Genetics Selection Evolution* 38:601-615.
 Gelman, A. (2006). Prior distributions for variance parameters in hierarchical models.
 *Bayesian Analysis* 1:515-534.
 
+Gelman, A. & Rubin, D.B. (1992). Inference from iterative simulation using multiple
+sequences. *Statistical Science* 7:457-472.
+
 Geman, S. & Geman, D. (1984). Stochastic relaxation, Gibbs distributions, and the
 Bayesian restoration of images. *IEEE Transactions on Pattern Analysis and Machine
 Intelligence* 6:721-741.
@@ -236,6 +239,10 @@ accelerating the convergence of any EM algorithm. *Scandinavian Journal of Stati
 
 Vecchia, A.V. (1988). Estimation and model identification for continuous spatial
 processes. *Journal of the Royal Statistical Society, Series B* 50:297-312.
+
+Vehtari, A., Gelman, A., Simpson, D., Carpenter, B. & Burkner, P.-C. (2021).
+Rank-normalization, folding, and localization: an improved R-hat for assessing convergence
+of MCMC. *Bayesian Analysis* 16:667-718.
 
 Vitezica, Z.G., Varona, L. & Legarra, A. (2013). On the additive and dominant variance
 and covariance of individuals within the genomic selection scope. *Genetics*

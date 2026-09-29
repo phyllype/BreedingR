@@ -45,7 +45,7 @@ model()  ── THE TRUNK: one engine, one formula
 ├── environmental axis .... thi() heat_load() legendre()
 ├── study and control ..... describe() suggest_model() simulate_breeding()
 │                           mc_study() benchmark_fit()
-├── chain diagnostics ..... ess() geweke_z()
+├── chain diagnostics ..... ess() geweke_z() rhat()
 └── internals (for the tests) . eval_internal() eval_internal_mt() eval_internal_ar1()
                             sparse_chol() sparse_solve() selected_inverse() inv_pd()
                             br_version() br_threads()
@@ -143,5 +143,5 @@ Colleau's algorithm, O(n) per genotyped column. The rest of the engine runs on o
 | exact associative residual | `associative_matrix(pen, id, dilution = d)`: the residual covariance `s2_ED I + s2_ES D` with the block `(n - 1)^(-2d) [I + (n - 2) J]` per pen, for a `kernel()` term |
 | environmental axis | `thi()` (NRC 1971), `heat_load()`, `legendre()` |
 | study and control | `describe()`, `suggest_model()` (names the term the data's shape asks for, and the trap), `simulate_breeding()` (gene dropping), `mc_study()`, `benchmark_fit()` (at least 3 replicates or it refuses) |
-| chain diagnostics | `ess()` (Geyer 1992), `geweke_z()` (Geweke 1992) |
+| chain diagnostics | `ess()` (Geyer 1992), `geweke_z()` (Geweke 1992), `rhat()` (Vehtari et al. 2021, across the chains of `gibbs(chains =)`) |
 | internals, exposed for the tests | `eval_internal()`, `eval_internal_mt()`, `eval_internal_ar1()` (-2logL by TWO routes + analytic score), `sparse_chol()`, `sparse_solve()`, `selected_inverse()` (every PEV reads it), `inv_pd()`, `br_version()`, `br_threads()` (OpenMP threads of the dense tail) |

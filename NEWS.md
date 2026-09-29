@@ -98,6 +98,13 @@
   deviations and the accuracy from 0.282 to 0.294, the same with the estimated
   and the true Gamma.
 
+* `gibbs(chains =, cores =)`: independent chains, each from a seed drawn from R's
+  generator, so `set.seed()` governs all of them and a PSOCK cluster (`cores =`,
+  which also works on Windows) gives the same draws as running them in series.
+  The result pools the chains (locations by the total variance over all draws)
+  and reports `rhat`, the rank-normalized split R-hat of Vehtari et al. (2021),
+  also exported as `rhat()`.
+
 * `br_threads()`: OpenMP where a genomic evaluation spends its k^3. The dense
   tail of every sparse Cholesky (the genotyped block after the ordering) is
   factored in tiles of 64 x 64 inside its own column storage (Buttari et al.,

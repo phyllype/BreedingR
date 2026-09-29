@@ -21,6 +21,8 @@ gibbs(
   gamma = NULL,
   prior = "jeffreys",
   family = c("gaussian", "probit"),
+  chains = 1L,
+  cores = 1L,
   verbose = interactive()
 )
 }
@@ -100,6 +102,16 @@ the liability), and the implicit intercept stands for the threshold. The larger 
 the two values of the trait is the upper category. Everything else is the chain of
 the Gaussian case: \code{kernel()}, \code{indirect()}, genotypes, APY and \verb{prior =}. This is
 the unbiased alternative to the Laplace estimate of \code{\link[=model_threshold]{model_threshold()}}}
+
+\item{chains}{number of independent chains, each from its own seed. The seeds are
+drawn from R's generator, so \code{set.seed()} governs every chain, and the result is
+the same run in series or in parallel. With more than one, \code{samples}, \code{mean},
+\code{sd}, \code{ebv} and \code{ebv_sd} pool the chains, \code{ess} sums the chains, \code{rhat} is the
+rank-normalized split R-hat of Vehtari et al. (2021) (values above 1.01 mean the
+chains have not mixed), and each chain stays in \code{chain_samples}}
+
+\item{cores}{R processes that run the chains at the same time (a PSOCK cluster of
+the parallel package, which also works on Windows); at most \code{chains}}
 
 \item{verbose}{print the chain as it runs, the iteration count every so often, so a
 long chain is a progress report instead of silence. Defaults to interactive(),

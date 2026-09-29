@@ -335,6 +335,7 @@ summary.breeding_gibbs <- function(object, probs = c(0.025, 0.5, 0.975), ...) {
                      sd = unname(apply(s, 2, stats::sd)), q, ess = round(unname(object$ess)),
                      geweke_z = round(unname(object$geweke), 2), row.names = NULL,
                      check.names = FALSE)
+  if (!is.null(object$rhat)) comp$rhat <- round(unname(object$rhat), 3)
   # o h2 amostra a amostra: a posteriori da razao, e nao a razao das medias. Com indirect()
   # ou norma de reacao nao ha um numero so, e a linha nao sai.
   h <- NULL
@@ -349,7 +350,9 @@ summary.breeding_gibbs <- function(object, probs = c(0.025, 0.5, 0.975), ...) {
                     t(stats::setNames(stats::quantile(r, probs, names = FALSE), colnames(q))),
                     row.names = NULL, check.names = FALSE)
   }
-  structure(list(titulo = paste0("Gibbs chain for '", object$trait, "', ", nrow(s),
+  structure(list(titulo = paste0(if (isTRUE(object$chains > 1L))
+                                   paste0(object$chains, " Gibbs chains") else "Gibbs chain",
+                                 " for '", object$trait, "', ", nrow(s),
                                  " kept sample(s)"),
                  components = comp, h2 = h, message = object$message,
                  fixed = if (length(object$b))

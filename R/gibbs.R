@@ -57,6 +57,14 @@
 #'   the two values of the trait is the upper category. Everything else is the chain of
 #'   the Gaussian case: `kernel()`, `indirect()`, genotypes, APY and `prior =`. This is
 #'   the unbiased alternative to the Laplace estimate of [model_threshold()]
+#' @param chains number of independent chains, each from its own seed. The seeds are
+#'   drawn from R's generator, so `set.seed()` governs every chain, and the result is
+#'   the same run in series or in parallel. With more than one, `samples`, `mean`,
+#'   `sd`, `ebv` and `ebv_sd` pool the chains, `ess` sums the chains, `rhat` is the
+#'   rank-normalized split R-hat of Vehtari et al. (2021) (values above 1.01 mean the
+#'   chains have not mixed), and each chain stays in `chain_samples`
+#' @param cores R processes that run the chains at the same time (a PSOCK cluster of
+#'   the parallel package, which also works on Windows); at most `chains`
 #' @references Hobert, J.P. & Casella, G. (1996). The effect of improper priors on Gibbs
 #'   sampling in hierarchical linear mixed models. Journal of the American Statistical
 #'   Association 91:1461-1473.
@@ -99,7 +107,8 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
                   apy_core = NULL, missing_code = NULL, vecchia_k = NULL,
                   n_iter = 20000L, burnin = 2000L, thin = 10L, theta_fixed = NULL,
                   metafounders = NULL, gamma = NULL, prior = "jeffreys",
-                  family = c("gaussian", "probit"), verbose = interactive()) {
+                  family = c("gaussian", "probit"), chains = 1L, cores = 1L,
+                  verbose = interactive()) {
   family <- match.arg(family)
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side")
@@ -148,8 +157,17 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
 
+  chains <- as.integer(chains); cores <- as.integer(cores)
+  if (length(chains) != 1L || is.na(chains) || chains < 1L)
+    stop("chains must be a positive integer")
+  if (length(cores) != 1L || is.na(cores) || cores < 1L)
+    stop("cores must be a positive integer")
   t0 <- proc.time()[["elapsed"]]
-  r <- .Call(R_gibbs,
+  # uma cadeia: com semente propria quando ha varias (sorteada do gerador de quem chama,
+  # entao set.seed() governa tudo e a ordem de execucao nao muda nada)
+  cadeia <- function(semente) {
+    if (!is.null(semente)) set.seed(semente)
+    .Call(R_gibbs,
              lst, names(lst), trait,
              vapply(terms, function(t) t$nome, character(1)),
              vapply(terms, function(t) t$column, character(1)),
@@ -173,6 +191,10 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              if (is.null(gamma)) numeric(0) else as.double(gamma),
              monta_kernels(terms, environment(formula)), kfixo,
              pr$tipo, pr$df, pr$scale, as.integer(family == "probit"))
+  }
+  r <- if (chains == 1L) cadeia(NULL) else
+    junta_cadeias(roda_cadeias(cadeia, sample.int(.Machine$integer.max, chains),
+                               min(cores, chains)))
   colnames(r$samples) <- r$names
   r$prior <- prior
   r$family <- family
@@ -194,12 +216,95 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   r$gamma <- gamma
   r$mean <- colMeans(r$samples)
   r$sd <- apply(r$samples, 2, stats::sd)
-  r$ess <- apply(r$samples, 2, ess)
-  r$geweke <- apply(r$samples, 2, geweke_z)
+  if (chains == 1L) {
+    r$ess <- apply(r$samples, 2, ess)
+    r$geweke <- apply(r$samples, 2, geweke_z)
+  } else {
+    for (k in seq_along(r$chain_samples)) colnames(r$chain_samples[[k]]) <- r$names
+    r$ess <- Reduce(`+`, lapply(r$chain_samples, function(m) apply(m, 2, ess)))
+    r$geweke <- apply(r$chain_samples[[1]], 2, geweke_z)
+    r$rhat <- vapply(seq_len(ncol(r$samples)), function(j)
+      rhat(do.call(cbind, lapply(r$chain_samples, function(m) m[, j]))), numeric(1))
+    names(r$rhat) <- r$names
+  }
+  r$chains <- chains
   r$formula <- formula
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
   structure(r, class = "breeding_gibbs")
+}
+
+# As cadeias em serie ou num cluster PSOCK (o do pacote parallel, que funciona no Windows).
+# A funcao de uma cadeia e um fecho sobre o quadro do gibbs(): serializada, o ambiente do
+# pacote vai como REFERENCIA ao namespace, que o trabalhador carrega ao desserializar. Por
+# isso os caminhos de biblioteca vao ANTES e por uma funcao da base chamada pelo nome: uma
+# funcao escrita aqui dentro carregaria o namespace (talvez outra versao instalada) ja na
+# chegada, antes de mudar o caminho.
+roda_cadeias <- function(cadeia, sementes, cores) {
+  if (cores <= 1L) return(lapply(sementes, cadeia))
+  if (!requireNamespace("parallel", quietly = TRUE))
+    stop("cores > 1 needs the parallel package, which ships with R")
+  cl <- parallel::makeCluster(cores)
+  on.exit(parallel::stopCluster(cl), add = TRUE)
+  parallel::clusterCall(cl, ".libPaths", unique(c(dirname(find.package("BreedingR")),
+                                                   .libPaths())))
+  parallel::parLapply(cl, sementes, cadeia)
+}
+
+# Junta cadeias de mesmo comprimento: amostras empilhadas, e media e desvio das posicoes
+# pelas amostras de todas (a variancia total e a media das variancias de cada cadeia mais
+# a variancia das medias entre elas).
+junta_cadeias <- function(rs) {
+  r <- rs[[1]]
+  r$chain_samples <- lapply(rs, `[[`, "samples")
+  r$samples <- do.call(rbind, r$chain_samples)
+  junta <- function(medias, dps) {
+    m <- Reduce(`+`, medias) / length(medias)
+    v <- Reduce(`+`, lapply(dps, function(x) x^2)) / length(dps) +
+      Reduce(`+`, lapply(medias, function(x) (x - m)^2)) / length(medias)
+    list(m = m, sd = sqrt(v))
+  }
+  for (g in seq_along(r$ebv)) {
+    j <- junta(lapply(rs, function(x) x$ebv[[g]]), lapply(rs, function(x) x$ebv_sd[[g]]))
+    r$ebv[[g]] <- j$m
+    r$ebv_sd[[g]] <- j$sd
+  }
+  j <- junta(lapply(rs, `[[`, "b"), lapply(rs, `[[`, "b_sd"))
+  r$b <- j$m
+  r$b_sd <- j$sd
+  msg <- unique(vapply(rs, `[[`, character(1), "message"))
+  r$message <- paste(msg[nzchar(msg)], collapse = "; ")
+  r
+}
+
+#' Rank-normalized split R-hat
+#'
+#' The convergence diagnostic of Vehtari, Gelman, Simpson, Carpenter and Burkner (2021):
+#' each chain is split in half, the pooled draws are replaced by normal scores of their
+#' ranks, and the classic potential scale reduction of Gelman and Rubin (1992) is
+#' computed on those scores and on the scores of the folded draws `|x - median|`; the
+#' larger of the two is returned. Values above 1.01 mean the chains have not mixed.
+#' @param x matrix of draws, one column per chain (at least 4 draws per chain)
+#' @return a single number.
+#' @references Gelman, A. & Rubin, D.B. (1992). Inference from iterative simulation using
+#'   multiple sequences. Statistical Science 7:457-472.
+#'
+#'   Vehtari, A., Gelman, A., Simpson, D., Carpenter, B. & Burkner, P.-C. (2021).
+#'   Rank-normalization, folding, and localization: an improved R-hat for assessing
+#'   convergence of MCMC. Bayesian Analysis 16:667-718.
+#' @export
+rhat <- function(x) {
+  x <- as.matrix(x)
+  h <- floor(nrow(x) / 2)
+  if (h < 2 || anyNA(x)) return(NA_real_)
+  metade <- cbind(x[seq_len(h), , drop = FALSE], x[nrow(x) - h + seq_len(h), , drop = FALSE])
+  escore <- function(y) matrix(stats::qnorm((rank(y) - 3 / 8) / (length(y) + 1 / 4)), nrow = h)
+  classico <- function(y) {
+    w <- mean(apply(y, 2, stats::var))
+    if (!(w > 0)) return(NA_real_)
+    sqrt(((h - 1) / h * w + stats::var(colMeans(y))) / w)
+  }
+  max(classico(escore(metade)), classico(escore(abs(metade - stats::median(metade)))))
 }
 
 #' Effective sample size by the initial positive sequence estimator
@@ -250,14 +355,17 @@ geweke_z <- function(x) {
 
 #' @export
 print.breeding_gibbs <- function(x, ...) {
-  cat("Gibbs chain for '", x$trait, "'\n", sep = "")
+  cat(if (isTRUE(x$chains > 1L)) paste0(x$chains, " Gibbs chains") else "Gibbs chain",
+      " for '", x$trait, "'\n", sep = "")
   cat("  ", nrow(x$samples), " kept sample(s), ", x$n_used, " record(s), ",
       format(x$seconds, digits = 3), " s\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  print(data.frame(component = colnames(x$samples), mean = unname(x$mean),
-                   sd = unname(x$sd), ess = round(unname(x$ess)),
-                   geweke_z = round(unname(x$geweke), 2), row.names = NULL), digits = 6)
+  tab <- data.frame(component = colnames(x$samples), mean = unname(x$mean),
+                    sd = unname(x$sd), ess = round(unname(x$ess)),
+                    geweke_z = round(unname(x$geweke), 2), row.names = NULL)
+  if (!is.null(x$rhat)) tab$rhat <- round(unname(x$rhat), 3)
+  print(tab, digits = 6)
   if (length(x$b)) {
     cat("\nfixed effects, posterior mean (implicit intercept; compare by contrast):\n")
     print(data.frame(term = names(x$b), mean = unname(x$b), sd = unname(x$b_sd),

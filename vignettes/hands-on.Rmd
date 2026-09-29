@@ -351,14 +351,18 @@ round(far$theta[["rho(residual)"]], 2)
 locations, the mode whose posterior mean must be the BLUP. `prior =` chooses the prior
 of the variances (`"jeffreys"`, the default, `"flat"`, `"uniform_sd"` or a proper
 `c(df =, scale =)`), and `family = "probit"` samples a binary trait on its liability.
-`summary()` gives the posterior quantiles and the heritability computed draw by draw:
+`summary()` gives the posterior quantiles and the heritability computed draw by draw.
+`chains = 3` runs independent chains (their seeds come from `set.seed()`, and `cores =`
+runs them at the same time with the same result), pools them, and adds `rhat()`, the
+rank-normalized split R-hat of Vehtari et al. (2021):
 
 ```{r}
 gb <- gibbs(y ~ cg + animal(id), s$data, s$pedigree,
-            n_iter = 2000, burnin = 400, thin = 4)
+            n_iter = 2000, burnin = 400, thin = 4, chains = 3)
 summary(gb)
-round(c(ess = ess(gb$samples[, "var(animal)"]),
-        geweke = geweke_z(gb$samples[, "var(animal)"])), 2)
+round(c(ess = ess(gb$chain_samples[[1]][, "var(animal)"]),
+        geweke = geweke_z(gb$chain_samples[[1]][, "var(animal)"]),
+        rhat = rhat(sapply(gb$chain_samples, function(m) m[, "var(animal)"]))), 3)
 ```
 
 ## Step 9: selection decisions
