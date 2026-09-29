@@ -210,6 +210,10 @@
 
 ## Fixed
 
+* `kernel(K =)` refuses a K that is singular up to rounding (the smallest Cholesky pivot
+  squared below 1e-12 of the largest diagonal), not only one whose factorization fails. A
+  raw G of 15 animals from 20 markers, rank 14, was refused on Windows and accepted on
+  Linux, depending on the sign of a rounding error in the last pivot.
 * The multi-trait `model_ar1()` returned `ebv` and `pev` shifted by
   `x.ncol * (t - 1)` positions: its first entries were fixed-effect solutions and
   the last levels were lost (0.68 off against the dense mixed-model equations).

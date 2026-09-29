@@ -159,10 +159,24 @@ void kinv_declarada(const Modelo& mo, const Grupo& g,
         if (kd->k.nlin != nk || kd->k.ncol != nk)
           throw Erro("kernel K of " + std::to_string(kd->k.nlin) + " x " +
                      std::to_string(kd->k.ncol) + " for " + std::to_string(nk) + " ids");
-        const double ldk = logdet_pd(kd->k);
-        if (std::isnan(ldk))
+        // Positiva-definida com FOLGA, nao so por passar na Cholesky: uma K singular (a G crua
+        // de mais animais que marcadores independentes) tem o menor pivo em zero a menos do
+        // arredondamento, e o sinal desse arredondamento muda com a plataforma e com a ordem
+        // de soma de quem montou a K (medido: a mesma G de posto 14 em 15 recusada no Windows
+        // e aceita no Linux). O corte e relativo a escala: pivo^2 < 1e-12 da maior diagonal e
+        // singular para todos os efeitos, a inversa perderia doze digitos.
+        Densa lk = kd->k;
+        const bool pd = chol_densa(lk);
+        double ldk = 0.0, piv_min = std::numeric_limits<double>::infinity(), dmax = 0.0;
+        for (std::size_t i = 0; pd && i < nk; i++) {
+          ldk += 2.0 * std::log(lk.at(i, i));
+          piv_min = std::min(piv_min, lk.at(i, i) * lk.at(i, i));
+          dmax = std::max(dmax, kd->k.at(i, i));
+        }
+        if (!pd || !(piv_min > 1e-12 * dmax))
           throw Erro("the K of term '" + nome_do(g.termos[0]) + "' is not "
-                     "positive-definite: if it comes from markers, add a small ridge to "
+                     "positive-definite" + std::string(pd ? " (numerically singular)" : "") +
+                     ": if it comes from markers, add a small ridge to "
                      "the diagonal (K + 0.01 I) before the call");
         Densa ki = inv_pd(kd->k);
         // para a Csc do triangulo inferior, a MESMA convencao do A^-1 do pedigree
