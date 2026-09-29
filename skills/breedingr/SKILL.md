@@ -177,6 +177,12 @@ snp_effects(fit, ped, gen)                                           # backsolve
 h_inverse(ped, gen)                  # the same H^-1 as triplets, for k_inverse=
 ```
 
+With `apy_core=` (and no metafounders or `vecchia_k`) the single step never forms a matrix
+of the size of the genotyped set squared: G on the core rows and its diagonal, the affine
+means from sums, A22 on the core columns by Colleau, A22^-1 by a sparse Schur complement
+with its exact zeros. Memory is O(core x genotyped + nnz(A22^-1)); 18 000 genotyped with a
+core of 2000 built H^-1 in 23 s and 3.6 GB. The exact route still forms G and its inverse.
+
 `H^-1 = A^-1 + [0 0; 0 G*^-1 - A22^-1]`, with `G*` brought to the scale of `A22` by an
 affine adjustment and then blended. `blend = 1` collapses `H^-1` to `A^-1` exactly:
 a useful sanity check. `apy_core` and `vecchia_k` are mutually exclusive. The same

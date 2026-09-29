@@ -251,9 +251,16 @@ test_that("APY in the multi with core = all reproduces the exact single step ide
                   p2 = rep(a2, 2) + rnorm(2 * nA, 0, 0.8), stringsAsFactors = FALSE)
   gids <- id[5:16]
   m <- matrix(sample(0:2, length(gids) * 40, TRUE), length(gids), 40)
+  # the IDENTITY is the matrix: with core = everyone the APY route (G on the core rows, A22^-1
+  # by the sparse Schur) builds the same H^-1 as the exact one (inverse of G*, Colleau A22)
+  den <- function(h) { M <- matrix(0, h$n, h$n); M[cbind(h$i, h$j)] <- h$x; M[cbind(h$j, h$i)] <- h$x; M }
+  expect_lt(max(abs(den(h_inverse(ped, list(ids = gids, m = m), apy_core = gids)) -
+                      den(h_inverse(ped, list(ids = gids, m = m))))), 1e-12)
   fe <- model_mt(cbind(p1, p2) ~ animal(id), d, ped, genotypes = list(ids = gids, m = m))
   fa <- model_mt(cbind(p1, p2) ~ animal(id), d, ped, genotypes = list(ids = gids, m = m),
                    apy_core = gids)
   expect_equal(fa$neg2logl, fe$neg2logl, tolerance = 1e-8)
-  expect_equal(fa$theta, fe$theta, tolerance = 1e-6)
+  # three components rest at a covariance boundary here: on that flat ridge a 1e-16
+  # difference in H^-1 moves the fitted theta by ~5e-6 with the same -2logL to 1e-11
+  expect_equal(fa$theta, fe$theta, tolerance = 1e-4)
 })

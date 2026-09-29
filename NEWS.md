@@ -256,6 +256,19 @@
 * In `model()`, `model_mt()`, `model_ar1()` and `gibbs()` the symmetric
   permutation of the mixed model equations is a stored map of values from the
   second evaluation on, instead of a new sort by triplets at each one.
+* The single step with `apy_core=` never forms a matrix of the size of the
+  genotyped set squared: G only on the core rows and its diagonal, the means of
+  the affine adjustment from sums (`1'G1` from the marker sums, `1'A22 1` by one
+  pass of Colleau), A22 on the core columns by Colleau, the APY blocks, and
+  A22^-1 by the sparse Schur complement with its exact zeros, solved 32 columns
+  per pass over the factor. Memory O(core x genotyped + nnz(A22^-1)); on a
+  pedigree of 60 000 with the last generations genotyped and a core of 2000,
+  12 000 genotyped took 74.0 s and 6.43 GB before and take 15.3 s and 2.57 GB,
+  and 18 000 take 22.6 s and 3.57 GB. This also fixes a defect of this same
+  development cycle: taking A22^-1 as the numerical inverse of the A22 of
+  Colleau left rounding noise where the true inverse is exactly zero, and the
+  APY H^-1 came out twice as dense (72.2 against 34.7 million nonzeros at 12 000
+  genotyped); Vecchia had the same noise and now also takes the sparse Schur.
 * The selected inverse (every PEV and every AI-REML trace reads it) takes the
   closed form of the dense tail straight from the packed factor, on the same
   parallel kernel as the dense inverses, and runs the recurrence of the other

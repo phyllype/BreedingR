@@ -316,6 +316,7 @@ struct RelatorioG {
 };
 Densa vanraden_g(Densa&, RelatorioG&, bool meio = false);
 Densa a22_inversa(const Csc&, const std::vector<std::size_t>&);
+Csc a22_inversa_esparsa(const Csc&, const std::vector<std::size_t>&);
 Densa ajusta_g_para_a22(const Densa&, const Densa&, double);
 Csc constroi_hinv(const Csc&, const std::vector<std::size_t>&, const Densa&, const Densa&);
 

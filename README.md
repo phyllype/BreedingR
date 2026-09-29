@@ -53,7 +53,9 @@ scale of `A22` by an affine adjustment and a blend, and the single-step `H^-1` b
 `A^-1` plus a correction on the genotyped block. When the genotyped set is large enough
 that inverting `G*` hurts, the same fit accepts APY (Misztal, Legarra and Aguilar, 2014)
 with a core, chosen by hand or by `apy_core = "auto"`, which takes as many animals as
-eigenvalues of `G` explain 98% of its trace (Pocrnic et al., 2016); the Vecchia (1988)
+eigenvalues of `G` explain 98% of its trace (Pocrnic et al., 2016), and builds it without
+any matrix of the size of the genotyped set squared (G only on the core rows, A22 by
+Colleau's algorithm, A22^-1 by a sparse Schur complement); the Vecchia (1988)
 recursion with per-animal conditioning sets; or `snp_blup()`, which never builds `G` at
 all and solves the marker equations by conjugate gradients.
 
