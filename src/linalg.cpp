@@ -511,7 +511,7 @@ std::vector<double> resolve(const Csc& L, const std::vector<double>& b) {
 //
 // Por isso nao ha filtro: cada entrada e mapeada uma vez e colocada no triangulo superior do
 // indice novo, venha ela de onde vier.
-static std::uint64_t assinatura_padrao(const Csc& a) {
+std::uint64_t assinatura_padrao(const Csc& a) {
   std::uint64_t h = 1469598103934665603ULL;
   auto mistura = [&](std::uint64_t v) { h ^= v; h *= 1099511628211ULL; };
   mistura(a.nlin); mistura(a.ncol);

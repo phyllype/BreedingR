@@ -98,6 +98,15 @@
   deviations and the accuracy from 0.282 to 0.294, the same with the estimated
   and the true Gamma.
 
+* `pegs()`: the multivariate SNP-BLUP of Xavier and Habier (2022), ported from
+  this project's validated Julia engine and giving the same numbers on the same
+  data: the effects of one marker for every trait solved together by randomized
+  Gauss-Seidel, variances by pseudo-expectation, bending (Hayes and Hill, 1981),
+  and the `hcs` and `xfa` structures for many environments. Wide data or long
+  data by `environment =`. It assumes the residuals of different traits are
+  uncorrelated (the same trait in different environments); on traits of the same
+  record the residual correlation leaks into `r_g`, and `model_mt()` is the route.
+
 * `gibbs(chains =, cores =)`: independent chains, each from a seed drawn from R's
   generator, so `set.seed()` governs all of them and a PSOCK cluster (`cores =`,
   which also works on Windows) gives the same draws as running them in series.
@@ -210,6 +219,12 @@
 * In `model()`, `model_mt()`, `model_ar1()` and `gibbs()` the symmetric
   permutation of the mixed model equations is a stored map of values from the
   second evaluation on, instead of a new sort by triplets at each one.
+* `sparse_chol()`, `sparse_solve()` and `selected_inverse()` keep the ordering and
+  the symbolic analysis of the last four patterns they saw, so the Newton loops of
+  `model_threshold()` and `model_survival()`, which call them with one pattern and
+  new values, stop reordering at every step: on 6000 animals,
+  `model_threshold(estimate = TRUE)` 80.3 to 41.1 s and `model_survival()` 5.1 to
+  2.5 s (median of 3), with the same estimates.
 * The product Z Z' of the G of VanRaden and the two APY products of order
   nc^2 nj run on the same tiles, in parallel (R's BLAS with
   `br_threads(lapack = TRUE)`); the APY core animals are found by hash instead of

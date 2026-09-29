@@ -288,19 +288,56 @@ SEXP R_inv_pd(SEXP m) {
   )
 }
 
+// As portas esparsas do R (sparse_chol, sparse_solve, selected_inverse) sao chamadas dentro
+// dos lacos de Newton do limiar e da sobrevivencia, sempre com o MESMO padrao e valores
+// novos. Cada chamada refazia o grau minimo e a simbolica. Aqui ficam os ultimos quatro
+// padroes vistos, pela assinatura do padrao: a mesma permutacao e a mesma simbolica, logo
+// o mesmo resultado bit a bit, sem refazer nada.
+namespace {
+struct PadraoVisto {
+  std::uint64_t assinatura = 0;
+  std::size_t n = 0, nnz = 0;
+  br::CacheSimbolica cs;
+};
+std::vector<PadraoVisto> g_padroes;
+
+br::CacheSimbolica& simbolica_do_padrao(const br::Csc& a) {
+  const std::uint64_t h = br::assinatura_padrao(a);
+  for (std::size_t k = 0; k < g_padroes.size(); k++)
+    if (g_padroes[k].assinatura == h && g_padroes[k].n == a.ncol &&
+        g_padroes[k].nnz == a.nnz()) {
+      std::rotate(g_padroes.begin() + k, g_padroes.begin() + k + 1, g_padroes.end());
+      return g_padroes.back().cs;
+    }
+  PadraoVisto p;
+  p.assinatura = h; p.n = a.ncol; p.nnz = a.nnz();
+  p.cs.perm = br::grau_minimo(a);
+  p.cs.sb = br::simbolica(br::permuta_sim(a, p.cs.perm));
+  p.cs.pronto = true;
+  if (g_padroes.size() >= 4) g_padroes.erase(g_padroes.begin());
+  g_padroes.push_back(std::move(p));
+  return g_padroes.back().cs;
+}
+}  // namespace
+
 // Fatoracao esparsa completa: ordena por grau minimo, permuta, fatora, e devolve L com a
 // permutacao e o log-determinante.
 SEXP R_chol_esparsa(SEXP i, SEXP j, SEXP x, SEXP n, SEXP ordenar) {
   GUARDA(
     br::Csc a = csc_do_R(i, j, x, n);
     std::vector<std::size_t> perm(a.ncol);
-    if (Rf_asLogical(ordenar) == TRUE) perm = br::grau_minimo(a);
-    else for (std::size_t k = 0; k < a.ncol; k++) perm[k] = k;
-    br::Csc pa = br::permuta_sim(a, perm);
-    br::Simbolica sb = br::simbolica(pa);
     br::Csc L;
-    if (!br::cholesky(pa, sb, L))
-      throw br::Erro("the matrix is not positive-definite");
+    if (Rf_asLogical(ordenar) == TRUE) {
+      br::CacheSimbolica& cs = simbolica_do_padrao(a);
+      perm = cs.perm;
+      if (!br::cholesky(br::permuta_cache(a, cs), cs.sb, L))
+        throw br::Erro("the matrix is not positive-definite");
+    } else {
+      for (std::size_t k = 0; k < a.ncol; k++) perm[k] = k;
+      br::Csc pa = br::permuta_sim(a, perm);
+      if (!br::cholesky(pa, br::simbolica(pa), L))
+        throw br::Erro("the matrix is not positive-definite");
+    }
 
     SEXP vperm = PROTECT(Rf_allocVector(INTSXP, static_cast<R_xlen_t>(perm.size())));
     for (std::size_t k = 0; k < perm.size(); k++)
@@ -324,11 +361,11 @@ SEXP R_chol_esparsa(SEXP i, SEXP j, SEXP x, SEXP n, SEXP ordenar) {
 SEXP R_inv_seletiva(SEXP i, SEXP j, SEXP x, SEXP n, SEXP bloco) {
   GUARDA(
     br::Csc a = csc_do_R(i, j, x, n);
-    std::vector<std::size_t> perm = br::grau_minimo(a);
-    br::Csc pa = br::permuta_sim(a, perm);
-    br::Simbolica sb = br::simbolica(pa);
+    br::CacheSimbolica& cs = simbolica_do_padrao(a);
+    const std::vector<std::size_t> perm = cs.perm;
     br::Csc L;
-    if (!br::cholesky(pa, sb, L)) throw br::Erro("the matrix is not positive-definite");
+    if (!br::cholesky(br::permuta_cache(a, cs), cs.sb, L))
+      throw br::Erro("the matrix is not positive-definite");
     br::SelInv z = br::inversa_seletiva(L, static_cast<std::size_t>(Rf_asInteger(bloco)));
 
     // devolve na numeracao ORIGINAL, senao quem le PEV le a diagonal trocada
@@ -360,11 +397,11 @@ SEXP R_inv_seletiva(SEXP i, SEXP j, SEXP x, SEXP n, SEXP bloco) {
 SEXP R_resolve(SEXP i, SEXP j, SEXP x, SEXP n, SEXP b) {
   GUARDA(
     br::Csc a = csc_do_R(i, j, x, n);
-    std::vector<std::size_t> perm = br::grau_minimo(a);
-    br::Csc pa = br::permuta_sim(a, perm);
-    br::Simbolica sb = br::simbolica(pa);
+    br::CacheSimbolica& cs = simbolica_do_padrao(a);
+    const std::vector<std::size_t> perm = cs.perm;
     br::Csc L;
-    if (!br::cholesky(pa, sb, L)) throw br::Erro("the matrix is not positive-definite");
+    if (!br::cholesky(br::permuta_cache(a, cs), cs.sb, L))
+      throw br::Erro("the matrix is not positive-definite");
     const std::size_t nn = a.ncol;
     if (static_cast<std::size_t>(XLENGTH(b)) != nn) Rf_error("b with the wrong length");
     std::vector<double> pb(nn);
@@ -1474,6 +1511,75 @@ SEXP R_snp_blup(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP t
   )
 }
 
+// PEGS. y (n x k, NA ausente) e x (n x p, sem NA) como matrizes do R; vb0/ve0 vazios = partida
+// padrao; atualiza = FALSE com vb0/ve0 e a resolucao pura do ridge multivariado.
+static br::Densa densa_do_R(SEXP m) {
+  SEXP dim = Rf_getAttrib(m, R_DimSymbol);
+  if (Rf_length(dim) != 2) Rf_error("expected a matrix");
+  const std::size_t nl = (std::size_t) INTEGER(dim)[0], nc = (std::size_t) INTEGER(dim)[1];
+  br::Densa d(nl, nc);
+  const double* v = REAL(m);
+  for (std::size_t j = 0; j < nc; j++)
+    for (std::size_t i = 0; i < nl; i++) d.at(i, j) = v[j * nl + i];
+  return d;
+}
+
+static SEXP densa_para_R(const br::Densa& d) {
+  SEXP m = PROTECT(Rf_allocMatrix(REALSXP, (int) d.nlin, (int) d.ncol));
+  for (std::size_t j = 0; j < d.ncol; j++)
+    for (std::size_t i = 0; i < d.nlin; i++) REAL(m)[j * d.nlin + i] = d.at(i, j);
+  UNPROTECT(1);
+  return m;
+}
+
+SEXP R_pegs(SEXP y, SEXP x, SEXP maxit, SEXP tol, SEXP defl, SEXP atualiza, SEXP vb0,
+            SEXP ve0, SEXP estrutura, SEXP nfat) {
+  GUARDA(
+    br::Densa yd = densa_do_R(y), xd = densa_do_R(x);
+    br::Densa vb;
+    std::vector<double> ve;
+    const bool tem_vb = XLENGTH(vb0) > 0, tem_ve = XLENGTH(ve0) > 0;
+    if (tem_vb) vb = densa_do_R(vb0);
+    if (tem_ve) ve.assign(REAL(ve0), REAL(ve0) + XLENGTH(ve0));
+    br::ResultadoPegs r = br::pegs(yd, xd, (std::size_t) Rf_asInteger(maxit), Rf_asReal(tol),
+                                   Rf_asReal(defl), Rf_asLogical(atualiza) == TRUE,
+                                   tem_vb ? &vb : nullptr, tem_ve ? &ve : nullptr,
+                                   Rf_asInteger(estrutura), (std::size_t) Rf_asInteger(nfat));
+    const char* campos[] = {"mu", "marker_effects", "gebv", "h2", "Vb", "Ve", "bend",
+                            "iters", "converged"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 9));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 9));
+    for (int q = 0; q < 9; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    SEXP mu = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) r.mu.size()));
+    std::copy(r.mu.begin(), r.mu.end(), REAL(mu));
+    SEXP h2 = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) r.h2.size()));
+    std::copy(r.h2.begin(), r.h2.end(), REAL(h2));
+    SEXP vev = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) r.ve.size()));
+    std::copy(r.ve.begin(), r.ve.end(), REAL(vev));
+    SET_VECTOR_ELT(out, 0, mu);
+    SET_VECTOR_ELT(out, 1, densa_para_R(r.b));
+    SET_VECTOR_ELT(out, 2, densa_para_R(r.gebv));
+    SET_VECTOR_ELT(out, 3, h2);
+    SET_VECTOR_ELT(out, 4, densa_para_R(r.vb));
+    SET_VECTOR_ELT(out, 5, vev);
+    SET_VECTOR_ELT(out, 6, Rf_ScalarReal(r.deflate));
+    SET_VECTOR_ELT(out, 7, Rf_ScalarInteger((int) r.iters));
+    SET_VECTOR_ELT(out, 8, Rf_ScalarLogical(r.convergiu));
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(5);
+    return out;
+  )
+}
+
+// a estrutura de covariancia sozinha, para os portoes de identidade
+SEXP R_pegs_estrutura(SEXP v, SEXP tipo, SEXP nfat) {
+  GUARDA(
+    br::Densa d = densa_do_R(v);
+    br::estrutura_pegs(d, Rf_asInteger(tipo), (std::size_t) Rf_asInteger(nfat));
+    return densa_para_R(d);
+  )
+}
+
 SEXP R_versao(void) { return Rf_mkString("0.4.0.9000"); }
 
 // Threads das regioes paralelas: n >= 1 define, qualquer outro valor so consulta; lapack
@@ -1515,6 +1621,8 @@ static const R_CallMethodDef metodos[] = {
   {"R_snp_blup",   (DL_FUNC) &R_snp_blup,  25},
 {"R_versao",     (DL_FUNC) &R_versao,     0},
   {"R_threads",    (DL_FUNC) &R_threads,    2},
+  {"R_pegs",       (DL_FUNC) &R_pegs,      10},
+  {"R_pegs_estrutura", (DL_FUNC) &R_pegs_estrutura, 3},
   {NULL, NULL, 0}
 };
 

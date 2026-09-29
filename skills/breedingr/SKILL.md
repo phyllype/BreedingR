@@ -183,6 +183,12 @@ size plus one. `apy_core_select()` warns when one factorization with its core co
 than half of the exact one, which on a small genotyped set is the usual answer.
 `snp_blup()` never builds G at all, but takes theta as GIVEN, estimate components once
 with `model()`, then solve at scale; it has no PEV, so `accuracy()` refuses it.
+`pegs(data, traits, id, genotypes)` (or `pegs(data, "y", id, genotypes, environment =
+"farm")`) is the multivariate SNP-BLUP of Xavier & Habier (2022): fast, many columns at
+once, variances by pseudo-expectation. It ASSUMES uncorrelated residuals across columns
+(the same trait in different environments); on traits of the same record it inflates
+`r_g` (0.83 against 0.33 from the bivariate REML on real litter data), so use `model_mt()`
+there. Its `r_g` is noisy when markers far outnumber animals.
 
 ## Weights, and what they are not
 

@@ -32,8 +32,8 @@ equations are assembled sparse, one record at a time, and factored by a sparse C
 after a minimum degree ordering (George and Liu, 1989) that sets dense nodes aside, as the
 dense-row rule of AMD does (Amestoy, Davis and Duff, 1996). In `model()`, `model_mt()`,
 `model_ar1()` and `gibbs()` the ordering and the symbolic analysis are computed once and
-reused; `model_threshold()` and `model_survival()`, written in R, order and factor again
-at every step. The dense tail of the factor, where the genotyped animals end up, is
+reused; `model_threshold()` and `model_survival()`, written in R, factor again at every
+step but reuse the ordering and the symbolic analysis of the pattern. The dense tail of the factor, where the genotyped animals end up, is
 factored in tiles on `br_threads()` threads (OpenMP, default 1), and so are its inverse
 inside the selected inverse, the dense inverses of G* and A22 and the product Z Z' of the
 G in the single step; each
@@ -112,6 +112,7 @@ Relationships and genomics are arguments, not different programs.
 | the APY core, by the eigenvalues of G | `apy_core_select()`, or `apy_core = "auto"` |
 | the single-step H-inverse, as triplets | `h_inverse()` |
 | the single step without ever forming G | `snp_blup()` |
+| many environments of one trait, fast, from markers | `pegs()` (residuals uncorrelated across environments) |
 | marker effects from a single-step fit | `snp_effects()` |
 | G, dominance, epistasis to any order | `g_matrix()`, `g_dominance()`, `g_epistasis_ad/dd/order()` |
 | multibreed partial matrices | `partial_a()` |

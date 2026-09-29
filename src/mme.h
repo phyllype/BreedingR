@@ -129,6 +129,8 @@ std::vector<double> resolve(const Csc&, const std::vector<double>&);
 Csc permuta_sim(const Csc&, const std::vector<std::size_t>&);
 // a mesma permutacao, pelo mapa guardado em cs (cs.perm ja definido)
 const Csc& permuta_cache(const Csc&, CacheSimbolica& cs);
+// assinatura (FNV-1a) do padrao de uma CSC: dimensoes, colptr e linhas
+std::uint64_t assinatura_padrao(const Csc&);
 std::vector<std::size_t> grau_minimo(const Csc&);
 
 // ---- selinv.cpp
@@ -340,6 +342,19 @@ struct SnpBlup {
   std::size_t n_fixo = 0;
   std::vector<std::size_t> offset_grupo;
 };
+// ---- pegs.cpp: SNP-BLUP multicaracter por Gauss-Seidel aleatorizado (Xavier e Habier 2022)
+struct ResultadoPegs {
+  std::vector<double> mu, h2, ve;
+  Densa b, gebv, vb;
+  double deflate = 1.0;
+  std::size_t iters = 0;
+  bool convergiu = false;
+};
+ResultadoPegs pegs(const Densa& y, const Densa& x, std::size_t maxit, double tol,
+                   double deflate_min, bool atualiza_vc, const Densa* vb0,
+                   const std::vector<double>* ve0, int estrutura, std::size_t nfat);
+void estrutura_pegs(Densa& vb, int tipo, std::size_t nfat);
+
 // meio = true: pedigree com metafundadores, Z centrada em 0.5 e escala m/2 (a G05)
 SnpBlup snp_blup(const Desenho&, Densa&, const std::vector<std::string>&,
                  const std::vector<double>&, double, std::size_t, double, bool = false,

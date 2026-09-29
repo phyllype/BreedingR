@@ -315,6 +315,21 @@ fsnp <- snp_blup(y ~ cg + animal(id), s$data, s$pedigree, gen,
 round(cor(unclass(a_hat), fsnp$g[!is.na(fsnp$g)]), 3)
 ```
 
+`pegs()` is the fast multi-environment route of Xavier and Habier (2022): no mixed model
+equations, no relationship matrix, the effects of one marker for every environment solved
+together by randomized Gauss-Seidel. It assumes the residuals of different environments are
+independent, which holds when each animal is recorded in one place; for traits of the same
+record, `model_mt()`. Here the herds of the simulated data stand in for environments.
+It is ONE trait, so every true correlation is 1; with 60 animals split three ways the
+estimates below are noise, which is what pseudo-expectation gives on data this small
+(the method needs thousands of animals to pin `r_g` down):
+
+```{r}
+set.seed(1)
+pg <- pegs(s$data[s$data$id %in% gid, ], "y", "id", gen, environment = "cg")
+round(pg$Gcor, 2)
+```
+
 ## Step 6: multi-trait
 
 `cbind()` on the left, full R0, missingness handled record by record; `rg()` reads the
