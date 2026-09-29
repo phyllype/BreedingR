@@ -2,6 +2,15 @@
 
 ## New
 
+* `snp_blup()` takes any relationship structure `model()` takes. The markers
+  enter every relationship group and every component of it, as `H^-1` does on
+  the `genotypes=` path: direct-maternal in one group, a reaction norm, direct
+  and maternal in separate groups, the indirect effect. A group of dimension q
+  with covariance `K0` gets q sets of marker effects, and since the joint
+  covariance is `K0` times the scalar one, the precision is `K0^-1` times the
+  scalar precision. `g` comes back as a marker x component matrix when there is
+  more than one component, with the columns named as in theta. The applications
+  of `A22^-1` in each iteration run in parallel.
 * `solutions(fit, pedigree)`: one call, one data.frame with `id`, `ebv`, `se` and
   `acc`, sorted by breeding value. It is what an evaluation is for, and until now
   the caller assembled it by hand, joining the vector from `ebv()` to the vector

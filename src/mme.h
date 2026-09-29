@@ -337,7 +337,9 @@ struct SnpBlup {
   std::size_t iters = 0;
   double residuo = 0.0;              // ||r|| / ||rhs|| ao parar
   std::vector<double> solucao;       // as colunas do desenho de base (fixos + grupos)
-  std::vector<double> efeitos;       // m efeitos de marcador, NaN nos monomorficos
+  std::vector<double> efeitos;       // m x fatias efeitos de marcador (coluna por fatia), NaN
+                                     // nos monomorficos
+  std::vector<std::string> fatias;   // um componente de um grupo com parentesco por coluna
   std::vector<char> usa_marcador;
   std::size_t n_imputados = 0, n_monomorficos = 0;
   std::size_t n_fixo = 0;

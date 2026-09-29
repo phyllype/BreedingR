@@ -23,10 +23,20 @@
 // triangular por aplicacao. w -> 1 desliga os marcadores e colapsa no BLUP de pedigree,
 // e esse colapso e um dos gates.
 //
+// Mais de um termo e grupos nao escalares. Os marcadores entram em TODOS os grupos com
+// parentesco e em cada componente deles, como o H^-1 do caminho genotypes= entra em todos
+// (aplica_genomica_em). Num grupo de dimensao q com covariancia K0, u = (u_1..u_q) ~
+// N(0, K0 x A), e cada componente tem os seus marcadores: u_g,t = Z g_t + p_t, com
+// (g_1..g_q) ~ N(0, K0 x I (1-w)/kd) e (p_1..p_q) ~ N(0, K0 x w A22). A covariancia
+// conjunta de (u_n, u_g, g) e K0 x S1, S1 a do caso escalar com s2u = 1, e a precisao e
+// K0^-1 x Q1: os acrescimos acima com s2e/s2u trocado pela entrada (a, b) de s2e K0^-1.
+// Grupos diferentes nao se tocam. Isso cobre o direto-materno, a norma de reacao, o
+// indireto e direto e materno em grupos separados.
+//
 // Limites declarados: theta e DADO (isto e um resolvedor, como o BLUP com componentes
-// fixas da pratica; a REML continua nos caminhos exatos), o termo genomico e um grupo
-// escalar, e G* implicita = (1-w) Z Z'/kd + w A22, SEM o ajuste afim do caminho
-// genotypes=, em populacoes fora do equilibrio os dois caminhos diferem por construcao.
+// fixas da pratica; a REML continua nos caminhos exatos), e G* implicita =
+// (1-w) Z Z'/kd + w A22, SEM o ajuste afim do caminho genotypes=, em populacoes fora do
+// equilibrio os dois caminhos diferem por construcao.
 
 #include "mme.h"
 
@@ -65,29 +75,38 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
     throw Erro("rpg (the residual polygenic proportion) must be in (0, 1): 0 leaves the "
                "polygenic residual without a distribution, 1 turns the markers off");
 
-  // o grupo genomico: exatamente um grupo com parentesco, escalar
-  std::size_t gpar = d.modelo.grupos.size();
-  for (std::size_t g = 0; g < d.modelo.grupos.size(); g++)
-    if (d.modelo.grupos[g].estrutura == Estrutura::Parentesco) {
-      if (gpar != d.modelo.grupos.size())
-        throw Erro("snp_blup expects ONE relationship group (declared limit of this version)");
-      gpar = g;
-    }
-  if (gpar == d.modelo.grupos.size())
-    throw Erro("there is no relationship term to receive the markers");
-  if (d.modelo.grupos[gpar].dim != 1)
-    throw Erro("the genomic term must be a scalar group in snp_blup (declared limit of "
-               "this version)");
-  const double var_u = theta[d.modelo.grupos[gpar].offset];
-  if (!(var_u > 0.0)) throw Erro("the additive variance in theta is not positive");
-
+  // As fatias: cada componente de cada grupo com parentesco, na ordem dos slots. Todas
+  // indexam os mesmos niveis (o pedigree), e o A^-1 e um so.
+  struct Fatia {
+    std::size_t grupo, comp;
+  };
+  std::vector<Fatia> fatias;
   const DesenhoTermo* dt = nullptr;
-  for (const DesenhoTermo& a : d.aleatorios)
-    if (a.termo == d.modelo.grupos[gpar].termos[0]) { dt = &a; break; }
+  for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
+    const Grupo& gr = d.modelo.grupos[g];
+    if (gr.estrutura != Estrutura::Parentesco) continue;
+    std::size_t comp = 0;
+    for (std::size_t t : gr.termos) {
+      const Termo& tm = d.modelo.termos[t];
+      for (std::size_t c = 0; c < tm.n_coef(); c++) {
+        fatias.push_back({g, comp++});
+        r.fatias.push_back(tm.n_coef() == 1 ? tm.nome : tm.nome + "[" + std::to_string(c) + "]");
+      }
+      for (const DesenhoTermo& a : d.aleatorios)
+        if (a.termo == t) {
+          if (!dt) dt = &a;
+          else if (a.niveis != dt->niveis)
+            throw Erro("the relationship terms do not index the same pedigree levels");
+        }
+    }
+  }
+  if (fatias.empty()) throw Erro("there is no relationship term to receive the markers");
   if (!dt) throw Erro("relationship group without an incidence");
   const std::size_t nl = dt->n_niveis;
+  const std::size_t nf = fatias.size();
+  const std::size_t gpar = fatias[0].grupo;
 
-  // genotipados -> posicao de nivel (== posicao no A^-1 do grupo)
+  // genotipados -> posicao de nivel (== posicao no A^-1)
   std::vector<std::size_t> pos;
   pos.reserve(geno_ids.size());
   {
@@ -198,9 +217,10 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
       throw Erro("the non-genotyped block of A^-1 is not positive-definite");
   }
 
-  // A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v, sem nunca formar A22^-1
-  std::vector<double> t1(n1), t2(n1);
-  auto a22inv_vezes = [&](const std::vector<double>& x, std::vector<double>& y) {
+  // A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v, sem nunca formar A22^-1. O rascunho vem
+  // de fora: as aplicacoes de uma iteracao correm em paralelo, cada uma com o seu.
+  auto a22inv_vezes = [&](const std::vector<double>& x, std::vector<double>& y,
+                          std::vector<double>& t1, std::vector<double>& t2) {
     y.assign(ng, 0.0);
     symv_tri(a22blk, x.data(), y.data());
     if (n1 == 0) return;
@@ -215,11 +235,19 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
   // as equacoes de base, nas unidades de s2e como todo o resto do motor
   Montado M = monta_mme(d, theta);
   if (!M.ok) throw Erro("theta INADMISSIBLE: some covariance is not positive-definite");
-  const double fac = M.s2e / var_u;
-  std::vector<std::size_t> col_geno(ng);
-  for (std::size_t k = 0; k < ng; k++) col_geno[k] = M.offset_grupo[gpar] + pos[k];
+  // s2e K0^-1 por grupo com parentesco, o mesmo fator que monta_mme poe na penalidade
+  std::vector<Densa> fg(d.modelo.grupos.size());
+  for (const Fatia& f : fatias) {
+    if (fg[f.grupo].nlin > 0) continue;
+    Densa cgs = cov_grupo(d.modelo, theta, f.grupo);
+    for (double& v : cgs.dados) v /= M.s2e;
+    fg[f.grupo] = inv_pd(cgs);
+  }
+  auto col_geno = [&](std::size_t s, std::size_t k) {
+    return M.offset_grupo[fatias[s].grupo] + fatias[s].comp * nl + pos[k];
+  };
 
-  const std::size_t N = M.total + mu;
+  const std::size_t N = M.total + nf * mu;
   std::vector<double> rhs(N, 0.0);
   for (std::size_t k = 0; k < M.total; k++) rhs[k] = M.rhs[k];
 
@@ -230,39 +258,71 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
   for (std::size_t j = 0; j < M.c.ncol; j++)
     for (std::size_t k = M.c.colptr[j]; k < M.c.colptr[j + 1]; k++)
       if (M.c.linha[k] == j) prec[j] += M.c.valor[k];
-  for (std::size_t k = 0; k < ng; k++)
-    prec[col_geno[k]] += fac * (1.0 - w) / w * diag22[k];
-  for (std::size_t jj = 0; jj < mu; jj++) {
-    double s = 0.0;
+  std::vector<double> szz(mu, 0.0);
+  for (std::size_t jj = 0; jj < mu; jj++)
     for (std::size_t i = 0; i < ng; i++) {
       const double z = zc[i + ng * jj];
-      s += diag22[i] * z * z;
+      szz[jj] += diag22[i] * z * z;
     }
-    prec[M.total + jj] = fac * (s / w + kd / (1.0 - w));
+  for (std::size_t s = 0; s < nf; s++) {
+    const double f = fg[fatias[s].grupo].at(fatias[s].comp, fatias[s].comp);
+    for (std::size_t k = 0; k < ng; k++) prec[col_geno(s, k)] += f * (1.0 - w) / w * diag22[k];
+    for (std::size_t jj = 0; jj < mu; jj++)
+      prec[M.total + s * mu + jj] = f * (szz[jj] / w + kd / (1.0 - w));
   }
   for (double& p : prec) if (!(p > 0.0)) p = 1.0;
 
   const int ngi = static_cast<int>(ng), mui = static_cast<int>(mu), inc1 = 1;
   const double um = 1.0, zero = 0.0;
-  std::vector<double> vg(ng), zv(ng), q3(ng), q4(ng), gsum(ng), gm(mu);
+  // por fatia: v nas colunas genotipadas, Z v nos marcadores, e as duas A22^-1
+  std::vector<std::vector<double>> vg(nf, std::vector<double>(ng)),
+      zv(nf, std::vector<double>(ng)), q3(nf), q4(nf);
+  const std::size_t njob = 2 * nf;
+  std::vector<std::vector<double>> rt1(njob, std::vector<double>(n1)),
+      rt2(njob, std::vector<double>(n1));
+  const int nth = static_cast<int>(
+      std::min<std::size_t>(static_cast<std::size_t>(threads()), njob));
+  std::vector<double> hs(ng), gsum(ng), gm(mu);
   auto aplica = [&](const std::vector<double>& v, std::vector<double>& y) {
     y.assign(N, 0.0);
     symv_tri(M.c, v.data(), y.data());
-    for (std::size_t k = 0; k < ng; k++) vg[k] = v[col_geno[k]];
-    std::fill(zv.begin(), zv.end(), 0.0);
-    if (mu > 0)
-      F77_CALL(dgemv)("N", &ngi, &mui, &um, zc.data(), &ngi, v.data() + M.total, &inc1,
-                      &zero, zv.data(), &inc1 FCONE);
-    a22inv_vezes(vg, q3);
-    a22inv_vezes(zv, q4);
-    for (std::size_t k = 0; k < ng; k++)
-      y[col_geno[k]] += fac * ((1.0 - w) * q3[k] - q4[k]) / w;
-    if (mu > 0) {
-      for (std::size_t k = 0; k < ng; k++) gsum[k] = q3[k] - q4[k];
-      F77_CALL(dgemv)("T", &ngi, &mui, &um, zc.data(), &ngi, gsum.data(), &inc1,
-                      &zero, gm.data(), &inc1 FCONE);
-      for (std::size_t jj = 0; jj < mu; jj++)
-        y[M.total + jj] += fac * (-gm[jj] / w + kd / (1.0 - w) * v[M.total + jj]);
+    for (std::size_t s = 0; s < nf; s++) {
+      for (std::size_t k = 0; k < ng; k++) vg[s][k] = v[col_geno(s, k)];
+      std::fill(zv[s].begin(), zv[s].end(), 0.0);
+      if (mu > 0)
+        F77_CALL(dgemv)("N", &ngi, &mui, &um, zc.data(), &ngi, v.data() + M.total + s * mu,
+                        &inc1, &zero, zv[s].data(), &inc1 FCONE);
+    }
+    // as 2 nf aplicacoes de A22^-1 sao independentes; cada uma escreve so o seu vetor
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(nth) schedule(static, 1)
+#endif
+    for (long jb = 0; jb < static_cast<long>(njob); jb++) {
+      const std::size_t s = static_cast<std::size_t>(jb) / 2;
+      if (jb % 2 == 0) a22inv_vezes(vg[s], q3[s], rt1[jb], rt2[jb]);
+      else a22inv_vezes(zv[s], q4[s], rt1[jb], rt2[jb]);
+    }
+    // fatia a do grupo g: soma sobre as fatias b do MESMO grupo com f = (s2e K0^-1)(a, b)
+    for (std::size_t s = 0; s < nf; s++) {
+      const Densa& F = fg[fatias[s].grupo];
+      std::fill(hs.begin(), hs.end(), 0.0);
+      std::fill(gsum.begin(), gsum.end(), 0.0);
+      for (std::size_t s2 = 0; s2 < nf; s2++) {
+        if (fatias[s2].grupo != fatias[s].grupo) continue;
+        const double f = F.at(fatias[s].comp, fatias[s2].comp);
+        for (std::size_t k = 0; k < ng; k++) {
+          hs[k] += f * ((1.0 - w) * q3[s2][k] - q4[s2][k]);
+          gsum[k] += f * (q3[s2][k] - q4[s2][k]);
+        }
+        for (std::size_t jj = 0; jj < mu; jj++)
+          y[M.total + s * mu + jj] += f * kd / (1.0 - w) * v[M.total + s2 * mu + jj];
+      }
+      for (std::size_t k = 0; k < ng; k++) y[col_geno(s, k)] += hs[k] / w;
+      if (mu > 0) {
+        F77_CALL(dgemv)("T", &ngi, &mui, &um, zc.data(), &ngi, gsum.data(), &inc1,
+                        &zero, gm.data(), &inc1 FCONE);
+        for (std::size_t jj = 0; jj < mu; jj++) y[M.total + s * mu + jj] -= gm[jj] / w;
+      }
     }
   };
 
@@ -305,8 +365,10 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
   r.iters = it;
   r.residuo = rel;
   r.solucao.assign(x.begin(), x.begin() + M.total);
-  r.efeitos.assign(mm, std::nan(""));
-  for (std::size_t jj = 0; jj < mu; jj++) r.efeitos[usados[jj]] = x[M.total + jj];
+  r.efeitos.assign(mm * nf, std::nan(""));
+  for (std::size_t s = 0; s < nf; s++)
+    for (std::size_t jj = 0; jj < mu; jj++)
+      r.efeitos[s * mm + usados[jj]] = x[M.total + s * mu + jj];
   r.n_fixo = M.n_fixo;
   r.offset_grupo = M.offset_grupo;
   return r;

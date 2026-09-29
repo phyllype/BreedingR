@@ -397,6 +397,7 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | `pegs()` | at fixed variances the exact multivariate ridge, a dense `mk x mk` solve; the structures are identities where they must be; recovery with 2000 animals x 2000 markers x 3 traits; the Julia reference gives the same numbers on the same data |
 | `sire(sire, mgs =)` | -2logL and BLUP against the dense GLS with the incidence built by hand |
 | `indirect(dilution =)` in the siblings | the bivariate with no between-trait covariance == the sum of the univariate `model()` fits with the same d; AR(1) at rho = 0 == `model()`; the Gibbs chain with fixed components == the diluted BLUP |
+| `snp_blup()`, any structure | the dense single-step solve built in R with `H^-1` from `G*` without the affine step: breeding values and marker effects to 1e-6 of their SD with one animal term, direct-maternal in one group, direct and maternal in separate groups, a reaction norm and direct-indirect; `rpg` near 1 falls back to the pedigree BLUP; a planted QTL comes out on top |
 | `survival_split()` | the subject and change tables reproduce hand-built elementary records exactly, with the same fit; `S(t \| e) S(e) = S(t)` |
 
 The tests in `tests/testthat` run these comparisons on every build, so a change that

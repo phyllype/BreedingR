@@ -16,8 +16,12 @@
 #' identity `A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v` over the sparse blocks of
 #' `A^-1`, with one sparse factorization of the non-genotyped block.
 #'
-#' @param formula as in [model()]; the relationship term must be a scalar group
-#'   (declared limit of this version)
+#' @param formula as in [model()]. The markers enter every relationship group and every
+#'   component of it, as `H^-1` does on the `genotypes=` path: direct-maternal in one
+#'   group, a reaction norm, direct and maternal in separate groups, the indirect effect.
+#'   A group of dimension q with covariance `K0` gets q sets of marker effects with
+#'   covariance `K0 (1-rpg) / k` between them, so the precision is `K0^-1` times the
+#'   scalar one
 #' @param data data.frame
 #' @param pedigree data.frame animal, sire, dam (required: the model is single step)
 #' @param genotypes list with `ids` and `m` (0/1/2 matrix); NA is imputed with the mean
@@ -37,7 +41,9 @@
 #' @return list with `b` (fixed-effect solutions, named `term=level`; the parametrization
 #'   note of [model()] applies), `ebv` (per covariance group, all animals;
 #'   [ebv()] works on it), `g` (marker effects in trait units per allele dose, NA for
-#'   monomorphic markers), `converged`, `iters`, `resnorm`, `message`
+#'   monomorphic markers: a vector with one relationship component, a marker x component
+#'   matrix with more, the columns named as the components in theta), `converged`,
+#'   `iters`, `resnorm`, `message`
 #' @references Liu, Z., Goddard, M.E., Reinhardt, F. & Reents, R. (2014). A
 #'   single-step genomic model with direct estimation of marker effects. Journal of
 #'   Dairy Science 97:5833-5850.
@@ -98,7 +104,10 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   # if it were tolerated the F would come back on the gamma = 0 base.
   r$metafounders <- metafounders
   r$gamma <- gamma
-  if (!is.null(colnames(genotypes$m))) names(r$g) <- colnames(genotypes$m)
+  if (!is.null(colnames(genotypes$m))) {
+    if (is.matrix(r$g)) rownames(r$g) <- colnames(genotypes$m)
+    else names(r$g) <- colnames(genotypes$m)
+  }
   r$theta <- theta
   r$rpg <- rpg
   r$formula <- formula

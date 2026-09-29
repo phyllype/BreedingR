@@ -112,8 +112,8 @@ nomes, e sem o fator `s2e` do univariado, porque as MME dos espelhos ja sao abso
 
 | # | origem | restricao | estado |
 |---|---|---|---|
-| 7 | `src/sssnp.cpp:73` | um so grupo de parentesco | ABERTO |
-| 8 | `src/sssnp.cpp:79` | termo genomico tem de ser grupo escalar | ABERTO |
+| 7 | `src/sssnp.cpp:73` | um so grupo de parentesco | **FEITO** 2026-09-29: os marcadores entram em todos os grupos com parentesco, como o H^-1 do caminho genotypes= |
+| 8 | `src/sssnp.cpp:79` | termo genomico tem de ser grupo escalar | **FEITO** 2026-09-29: grupo de dimensao q, precisao K0^-1 x Q1; portoes contra a MME densa com direto-materno, grupos separados e norma de reacao |
 
 ## Covariancia declarada
 

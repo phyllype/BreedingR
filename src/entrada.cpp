@@ -1478,9 +1478,21 @@ SEXP R_snp_blup(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP t
     }
     Rf_setAttrib(ebv, R_NamesSymbol, ebv_nomes);
 
-    SEXP ef = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) S.efeitos.size()));
+    // uma fatia: o vetor de sempre; mais de uma: matriz marcador x componente
+    SEXP ef = PROTECT(S.fatias.size() == 1
+        ? Rf_allocVector(REALSXP, (R_xlen_t) S.efeitos.size())
+        : Rf_allocMatrix(REALSXP, nm2, (int) S.fatias.size()));
     for (std::size_t k = 0; k < S.efeitos.size(); k++)
       REAL(ef)[k] = std::isnan(S.efeitos[k]) ? NA_REAL : S.efeitos[k];
+    if (S.fatias.size() > 1) {
+      SEXP dn = PROTECT(Rf_allocVector(VECSXP, 2));
+      SEXP cn = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) S.fatias.size()));
+      for (std::size_t k = 0; k < S.fatias.size(); k++)
+        SET_STRING_ELT(cn, (R_xlen_t) k, Rf_mkChar(S.fatias[k].c_str()));
+      SET_VECTOR_ELT(dn, 1, cn);
+      Rf_setAttrib(ef, R_DimNamesSymbol, dn);
+      UNPROTECT(2);
+    }
 
     std::string nota = "ssSNPBLUP: " + std::to_string(gids.size()) + " genotyped x " +
         std::to_string(nm2) + " markers, " + std::to_string(S.n_imputados) +

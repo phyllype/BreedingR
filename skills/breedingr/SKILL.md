@@ -194,7 +194,10 @@ H(Gamma) (G05, no affine adjustment) in every H^-1 fitter and in `snp_blup()`.
 size plus one. `apy_core_select()` warns when one factorization with its core costs more
 than half of the exact one, which on a small genotyped set is the usual answer.
 `snp_blup()` never builds G at all, but takes theta as GIVEN, estimate components once
-with `model()`, then solve at scale; it has no PEV, so `accuracy()` refuses it.
+with `model()`, then solve at scale; it has no PEV, so `accuracy()` refuses it. It takes
+the same structures as `model()`: each relationship component (direct, maternal, the
+slope of a reaction norm, the indirect effect) gets its own marker effects, and `fit$g`
+is then a marker x component matrix.
 `pegs(data, traits, id, genotypes)` (or `pegs(data, "y", id, genotypes, environment =
 "farm")`) is the multivariate SNP-BLUP of Xavier & Habier (2022): fast, many columns at
 once, variances by pseudo-expectation. It ASSUMES uncorrelated residuals across columns

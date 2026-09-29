@@ -380,13 +380,18 @@ print.summary.breeding_gibbs <- function(x, ...) {
 
 #' @export
 summary.breeding_snp_blup <- function(object, ...) {
-  g <- object$g[!is.na(object$g)]
+  # uma coluna por componente com parentesco; o vetor de um componente vira matriz de 1
+  g <- as.matrix(object$g)
+  if (is.null(colnames(g))) colnames(g) <- "g"
+  resumo <- function(v) {
+    v <- v[!is.na(v)]
+    c(stats::quantile(v, c(0, 0.25, 0.5, 0.75, 1), names = FALSE), stats::sd(v))
+  }
   structure(list(titulo = paste0("ssSNPBLUP for '", object$trait, "'"),
                  converged = object$converged, iters = object$iters,
                  resnorm = object$resnorm, theta = object$theta,
-                 n_used = object$n_used, n_markers = length(g),
-                 marker_effects = if (length(g))
-                   c(stats::quantile(g, c(0, 0.25, 0.5, 0.75, 1), names = FALSE), sd = stats::sd(g)),
+                 n_used = object$n_used, n_markers = sum(!is.na(g)),
+                 marker_effects = if (any(!is.na(g))) apply(g, 2, resumo),
                  message = object$message),
             class = "summary.breeding_snp_blup")
 }
@@ -403,8 +408,9 @@ print.summary.breeding_snp_blup <- function(x, ...) {
   }
   if (!is.null(x$marker_effects)) {
     cat("\nmarker effects: min, quartiles, max and sd\n")
-    print(stats::setNames(x$marker_effects, c("min", "q25", "median", "q75", "max", "sd")),
-          digits = 4)
+    me <- x$marker_effects
+    rownames(me) <- c("min", "q25", "median", "q75", "max", "sd")
+    print(if (ncol(me) == 1) me[, 1] else me, digits = 4)
   }
   invisible(x)
 }

@@ -20,8 +20,12 @@ snp_blup(
 )
 }
 \arguments{
-\item{formula}{as in \code{\link[=model]{model()}}; the relationship term must be a scalar group
-(declared limit of this version)}
+\item{formula}{as in \code{\link[=model]{model()}}. The markers enter every relationship group and every
+component of it, as \code{H^-1} does on the \verb{genotypes=} path: direct-maternal in one
+group, a reaction norm, direct and maternal in separate groups, the indirect effect.
+A group of dimension q with covariance \code{K0} gets q sets of marker effects with
+covariance \code{K0 (1-rpg) / k} between them, so the precision is \code{K0^-1} times the
+scalar one}
 
 \item{data}{data.frame}
 
@@ -54,7 +58,9 @@ interactive(), live in a session and quiet in scripts and checks. Every fitter a
 list with \code{b} (fixed-effect solutions, named \code{term=level}; the parametrization
 note of \code{\link[=model]{model()}} applies), \code{ebv} (per covariance group, all animals;
 \code{\link[=ebv]{ebv()}} works on it), \code{g} (marker effects in trait units per allele dose, NA for
-monomorphic markers), \code{converged}, \code{iters}, \code{resnorm}, \code{message}
+monomorphic markers: a vector with one relationship component, a marker x component
+matrix with more, the columns named as the components in theta), \code{converged},
+\code{iters}, \code{resnorm}, \code{message}
 }
 \description{
 Fits the equivalent model of the single step with the marker effects as unknowns:
