@@ -254,18 +254,6 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
 # integral. A recusa cobre os dois porque nenhum dos dois esta certo, e um erro declarado e
 # melhor que um H silenciosamente misturado. O conserto de verdade, com o que precisa
 # ser conferido antes dele, segue por fazer.
-# snp_blup() (ssSNPBLUP) ainda nao tem a G05 nem a A(Gamma)22 na forma de marcadores; os
-# ajustadores de H^-1 (model, model_mt, model_ar1, gibbs, h_inverse) ja tem.
-recusa_mf_genomico <- function(metafounders, tem_genotipos) {
-  if (!is.null(metafounders) && length(metafounders) > 0L && isTRUE(tem_genotipos))
-    stop("metafounders and genotypes cannot be combined in snp_blup() yet: its marker ",
-         "equations would still centre Z at the observed allele frequencies, while ",
-         "A(Gamma) puts the base at the metafounders. model(genotypes =, metafounders =) ",
-         "builds H(Gamma) with the G of allele frequencies 0.5",
-         call. = FALSE)
-  invisible(NULL)
-}
-
 # Com metafundadores E genotipos, TODO pai desconhecido tem de ser um metafundador: a G05
 # esta na base de Gamma (frequencias 0.5), e um animal de base "0" (autoparentesco 1,
 # endogamia 0) ficaria na base das frequencias observadas, que e outra. E a mesma regra do

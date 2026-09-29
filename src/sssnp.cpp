@@ -59,7 +59,7 @@ void symv_tri(const Csc& a, const double* x, double* y) {
 
 SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& geno_ids,
                  const std::vector<double>& theta, double w, std::size_t maxiter,
-                 double tol, bool verboso) {
+                 double tol, bool verboso, bool meio) {
   SnpBlup r;
   if (!(w > 0.0 && w < 1.0))
     throw Erro("rpg (the residual polygenic proportion) must be in (0, 1): 0 leaves the "
@@ -105,11 +105,14 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
   }
   const std::size_t ng = pos.size();
 
-  // Z centrada (imputacao pela media, monomorficos fora), coluna-major para o dgemv
+  // Z centrada (imputacao pela media, monomorficos fora), coluna-major para o dgemv. Com
+  // metafundadores (meio) e a Z da G05 (Legarra et al., 2015): centrada em 0.5, escala m/2,
+  // TODOS os marcadores, a mesma G do caminho genotypes= com metafounders=, entao os dois
+  // caminhos resolvem o mesmo sistema (a G* implicita daqui ja nao tem o ajuste afim).
   const std::size_t mm = mg.ncol;
   if (mg.nlin != ng) throw Erro("genotype rows and ids with different lengths");
   r.usa_marcador.assign(mm, 1);
-  std::vector<double> pfreq(mm, 0.0);
+  std::vector<double> pfreq(mm, 0.0), media_m(mm, 0.0);
   double kd = 0.0;
   std::vector<std::size_t> usados;
   for (std::size_t j = 0; j < mm; j++) {
@@ -121,8 +124,11 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
     }
     if (k == 0) { r.usa_marcador[j] = 0; r.n_monomorficos++; continue; }
     const double media = soma / static_cast<double>(k);
-    pfreq[j] = media / 2.0;
-    if (pfreq[j] <= 0.0 || pfreq[j] >= 1.0) { r.usa_marcador[j] = 0; r.n_monomorficos++; continue; }
+    media_m[j] = media;
+    pfreq[j] = meio ? 0.5 : media / 2.0;
+    if (!meio && (pfreq[j] <= 0.0 || pfreq[j] >= 1.0)) {
+      r.usa_marcador[j] = 0; r.n_monomorficos++; continue;
+    }
     kd += 2.0 * pfreq[j] * (1.0 - pfreq[j]);
     usados.push_back(j);
   }
@@ -134,7 +140,7 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
     const double dp = 2.0 * pfreq[j];
     for (std::size_t i = 0; i < ng; i++) {
       double x = mg.at(i, j);
-      if (!std::isfinite(x)) { x = dp; r.n_imputados++; }
+      if (!std::isfinite(x)) { x = media_m[j]; r.n_imputados++; }
       zc[i + ng * jj] = x - dp;
     }
   }

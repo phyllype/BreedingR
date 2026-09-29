@@ -54,7 +54,6 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side")
   trait <- deparse(formula[[2]])
-  recusa_mf_genomico(metafounders, TRUE)
   terms <- decompoe_formula(formula[[3]])
   recusa_dilution(terms, "snp_blup()")
 
@@ -69,6 +68,7 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   })
   if (is.null(pedigree)) stop("snp_blup needs a pedigree: the model is single step")
   cp <- colunas_pedigree(pedigree)
+  confere_base_mf(cp$sire, cp$dam, metafounders, TRUE)
   g <- valida_genotipos(genotypes)
   if (length(g$gid) == 0) stop("snp_blup without genotypes has nothing to solve")
 

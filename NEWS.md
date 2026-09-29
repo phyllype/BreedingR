@@ -87,8 +87,16 @@
   scaled by m/2 (G05), A22 taken from A(Gamma), and G* = (1 - w) G05 + w A22
   without the affine adjustment to A22, which is the base correction Gamma
   already makes (Legarra et al., 2015; Garcia-Baccino et al., 2017). Every
-  unknown parent must be a metafounder, or it is an error. The pair was refused
-  before; `snp_blup()` still refuses it.
+  unknown parent must be a metafounder, or it is an error. `snp_blup()` centres
+  its markers at 0.5 with scale m/2 and solves the same system (equal to
+  `model()` at the same theta). The pair was refused before. Measured on 20
+  simulated replicates (1400 animals, two base populations with different allele
+  frequencies and means, truncation selection, the last two generations
+  genotyped, the last one predicted without phenotypes): `estimate_gamma()`
+  within 0.011 of the true Gamma; against the plain single step, the bias of the
+  genetic trend went from -0.141 (SE 0.020) to -0.081 (0.018) genetic standard
+  deviations and the accuracy from 0.282 to 0.294, the same with the estimated
+  and the true Gamma.
 
 * `br_threads()`: OpenMP where a genomic evaluation spends its k^3. The dense
   tail of every sparse Cholesky (the genotyped block after the ordering) is

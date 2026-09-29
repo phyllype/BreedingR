@@ -340,8 +340,10 @@ struct SnpBlup {
   std::size_t n_fixo = 0;
   std::vector<std::size_t> offset_grupo;
 };
+// meio = true: pedigree com metafundadores, Z centrada em 0.5 e escala m/2 (a G05)
 SnpBlup snp_blup(const Desenho&, Densa&, const std::vector<std::string>&,
-                 const std::vector<double>&, double, std::size_t, double, bool = false);
+                 const std::vector<double>&, double, std::size_t, double, bool = false,
+                 bool meio = false);
 
 // ---- gibbs.cpp: o lado bayesiano, bloco unico de localizacao + condicionais conjugadas
 struct GibbsSaida {

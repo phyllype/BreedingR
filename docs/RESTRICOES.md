@@ -135,7 +135,7 @@ nomes, e sem o fator `s2e` do univariado, porque as MME dos espelhos ja sao abso
 | # | origem | restricao | estado |
 |---|---|---|---|
 | 14 | `src/pedigree.cpp` | estimar Gamma dos genotipos; inversa generalizada para Gamma singular | **FEITO**: pseudo-inversa 2026-09-04; `estimate_gamma()` 2026-09-29, pseudo-EM de Legarra et al. (2024) e GLS de Garcia-Baccino et al. (2017) (test-estimate-gamma.R) |
-| 15 | `src/genomica.cpp`, `src/sssnp.cpp` | nao chegam ao lado genomico (DEFEITO, o unico nao declarado) | **FEITO** 2026-09-29 na rota H^-1 (model, model_mt, model_ar1, gibbs, h_inverse): G05, A(Gamma)22 e mistura sem ajuste afim (Garcia-Baccino et al., 2017), todo pai desconhecido metafundador; `snp_blup()` segue RECUSADO (test-mf-genomico.R). Recusado de 2026-09-04 a 2026-09-29 |
+| 15 | `src/genomica.cpp`, `src/sssnp.cpp` | nao chegam ao lado genomico (DEFEITO, o unico nao declarado) | **FEITO** 2026-09-29: rota H^-1 (model, model_mt, model_ar1, gibbs, h_inverse) com G05, A(Gamma)22 e mistura sem ajuste afim (Garcia-Baccino et al., 2017), e `snp_blup()` com a Z da G05, o mesmo sistema; todo pai desconhecido metafundador (test-mf-genomico.R). Recuperacao em escala medida (20 replicas, 1.400 animais, duas bases, selecao): vies de tendencia -0,141 -> -0,081 sigma_a, acuracia 0,282 -> 0,294. Recusado de 2026-09-04 a 2026-09-29 |
 
 ## Restantes
 

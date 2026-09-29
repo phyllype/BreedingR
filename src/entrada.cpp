@@ -1404,9 +1404,11 @@ SEXP R_snp_blup(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP t
       for (int i2 = 0; i2 < nl2; i2++)
         mg.at((std::size_t) i2, (std::size_t) j2) = REAL(gm)[(R_xlen_t) j2 * nl2 + i2];
 
+    const bool com_mf = std::any_of(ped.eh_mf.begin(), ped.eh_mf.end(),
+                                    [](char c) { return c != 0; });
     br::SnpBlup S = br::snp_blup(d, mg, gids, th, Rf_asReal(rpg),
                                  (std::size_t) Rf_asInteger(maxiter), Rf_asReal(tol),
-                                 Rf_asLogical(verb) == TRUE);
+                                 Rf_asLogical(verb) == TRUE, com_mf);
 
     // fatias como no ajuste exato: b nomeado pelas colunas de X, ebv por grupo
     SEXP bfix = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) S.n_fixo));

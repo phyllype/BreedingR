@@ -7,8 +7,9 @@
 # A22 vem da A(Gamma). Portoes: (1) a H(Gamma) de h_inverse() contra a formula refeita em R
 # da A(Gamma) densa e da G05; (2) model(genotypes =, metafounders =) igual a kernel(K) com a
 # mesma H(Gamma), no mesmo theta; (3) pai desconhecido que nao e metafundador e erro
-# declarado; (4) os quatro ajustadores de H^-1 aceitam o par e snp_blup() segue recusando;
-# (5) cada lado sozinho continua funcionando.
+# declarado; (4) os quatro ajustadores de H^-1 aceitam o par; (5) snp_blup() com
+# metafundadores (Z da G05) resolve o mesmo sistema que model() com H(Gamma); (6) cada lado
+# sozinho continua funcionando.
 
 cel <- function(n = 60, seed = 4, nm = 400) {
   s <- simulate_breeding(n_founders = 20, n_generations = 2,
@@ -70,7 +71,7 @@ test_that("pai desconhecido que nao e metafundador, com genotipos, e erro declar
   expect_error(h_inverse(ped, z$g, metafounders = "mf1", gamma = 0.2), "not a metafounder")
 })
 
-test_that("os quatro ajustadores de H^-1 aceitam o par; snp_blup() segue recusando", {
+test_that("os quatro ajustadores de H^-1 aceitam o par", {
   z <- cel()
   mf <- "mf1"
   f <- model(y ~ cg + animal(id), z$d, z$ped, genotypes = z$g, metafounders = mf,
@@ -87,10 +88,25 @@ test_that("os quatro ajustadores de H^-1 aceitam o par; snp_blup() segue recusan
   gb <- gibbs(y ~ cg + animal(id), z$d, z$ped, genotypes = z$g, metafounders = mf,
               gamma = 0.2, n_iter = 300L, burnin = 100L, verbose = FALSE)
   expect_true(all(is.finite(gb$mean)))
-  expect_error(snp_blup(y ~ cg + animal(id), z$d, z$ped, genotypes = z$g,
-                        theta = c(0.3, 0.7), metafounders = mf, gamma = 0.2,
-                        verbose = FALSE),
-               "cannot be combined in snp_blup")
+})
+
+test_that("snp_blup() com metafundadores resolve o mesmo sistema que model() com H(Gamma)", {
+  # a G* implicita do ssSNPBLUP e (1 - w) Z Z'/kd + w A22, sem ajuste afim; com a Z da G05
+  # (centrada em 0.5, kd = m/2) e a A(Gamma)22, e a mesma G* da rota genotypes=
+  z <- cel(n = 80)
+  th <- c(0.4, 0.8)
+  s <- snp_blup(y ~ cg + animal(id), z$d, z$ped, genotypes = z$g, theta = th, rpg = 0.05,
+                metafounders = "mf1", gamma = 0.35, tol = 1e-12, verbose = FALSE)
+  f <- model(y ~ cg + animal(id), z$d, z$ped, genotypes = z$g, metafounders = "mf1",
+             gamma = 0.35, blend = 0.05, start = th, maxiter = 0L, n_em = 0L,
+             verbose = FALSE)
+  expect_true(s$converged)
+  ids <- unique(z$d$id)
+  expect_equal(unname(s$ebv[[1]][ids]), unname(f$ebv[[1]][ids]), tolerance = 1e-6)
+  ped <- z$ped; ped$sire[which(ped$sire == "mf1")[1]] <- "0"
+  expect_error(snp_blup(y ~ cg + animal(id), z$d, ped, genotypes = z$g, theta = th,
+                        metafounders = "mf1", gamma = 0.35, verbose = FALSE),
+               "not a metafounder")
 })
 
 test_that("each side alone still works, and an empty metafounders= does not switch to Gamma", {
