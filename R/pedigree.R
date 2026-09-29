@@ -380,7 +380,7 @@ legendre <- function(x, order = 1L, limits = NULL) {
 #' @param apy_core ids of the APY core, `"auto"`, or the result of [apy_core_select()]
 #' @param vecchia_k neighbours per animal in the Vecchia inverse of G*
 #' @param metafounders,gamma metafounder labels and their Gamma, as in [model()]: then
-#'   H(Gamma) = A(Gamma)^-1 + [0 0; 0 G*^-1 - A22^-1], with G the one of allele
+#'   `H(Gamma) = A(Gamma)^-1 + [0 0; 0 G*^-1 - A22^-1]`, with G the one of allele
 #'   frequencies 0.5 scaled by m/2 (G05), A22 taken from A(Gamma), and
 #'   `G* = (1 - w) G05 + w A22` WITHOUT the affine adjustment, which is the base
 #'   correction Gamma already makes (Legarra et al., 2015; Garcia-Baccino et al.,

@@ -26,7 +26,7 @@ h_inverse(
 \item{vecchia_k}{neighbours per animal in the Vecchia inverse of G*}
 
 \item{metafounders, gamma}{metafounder labels and their Gamma, as in \code{\link[=model]{model()}}: then
-H(Gamma) = A(Gamma)^-1 + \link{0 0; 0 G*^-1 - A22^-1}, with G the one of allele
+\verb{H(Gamma) = A(Gamma)^-1 + [0 0; 0 G*^-1 - A22^-1]}, with G the one of allele
 frequencies 0.5 scaled by m/2 (G05), A22 taken from A(Gamma), and
 \verb{G* = (1 - w) G05 + w A22} WITHOUT the affine adjustment, which is the base
 correction Gamma already makes (Legarra et al., 2015; Garcia-Baccino et al.,
