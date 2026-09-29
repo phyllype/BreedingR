@@ -255,8 +255,11 @@
   pedigree per genotyped column, and inverts it once (the preGSf90 route,
   Aguilar et al., 2011), instead of the Schur complement of the non-genotyped
   block: `h_inverse()` with 1500 genotyped of 12 000, 15.1 to 1.9 s on 1 thread,
-  the sum of all entries equal to 13 significant digits. Pedigrees with
-  metafounders keep the Schur route.
+  the sum of all entries equal to 13 significant digits. With metafounders the
+  same passes apply Gamma on the metafounder rows (A(Gamma) = T L T', the block
+  of L there being Gamma itself), so A(Gamma)22 no longer comes from inverting
+  the Schur A(Gamma)22^-1: 6000 genotyped of 20 000 with two metafounders, the
+  exact H(Gamma) 13.6 to 9.3 s (median of 3). A22^-1 keeps the Schur route.
 * `a22_inverse()` (the Schur route) multiplied by the dense n1 x n2 block B12,
   which holds a handful of parents and progeny per column: n1 n2^2 flops over
   zeros. With B12 sparse and the columns in parallel, 1500 genotyped of 12 000
@@ -278,6 +281,9 @@
   Colleau left rounding noise where the true inverse is exactly zero, and the
   APY H^-1 came out twice as dense (72.2 against 34.7 million nonzeros at 12 000
   genotyped); Vecchia had the same noise and now also takes the sparse Schur.
+  Pedigrees with metafounders take this route too, with G05 and no affine step:
+  6000 genotyped of 20 000, two metafounders and a core of 1500, 8.8 s and
+  1.98 GB to 2.5 s and 0.61 GB (median of 3).
 * The selected inverse (every PEV and every AI-REML trace reads it) takes the
   closed form of the dense tail straight from the packed factor, on the same
   parallel kernel as the dense inverses, and runs the recurrence of the other

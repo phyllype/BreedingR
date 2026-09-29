@@ -276,12 +276,15 @@ Densa a22_inversa(const Csc& ainv, const std::vector<std::size_t>& geno) {
 // pais (1/2; 1/4 no avo materno de um pedigree pai/MGS), em tres passadas pelo pedigree
 // ordenado. Custa O(n) por coluna genotipada, contra uma resolucao inteira no fator do bloco
 // nao genotipado da rota de Schur, e e a rota do preGSf90 (Aguilar et al., 2011). Entrega A22,
-// que o passo unico precisa para escalar G; A22^-1 sai de UMA inversa densa dela, a mesma
-// que a rota de Schur ja pagava no sentido contrario. So vale sem metafundadores: com Gamma
-// a base deixa de ser independente e a rota de Schur, generica, continua sendo a usada.
-// As colunas sao independentes, cada uma de uma thread, com soma em ordem fixa.
+// que o passo unico precisa para escalar G. Com metafundadores e a mesma conta sobre
+// A(Gamma) = T L T' (Legarra et al., 2015): as linhas dos metafundadores nao tem pais e o
+// bloco delas em L e a propria Gamma, cheia, aplicada como K (K' v) com a K K' = Gamma que
+// o pedigree ja guarda; nas outras linhas L e a variancia mendeliana, que ja le o F dos pais
+// na base de Gamma. As colunas sao independentes, cada uma de uma thread, com soma em ordem
+// fixa.
 struct Colleau {
   std::vector<double> d, w1, w2, f;
+  std::vector<std::size_t> mf_linha;   // coluna de Gamma -> linha do pedigree
 };
 
 static Colleau prepara_colleau(const Pedigree& p) {
@@ -289,24 +292,36 @@ static Colleau prepara_colleau(const Pedigree& p) {
   Colleau c;
   c.f = endogamia(p);
   c.d.resize(n); c.w1.resize(n); c.w2.resize(n);
+  c.mf_linha.assign(p.n_mf, 0);
   for (std::size_t i = 0; i < n; i++) {
-    c.d[i] = variancia_mendeliana(p, c.f, i);
+    const bool mf = !p.eh_mf.empty() && p.eh_mf[i];
+    c.d[i] = mf ? 0.0 : variancia_mendeliana(p, c.f, i);
+    if (mf) c.mf_linha[static_cast<std::size_t>(p.col_mf[i])] = i;
     c.w1[i] = 0.5;
     c.w2[i] = (!p.mgs.empty() && p.mgs[i]) ? 0.25 : 0.5;
   }
   return c;
 }
 
-// v <- A v, no lugar: z = T'x dos mais novos para os mais velhos, w = D z, y = T w dos mais
+// v <- A v, no lugar: z = T'x dos mais novos para os mais velhos, w = L z, y = T w dos mais
 // velhos para os mais novos
 static void colleau_aplica(const Pedigree& p, const Colleau& c, std::vector<double>& v) {
-  const std::size_t n = v.size();
+  const std::size_t n = v.size(), q = p.n_mf;
   for (std::size_t i = n; i-- > 0;) {
     if (v[i] == 0.0) continue;
     if (p.pai[i] >= 0) v[static_cast<std::size_t>(p.pai[i])] += c.w1[i] * v[i];
     if (p.mae[i] >= 0) v[static_cast<std::size_t>(p.mae[i])] += c.w2[i] * v[i];
   }
+  std::vector<double> kv(q, 0.0);
+  for (std::size_t col = 0; col < q; col++)
+    for (std::size_t a = 0; a < q; a++)
+      kv[col] += p.gama_chol[a * q + col] * v[c.mf_linha[a]];
   for (std::size_t i = 0; i < n; i++) v[i] *= c.d[i];
+  for (std::size_t a = 0; a < q; a++) {
+    double x = 0.0;
+    for (std::size_t col = 0; col < q; col++) x += p.gama_chol[a * q + col] * kv[col];
+    v[c.mf_linha[a]] = x;
+  }
   for (std::size_t i = 0; i < n; i++) {
     if (p.pai[i] >= 0) v[i] += c.w1[i] * v[static_cast<std::size_t>(p.pai[i])];
     if (p.mae[i] >= 0) v[i] += c.w2[i] * v[static_cast<std::size_t>(p.mae[i])];
@@ -435,9 +450,12 @@ Csc constroi_hinv(const Csc& ainv, const std::vector<std::size_t>& geno,
 // (nucleo x nucleo, nucleo x jovem, diagonal dos jovens); e o A22^-1 esparso pelo Schur. A
 // memoria fica O(c n + nnz(A22^-1)). As mesmas contas da rota densa, na mesma ordem de
 // definicao: o portao de exatidao da APY parcial continua valendo.
+//
+// Com metafundadores (com_mf) G e a G05 e nao ha ajuste afim, como na rota densa: a0 = 0,
+// b = 1, e a A(Gamma)22 das linhas do nucleo sai do mesmo Colleau, que ja aplica Gamma.
 static Csc h_inversa_apy(const Pedigree& ped, const Csc& ainv, const std::vector<std::size_t>& idx,
                          Densa& m, double mistura, const std::vector<std::size_t>& nuc,
-                         RelatorioG& rel) {
+                         bool com_mf, RelatorioG& rel) {
   const std::size_t n = m.nlin, nm = m.ncol, c = nuc.size();
   if (c < 2) throw Erro("the APY core needs at least 2 animals");
   if (!(mistura >= 0.0 && mistura <= 1.0)) throw Erro("blend outside [0, 1]");
@@ -450,7 +468,7 @@ static Csc h_inversa_apy(const Pedigree& ped, const Csc& ainv, const std::vector
   for (std::size_t i = 0; i < n; i++) if (!eh_nuc[i]) jov.push_back(i);
   const std::size_t nj = jov.size();
   const int nth = threads();
-  const FreqZ fz = frequencias_z(m, rel, false);
+  const FreqZ fz = frequencias_z(m, rel, com_mf);
 
   // 1. G nas linhas do nucleo, a diagonal de G e 1'ZZ'1, por blocos de marcadores
   Densa gs(c, n);
@@ -486,23 +504,24 @@ static Csc h_inversa_apy(const Pedigree& ped, const Csc& ainv, const std::vector
   for (double& x : gdiag) x /= fz.denom;
   soma1 /= fz.denom;
 
-  // 2. o ajuste afim G -> A22 pelas medias, sem G nem A22 inteiras
+  // 2. o ajuste afim G -> A22 pelas medias, sem G nem A22 inteiras (nenhum com Gamma)
   const Colleau cl = prepara_colleau(ped);
   const double nn = static_cast<double>(n);
-  double tr_g = 0.0, tr_a = 0.0;
-  for (std::size_t i = 0; i < n; i++) { tr_g += gdiag[i]; tr_a += 1.0 + cl.f[idx[i]]; }
-  double soma_a = 0.0;
-  {
+  double a0 = 0.0, b = 1.0;
+  if (!com_mf) {
+    double tr_g = 0.0, tr_a = 0.0;
+    for (std::size_t i = 0; i < n; i++) { tr_g += gdiag[i]; tr_a += 1.0 + cl.f[idx[i]]; }
+    double soma_a = 0.0;
     std::vector<double> um(ped.ids.size(), 0.0);
     for (std::size_t i = 0; i < n; i++) um[idx[i]] = 1.0;
     colleau_aplica(ped, cl, um);
     for (std::size_t i = 0; i < n; i++) soma_a += um[idx[i]];
+    const double noff = n > 1 ? nn * (nn - 1.0) : 1.0;
+    const double mg_diag = tr_g / nn, ma_diag = tr_a / nn;
+    const double mg_off = (soma1 - tr_g) / noff, ma_off = (soma_a - tr_a) / noff;
+    b = (mg_diag - mg_off) != 0.0 ? (ma_diag - ma_off) / (mg_diag - mg_off) : 1.0;
+    a0 = ma_off - b * mg_off;
   }
-  const double noff = n > 1 ? nn * (nn - 1.0) : 1.0;
-  const double mg_diag = tr_g / nn, ma_diag = tr_a / nn;
-  const double mg_off = (soma1 - tr_g) / noff, ma_off = (soma_a - tr_a) / noff;
-  const double b = (mg_diag - mg_off) != 0.0 ? (ma_diag - ma_off) / (mg_diag - mg_off) : 1.0;
-  const double a0 = ma_off - b * mg_off;
 
   // 3. G* nas linhas do nucleo (A22 delas por Colleau) e na diagonal
 #ifdef _OPENMP
@@ -829,7 +848,7 @@ Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::strin
   // Com metafundadores (restricao #15): G05 na base de Gamma, A22 e a A(Gamma)22 pela rota
   // de Schur sobre a A(Gamma)^-1, e G* = (1 - w) G05 + w A22 SEM o ajuste afim, que e
   // exatamente a correcao de base que Gamma ja faz (fazer os dois corrige a base duas vezes).
-  if (!com_mf && vecchia_k == 0 && !nucleo_apy.empty()) {
+  if (vecchia_k == 0 && !nucleo_apy.empty()) {
     std::vector<std::size_t> nc_idx;
     nc_idx.reserve(nucleo_apy.size());
     std::unordered_map<std::string, std::size_t> onde;
@@ -842,13 +861,13 @@ Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::strin
       nc_idx.push_back(it->second);
     }
     rel.linha_ped = idx;
-    return h_inversa_apy(ped, ainv, idx, m, mistura, nc_idx, rel);
+    return h_inversa_apy(ped, ainv, idx, m, mistura, nc_idx, com_mf, rel);
   }
   Densa g = vanraden_g(m, rel, com_mf);
   Densa a22, a22i;
   if (com_mf) {
     a22i = a22_inversa(ainv, idx);
-    a22 = inv_pd(a22i);
+    a22 = a22_colleau(ped, idx);
   } else {
     a22 = a22_colleau(ped, idx);
     // Com Vecchia a G^-1 e esparsa, e o A22^-1 tem de chegar com os zeros EXATOS do Schur:

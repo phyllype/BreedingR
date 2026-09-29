@@ -9,7 +9,9 @@
 # mesma H(Gamma), no mesmo theta; (3) pai desconhecido que nao e metafundador e erro
 # declarado; (4) os quatro ajustadores de H^-1 aceitam o par; (5) snp_blup() com
 # metafundadores (Z da G05) resolve o mesmo sistema que model() com H(Gamma); (6) cada lado
-# sozinho continua funcionando.
+# sozinho continua funcionando; (7) a APY com Gamma, pela rota que nunca forma G inteira nem
+# A(Gamma)22 inteira: nucleo = todos reproduz a H(Gamma) exata, e um nucleo parcial reproduz a
+# inversa APY escrita em R sobre a G* densa.
 
 cel <- function(n = 60, seed = 4, nm = 400) {
   s <- simulate_breeding(n_founders = 20, n_generations = 2,
@@ -45,6 +47,42 @@ test_that("H(Gamma) de h_inverse() = a formula da A(Gamma) densa e da G05", {
   expect_setequal(rownames(H), rownames(ref))
   expect_lt(max(abs(H - ref[rownames(H), colnames(H)])), 1e-8)
   # sem o ajuste afim: a priori do genotipado e a diagonal da mistura, nao 1 + F ajustado
+  expect_equal(unname(h$h_prior), unname(diag(Gs)), tolerance = 1e-10)
+})
+
+test_that("APY com Gamma: nucleo = todos e a exata, nucleo parcial e a formula em R", {
+  # DOIS metafundadores com Gamma cheia: o termo cruzado gamma_12 passa pelo Colleau
+  z <- cel(n = 80)
+  ped <- z$ped0
+  ped$sire[ped$sire == "0"] <- "mf1"
+  ped$dam[ped$dam == "0"] <- "mf2"
+  mf <- c("mf1", "mf2")
+  gam <- matrix(c(0.4, 0.1, 0.1, 0.3), 2)
+  gid <- z$g$ids
+  ex <- denso_trip(h_inverse(ped, z$g, metafounders = mf, gamma = gam))
+  todos <- denso_trip(h_inverse(ped, z$g, apy_core = gid, metafounders = mf, gamma = gam))
+  expect_lt(max(abs(todos - ex[rownames(todos), colnames(todos)])), 1e-10)
+
+  ai <- a_inverse(ped, metafounders = mf, gamma = gam)
+  Ai <- matrix(0, ai$n, ai$n, dimnames = list(ai$id, ai$id))
+  Ai[cbind(ai$i, ai$j)] <- ai$x; Ai[cbind(ai$j, ai$i)] <- ai$x
+  A22 <- solve(Ai)[gid, gid]
+  Z <- z$g$m - 1
+  Gs <- 0.95 * tcrossprod(Z) / (ncol(Z) / 2) + 0.05 * A22
+  cn <- gid[seq(1, length(gid), by = 3)]
+  jv <- setdiff(gid, cn)
+  P <- solve(Gs[cn, cn], Gs[cn, jv])
+  mi <- 1 / (diag(Gs)[jv] - colSums(Gs[cn, jv] * P))
+  Gi <- matrix(0, length(gid), length(gid), dimnames = list(gid, gid))
+  Gi[cn, cn] <- solve(Gs[cn, cn]) + P %*% (mi * t(P))
+  Gi[cn, jv] <- -sweep(P, 2, mi, "*")
+  Gi[jv, cn] <- t(Gi[cn, jv])
+  Gi[cbind(jv, jv)] <- mi
+  ref <- Ai
+  ref[gid, gid] <- ref[gid, gid] + Gi - solve(A22)
+  h <- h_inverse(ped, z$g, apy_core = cn, metafounders = mf, gamma = gam)
+  H <- denso_trip(h)
+  expect_lt(max(abs(H - ref[rownames(H), colnames(H)])), 1e-8)
   expect_equal(unname(h$h_prior), unname(diag(Gs)), tolerance = 1e-10)
 })
 
