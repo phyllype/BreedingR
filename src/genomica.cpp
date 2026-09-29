@@ -31,38 +31,72 @@
 
 namespace br {
 
-// As frequencias, a imputacao pela media e o denominador 2 sum p(1-p), uma vez so, para a G
-// densa e para a rota APY que nunca forma G inteira.
+// As frequencias e o denominador 2 sum p(1-p), uma vez so, para a G densa, para a rota APY
+// que nunca forma G inteira e para o Lanczos. A MEDIA de cada marcador fica guardada: e ela
+// que entra no lugar do ausente quando o marcador e lido (bloco_z), sem imputar no lugar.
 struct FreqZ {
-  std::vector<double> p;
+  std::vector<double> p, media;
   std::vector<char> usa;
   double denom = 0.0;
 };
 
-static FreqZ frequencias_z(Densa& m, RelatorioG& rel, bool meio) {
-  const std::size_t n = m.nlin, nm = m.ncol;
+static FreqZ frequencias_z(const Genotipos& gt, RelatorioG& rel, bool meio) {
+  const std::size_t n = gt.n, nm = gt.m;
   if (n == 0 || nm == 0) throw Erro("empty genotypes");
   FreqZ f;
   f.p.assign(nm, 0.0);
+  f.media.assign(nm, 0.0);
   f.usa.assign(nm, 1);
-  for (std::size_t j = 0; j < nm; j++) {
-    double soma = 0.0;
-    std::size_t k = 0;
-    for (std::size_t i = 0; i < n; i++) {
-      const double x = m.at(i, j);
-      if (std::isfinite(x)) { soma += x; k++; }
+  std::vector<std::size_t> faltam(nm, 0);
+#ifdef _OPENMP
+#pragma omp parallel num_threads(threads())
+#endif
+  {
+    std::vector<double> col(n);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 16)
+#endif
+    for (long jj = 0; jj < static_cast<long>(nm); jj++) {
+      const std::size_t j = static_cast<std::size_t>(jj);
+      gt.coluna(j, col.data());
+      double soma = 0.0;
+      std::size_t k = 0;
+      for (std::size_t i = 0; i < n; i++)
+        if (std::isfinite(col[i])) { soma += col[i]; k++; }
+      if (k == 0) { f.usa[j] = 0; continue; }
+      const double media = soma / static_cast<double>(k);
+      f.media[j] = media;
+      f.p[j] = meio ? 0.5 : media / 2.0;
+      if (!meio && (f.p[j] <= 0.0 || f.p[j] >= 1.0)) { f.usa[j] = 0; continue; }
+      faltam[j] = n - k;
     }
-    if (k == 0) { f.usa[j] = 0; rel.n_monomorficos++; continue; }
-    const double media = soma / static_cast<double>(k);
-    f.p[j] = meio ? 0.5 : media / 2.0;
-    if (!meio && (f.p[j] <= 0.0 || f.p[j] >= 1.0)) { f.usa[j] = 0; rel.n_monomorficos++; continue; }
-    for (std::size_t i = 0; i < n; i++)
-      if (!std::isfinite(m.at(i, j))) { m.at(i, j) = media; rel.n_imputados++; }
+  }
+  for (std::size_t j = 0; j < nm; j++) {
+    if (!f.usa[j]) rel.n_monomorficos++;
+    else rel.n_imputados += faltam[j];
   }
   for (std::size_t j = 0; j < nm; j++)
     if (f.usa[j]) f.denom += 2.0 * f.p[j] * (1.0 - f.p[j]);
   if (!(f.denom > 0.0)) throw Erro("2 sum p(1-p) is not positive: the markers do not vary");
   return f;
+}
+
+// Z nos marcadores cols[0..nb), centrada e com o ausente na media, por marcador:
+// zb[c n + a]. Um marcador fora de uso sai com zeros.
+static void bloco_z(const Genotipos& gt, const FreqZ& fz, const std::size_t* cols,
+                    std::size_t nb, double* zb, int nth) {
+  const std::size_t n = gt.n;
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(nth) schedule(dynamic, 4)
+#endif
+  for (long cc = 0; cc < static_cast<long>(nb); cc++) {
+    const std::size_t c = static_cast<std::size_t>(cc), j = cols[c];
+    double* z = zb + c * n;
+    if (!fz.usa[j]) { std::fill(z, z + n, 0.0); continue; }
+    gt.coluna(j, z);
+    const double med = fz.media[j], dp = 2.0 * fz.p[j];
+    for (std::size_t a = 0; a < n; a++) z[a] = (std::isfinite(z[a]) ? z[a] : med) - dp;
+  }
 }
 
 // G de VanRaden: Z Z' / (2 sum p(1-p)), com Z = M - 2p.
@@ -75,12 +109,12 @@ static FreqZ frequencias_z(Densa& m, RelatorioG& rel, bool meio) {
 // 2017): Z = M - 1 (todas as frequencias em 0.5) e escala m/2, TODOS os marcadores, o
 // monomorfico inclusive (ele soma a mesma constante a todo par, que e parte da base de
 // Gamma). E a G na base dos metafundadores, e por isso ela nao passa pelo ajuste a A22.
-Densa vanraden_g(Densa& m, RelatorioG& rel, bool meio) {
-  const std::size_t n = m.nlin, nm = m.ncol;
-  const FreqZ fz = frequencias_z(m, rel, meio);
-  const std::vector<double>& p = fz.p;
-  const std::vector<char>& usa = fz.usa;
+Densa vanraden_g(const Genotipos& gt, RelatorioG& rel, bool meio) {
+  const std::size_t n = gt.n;
+  const FreqZ fz = frequencias_z(gt, rel, meio);
   const double denom = fz.denom;
+  std::vector<std::size_t> usados;
+  for (std::size_t j = 0; j < gt.m; j++) if (fz.usa[j]) usados.push_back(j);
 
   // Z Z' em blocos de marcadores: o bloco Z_b (n x B, coluna-major) e montado ja
   // centrado e acumulado em C += Z_b Z_b', pelos ladrilhos em paralelo (padrao) ou pelo
@@ -91,8 +125,9 @@ Densa vanraden_g(Densa& m, RelatorioG& rel, bool meio) {
   const int ni = static_cast<int>(n);
   std::vector<double> c(n * n, 0.0), zbuf(n * B);
   double beta = 0.0;
-  std::size_t bcol = 0;
-  auto acumula = [&]() {
+  for (std::size_t u0 = 0; u0 < usados.size(); u0 += B) {
+    const std::size_t bcol = std::min(B, usados.size() - u0);
+    bloco_z(gt, fz, usados.data() + u0, bcol, zbuf.data(), threads());
     if (denso_lapack()) {
       const int k = static_cast<int>(bcol);
       const double um = 1.0;
@@ -103,15 +138,7 @@ Densa vanraden_g(Densa& m, RelatorioG& rel, bool meio) {
       produto_ladrilhos(zbuf.data(), n, zbuf.data(), n, bcol, n, n, c.data(), n, true,
                         threads());
     }
-    bcol = 0;
-  };
-  for (std::size_t j = 0; j < nm; j++) {
-    if (!usa[j]) continue;
-    const double dp = 2.0 * p[j];
-    for (std::size_t i = 0; i < n; i++) zbuf[i + n * bcol] = m.at(i, j) - dp;
-    if (++bcol == B) acumula();
   }
-  if (bcol > 0) acumula();
   Densa g(n, n);
   for (std::size_t i = 0; i < n; i++)
     for (std::size_t k2 = i; k2 < n; k2++) {
@@ -122,31 +149,89 @@ Densa vanraden_g(Densa& m, RelatorioG& rel, bool meio) {
   return g;
 }
 
+// A matriz de Gram do lado MENOR de Z (centrada, imputada, so os marcadores em uso, sem dividir
+// pela escala): Z Z' (n x n) com n <= m, ou Z'Z (m x m) no outro caso, que e o que o eigen
+// exato de apy_core_select() decompoe. Z'Z vai por blocos de ANIMAIS, cada bloco lido do R
+// marcador a marcador, sem nunca formar Z inteira.
+Densa gram_menor(const Genotipos& gt, RelatorioG& rel, double& escala) {
+  const std::size_t n = gt.n;
+  const FreqZ fz = frequencias_z(gt, rel, false);
+  escala = fz.denom;
+  std::vector<std::size_t> usados;
+  for (std::size_t j = 0; j < gt.m; j++) if (fz.usa[j]) usados.push_back(j);
+  const std::size_t mu = usados.size();
+  const int nth = threads();
+  const std::size_t d = std::min(n, mu);
+  std::vector<double> c(d * d, 0.0);
+  if (n <= mu) {
+    const std::size_t B = 2048;
+    std::vector<double> zb(n * std::min(B, mu));
+    for (std::size_t u0 = 0; u0 < mu; u0 += B) {
+      const std::size_t nb = std::min(B, mu - u0);
+      bloco_z(gt, fz, usados.data() + u0, nb, zb.data(), nth);
+      produto_ladrilhos(zb.data(), n, zb.data(), n, nb, n, n, c.data(), n, true, nth);
+    }
+  } else {
+    const std::size_t A = 1024;
+    std::vector<double> zr(std::min(A, n) * mu);
+    for (std::size_t a0 = 0; a0 < n; a0 += A) {
+      const std::size_t na = std::min(A, n - a0);
+#ifdef _OPENMP
+#pragma omp parallel num_threads(nth)
+#endif
+      {
+        std::vector<double> buf(na);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 16)
+#endif
+        for (long uu = 0; uu < static_cast<long>(mu); uu++) {
+          const std::size_t u = static_cast<std::size_t>(uu), j = usados[u];
+          gt.trecho(j, a0, a0 + na, buf.data());
+          const double med = fz.media[j], dp = 2.0 * fz.p[j];
+          for (std::size_t a = 0; a < na; a++)
+            zr[a * mu + u] = (std::isfinite(buf[a]) ? buf[a] : med) - dp;
+        }
+      }
+      produto_ladrilhos(zr.data(), mu, zr.data(), mu, na, mu, mu, c.data(), mu, true, nth);
+    }
+  }
+  Densa g(d, d);
+  for (std::size_t i = 0; i < d; i++)
+    for (std::size_t k = 0; k <= i; k++) {
+      g.at(i, k) = c[i * d + k];
+      g.at(k, i) = c[i * d + k];
+    }
+  return g;
+}
+
 // Lanczos sobre G = ZZ'/k para a quadratura de Lanczos estocastica (Ubaru, Chen e Saad,
 // 2017, SIAM J. Matrix Anal. Appl. 38:1075): com sondas de Rademacher v normalizadas, os nos e
 // os pesos de Gauss da tridiagonal de cada sonda estimam a medida espectral de G, e dela sai
 // quantos autovalores explicam 98% do traco sem decompor G. Os autovalores nao nulos de ZZ'
-// e Z'Z sao os mesmos, entao o operador e o do lado menor, e os dois passes por Z de cada
-// passo vao aos ladrilhos com todas as sondas de uma vez (Z'V e Z W, este lendo Z por
-// linhas). Sem reortogonalizacao: a quadratura continua certa na perda de ortogonalidade
-// (Knizhnerman 1996; e o que o artigo usa), e o portao mede isso contra o eigen exato. Z e
-// centrada NO LUGAR, com a imputacao pela media de vanraden_g.
-LanczosG lanczos_g(Densa& m, const Densa& sondas, std::size_t passos, RelatorioG& rel) {
-  const std::size_t n = m.nlin, nm = m.ncol;
-  const FreqZ fz = frequencias_z(m, rel, false);
+// e Z'Z sao os mesmos, entao o operador e o do lado menor. Z nunca existe inteira: cada
+// passo le os genotipos do R por blocos de marcadores, centra e imputa o bloco, e os dois
+// produtos do bloco vao aos ladrilhos com todas as sondas de uma vez. Sem reortogonalizacao: a
+// quadratura continua certa na perda de ortogonalidade (Knizhnerman 1996; e o que o artigo
+// usa), e o portao mede isso contra o eigen exato.
+LanczosG lanczos_g(const Genotipos& gt, const Densa& sondas, std::size_t passos,
+                   RelatorioG& rel) {
+  const std::size_t n = gt.n, nm = gt.m;
+  const FreqZ fz = frequencias_z(gt, rel, false);
+  const int nth = threads();
+  const std::size_t B = std::min<std::size_t>(1024, nm);
+  std::vector<std::size_t> todos(nm);
+  for (std::size_t j = 0; j < nm; j++) todos[j] = j;
+  std::vector<double> zb(n * B);
   double traco = 0.0;
-  for (std::size_t i = 0; i < n; i++) {
-    double* zi = m.linha(i);
-    for (std::size_t j = 0; j < nm; j++) {
-      zi[j] = fz.usa[j] ? zi[j] - 2.0 * fz.p[j] : 0.0;
-      traco += zi[j] * zi[j];
-    }
+  for (std::size_t j0 = 0; j0 < nm; j0 += B) {
+    const std::size_t nb = std::min(B, nm - j0);
+    bloco_z(gt, fz, todos.data() + j0, nb, zb.data(), nth);
+    for (std::size_t k = 0; k < nb * n; k++) traco += zb[k] * zb[k];
   }
   const bool lado_n = n <= nm;
   const std::size_t dim = lado_n ? n : nm, nv = sondas.ncol;
   if (sondas.nlin != dim) throw Erro("probes with the wrong number of rows");
   if (passos < 2) throw Erro("Lanczos needs at least 2 steps");
-  const int nth = threads();
   LanczosG r;
   r.dim = dim;
   r.traco = traco / fz.denom;
@@ -155,25 +240,38 @@ LanczosG lanczos_g(Densa& m, const Densa& sondas, std::size_t passos, RelatorioG
   r.passos.assign(nv, passos);
   std::vector<char> viva(nv, 1);
 
-  // A Q, com A = ZZ'/k (lado n) ou Z'Z/k (lado m); o intermediario tem a outra dimensao
-  const std::size_t outra = lado_n ? nm : n;
-  std::vector<double> meio(outra * nv), w(dim * nv);
+  // w = A q, A = ZZ'/k (lado n) ou Z'Z/k (lado m), bloco a bloco de marcadores
+  std::vector<double> w(dim * nv), wb(B * nv), t(lado_n ? 0 : n * nv);
   auto aplica = [&](const std::vector<double>& q) {
-    std::fill(meio.begin(), meio.end(), 0.0);
     std::fill(w.begin(), w.end(), 0.0);
     if (lado_n) {
-      produto_ladrilhos(m.dados.data(), nm, q.data(), nv, n, nm, nv, meio.data(), nv, false, nth);
-      produto_ladrilhos(m.dados.data(), nm, meio.data(), nv, nm, n, nv, w.data(), nv, false, nth,
-                        true);
+      for (std::size_t j0 = 0; j0 < nm; j0 += B) {
+        const std::size_t nb = std::min(B, nm - j0);
+        bloco_z(gt, fz, todos.data() + j0, nb, zb.data(), nth);
+        std::fill(wb.begin(), wb.begin() + nb * nv, 0.0);
+        produto_ladrilhos(zb.data(), n, q.data(), nv, n, nb, nv, wb.data(), nv, false, nth,
+                          true);
+        produto_ladrilhos(zb.data(), n, wb.data(), nv, nb, n, nv, w.data(), nv, false, nth);
+      }
     } else {
-      produto_ladrilhos(m.dados.data(), nm, q.data(), nv, nm, n, nv, meio.data(), nv, false, nth,
-                        true);
-      produto_ladrilhos(m.dados.data(), nm, meio.data(), nv, n, nm, nv, w.data(), nv, false, nth);
+      std::fill(t.begin(), t.end(), 0.0);
+      for (std::size_t j0 = 0; j0 < nm; j0 += B) {
+        const std::size_t nb = std::min(B, nm - j0);
+        bloco_z(gt, fz, todos.data() + j0, nb, zb.data(), nth);
+        produto_ladrilhos(zb.data(), n, q.data() + j0 * nv, nv, nb, n, nv, t.data(), nv, false,
+                          nth);
+      }
+      for (std::size_t j0 = 0; j0 < nm; j0 += B) {
+        const std::size_t nb = std::min(B, nm - j0);
+        bloco_z(gt, fz, todos.data() + j0, nb, zb.data(), nth);
+        produto_ladrilhos(zb.data(), n, t.data(), nv, n, nb, nv, w.data() + j0 * nv, nv, false,
+                          nth, true);
+      }
     }
     for (double& x : w) x /= fz.denom;
   };
 
-  // q normalizada por coluna; q0 a anterior
+// q normalizada por coluna; q0 a anterior
   std::vector<double> q(dim * nv), q0(dim * nv, 0.0);
   for (std::size_t b = 0; b < nv; b++) {
     double s2 = 0.0;
@@ -552,9 +650,9 @@ Csc constroi_hinv(const Csc& ainv, const std::vector<std::size_t>& geno,
 // Com metafundadores (com_mf) G e a G05 e nao ha ajuste afim, como na rota densa: a0 = 0,
 // b = 1, e a A(Gamma)22 das linhas do nucleo sai do mesmo Colleau, que ja aplica Gamma.
 static Csc h_inversa_apy(const Pedigree& ped, const Csc& ainv, const std::vector<std::size_t>& idx,
-                         Densa& m, double mistura, const std::vector<std::size_t>& nuc,
+                         const Genotipos& gt, double mistura, const std::vector<std::size_t>& nuc,
                          bool com_mf, RelatorioG& rel) {
-  const std::size_t n = m.nlin, nm = m.ncol, c = nuc.size();
+  const std::size_t n = gt.n, nm = gt.m, c = nuc.size();
   if (c < 2) throw Erro("the APY core needs at least 2 animals");
   if (!(mistura >= 0.0 && mistura <= 1.0)) throw Erro("blend outside [0, 1]");
   std::vector<char> eh_nuc(n, 0);
@@ -566,7 +664,7 @@ static Csc h_inversa_apy(const Pedigree& ped, const Csc& ainv, const std::vector
   for (std::size_t i = 0; i < n; i++) if (!eh_nuc[i]) jov.push_back(i);
   const std::size_t nj = jov.size();
   const int nth = threads();
-  const FreqZ fz = frequencias_z(m, rel, com_mf);
+  const FreqZ fz = frequencias_z(gt, rel, com_mf);
 
   // 1. G nas linhas do nucleo, a diagonal de G e 1'ZZ'1, por blocos de marcadores
   Densa gs(c, n);
@@ -581,11 +679,12 @@ static Csc h_inversa_apy(const Pedigree& ped, const Csc& ainv, const std::vector
   };
   for (std::size_t j = 0; j < nm; j++) {
     if (!fz.usa[j]) continue;
-    const double dp = 2.0 * fz.p[j];
+    const double dp = 2.0 * fz.p[j], med = fz.media[j];
     double* zk = &zb[bcol * n];
+    gt.coluna(j, zk);
     double sj = 0.0;
     for (std::size_t i = 0; i < n; i++) {
-      const double z = m.at(i, j) - dp;
+      const double z = (std::isfinite(zk[i]) ? zk[i] : med) - dp;
       zk[i] = z;
       gdiag[i] += z * z;
       sj += z;
@@ -921,7 +1020,7 @@ static Densa vecchia_de(const Densa& g, std::size_t k) {
 // por Vecchia. E o nucleo que os ajustadores usam (aplica_genomica_em) e o que h_inverse()
 // exporta, para que os motores em R (limiar, sobrevivencia) tenham o MESMO passo unico.
 Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::string>& geno_ids,
-              Densa& m, double mistura, const std::vector<std::string>& nucleo_apy,
+              const Genotipos& gt, double mistura, const std::vector<std::string>& nucleo_apy,
               std::size_t vecchia_k, RelatorioG& rel) {
   std::vector<std::size_t> idx;
   idx.reserve(geno_ids.size());
@@ -959,9 +1058,9 @@ Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::strin
       nc_idx.push_back(it->second);
     }
     rel.linha_ped = idx;
-    return h_inversa_apy(ped, ainv, idx, m, mistura, nc_idx, com_mf, rel);
+    return h_inversa_apy(ped, ainv, idx, gt, mistura, nc_idx, com_mf, rel);
   }
-  Densa g = vanraden_g(m, rel, com_mf);
+  Densa g = vanraden_g(gt, rel, com_mf);
   Densa a22, a22i;
   if (com_mf) {
     a22i = a22_inversa(ainv, idx);
@@ -1012,7 +1111,7 @@ Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::strin
 
 static RelatorioG aplica_genomica_em(const Modelo& modelo, std::vector<Csc>& kinv,
                                      std::vector<double>& kinv_logdet, const Pedigree& ped,
-                                     const std::vector<std::string>& geno_ids, Densa& m,
+                                     const std::vector<std::string>& geno_ids, const Genotipos& gt,
                                      double mistura,
                                      const std::vector<std::string>& nucleo_apy,
                                      std::size_t vecchia_k) {
@@ -1023,7 +1122,7 @@ static RelatorioG aplica_genomica_em(const Modelo& modelo, std::vector<Csc>& kin
     if (modelo.grupos[g].estrutura == Estrutura::Parentesco) { ainv = &kinv[g]; break; }
   if (!ainv) throw Erro("there is no relationship group to receive the genomics");
 
-  Csc hinv = h_inversa(ped, *ainv, geno_ids, m, mistura, nucleo_apy, vecchia_k, rel);
+  Csc hinv = h_inversa(ped, *ainv, geno_ids, gt, mistura, nucleo_apy, vecchia_k, rel);
 
   // log|H^-1| pela fatoracao esparsa
   std::vector<std::size_t> perm = grau_minimo(hinv);
@@ -1043,26 +1142,26 @@ static RelatorioG aplica_genomica_em(const Modelo& modelo, std::vector<Csc>& kin
 }
 
 RelatorioG aplica_genomica(Desenho& d, const Pedigree& ped,
-                           const std::vector<std::string>& geno_ids, Densa& m,
+                           const std::vector<std::string>& geno_ids, const Genotipos& gt,
                            double mistura, const std::vector<std::string>& nucleo_apy,
                            std::size_t vecchia_k) {
-  return aplica_genomica_em(d.modelo, d.kinv, d.kinv_logdet, ped, geno_ids, m, mistura,
+  return aplica_genomica_em(d.modelo, d.kinv, d.kinv_logdet, ped, geno_ids, gt, mistura,
                             nucleo_apy, vecchia_k);
 }
 
 RelatorioG aplica_genomica(DesenhoMT& d, const Pedigree& ped,
-                           const std::vector<std::string>& geno_ids, Densa& m,
+                           const std::vector<std::string>& geno_ids, const Genotipos& gt,
                            double mistura, const std::vector<std::string>& nucleo_apy,
                            std::size_t vecchia_k) {
-  return aplica_genomica_em(d.modelo, d.kinv, d.kinv_logdet, ped, geno_ids, m, mistura,
+  return aplica_genomica_em(d.modelo, d.kinv, d.kinv_logdet, ped, geno_ids, gt, mistura,
                             nucleo_apy, vecchia_k);
 }
 
 RelatorioG aplica_genomica(DesenhoAR& d, const Pedigree& ped,
-                           const std::vector<std::string>& geno_ids, Densa& m,
+                           const std::vector<std::string>& geno_ids, const Genotipos& gt,
                            double mistura, const std::vector<std::string>& nucleo_apy,
                            std::size_t vecchia_k) {
-  return aplica_genomica_em(d.modelo, d.kinv, d.kinv_logdet, ped, geno_ids, m, mistura,
+  return aplica_genomica_em(d.modelo, d.kinv, d.kinv_logdet, ped, geno_ids, gt, mistura,
                             nucleo_apy, vecchia_k);
 }
 

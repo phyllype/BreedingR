@@ -94,10 +94,11 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
          "every unknown parent is assigned to one of them")
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
-  if (anyNA(g$gm))
+  gn <- genotipos_numericos(g$gm)
+  if (anyNA(gn))
     stop("genotypes with NA: impute them first. Imputing by the mean inside the estimator ",
          "would shrink the variance of those markers and pull Gamma down")
-  Z <- g$gm - 1
+  Z <- gn - 1
   s <- ncol(Z) / 2
 
   # pedigree com os metafundadores como linhas-base; a ordem e a de a_inverse()
@@ -148,7 +149,7 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
       v <- as.character(classico[[k]]); v[v %in% mf] <- "0"; classico[[k]] <- v
     }
     V0 <- a22inv_vezes(a_inverse(classico), g$gid, Q2[, estimavel, drop = FALSE])
-    mu <- solve(crossprod(Q2[, estimavel, drop = FALSE], V0), crossprod(V0, g$gm))
+    mu <- solve(crossprod(Q2[, estimavel, drop = FALSE], V0), crossprod(V0, gn))
     P <- matrix(0.5, ncol(Z), q)
     P[, estimavel] <- t(mu) / 2
     if (bounded) P <- pmin(pmax(P, 0), 1)

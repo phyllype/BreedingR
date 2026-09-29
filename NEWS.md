@@ -2,6 +2,18 @@
 
 ## New
 
+* Genotypes are read where they are. `genotypes$m` may be a double, integer or raw matrix
+  (raw: 1 byte per genotype, 5 for missing, the BLUPF90 code), and the engine reads the R
+  object directly, by blocks of markers, instead of copying it into a double matrix of its
+  own: the single step (exact, APY, Vecchia), `snp_blup()`, `g_matrix()` and
+  `apy_core_select()` no longer hold a second copy, and the check of the values runs in C++
+  without logical vectors of the size of the matrix. The three types give the same result
+  bit for bit. A single step with an APY core of 2000 on 12 000 genotyped animals and 20 000
+  markers, median of 3: 52.2 s and 6.56 GB at the peak before, 29.8 s and 3.37 GB with the
+  same double matrix, 27.8 s and 1.83 GB with a raw one.
+* `read_blupf90_snp()`: the SNP_FILE of the BLUPF90 programs into a raw matrix, in two
+  passes over the file so nothing else is held; `ids =` keeps a subset. `read_plink()` takes
+  `storage = "integer"` or `"raw"`.
 * `apy_core_select(method = "lanczos")`: the count of eigenvalues that explain 98% of G by
   stochastic Lanczos quadrature (Ubaru, Chen & Saad, 2017), from products with the genotype
   matrix only, never the Gram matrix nor its eigendecomposition; the count comes with its

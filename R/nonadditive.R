@@ -75,15 +75,11 @@ dominance_matrix <- function(ped) {
 g_matrix <- function(genotypes) {
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
-  p <- colMeans(g$gm, na.rm = TRUE) / 2
-  ok <- is.finite(p) & p > 0 & p < 1
-  if (!any(ok)) stop("every marker is monomorphic: there is no G to build")
-  z <- g$gm[, ok, drop = FALSE]
-  for (j in seq_len(ncol(z))) {
-    z[is.na(z[, j]), j] <- 2 * p[ok][j]
-    z[, j] <- z[, j] - 2 * p[ok][j]
-  }
-  G <- tcrossprod(z) / (2 * sum(p[ok] * (1 - p[ok])))
+  p <- .Call(R_freq_genotipos, g$gm) / 2
+  if (!any(is.finite(p) & p > 0 & p < 1))
+    stop("every marker is monomorphic: there is no G to build")
+  # o mesmo nucleo do passo unico, lendo a matriz do R por blocos de marcadores, sem copia
+  G <- .Call(R_g_matrix, g$gm)
   dimnames(G) <- list(g$gid, g$gid)
   G
 }
@@ -110,10 +106,11 @@ g_matrix <- function(genotypes) {
 g_dominance <- function(genotypes) {
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
-  p <- colMeans(g$gm, na.rm = TRUE) / 2
+  gn <- genotipos_numericos(g$gm)
+  p <- colMeans(gn, na.rm = TRUE) / 2
   ok <- is.finite(p) & p > 0 & p < 1
   if (!any(ok)) stop("every marker is monomorphic: there is no D to build")
-  m <- g$gm[, ok, drop = FALSE]
+  m <- gn[, ok, drop = FALSE]
   q <- 1 - p[ok]
   W <- matrix(0, nrow(m), ncol(m))
   for (j in seq_len(ncol(m))) {
@@ -244,8 +241,9 @@ g_epistasis_order <- function(g, order = 2L) {
 genomic_inbreeding <- function(genotypes) {
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
-  het <- rowSums(g$gm == 1, na.rm = TRUE)
-  obs <- rowSums(!is.na(g$gm))
+  gn <- genotipos_numericos(g$gm)
+  het <- rowSums(gn == 1, na.rm = TRUE)
+  obs <- rowSums(!is.na(gn))
   if (any(obs == 0))
     stop("animal(s) with no observed marker: ",
          paste(g$gid[obs == 0], collapse = ", "))

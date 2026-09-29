@@ -67,7 +67,7 @@ void symv_tri(const Csc& a, const double* x, double* y) {
 
 }  // namespace
 
-SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& geno_ids,
+SnpBlup snp_blup(const Desenho& d, const Genotipos& gt, const std::vector<std::string>& geno_ids,
                  const std::vector<double>& theta, double w, std::size_t maxiter,
                  double tol, bool verboso, bool meio) {
   SnpBlup r;
@@ -128,41 +128,88 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
   // metafundadores (meio) e a Z da G05 (Legarra et al., 2015): centrada em 0.5, escala m/2,
   // TODOS os marcadores, a mesma G do caminho genotypes= com metafounders=, entao os dois
   // caminhos resolvem o mesmo sistema (a G* implicita daqui ja nao tem o ajuste afim).
-  const std::size_t mm = mg.ncol;
-  if (mg.nlin != ng) throw Erro("genotype rows and ids with different lengths");
+  const std::size_t mm = gt.m;
+  if (gt.n != ng) throw Erro("genotype rows and ids with different lengths");
   r.usa_marcador.assign(mm, 1);
   std::vector<double> pfreq(mm, 0.0), media_m(mm, 0.0);
   double kd = 0.0;
   std::vector<std::size_t> usados;
-  for (std::size_t j = 0; j < mm; j++) {
-    double soma = 0.0;
-    std::size_t k = 0;
-    for (std::size_t i = 0; i < ng; i++) {
-      const double x = mg.at(i, j);
-      if (std::isfinite(x)) { soma += x; k++; }
+  {
+    std::vector<double> col(ng);
+    for (std::size_t j = 0; j < mm; j++) {
+      gt.coluna(j, col.data());
+      double soma = 0.0;
+      std::size_t k = 0;
+      for (std::size_t i = 0; i < ng; i++)
+        if (std::isfinite(col[i])) { soma += col[i]; k++; }
+      if (k == 0) { r.usa_marcador[j] = 0; r.n_monomorficos++; continue; }
+      const double media = soma / static_cast<double>(k);
+      media_m[j] = media;
+      pfreq[j] = meio ? 0.5 : media / 2.0;
+      if (!meio && (pfreq[j] <= 0.0 || pfreq[j] >= 1.0)) {
+        r.usa_marcador[j] = 0; r.n_monomorficos++; continue;
+      }
+      kd += 2.0 * pfreq[j] * (1.0 - pfreq[j]);
+      usados.push_back(j);
+      r.n_imputados += ng - k;
     }
-    if (k == 0) { r.usa_marcador[j] = 0; r.n_monomorficos++; continue; }
-    const double media = soma / static_cast<double>(k);
-    media_m[j] = media;
-    pfreq[j] = meio ? 0.5 : media / 2.0;
-    if (!meio && (pfreq[j] <= 0.0 || pfreq[j] >= 1.0)) {
-      r.usa_marcador[j] = 0; r.n_monomorficos++; continue;
-    }
-    kd += 2.0 * pfreq[j] * (1.0 - pfreq[j]);
-    usados.push_back(j);
   }
   const std::size_t mu = usados.size();
   if (!(kd > 0.0)) throw Erro("2 sum p(1-p) is not positive: the markers do not vary");
-  std::vector<double> zc(ng * mu);
-  for (std::size_t jj = 0; jj < mu; jj++) {
-    const std::size_t j = usados[jj];
-    const double dp = 2.0 * pfreq[j];
-    for (std::size_t i = 0; i < ng; i++) {
-      double x = mg.at(i, j);
-      if (!std::isfinite(x)) { x = media_m[j]; r.n_imputados++; }
-      zc[i + ng * jj] = x - dp;
+  // Z nunca e copiada: os dois produtos leem os genotipos do R marcador a marcador, com o
+  // ausente na media, na mesma ordem de soma do dgemv de referencia que eles substituem
+  // (y += x_j z_j marcador a marcador; a soma de Z'y animal a animal)
+  const int nthz = threads();
+  // y = Z x, x nos marcadores usados: faixas de animais, cada uma de uma thread
+  auto z_vezes = [&](const double* x, double* y) {
+    const std::size_t F = 512;
+    const long nfx = static_cast<long>((ng + F - 1) / F);
+#ifdef _OPENMP
+#pragma omp parallel num_threads(nthz)
+#endif
+    {
+      std::vector<double> buf(F);
+#ifdef _OPENMP
+#pragma omp for schedule(static)
+#endif
+      for (long fx = 0; fx < nfx; fx++) {
+        const std::size_t a0 = static_cast<std::size_t>(fx) * F, a1 = std::min(ng, a0 + F);
+        std::fill(y + a0, y + a1, 0.0);
+        for (std::size_t jj = 0; jj < mu; jj++) {
+          const double xj = x[jj];
+          if (xj == 0.0) continue;
+          const std::size_t j = usados[jj];
+          gt.trecho(j, a0, a1, buf.data());
+          const double med = media_m[j], dp = 2.0 * pfreq[j];
+          for (std::size_t a = a0; a < a1; a++) {
+            const double g = buf[a - a0];
+            y[a] += xj * ((std::isfinite(g) ? g : med) - dp);
+          }
+        }
+      }
     }
-  }
+  };
+  // g = Z'y: cada marcador de uma thread
+  auto zt_vezes = [&](const double* y, double* g) {
+#ifdef _OPENMP
+#pragma omp parallel num_threads(nthz)
+#endif
+    {
+      std::vector<double> col(ng);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 16)
+#endif
+      for (long jj = 0; jj < static_cast<long>(mu); jj++) {
+        const std::size_t j = usados[static_cast<std::size_t>(jj)];
+        gt.coluna(j, col.data());
+        const double med = media_m[j], dp = 2.0 * pfreq[j];
+        double t = 0.0;
+        for (std::size_t a = 0; a < ng; a++)
+          t += ((std::isfinite(col[a]) ? col[a] : med) - dp) * y[a];
+        g[jj] = t;
+      }
+    }
+  };
 
   // blocos de A^-1 pela mascara genotipado/nao: A11 esparsa fatorada uma vez, A12 e A22
   // como triplos para as aplicacoes
@@ -259,11 +306,18 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
     for (std::size_t k = M.c.colptr[j]; k < M.c.colptr[j + 1]; k++)
       if (M.c.linha[k] == j) prec[j] += M.c.valor[k];
   std::vector<double> szz(mu, 0.0);
-  for (std::size_t jj = 0; jj < mu; jj++)
-    for (std::size_t i = 0; i < ng; i++) {
-      const double z = zc[i + ng * jj];
-      szz[jj] += diag22[i] * z * z;
+  {
+    std::vector<double> col(ng);
+    for (std::size_t jj = 0; jj < mu; jj++) {
+      const std::size_t j = usados[jj];
+      gt.coluna(j, col.data());
+      const double med = media_m[j], dp = 2.0 * pfreq[j];
+      for (std::size_t i = 0; i < ng; i++) {
+        const double z = (std::isfinite(col[i]) ? col[i] : med) - dp;
+        szz[jj] += diag22[i] * z * z;
+      }
     }
+  }
   for (std::size_t s = 0; s < nf; s++) {
     const double f = fg[fatias[s].grupo].at(fatias[s].comp, fatias[s].comp);
     for (std::size_t k = 0; k < ng; k++) prec[col_geno(s, k)] += f * (1.0 - w) / w * diag22[k];
@@ -272,8 +326,6 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
   }
   for (double& p : prec) if (!(p > 0.0)) p = 1.0;
 
-  const int ngi = static_cast<int>(ng), mui = static_cast<int>(mu), inc1 = 1;
-  const double um = 1.0, zero = 0.0;
   // por fatia: v nas colunas genotipadas, Z v nos marcadores, e as duas A22^-1
   std::vector<std::vector<double>> vg(nf, std::vector<double>(ng)),
       zv(nf, std::vector<double>(ng)), q3(nf), q4(nf);
@@ -289,9 +341,7 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
     for (std::size_t s = 0; s < nf; s++) {
       for (std::size_t k = 0; k < ng; k++) vg[s][k] = v[col_geno(s, k)];
       std::fill(zv[s].begin(), zv[s].end(), 0.0);
-      if (mu > 0)
-        F77_CALL(dgemv)("N", &ngi, &mui, &um, zc.data(), &ngi, v.data() + M.total + s * mu,
-                        &inc1, &zero, zv[s].data(), &inc1 FCONE);
+      if (mu > 0) z_vezes(v.data() + M.total + s * mu, zv[s].data());
     }
     // as 2 nf aplicacoes de A22^-1 sao independentes; cada uma escreve so o seu vetor
 #ifdef _OPENMP
@@ -319,8 +369,7 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
       }
       for (std::size_t k = 0; k < ng; k++) y[col_geno(s, k)] += hs[k] / w;
       if (mu > 0) {
-        F77_CALL(dgemv)("T", &ngi, &mui, &um, zc.data(), &ngi, gsum.data(), &inc1,
-                        &zero, gm.data(), &inc1 FCONE);
+        zt_vezes(gsum.data(), gm.data());
         for (std::size_t jj = 0; jj < mu; jj++) y[M.total + s * mu + jj] -= gm[jj] / w;
       }
     }

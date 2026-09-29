@@ -203,7 +203,7 @@ apy_core_select <- function(genotypes, variance = 0.98, size = NULL, include = N
   if (n < 3L) stop("the APY needs at least 3 genotyped animals")
   if (!is.numeric(variance) || length(variance) != 1L || !(variance > 0 && variance < 1))
     stop("variance must be a single number strictly between 0 and 1")
-  p <- colMeans(g$gm, na.rm = TRUE) / 2
+  p <- .Call(R_freq_genotipos, g$gm) / 2
   ok <- is.finite(p) & p > 0 & p < 1
   if (!any(ok)) stop("every marker is monomorphic: there is no G to decompose")
   if (method == "auto") method <- if (min(n, sum(ok)) <= 4000L) "exact" else "lanczos"
@@ -218,18 +218,13 @@ apy_core_select <- function(genotypes, variance = 0.98, size = NULL, include = N
   autov <- NULL
   se <- NULL
   if (method == "exact") {
-    z <- g$gm[, ok, drop = FALSE]
-    for (j in seq_len(ncol(z))) {
-      z[is.na(z[, j]), j] <- 2 * p[ok][j]
-      z[, j] <- z[, j] - 2 * p[ok][j]
-    }
-    # os autovalores nao nulos de ZZ' e Z'Z sao os mesmos; decompoe o menor dos dois, e o
-    # traco dele e o traco de G (vezes a escala) sem outra passada pela Z. A escala 2 sum pq
-    # cancela na fracao; so entra nos autovalores devolvidos.
-    gram <- if (n <= ncol(z)) tcrossprod(z) else crossprod(z)
+    # os autovalores nao nulos de ZZ' e Z'Z sao os mesmos; decompoe o menor dos dois (montado
+    # no C++ por blocos, lendo a matriz do R sem copia), e o traco dele e o traco de G vezes a
+    # escala. A escala 2 sum pq cancela na fracao; so entra nos autovalores devolvidos.
+    gram <- .Call(R_gram_genotipos, g$gm)$gram
     total <- sum(diag(gram))
     autov <- pmax(eigen(gram, symmetric = TRUE, only.values = TRUE)$values, 0)
-    rm(gram, z)
+    rm(gram)
     fracao <- cumsum(autov) / total
     conta <- function(v) which(fracao >= v - 1e-12)[1L]
     explica <- function(k) fracao[min(k, length(fracao))]

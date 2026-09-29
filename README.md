@@ -240,6 +240,7 @@ model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "pen", group = "g"),
 # global core; "auto" sizes it by the eigenvalues of G), or vecchia_k= (per-animal
 # neighborhoods, the generalization of APY and of Henderson's own A^-1)
 model(y ~ cg + animal(id), d, ped, genotypes = list(ids = gids, m = M))
+gen <- read_blupf90_snp("snp.dat")   # the BLUPF90 SNP_FILE as a raw matrix, 1 byte/genotype
 core <- apy_core_select(list(ids = gids, m = M))   # choose once, pass it to every fit
 
 # a pedigree of sires and maternal grandsires is DECLARED, never guessed: the grandsire
@@ -398,6 +399,7 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | `sire(sire, mgs =)` | -2logL and BLUP against the dense GLS with the incidence built by hand |
 | `indirect(dilution =)` in the siblings | the bivariate with no between-trait covariance == the sum of the univariate `model()` fits with the same d; AR(1) at rho = 0 == `model()`; the Gibbs chain with fixed components == the diluted BLUP |
 | `snp_blup()`, any structure | the dense single-step solve built in R with `H^-1` from `G*` without the affine step: breeding values and marker effects to 1e-6 of their SD with one animal term, direct-maternal in one group, direct and maternal in separate groups, a reaction norm and direct-indirect; `rpg` near 1 falls back to the pedigree BLUP; a planted QTL comes out on top |
+| genotype storage | double, integer and raw matrices give the same G, H^-1 (exact and APY), APY core (both routes), genomic F and D, fit and ssSNPBLUP, bit for bit, with missing values in the matrix; `read_blupf90_snp()` returns the matrix that was written, subsets by id |
 | `survival_split()` | the subject and change tables reproduce hand-built elementary records exactly, with the same fit; `S(t \| e) S(e) = S(t)` |
 
 The tests in `tests/testthat` run these comparisons on every build, so a change that

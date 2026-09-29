@@ -4,10 +4,15 @@
 \alias{read_plink}
 \title{Read PLINK genotypes into the \verb{genotypes=} shape}
 \usage{
-read_plink(prefix)
+read_plink(prefix, storage = c("double", "integer", "raw"))
 }
 \arguments{
 \item{prefix}{path without extension}
+
+\item{storage}{type of the dosage matrix: \code{"double"} (8 bytes per genotype, NA for
+missing), \code{"integer"} (4 bytes) or \code{"raw"} (1 byte, 5 for missing, the BLUPF90 code).
+Every \verb{genotypes=} argument takes the three without converting, so \code{"raw"} is the
+one for a large genotyped set}
 }
 \value{
 list with \code{ids} (from the .fam IID or .raw IID) and \code{m} (dosage matrix with

@@ -84,7 +84,8 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
     Y[em[!is.na(em)], ] <- as.matrix(data[!is.na(em), traits, drop = FALSE])
     dropped <- sum(rowSums(!is.na(as.matrix(data[is.na(em), traits, drop = FALSE]))) > 0)
   }
-  X <- g$gm
+  X <- genotipos_numericos(g$gm)
+  storage.mode(X) <- "double"
   n_imp <- 0L
   if (anyNA(X)) {
     cm <- colMeans(X, na.rm = TRUE)

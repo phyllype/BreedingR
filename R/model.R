@@ -63,8 +63,11 @@ ARGS_MARCADOR <- local({
 #' @param data data.frame with the columns referenced
 #' @param pedigree data.frame animal, sire, dam; required with a relationship term
 #' @param missing_code missing-value code for observations, for example -999
-#' @param genotypes list with `ids` and `m` (0/1/2 matrix) for single-step; NA is imputed
-#'   with the marker mean, never converted to zero
+#' @param genotypes list with `ids` and `m` for single-step: animals x markers coded 0/1/2,
+#'   as a double, integer or raw matrix. NA (5 in a raw matrix, the BLUPF90 code) is
+#'   imputed with the marker mean, never converted to zero. The matrix is read where it is,
+#'   without a copy, so a raw one costs 1 byte per genotype ([read_blupf90_snp()] and
+#'   `read_plink(storage = "raw")` return it)
 #' @param blend weight of A22 in the adjusted G, the usual 0.05
 #' @param apy_core ids of the genotyped animals that form the APY core; with it the inverse
 #'   of G* is the APY approximation (cost in the size of the core, not cubic in the
@@ -290,14 +293,32 @@ valida_genotipos <- function(genotypes) {
       stop("genotypes must be a list with 'ids' and 'm'")
     gm <- genotypes$m
     if (!is.matrix(gm)) stop("genotypes$m must be a matrix")
-    fora <- !is.na(gm) & !(gm %in% c(0, 1, 2))
-    if (any(fora)) stop(sum(fora), " genotype value(s) outside 0, 1, 2 and NA. An unknown ",
-                        "code must become NA beforehand, to be imputed with the mean ",
-                        "instead of counted as the zero genotype")
+    # a matriz segue no tipo em que veio, double, integer ou raw (1 byte por genotipo, com 5
+    # como ausente, o codigo do BLUPF90): o motor le qualquer um dos tres sem copia, e
+    # converter para double custava 8 bytes por genotipo. A checagem dos valores e no C++,
+    # sem os vetores logicos do tamanho da matriz que o %in% criaria.
+    if (is.logical(gm)) storage.mode(gm) <- "integer"
+    if (!(is.double(gm) || is.integer(gm) || is.raw(gm)))
+      stop("genotypes$m must be a double, integer or raw matrix")
+    fora <- .Call(R_confere_genotipos, gm)
+    if (fora > 0) stop(format(fora, scientific = FALSE), " genotype value(s) outside 0, 1, 2 and NA",
+                       if (is.raw(gm)) " (5 in a raw matrix)", ". An unknown ",
+                       "code must become NA beforehand, to be imputed with the mean ",
+                       "instead of counted as the zero genotype")
     gid <- as.character(genotypes$ids)
-    storage.mode(gm) <- "double"
   }
   list(gid = gid, gm = gm)
+}
+
+# Para as contas feitas em R (D genomica, F genomico, Gamma, PEGS, efeitos de SNP): a matriz
+# raw vira integer com NA no 5; double e integer passam como estao.
+genotipos_numericos <- function(gm) {
+  if (!is.raw(gm)) return(gm)
+  x <- as.integer(gm)
+  x[x == 5L] <- NA_integer_
+  dim(x) <- dim(gm)
+  dimnames(x) <- dimnames(gm)
+  x
 }
 
 # Weights: a column name or a vector, validated finite and positive. Empty means none.
@@ -561,6 +582,7 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
     cp <- colunas_pedigree(pedigree)
     ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
+  gv <- valida_genotipos(genotypes)
   .Call(R_avaliar,
         lst, names(lst), trait,
         vapply(terms, function(t) t$nome, character(1)),
@@ -577,7 +599,7 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
              valida_pesos(weights, data),
-        valida_genotipos(genotypes)$gid, valida_genotipos(genotypes)$gm, as.double(blend),
+        gv$gid, gv$gm, as.double(blend),
         nucleo_apy(recusa_auto(apy_core), genotypes),
         if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
         monta_kernels(terms, environment(formula)),

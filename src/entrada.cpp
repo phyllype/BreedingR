@@ -8,6 +8,7 @@
 
 #include "mme.h"
 #include <cstdio>
+#include <fstream>
 
 #include <R.h>
 #include <Rinternals.h>
@@ -137,6 +138,45 @@ br::CacheSimbolica& simbolica_do_padrao(const br::Csc& a) {
 }
 }  // namespace
 
+// A matriz de genotipos do R como ela esta, double, integer ou raw, coluna-major: nenhuma
+// copia. As linhas tem de ser os ids declarados.
+static br::Genotipos genotipos_do_R(SEXP gm, std::size_t n_ids) {
+  SEXP dim = Rf_getAttrib(gm, R_DimSymbol);
+  if (dim == R_NilValue || XLENGTH(dim) != 2) Rf_error("the genotype matrix must be a matrix");
+  br::Genotipos g;
+  g.n = (std::size_t) INTEGER(dim)[0];
+  g.m = (std::size_t) INTEGER(dim)[1];
+  switch (TYPEOF(gm)) {
+    case REALSXP: g.d = REAL(gm); break;
+    case INTSXP: g.i = INTEGER(gm); break;
+    case RAWSXP: g.r = RAW(gm); break;
+    default: Rf_error("the genotype matrix must be double, integer or raw");
+  }
+  if (g.n != n_ids) Rf_error("%d identifiers for %d genotype rows", (int) n_ids, (int) g.n);
+  return g;
+}
+
+// a media de cada marcador sobre os presentes, NaN sem nenhum (fora do GUARDA: pragma nao
+// entra em argumento de macro)
+static void medias_genotipos(const br::Genotipos& g, double* med) {
+#ifdef _OPENMP
+#pragma omp parallel num_threads(br::threads())
+#endif
+  {
+    std::vector<double> col(g.n);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 16)
+#endif
+    for (long jj = 0; jj < (long) g.m; jj++) {
+      g.coluna((std::size_t) jj, col.data());
+      double soma = 0.0;
+      std::size_t k = 0;
+      for (double x : col) if (std::isfinite(x)) { soma += x; k++; }
+      med[jj] = k ? soma / (double) k : R_NaN;
+    }
+  }
+}
+
 extern "C" {
 
 // Devolve o pedigree em ORDEM TOPOLOGICA, com a endogamia de cada animal.
@@ -170,16 +210,7 @@ SEXP R_h_inversa(SEXP id, SEXP pai, SEXP mae, SEXP mfx, SEXP gmx, SEXP gid, SEXP
     std::vector<double> f = br::endogamia(ped);
     br::Csc ainv = br::a_inversa(ped, f);
     auto gids = textos(gid, "genotypes");
-    SEXP dim = Rf_getAttrib(gm, R_DimSymbol);
-    if (TYPEOF(gm) != REALSXP || dim == R_NilValue || XLENGTH(dim) != 2)
-      Rf_error("the genotype matrix must be numeric");
-    const int nl = INTEGER(dim)[0], nm2 = INTEGER(dim)[1];
-    if ((std::size_t) nl != gids.size())
-      Rf_error("%d identifiers for %d genotype rows", (int) gids.size(), nl);
-    br::Densa mg((std::size_t) nl, (std::size_t) nm2);
-    for (int j2 = 0; j2 < nm2; j2++)
-      for (int i2 = 0; i2 < nl; i2++)
-        mg.at((std::size_t) i2, (std::size_t) j2) = REAL(gm)[(R_xlen_t) j2 * nl + i2];
+    const br::Genotipos mg = genotipos_do_R(gm, gids.size());
     std::vector<std::string> nuc;
     if (XLENGTH(anucleo) > 0) nuc = textos(anucleo, "APY core");
     const std::size_t kv = (std::size_t) std::max(0, Rf_asInteger(vk));
@@ -584,17 +615,9 @@ std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& pe
   if (XLENGTH(gid) == 0) return "";
   if (!pp) Rf_error("genotypes without a pedigree: H^-1 needs A^-1");
   auto gids = textos(gid, "genotypes");
-  SEXP dim = Rf_getAttrib(gm, R_DimSymbol);
-  if (TYPEOF(gm) != REALSXP || dim == R_NilValue || XLENGTH(dim) != 2)
-    Rf_error("the genotype matrix must be numeric");
-  const int nl = INTEGER(dim)[0], nm2 = INTEGER(dim)[1];
-  if ((std::size_t) nl != gids.size())
-    Rf_error("%d identifiers for %d genotype rows", (int) gids.size(), nl);
-  // R guarda por COLUNA e a Densa por LINHA: transposicao aqui, uma vez
-  br::Densa mg((std::size_t) nl, (std::size_t) nm2);
-  for (int j2 = 0; j2 < nm2; j2++)
-    for (int i2 = 0; i2 < nl; i2++)
-      mg.at((std::size_t) i2, (std::size_t) j2) = REAL(gm)[(R_xlen_t) j2 * nl + i2];
+  // os genotipos lidos direto do objeto do R, sem copia
+  const br::Genotipos mg = genotipos_do_R(gm, gids.size());
+  const std::size_t nm2 = mg.m;
   std::vector<std::string> nuc;
   if (XLENGTH(anucleo) > 0) nuc = textos(anucleo, "APY core");
   const std::size_t kv = (std::size_t) std::max(0, Rf_asInteger(vk));
@@ -1430,16 +1453,8 @@ SEXP R_snp_blup(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP t
                (int) m.ntheta);
     auto gids = textos(gid, "genotypes");
     if (gids.empty()) Rf_error("snp_blup without genotypes has nothing to solve");
-    SEXP dim = Rf_getAttrib(gm, R_DimSymbol);
-    if (TYPEOF(gm) != REALSXP || dim == R_NilValue || XLENGTH(dim) != 2)
-      Rf_error("the genotype matrix must be numeric");
-    const int nl2 = INTEGER(dim)[0], nm2 = INTEGER(dim)[1];
-    if ((std::size_t) nl2 != gids.size())
-      Rf_error("%d identifiers for %d genotype rows", (int) gids.size(), nl2);
-    br::Densa mg((std::size_t) nl2, (std::size_t) nm2);
-    for (int j2 = 0; j2 < nm2; j2++)
-      for (int i2 = 0; i2 < nl2; i2++)
-        mg.at((std::size_t) i2, (std::size_t) j2) = REAL(gm)[(R_xlen_t) j2 * nl2 + i2];
+    const br::Genotipos mg = genotipos_do_R(gm, gids.size());
+    const int nm2 = (int) mg.m;
 
     const bool com_mf = std::any_of(ped.eh_mf.begin(), ped.eh_mf.end(),
                                     [](char c) { return c != 0; });
@@ -1546,7 +1561,8 @@ static SEXP densa_para_R(const br::Densa& d) {
 
 SEXP R_lanczos_g(SEXP gm, SEXP sondas, SEXP passos) {
   GUARDA(
-    br::Densa m = densa_do_R(gm), v = densa_do_R(sondas);
+    const br::Genotipos m = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    br::Densa v = densa_do_R(sondas);
     br::RelatorioG rel;
     br::LanczosG r = br::lanczos_g(m, v, (std::size_t) Rf_asInteger(passos), rel);
     SEXP out = PROTECT(Rf_allocVector(VECSXP, 5));
@@ -1562,6 +1578,163 @@ SEXP R_lanczos_g(SEXP gm, SEXP sondas, SEXP passos) {
     SET_VECTOR_ELT(out, 4, Rf_ScalarReal((double) r.dim));
     Rf_setAttrib(out, R_NamesSymbol, nms);
     UNPROTECT(3);
+    return out;
+  )
+}
+
+// Quantos valores fora de 0, 1, 2 e ausente: a checagem de valida_genotipos() sem os vetores
+// logicos do tamanho da matriz que o %in% do R criaria (12 bilhoes de entradas num arquivo de
+// rebanho grande).
+SEXP R_confere_genotipos(SEXP gm) {
+  GUARDA(
+    double fora = 0.0;
+    const R_xlen_t nx = XLENGTH(gm);
+    switch (TYPEOF(gm)) {
+      case REALSXP: {
+        const double* x = REAL(gm);
+        for (R_xlen_t k = 0; k < nx; k++)
+          if (!std::isnan(x[k]) && x[k] != 0.0 && x[k] != 1.0 && x[k] != 2.0) fora++;
+        break;
+      }
+      case INTSXP: {
+        const int* x = INTEGER(gm);
+        for (R_xlen_t k = 0; k < nx; k++)
+          if (x[k] != NA_INTEGER && (x[k] < 0 || x[k] > 2)) fora++;
+        break;
+      }
+      case RAWSXP: {
+        const Rbyte* x = RAW(gm);
+        for (R_xlen_t k = 0; k < nx; k++)
+          if (x[k] > 2 && x[k] != 5) fora++;
+        break;
+      }
+      default: Rf_error("the genotype matrix must be double, integer or raw");
+    }
+    return Rf_ScalarReal(fora);
+  )
+}
+
+// A media de cada marcador sobre os valores presentes (NaN sem nenhum), lida da vista.
+SEXP R_freq_genotipos(SEXP gm) {
+  GUARDA(
+    const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    SEXP out = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) g.m));
+    medias_genotipos(g, REAL(out));
+    UNPROTECT(1);
+    return out;
+  )
+}
+
+// A G de VanRaden pelo mesmo nucleo do passo unico (vanraden_g), direto da matriz do R.
+SEXP R_g_matrix(SEXP gm) {
+  GUARDA(
+    const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    br::RelatorioG rel;
+    return densa_para_R(br::vanraden_g(g, rel, false));
+  )
+}
+
+// A Gram do lado menor de Z para o eigen exato de apy_core_select(), e a escala 2 sum p(1-p).
+SEXP R_gram_genotipos(SEXP gm) {
+  GUARDA(
+    const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    br::RelatorioG rel;
+    double escala = 0.0;
+    br::Densa c = br::gram_menor(g, rel, escala);
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 2));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 2));
+    SET_STRING_ELT(nms, 0, Rf_mkChar("gram"));
+    SET_STRING_ELT(nms, 1, Rf_mkChar("scale"));
+    SET_VECTOR_ELT(out, 0, densa_para_R(c));
+    SET_VECTOR_ELT(out, 1, Rf_ScalarReal(escala));
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(2);
+    return out;
+  )
+}
+
+// O arquivo de genotipos do BLUPF90 (SNP_FILE: id, espacos, uma cadeia de 0/1/2 com 5 para o
+// ausente, largura fixa), numa matriz RAW, 1 byte por genotipo. Duas passadas: a primeira conta
+// as linhas que ficam e confere a largura, a segunda preenche, 256 linhas por vez transpostas
+// para a ordem por coluna do R (escrever linha a linha espalharia cada byte numa linha de cache).
+SEXP R_le_snp_blupf90(SEXP arq, SEXP quais) {
+  GUARDA(
+    const std::string f = CHAR(STRING_ELT(arq, 0));
+    std::ifstream in(f, std::ios::binary);
+    if (!in) Rf_error("cannot open '%s'", f.c_str());
+    std::unordered_set<std::string> manter;
+    for (R_xlen_t k = 0; k < XLENGTH(quais); k++) manter.insert(CHAR(STRING_ELT(quais, k)));
+    auto corta = [](const std::string& l, std::string& id, std::size_t& g0, std::size_t& g1) {
+      std::size_t a = 0, e = l.size();
+      while (e > 0 && (l[e - 1] == '\r' || l[e - 1] == ' ' || l[e - 1] == '\t')) e--;
+      while (a < e && (l[a] == ' ' || l[a] == '\t')) a++;
+      std::size_t b = a;
+      while (b < e && l[b] != ' ' && l[b] != '\t') b++;
+      id = l.substr(a, b - a);
+      while (b < e && (l[b] == ' ' || l[b] == '\t')) b++;
+      g0 = b; g1 = e;
+    };
+    std::vector<std::string> ids;
+    std::vector<char> fica;
+    std::string linha, id;
+    std::size_t m = 0, g0 = 0, g1 = 0, nl0 = 0;
+    while (std::getline(in, linha)) {
+      nl0++;
+      corta(linha, id, g0, g1);
+      if (id.empty()) { fica.push_back(0); continue; }
+      if (g1 <= g0) Rf_error("line %d has an id and no genotypes", (int) nl0);
+      if (m == 0) m = g1 - g0;
+      else if (g1 - g0 != m)
+        Rf_error("line %d has %d genotypes and the first had %d", (int) nl0, (int) (g1 - g0), (int) m);
+      const bool ok = manter.empty() || manter.count(id) > 0;
+      fica.push_back(ok ? 1 : 0);
+      if (ok) ids.push_back(id);
+    }
+    const std::size_t n = ids.size();
+    in.clear();
+    in.seekg(0);
+    // vetor longo com dim: allocMatrix recusa mais de 2^31 entradas, e um arquivo de rebanho
+    // passa disso
+    SEXP mat = PROTECT(Rf_allocVector(RAWSXP, (R_xlen_t) n * (R_xlen_t) m));
+    SEXP dm = PROTECT(Rf_allocVector(INTSXP, 2));
+    INTEGER(dm)[0] = (int) n;
+    INTEGER(dm)[1] = (int) m;
+    Rf_setAttrib(mat, R_DimSymbol, dm);
+    Rbyte* x = RAW(mat);
+    const std::size_t L = 256;
+    std::vector<unsigned char> buf(L * m);
+    std::size_t lido = 0, r0 = 0, nb = 0;
+    auto despeja = [&]() {
+      for (std::size_t j = 0; j < m; j++) {
+        Rbyte* col = x + j * n + r0;
+        for (std::size_t q = 0; q < nb; q++) col[q] = buf[q * m + j];
+      }
+      r0 += nb;
+      nb = 0;
+    };
+    while (std::getline(in, linha)) {
+      if (!fica[lido++]) continue;
+      corta(linha, id, g0, g1);
+      unsigned char* d = &buf[nb * m];
+      for (std::size_t j = 0; j < m; j++) {
+        const char c = linha[g0 + j];
+        if (c == '0' || c == '1' || c == '2' || c == '5') d[j] = (unsigned char) (c - '0');
+        else Rf_error("unexpected genotype code '%c' at line %d, marker %d (expected 0, 1, 2 or 5)",
+                      c, (int) lido, (int) j + 1);
+      }
+      if (++nb == L) despeja();
+    }
+    if (nb > 0) despeja();
+    SEXP vid = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) n));
+    for (std::size_t k = 0; k < n; k++) SET_STRING_ELT(vid, (R_xlen_t) k, Rf_mkChar(ids[k].c_str()));
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 2));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 2));
+    SET_STRING_ELT(nms, 0, Rf_mkChar("ids"));
+    SET_STRING_ELT(nms, 1, Rf_mkChar("m"));
+    SET_VECTOR_ELT(out, 0, vid);
+    SET_VECTOR_ELT(out, 1, mat);
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(5);
     return out;
   )
 }
@@ -1654,6 +1827,11 @@ static const R_CallMethodDef metodos[] = {
     {"R_gibbs", (DL_FUNC) &R_gibbs, 36},
   {"R_snp_blup",   (DL_FUNC) &R_snp_blup,  25},
   {"R_lanczos_g",  (DL_FUNC) &R_lanczos_g,  3},
+  {"R_confere_genotipos", (DL_FUNC) &R_confere_genotipos, 1},
+  {"R_freq_genotipos", (DL_FUNC) &R_freq_genotipos, 1},
+  {"R_g_matrix",   (DL_FUNC) &R_g_matrix,   1},
+  {"R_gram_genotipos", (DL_FUNC) &R_gram_genotipos, 1},
+  {"R_le_snp_blupf90", (DL_FUNC) &R_le_snp_blupf90, 2},
 {"R_versao",     (DL_FUNC) &R_versao,     0},
   {"R_threads",    (DL_FUNC) &R_threads,    2},
   {"R_pegs",       (DL_FUNC) &R_pegs,      10},

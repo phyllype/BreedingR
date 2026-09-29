@@ -34,6 +34,14 @@ test_that("read_plink decodes a hand-written .bed exactly, padding and missing i
   esperado <- cbind(SNP1 = m1, SNP2 = m2, SNP3 = m3)
   expect_identical(unname(g$m), unname(esperado))
   expect_equal(colnames(g$m), c("SNP1", "SNP2", "SNP3"))
+  # os outros armazenamentos, com os mesmos valores (raw: 5 no ausente)
+  gi <- read_plink(pref, storage = "integer")
+  expect_true(is.integer(gi$m))
+  expect_identical(as.vector(gi$m), as.integer(esperado))
+  gr <- read_plink(pref, storage = "raw")
+  expect_true(is.raw(gr$m))
+  expect_identical(as.integer(gr$m), as.vector(ifelse(is.na(esperado), 5L, as.integer(esperado))))
+  expect_equal(colnames(gr$m), c("SNP1", "SNP2", "SNP3"))
 })
 
 test_that("a wrong magic byte is a declared error", {

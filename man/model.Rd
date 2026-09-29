@@ -62,8 +62,11 @@ size, the size of a genotyped set, not of a national pedigree.}
 
 \item{pedigree}{data.frame animal, sire, dam; required with a relationship term}
 
-\item{genotypes}{list with \code{ids} and \code{m} (0/1/2 matrix) for single-step; NA is imputed
-with the marker mean, never converted to zero}
+\item{genotypes}{list with \code{ids} and \code{m} for single-step: animals x markers coded 0/1/2,
+as a double, integer or raw matrix. NA (5 in a raw matrix, the BLUPF90 code) is
+imputed with the marker mean, never converted to zero. The matrix is read where it is,
+without a copy, so a raw one costs 1 byte per genotype (\code{\link[=read_blupf90_snp]{read_blupf90_snp()}} and
+\code{read_plink(storage = "raw")} return it)}
 
 \item{blend}{weight of A22 in the adjusted G, the usual 0.05}
 

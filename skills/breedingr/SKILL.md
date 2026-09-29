@@ -166,7 +166,10 @@ rank_drift(ebv(old_fit), ebv(new_fit), top = 100)
 ## Single-step genomics
 
 Genotypes are an argument, not a different program. `genotypes = list(ids=, m=)` with a
-0/1/2 matrix; NA is imputed with the marker mean.
+0/1/2 matrix; NA is imputed with the marker mean. The matrix may be double, integer or
+raw (1 byte per genotype, 5 for missing), and the engine reads it where it is, with no
+copy: for a large genotyped set read it with `read_blupf90_snp("snp.dat")` (the BLUPF90
+SNP_FILE) or `read_plink(prefix, storage = "raw")`.
 
 ```r
 model(y ~ cg + animal(id), d, ped, genotypes = gen)                  # exact G*

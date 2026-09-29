@@ -23,9 +23,9 @@
 #' @export
 snp_effects <- function(fit, pedigree, genotypes, blend = 0.05, group = "animal") {
   if (!inherits(fit, "breeding_fit")) stop("expected the result of model()")
-  gm <- genotypes$m
-  gid <- as.character(genotypes$ids)
-  if (!is.matrix(gm)) stop("genotypes$m must be a matrix")
+  gv <- valida_genotipos(genotypes)
+  gm <- genotipos_numericos(gv$gm)
+  gid <- gv$gid
   u <- ebv(fit, group)
   if (!all(gid %in% names(u)))
     stop("there are genotyped ids without a level in the fit")

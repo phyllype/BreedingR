@@ -10,10 +10,15 @@
 #' convention nobody wrote down.
 #'
 #' @param prefix path without extension
+#' @param storage type of the dosage matrix: `"double"` (8 bytes per genotype, NA for
+#'   missing), `"integer"` (4 bytes) or `"raw"` (1 byte, 5 for missing, the BLUPF90 code).
+#'   Every `genotypes=` argument takes the three without converting, so `"raw"` is the
+#'   one for a large genotyped set
 #' @return list with `ids` (from the .fam IID or .raw IID) and `m` (dosage matrix with
 #'   marker names), ready for `genotypes=`
 #' @export
-read_plink <- function(prefix) {
+read_plink <- function(prefix, storage = c("double", "integer", "raw")) {
+  storage <- match.arg(storage)
   bed <- paste0(prefix, ".bed")
   raw <- paste0(prefix, ".raw")
   if (file.exists(bed)) {
@@ -43,7 +48,7 @@ read_plink <- function(prefix) {
     m[cod == 2L] <- 1
     m[cod == 3L] <- 0
     colnames(m) <- bim[[2]]
-    return(list(ids = as.character(fam[[2]]), m = m))
+    return(list(ids = as.character(fam[[2]]), m = guarda_como(m, storage)))
   }
   if (file.exists(raw)) {
     d <- utils::read.table(raw, header = TRUE, stringsAsFactors = FALSE,
@@ -51,9 +56,53 @@ read_plink <- function(prefix) {
     fixas <- c("FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE")
     m <- as.matrix(d[, setdiff(names(d), fixas), drop = FALSE])
     storage.mode(m) <- "double"
-    return(list(ids = as.character(d$IID), m = m))
+    return(list(ids = as.character(d$IID), m = guarda_como(m, storage)))
   }
   stop("neither '", bed, "' nor '", raw, "' exists")
+}
+
+# a matriz de dosagens no tipo pedido; no raw o ausente vira 5
+guarda_como <- function(m, storage) {
+  if (storage == "double") return(m)
+  if (storage == "integer") { storage.mode(m) <- "integer"; return(m) }
+  x <- m
+  x[is.na(x)] <- 5
+  r <- as.raw(x)
+  dim(r) <- dim(m)
+  dimnames(r) <- dimnames(m)
+  r
+}
+
+#' Read a BLUPF90 genotype file into the `genotypes=` shape
+#'
+#' Reads the `SNP_FILE` of the BLUPF90 programs: one animal per line, the id, spaces, and a
+#' fixed-width string of genotype codes, 0, 1 and 2 for the count of the counted allele and 5
+#' for missing. The matrix comes back RAW, one byte per genotype with 5 kept as the missing
+#' code, which every `genotypes=` argument reads as it is: a file of 280 000 animals and
+#' 44 000 markers is 12 GB this way and would be 98 GB as doubles. The file is read twice,
+#' once to count and check the lines and once to fill the matrix, so nothing but the matrix
+#' is held in memory. `ids =` keeps only those animals, in file order, for a subset that fits.
+#'
+#' @param file path to the genotype file
+#' @param ids NULL for every animal, or the ids to keep; an id not in the file is a warning
+#' @return list with `ids` (character) and `m` (raw matrix, animals x markers)
+#' @examples
+#' f <- tempfile()
+#' writeLines(c("  a1 0125", "  a2 2210"), f)
+#' g <- read_blupf90_snp(f)
+#' g$m
+#' @export
+read_blupf90_snp <- function(file, ids = NULL) {
+  if (!file.exists(file)) stop("no file '", file, "'")
+  r <- .Call(R_le_snp_blupf90, normalizePath(file),
+             if (is.null(ids)) character(0) else as.character(ids))
+  if (!is.null(ids)) {
+    falta <- setdiff(as.character(ids), r$ids)
+    if (length(falta))
+      warning(length(falta), " id(s) not in the file, e.g. ",
+              paste(utils::head(falta, 3), collapse = ", "), call. = FALSE)
+  }
+  r
 }
 
 #' Genotype quality control

@@ -303,6 +303,37 @@ Desenho monta_desenho(const Modelo&, const Tabela&, const Pedigree*,
                       const std::vector<KernelDecl>* = nullptr);
 
 // ---- genomica.cpp
+// Os genotipos COMO O R OS GUARDA, sem copia: coluna-major (o animal corre mais rapido), em
+// double, integer ou raw. Ausente e NaN no double, NA_INTEGER (o menor int) no integer e 5 no
+// raw, o codigo de ausente do BLUPF90. Nada aqui imputa nem centra: quem le um marcador recebe
+// os valores crus e aplica a media dele (frequencias_z). A copia double linha-major que o lado
+// genomico fazia custava 8 bytes por genotipo alem dos 8 do R; com raw e 1 byte e copia nenhuma.
+struct Genotipos {
+  const double* d = nullptr;
+  const int* i = nullptr;
+  const unsigned char* r = nullptr;
+  std::size_t n = 0, m = 0;
+  // o trecho [a0, a1) da coluna j em out, NaN no ausente
+  void trecho(std::size_t j, std::size_t a0, std::size_t a1, double* out) const {
+    const std::size_t k0 = j * n;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    if (d) {
+      for (std::size_t a = a0; a < a1; a++) out[a - a0] = d[k0 + a];
+    } else if (i) {
+      for (std::size_t a = a0; a < a1; a++) {
+        const int x = i[k0 + a];
+        out[a - a0] = x == std::numeric_limits<int>::min() ? nan : static_cast<double>(x);
+      }
+    } else {
+      for (std::size_t a = a0; a < a1; a++) {
+        const unsigned char x = r[k0 + a];
+        out[a - a0] = x == 5 ? nan : static_cast<double>(x);
+      }
+    }
+  }
+  void coluna(std::size_t j, double* out) const { trecho(j, 0, n, out); }
+};
+
 struct RelatorioG {
   std::size_t n_imputados = 0;
   std::size_t n_monomorficos = 0;
@@ -315,7 +346,9 @@ struct RelatorioG {
   std::vector<double> diag_gstar;
   std::vector<std::size_t> linha_ped;
 };
-Densa vanraden_g(Densa&, RelatorioG&, bool meio = false);
+Densa vanraden_g(const Genotipos&, RelatorioG&, bool meio = false);
+// Gram do lado menor de Z (sem a escala, devolvida em `escala`), para o eigen exato
+Densa gram_menor(const Genotipos&, RelatorioG&, double& escala);
 // Lanczos em bloco sobre G = ZZ'/k (ou Z'Z/k, o lado menor), para a quadratura de Lanczos
 // estocastica do espectro: as sondas (dim x nv, por linhas) vem do R.
 struct LanczosG {
@@ -324,7 +357,7 @@ struct LanczosG {
   double traco = 0.0;                // tr(G), exato
   std::size_t dim = 0;
 };
-LanczosG lanczos_g(Densa& m, const Densa& sondas, std::size_t passos, RelatorioG& rel);
+LanczosG lanczos_g(const Genotipos& gt, const Densa& sondas, std::size_t passos, RelatorioG& rel);
 Densa a22_inversa(const Csc&, const std::vector<std::size_t>&);
 Csc a22_inversa_esparsa(const Csc&, const std::vector<std::size_t>&);
 Densa ajusta_g_para_a22(const Densa&, const Densa&, double);
@@ -332,10 +365,10 @@ Csc constroi_hinv(const Csc&, const std::vector<std::size_t>&, const Densa&, con
 
 // Substitui o K^-1 dos grupos com parentesco pelo H^-1 do passo unico.
 Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::string>& geno_ids,
-              Densa& m, double mistura, const std::vector<std::string>& nucleo_apy,
+              const Genotipos& gt, double mistura, const std::vector<std::string>& nucleo_apy,
               std::size_t vecchia_k, RelatorioG& rel);
 RelatorioG aplica_genomica(Desenho&, const Pedigree&, const std::vector<std::string>&,
-                           Densa&, double, const std::vector<std::string>&,
+                           const Genotipos&, double, const std::vector<std::string>&,
                            std::size_t = 0);
 std::vector<double> partida(const Desenho&);
 
@@ -369,7 +402,7 @@ ResultadoPegs pegs(const Densa& y, const Densa& x, std::size_t maxit, double tol
 void estrutura_pegs(Densa& vb, int tipo, std::size_t nfat);
 
 // meio = true: pedigree com metafundadores, Z centrada em 0.5 e escala m/2 (a G05)
-SnpBlup snp_blup(const Desenho&, Densa&, const std::vector<std::string>&,
+SnpBlup snp_blup(const Desenho&, const Genotipos&, const std::vector<std::string>&,
                  const std::vector<double>&, double, std::size_t, double, bool = false,
                  bool meio = false);
 
@@ -483,7 +516,7 @@ AjusteMT ajusta_mt(const DesenhoMT&, const std::vector<double>*, std::size_t, do
                    bool = false);
 // passo unico na multi: o mesmo nucleo do uni, sobre os mesmos campos
 RelatorioG aplica_genomica(DesenhoMT&, const Pedigree&, const std::vector<std::string>&,
-                           Densa&, double, const std::vector<std::string>&,
+                           const Genotipos&, double, const std::vector<std::string>&,
                            std::size_t = 0);
 
 
@@ -575,7 +608,7 @@ AjusteMT ajusta_ar1(const DesenhoAR&, const std::vector<double>*, std::size_t, d
                     bool = false);
 // passo unico no AR(1): o mesmo nucleo do uni, sobre os mesmos campos
 RelatorioG aplica_genomica(DesenhoAR&, const Pedigree&, const std::vector<std::string>&,
-                           Densa&, double, const std::vector<std::string>&,
+                           const Genotipos&, double, const std::vector<std::string>&,
                            std::size_t = 0);
 
 }  // namespace br
