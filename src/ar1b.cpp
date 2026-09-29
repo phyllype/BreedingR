@@ -344,6 +344,7 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
 
   CacheSimbolica cs;
   AvaliacaoAR cur = avalia_ar1(d, theta, &cs);
+  if (cs.pronto) { R.bloco_denso = bloco_denso_simbolico(cs.sb); R.colunas_fator = cs.sb.n; }
   if (!cur.ok) { R.mensagem = "o theta inicial e INADMISSIVEL"; return R; }
 
   // O PASSO anda em log-Cholesky por bloco, como o univariado e o multicaracter. Aqui o

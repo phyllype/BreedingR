@@ -314,6 +314,7 @@ AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::s
   std::vector<double> theta = theta0 ? *theta0 : partida_mt(d);
   CacheSimbolica cs;
   AvaliacaoMT cur = avalia_mt(d, theta, &cs);
+  if (cs.pronto) { R.bloco_denso = bloco_denso_simbolico(cs.sb); R.colunas_fator = cs.sb.n; }
   if (!cur.ok) {
     R.mensagem = cur.motivo == 2
       ? "a matriz de coeficientes e SINGULAR no theta inicial: o desenho nao identifica "

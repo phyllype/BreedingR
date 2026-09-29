@@ -126,6 +126,8 @@ GibbsSaida gibbs(const Desenho& d, std::size_t n_iter, std::size_t burnin,
       Csc pc0 = permuta_sim(M.c, cs.perm);
       cs.sb = simbolica(pc0);
       cs.pronto = true;
+      S.bloco_denso = bloco_denso_simbolico(cs.sb);
+      S.colunas_fator = cs.sb.n;
     }
     Csc pc = permuta_sim(M.c, cs.perm);
     Csc L;

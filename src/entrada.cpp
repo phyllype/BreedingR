@@ -427,6 +427,21 @@ static std::vector<br::KernelDecl> kernels_do_R(SEXP kern) {
 }
 
 extern "C++" {
+
+// fit$dense_block = c(dense = k, columns = n): o k do custo k^3 de cada fatoracao. O objeto
+// e protegido e desprotegido aqui dentro e devolvido para ser gravado na lista na hora.
+static SEXP sexp_bloco_denso(std::size_t k, std::size_t n) {
+  SEXP db = PROTECT(Rf_allocVector(INTSXP, 2));
+  INTEGER(db)[0] = (int) k;
+  INTEGER(db)[1] = (int) n;
+  SEXP nm = PROTECT(Rf_allocVector(STRSXP, 2));
+  SET_STRING_ELT(nm, 0, Rf_mkChar("dense"));
+  SET_STRING_ELT(nm, 1, Rf_mkChar("columns"));
+  Rf_setAttrib(db, R_NamesSymbol, nm);
+  UNPROTECT(2);
+  return db;
+}
+
 template <class DES>
 std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& ped,
                                 SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo,
@@ -900,10 +915,11 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
 
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
                             "message", "n_used", "n_columns", "ebv", "pev", "b",
-                            "dropped_x", "newton_dec"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 14));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 14));
-    for (int q = 0; q < 14; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "dropped_x", "newton_dec", "dense_block"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 15));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 15));
+    for (int q = 0; q < 15; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    SET_VECTOR_ELT(out, 14, sexp_bloco_denso(r.bloco_denso, r.colunas_fator));
     SET_VECTOR_ELT(out, 0, theta);
     SET_VECTOR_ELT(out, 1, se);
     SET_VECTOR_ELT(out, 2, Rf_ScalarReal(r.neg2logl));
@@ -1090,10 +1106,11 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
 
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
                             "message", "n_used", "n_columns", "n_subjects", "ebv", "pev",
-                            "b", "dropped_x", "newton_dec"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 15));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 15));
-    for (int q = 0; q < 15; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "b", "dropped_x", "newton_dec", "dense_block"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 16));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 16));
+    for (int q = 0; q < 16; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    SET_VECTOR_ELT(out, 15, sexp_bloco_denso(r.bloco_denso, r.colunas_fator));
     SET_VECTOR_ELT(out, 0, theta);
     SET_VECTOR_ELT(out, 1, se);
     SET_VECTOR_ELT(out, 2, Rf_ScalarReal(r.neg2logl));
@@ -1209,10 +1226,11 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
       SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
 
     const char* campos[] = {"samples", "names", "ebv", "ebv_sd", "message", "n_used",
-                            "b", "b_sd", "dropped_x"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 9));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 9));
-    for (int q = 0; q < 9; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "b", "b_sd", "dropped_x", "dense_block"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 10));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 10));
+    for (int q = 0; q < 10; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    SET_VECTOR_ELT(out, 9, sexp_bloco_denso(S.bloco_denso, S.colunas_fator));
     SET_VECTOR_ELT(out, 0, amostras);
     SET_VECTOR_ELT(out, 1, nms_t);
     SET_VECTOR_ELT(out, 2, ebv);

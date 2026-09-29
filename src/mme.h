@@ -304,6 +304,8 @@ SnpBlup snp_blup(const Desenho&, Densa&, const std::vector<std::string>&,
 // ---- gibbs.cpp: o lado bayesiano, bloco unico de localizacao + condicionais conjugadas
 struct GibbsSaida {
   bool ok = false;
+  // bloco denso final do fator e total de colunas: o k de k^3 por amostra
+  std::size_t bloco_denso = 0, colunas_fator = 0;
   std::size_t n_amostras = 0, ntheta = 0;
   std::vector<double> amostras;    // n_amostras x ntheta, por linha
   std::vector<double> media_loc, var_loc;
@@ -382,6 +384,8 @@ DesenhoMT monta_desenho_mt(Modelo, const std::vector<std::string>&, const Tabela
 std::vector<std::string> nomes_theta_do_mt(const DesenhoMT&);
 struct AjusteMT {
   bool convergiu = false;
+  // bloco denso final do fator e total de colunas: o k de k^3 por iteracao
+  std::size_t bloco_denso = 0, colunas_fator = 0;
   std::size_t iters = 0;
   double reldelta = 0.0;
   // Newton decrement at the final point, restricted to the OFF-BOUNDARY components and

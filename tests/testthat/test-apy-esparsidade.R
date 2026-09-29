@@ -155,3 +155,31 @@ test_that("o ajuste DIZ o tamanho do bloco denso, e ele mostra se a APY esta lig
   expect_gte(f1$dense_block[["dense"]], 600)            # medido 601
   expect_lte(f2$dense_block[["dense"]], 150 + 10)        # medido 153
 })
+
+test_that("dense_block existe tambem em model_mt(), model_ar1() e gibbs()", {
+  # antes so model() dizia o k de k^3; os outros ajustadores fatoram a mesma estrutura
+  n <- 600; set.seed(3)
+  id <- sprintf("a%05d", seq_len(n)); pa <- ma <- rep("0", n)
+  for (i in 101:n) { pa[i] <- id[sample(1:50, 1)]; ma[i] <- id[sample(51:100, 1)] }
+  ped <- data.frame(id = id, sire = pa, dam = ma, stringsAsFactors = FALSE)
+  d <- data.frame(id = id, cg = sample(c("c1", "c2", "c3"), n, TRUE), y = rnorm(n),
+                  y2 = rnorm(n), stringsAsFactors = FALSE)
+  gid <- id[1:300]
+  g <- list(ids = gid, m = matrix(sample(0:2, 300 * 200, TRUE), 300, 200))
+  fm <- model_mt(cbind(y, y2) ~ cg + animal(id), d, ped, genotypes = g, maxiter = 2L,
+                 verbose = FALSE)
+  fa <- model_mt(cbind(y, y2) ~ cg + animal(id), d, ped, genotypes = g,
+                 apy_core = gid[1:60], maxiter = 2L, verbose = FALSE)
+  expect_named(fm$dense_block, c("dense", "columns"))
+  expect_gte(fm$dense_block[["dense"]], 2 * 300)        # o clique genotipado, por caracter
+  expect_lt(fa$dense_block[["dense"]], fm$dense_block[["dense"]])
+  gb <- gibbs(y ~ cg + animal(id), d, ped, genotypes = g, n_iter = 30L, burnin = 5L,
+              thin = 1L, verbose = FALSE)
+  expect_gte(gb$dense_block[["dense"]], 300)
+  r <- data.frame(id = rep(id[101:400], each = 3), t = rep(1:3, 300),
+                  cg = "c1", y = rnorm(900), stringsAsFactors = FALSE)
+  fr <- model_ar1(y ~ animal(id), r, ped, subject = "id", time = "t", maxiter = 2L,
+                  verbose = FALSE)
+  expect_named(fr$dense_block, c("dense", "columns"))
+  expect_gt(fr$dense_block[["columns"]], 0)
+})
