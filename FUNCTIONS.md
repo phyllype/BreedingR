@@ -100,9 +100,11 @@ and survival fitters are written in R over `sparse_solve()`, `selected_inverse()
 | SINGULAR warning, flat-ridge verdict | yes | yes | yes | no | no | no | no |
 
 A genotyped animal's prior in `accuracy()` is its diagonal of `G*` in every fitter that
-takes `genotypes=` and has a PEV. Metafounders combined with genotypes are refused by
-`model()`, `model_mt()`, `model_ar1()`, `gibbs()` and `h_inverse()`, because the genomic
-side does not yet know Gamma; `estimate_gamma()` estimates Gamma itself. The dense tail of
+takes `genotypes=` and has a PEV. Metafounders with genotypes build H(Gamma) in `model()`,
+`model_mt()`, `model_ar1()`, `gibbs()` and `h_inverse()`: G05 (allele frequencies 0.5,
+scale m/2), A22 from A(Gamma), and the blend without the affine adjustment, which is the
+base correction Gamma already makes; every unknown parent must be a metafounder.
+`estimate_gamma()` estimates Gamma from the genotypes; `snp_blup()` refuses the pair. The dense tail of
 every sparse factorization, the inverse of that tail inside `selected_inverse()`, the dense
 inverses of order 256 or more (G* and A22 in the single step), the columns of A22, the
 product Z Z' of the G of VanRaden and the two APY products run on `br_threads()` threads

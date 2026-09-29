@@ -82,6 +82,14 @@
   each covariance, and a `share` column that divides each variance or covariance
   by the phenotypic variance of its trait.
 
+* Metafounders with genotypes: `model()`, `model_mt()`, `model_ar1()`, `gibbs()`
+  and `h_inverse()` build H(Gamma), with G centred at allele frequencies 0.5 and
+  scaled by m/2 (G05), A22 taken from A(Gamma), and G* = (1 - w) G05 + w A22
+  without the affine adjustment to A22, which is the base correction Gamma
+  already makes (Legarra et al., 2015; Garcia-Baccino et al., 2017). Every
+  unknown parent must be a metafounder, or it is an error. The pair was refused
+  before; `snp_blup()` still refuses it.
+
 * `br_threads()`: OpenMP where a genomic evaluation spends its k^3. The dense
   tail of every sparse Cholesky (the genotyped block after the ordering) is
   factored in tiles of 64 x 64 inside its own column storage (Buttari et al.,

@@ -229,8 +229,10 @@ wrong without warning:
   `sire_mgs()`;
 - `kernel(fixed =)` in `model_mt()` or `model_ar1()` is an error, not a variance quietly
   estimated in place of the one given;
-- metafounders together with genotypes are refused: the genomic side does not know Gamma
-  yet, and the base would be corrected twice;
+- metafounders with genotypes build H(Gamma): G of allele frequencies 0.5 scaled by m/2
+  (G05), A22 from A(Gamma), blend WITHOUT the affine adjustment (Garcia-Baccino et al.,
+  2017), and every unknown parent must be a metafounder or it is an error; `snp_blup()`
+  still refuses the pair. `estimate_gamma()` gives Gamma from the genotypes;
 - `h2()` on a reaction norm is an error that points at `h2_curve()`, and on a fit with
   `indirect()` it asks for the group size `n =`.
 

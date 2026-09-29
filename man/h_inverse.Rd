@@ -25,7 +25,12 @@ h_inverse(
 
 \item{vecchia_k}{neighbours per animal in the Vecchia inverse of G*}
 
-\item{metafounders, gamma}{refused together with genotypes, as in the fitters}
+\item{metafounders, gamma}{metafounder labels and their Gamma, as in \code{\link[=model]{model()}}: then
+H(Gamma) = A(Gamma)^-1 + \link{0 0; 0 G*^-1 - A22^-1}, with G the one of allele
+frequencies 0.5 scaled by m/2 (G05), A22 taken from A(Gamma), and
+\verb{G* = (1 - w) G05 + w A22} WITHOUT the affine adjustment, which is the base
+correction Gamma already makes (Legarra et al., 2015; Garcia-Baccino et al.,
+2017). Every unknown parent must then be a metafounder}
 }
 \value{
 triplets of the lower triangle, \code{list(i, j, x, n, id)} as \code{\link[=a_inverse]{a_inverse()}}
@@ -48,4 +53,13 @@ Aguilar, I., Misztal, I., Johnson, D.L., Legarra, A., Tsuruta, S. &
 Lawlor, T.J. (2010). Journal of Dairy Science 93:743-752.
 
 Christensen, O.F. & Lund, M.S. (2010). Genetics Selection Evolution 42:2.
+
+Garcia-Baccino, C.A., Legarra, A., Christensen, O.F., Misztal, I., Pocrnic, I.,
+Vitezica, Z.G. & Cantet, R.J.C. (2017). Metafounders are related to Fst fixation
+indices and reduce bias in single-step genomic evaluations. Genetics Selection
+Evolution 49:34.
+
+Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
+Ancestral relationships using metafounders: finite ancestral populations and across
+population relationships. Genetics 200:455-468.
 }

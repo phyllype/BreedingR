@@ -194,7 +194,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
 
-  recusa_mf_genomico(metafounders, !is.null(genotypes))
+  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
   w <- valida_pesos(weights, data)
@@ -254,14 +254,32 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
 # integral. A recusa cobre os dois porque nenhum dos dois esta certo, e um erro declarado e
 # melhor que um H silenciosamente misturado. O conserto de verdade, com o que precisa
 # ser conferido antes dele, segue por fazer.
+# snp_blup() (ssSNPBLUP) ainda nao tem a G05 nem a A(Gamma)22 na forma de marcadores; os
+# ajustadores de H^-1 (model, model_mt, model_ar1, gibbs, h_inverse) ja tem.
 recusa_mf_genomico <- function(metafounders, tem_genotipos) {
   if (!is.null(metafounders) && length(metafounders) > 0L && isTRUE(tem_genotipos))
-    stop("metafounders and genotypes cannot be combined yet: the pedigree becomes ",
-         "A(Gamma) but the genomic side is not aware of Gamma, so G would still be ",
-         "centred at the observed allele frequencies and tuned to A22, correcting the ",
-         "base twice. Fit with metafounders and no genotypes, or with genotypes and ",
-         "unknown-parent groups, until the metafounder-aware G lands",
+    stop("metafounders and genotypes cannot be combined in snp_blup() yet: its marker ",
+         "equations would still centre Z at the observed allele frequencies, while ",
+         "A(Gamma) puts the base at the metafounders. model(genotypes =, metafounders =) ",
+         "builds H(Gamma) with the G of allele frequencies 0.5",
          call. = FALSE)
+  invisible(NULL)
+}
+
+# Com metafundadores E genotipos, TODO pai desconhecido tem de ser um metafundador: a G05
+# esta na base de Gamma (frequencias 0.5), e um animal de base "0" (autoparentesco 1,
+# endogamia 0) ficaria na base das frequencias observadas, que e outra. E a mesma regra do
+# estimate_gamma().
+confere_base_mf <- function(sire, dam, metafounders, tem_genotipos) {
+  if (is.null(metafounders) || !length(metafounders) || !isTRUE(tem_genotipos))
+    return(invisible(NULL))
+  desc <- sire %in% c("0", "", NA) | dam %in% c("0", "", NA)
+  if (any(desc))
+    stop(sum(desc), " animal(s) have an unknown parent that is not a metafounder (first: ",
+         paste(utils::head(which(desc), 3), collapse = ", "), " in pedigree order). With ",
+         "genotypes, G is on the base of Gamma (allele frequencies 0.5), and an animal on ",
+         "the plain base would sit on another one: assign every unknown parent to a ",
+         "metafounder", call. = FALSE)
   invisible(NULL)
 }
 

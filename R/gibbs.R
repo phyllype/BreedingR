@@ -144,7 +144,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     cp <- colunas_pedigree(pedigree)
     ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
-  recusa_mf_genomico(metafounders, !is.null(genotypes))
+  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
 

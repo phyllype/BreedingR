@@ -75,6 +75,10 @@ Lawlor, T.J. & Misztal, I. (2015). Use of genomic recursions in single-step geno
 linear unbiased predictor with a large number of genotypes. *Journal of Dairy Science*
 98:4090-4094.
 
+Garcia-Baccino, C.A., Legarra, A., Christensen, O.F., Misztal, I., Pocrnic, I.,
+Vitezica, Z.G. & Cantet, R.J.C. (2017). Metafounders are related to Fst fixation indices
+and reduce bias in single-step genomic evaluations. *Genetics Selection Evolution* 49:34.
+
 Garcia-Cortes, L.A. & Toro, M.A. (2006). Multibreed analysis by splitting the breeding
 values. *Genetics Selection Evolution* 38:601-615.
 
@@ -131,6 +135,14 @@ Kachman, S.D. (1999). Applications in survival analysis. *Journal of Animal Scie
 
 Kirkpatrick, M., Lofsvold, D. & Bulmer, M. (1990). Analysis of the inheritance,
 selection and evolution of growth trajectories. *Genetics* 124:979-993.
+
+Legarra, A., Bermann, M., Mei, Q. & Christensen, O.F. (2024a). Redefining and
+interpreting genomic relationships of metafounders. *Genetics Selection Evolution* 56:34.
+
+Legarra, A., Bermann, M., Mei, Q. & Christensen, O.F. (2024b). Estimating genomic
+relationships of metafounders across and within breeds using maximum likelihood,
+pseudo-expectation-maximization maximum likelihood and increase of relationships.
+*Genetics Selection Evolution* 56:35.
 
 Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
 Ancestral relationships using metafounders: finite ancestral populations and across

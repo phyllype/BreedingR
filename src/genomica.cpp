@@ -35,7 +35,12 @@ namespace br {
 // Codigo ausente TEM de chegar como NaN e e imputado pela MEDIA do marcador. Nunca por
 // zero: zero e um genotipo valido, e a confusao mudaria as frequencias e a G inteira sem
 // nenhum erro visivel.
-Densa vanraden_g(Densa& m, RelatorioG& rel) {
+//
+// meio = true e a G05 dos metafundadores (Legarra et al., 2015; Garcia-Baccino et al.,
+// 2017): Z = M - 1 (todas as frequencias em 0.5) e escala m/2, TODOS os marcadores, o
+// monomorfico inclusive (ele soma a mesma constante a todo par, que e parte da base de
+// Gamma). E a G na base dos metafundadores, e por isso ela nao passa pelo ajuste a A22.
+Densa vanraden_g(Densa& m, RelatorioG& rel, bool meio) {
   const std::size_t n = m.nlin, nm = m.ncol;
   if (n == 0 || nm == 0) throw Erro("empty genotypes");
 
@@ -50,8 +55,8 @@ Densa vanraden_g(Densa& m, RelatorioG& rel) {
     }
     if (k == 0) { usa[j] = 0; rel.n_monomorficos++; continue; }
     const double media = soma / static_cast<double>(k);
-    p[j] = media / 2.0;
-    if (p[j] <= 0.0 || p[j] >= 1.0) { usa[j] = 0; rel.n_monomorficos++; continue; }
+    p[j] = meio ? 0.5 : media / 2.0;
+    if (!meio && (p[j] <= 0.0 || p[j] >= 1.0)) { usa[j] = 0; rel.n_monomorficos++; continue; }
     for (std::size_t i = 0; i < n; i++)
       if (!std::isfinite(m.at(i, j))) { m.at(i, j) = media; rel.n_imputados++; }
   }
@@ -252,6 +257,19 @@ static Densa a22_colleau(const Pedigree& p, const std::vector<std::size_t>& geno
       out.at(i, j) = mdi;
       out.at(j, i) = mdi;
     }
+  return out;
+}
+
+// So a mistura, G* = (1 - w) G + w A22: o caminho dos metafundadores, em que G ja esta na
+// base de A(Gamma).
+static Densa mistura_sem_ajuste(const Densa& g, const Densa& a22, double mistura) {
+  const std::size_t n = g.nlin;
+  if (a22.nlin != n) throw Erro("G and A22 with different sizes");
+  if (!(mistura >= 0.0 && mistura <= 1.0)) throw Erro("blend outside [0, 1]");
+  Densa out(n, n);
+  for (std::size_t i = 0; i < n; i++)
+    for (std::size_t j = 0; j < n; j++)
+      out.at(i, j) = (1.0 - mistura) * g.at(i, j) + mistura * a22.at(i, j);
   return out;
 }
 
@@ -552,9 +570,12 @@ Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::strin
     }
   }
 
-  Densa g = vanraden_g(m, rel);
   const bool com_mf = !ped.eh_mf.empty() &&
                       std::any_of(ped.eh_mf.begin(), ped.eh_mf.end(), [](char c) { return c != 0; });
+  // Com metafundadores (restricao #15): G05 na base de Gamma, A22 e a A(Gamma)22 pela rota
+  // de Schur sobre a A(Gamma)^-1, e G* = (1 - w) G05 + w A22 SEM o ajuste afim, que e
+  // exatamente a correcao de base que Gamma ja faz (fazer os dois corrige a base duas vezes).
+  Densa g = vanraden_g(m, rel, com_mf);
   Densa a22, a22i;
   if (com_mf) {
     a22i = a22_inversa(ainv, idx);
@@ -563,7 +584,7 @@ Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::strin
     a22 = a22_colleau(ped, idx);
     a22i = inv_pd(a22);
   }
-  Densa gstar = ajusta_g_para_a22(g, a22, mistura);
+  Densa gstar = com_mf ? mistura_sem_ajuste(g, a22, mistura) : ajusta_g_para_a22(g, a22, mistura);
   // a priori de cada genotipado, guardada AQUI porque este e o unico ponto em que G*
   // existe formada; accuracy() a usa no lugar de 1 + F do pedigree
   rel.diag_gstar.resize(gstar.nlin);

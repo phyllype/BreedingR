@@ -379,7 +379,12 @@ legendre <- function(x, order = 1L, limits = NULL) {
 #' @param blend weight of A22 in G*, the usual 0.05
 #' @param apy_core ids of the APY core, `"auto"`, or the result of [apy_core_select()]
 #' @param vecchia_k neighbours per animal in the Vecchia inverse of G*
-#' @param metafounders,gamma refused together with genotypes, as in the fitters
+#' @param metafounders,gamma metafounder labels and their Gamma, as in [model()]: then
+#'   H(Gamma) = A(Gamma)^-1 + [0 0; 0 G*^-1 - A22^-1], with G the one of allele
+#'   frequencies 0.5 scaled by m/2 (G05), A22 taken from A(Gamma), and
+#'   `G* = (1 - w) G05 + w A22` WITHOUT the affine adjustment, which is the base
+#'   correction Gamma already makes (Legarra et al., 2015; Garcia-Baccino et al.,
+#'   2017). Every unknown parent must then be a metafounder
 #' @return triplets of the lower triangle, `list(i, j, x, n, id)` as [a_inverse()]
 #'   returns, plus `h_prior` and `h_prior_row` (the diagonal of G* of each genotyped
 #'   animal and its row, which [accuracy()] uses as the prior), `n_imputed`,
@@ -388,18 +393,29 @@ legendre <- function(x, order = 1L, limits = NULL) {
 #'   Lawlor, T.J. (2010). Journal of Dairy Science 93:743-752.
 #'
 #'   Christensen, O.F. & Lund, M.S. (2010). Genetics Selection Evolution 42:2.
+#'
+#'   Garcia-Baccino, C.A., Legarra, A., Christensen, O.F., Misztal, I., Pocrnic, I.,
+#'   Vitezica, Z.G. & Cantet, R.J.C. (2017). Metafounders are related to Fst fixation
+#'   indices and reduce bias in single-step genomic evaluations. Genetics Selection
+#'   Evolution 49:34.
+#'
+#'   Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
+#'   Ancestral relationships using metafounders: finite ancestral populations and across
+#'   population relationships. Genetics 200:455-468.
 #' @export
 h_inverse <- function(pedigree, genotypes, blend = 0.05, apy_core = NULL,
                       vecchia_k = NULL, metafounders = NULL, gamma = NULL) {
   if (!is.data.frame(pedigree)) stop("expected a pedigree data.frame")
-  recusa_mf_genomico(metafounders, TRUE)
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
   nuc <- nucleo_apy(apy_core, genotypes)
   if (length(nuc) && !is.null(vecchia_k))
     stop("apy_core and vecchia_k are two approximations of the same inverse: declare one")
   cp <- colunas_pedigree(pedigree)
-  r <- .Call(R_h_inversa, cp$id, cp$sire, cp$dam, character(0), numeric(0),
+  confere_base_mf(cp$sire, cp$dam, metafounders, TRUE)
+  r <- .Call(R_h_inversa, cp$id, cp$sire, cp$dam,
+             if (is.null(metafounders)) character(0) else as.character(metafounders),
+             if (is.null(gamma)) numeric(0) else as.double(gamma),
              g$gid, g$gm, as.double(blend), as.character(nuc),
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k))
   r$apy <- attr(nuc, "registro")

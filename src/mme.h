@@ -312,7 +312,7 @@ struct RelatorioG {
   std::vector<double> diag_gstar;
   std::vector<std::size_t> linha_ped;
 };
-Densa vanraden_g(Densa&, RelatorioG&);
+Densa vanraden_g(Densa&, RelatorioG&, bool meio = false);
 Densa a22_inversa(const Csc&, const std::vector<std::size_t>&);
 Densa ajusta_g_para_a22(const Densa&, const Densa&, double);
 Csc constroi_hinv(const Csc&, const std::vector<std::size_t>&, const Densa&, const Densa&);
