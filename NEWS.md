@@ -285,9 +285,13 @@
   so the columns of one level are independent. Bit for bit the same with any
   number of threads. `selected_inverse()` with a dense tail of 3000 columns,
   1.89 to 1.14 s on 8 threads; the tail inverse inside a genomic evaluation 0.97
-  to 0.62 s. How much of the recurrence goes parallel depends on the pedigree: in
-  a genomic fit with 5000 animals outside the tail, 10 of 194 levels held 1954
-  columns, and the recurrence time did not change.
+  to 0.62 s. The levels near the tail are narrow and their columns wide (in a
+  genomic fit with 5000 animals outside the tail, 10 of 194 levels held 1954
+  columns), so a column of 256 rows or more is also split, in fixed pieces of 32
+  columns summed in piece order; the split depends on the column only, so the
+  bits stay the same with any number of threads. A genomic fit of three
+  iterations on 8000 animals with 3000 genotyped took 31.9 s and takes 16.4 s on
+  8 threads, and 94.0 against 91.2 s on 1 thread (median of 3).
 * `sparse_chol()`, `sparse_solve()` and `selected_inverse()` keep the ordering and
   the symbolic analysis of the last four patterns they saw, so the Newton loops of
   `model_threshold()` and `model_survival()`, which call them with one pattern and

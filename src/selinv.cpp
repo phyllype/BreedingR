@@ -131,6 +131,14 @@ SelInv inversa_seletiva(const Csc& L, std::size_t bloco = 0) {
   // mesmo nivel (mesma distancia ate a cauda ou a raiz) sao independentes; cada uma e feita
   // inteira por uma thread, com a mesma ordem de soma do laco serial, entao o resultado e bit
   // a bit o mesmo com qualquer numero de threads.
+  //
+  // E DENTRO da coluna, quando ela e larga. Os niveis estreitos ficam perto da cauda, onde as
+  // colunas tem centenas ou milhares de linhas, e sao eles que pesam: num passo unico com
+  // 3000 genotipados so 10 de 194 niveis tinham 64 colunas ou mais. A soma dupla de uma
+  // coluna com m >= COLUNA_LARGA linhas e cortada em pedacos FIXOS de PEDACO colunas c; cada
+  // pedaco acumula no seu proprio vetor e os vetores sao somados na ordem dos pedacos. O
+  // corte depende so de m, nunca do numero de threads, entao a soma tem a mesma ordem com 1
+  // ou 8 threads e o resultado continua bit a bit o mesmo.
   const std::size_t primeiro = (t >= 2) ? inicio : n;
   std::vector<std::uint32_t> nivel(primeiro, 0);
   std::uint32_t maior = 0;
@@ -153,11 +161,30 @@ SelInv inversa_seletiva(const Csc& L, std::size_t bloco = 0) {
 
   struct Rascunho {
     std::vector<std::uint32_t> marca, ondice, linhas;
-    std::vector<double> acc, vals;
+    std::vector<double> acc, vals, pedacos;
     std::uint32_t selo = 0;
   };
+  constexpr std::size_t COLUNA_LARGA = 256, PEDACO = 32;
   std::vector<Rascunho> rasc(static_cast<std::size_t>(std::max(1, nth)));
-  auto coluna = [&](std::size_t j, Rascunho& r) {
+  // as contribuicoes das colunas c = linhas[ic], ic em [i0, i1), somadas em a
+  auto parcial = [&](const Rascunho& r, std::size_t i0, std::size_t i1, double* a) {
+    const std::uint32_t ultima = r.linhas.back();
+    for (std::size_t ic = i0; ic < i1; ic++) {
+      const std::size_t c = r.linhas[ic];
+      const double lc = r.vals[ic];
+      for (std::size_t p = z.colptr[c]; p < z.colptr[c + 1]; p++) {
+        const std::uint32_t rr = z.linha[p];
+        if (rr > ultima) break;                // a coluna esta ordenada
+        if (r.marca[rr] != r.selo) continue;
+        const std::size_t ir = r.ondice[rr];
+        const double zv = z.valor[p];
+        if (ir == ic) a[ic] += zv * lc;
+        else { a[ir] += zv * lc; a[ic] += zv * r.vals[ir]; }
+      }
+    }
+  };
+  // nt_dentro > 1 so quando a coluna e chamada fora de uma regiao paralela
+  auto coluna = [&](std::size_t j, Rascunho& r, int nt_dentro) {
     if (r.marca.empty()) { r.marca.assign(n, 0); r.ondice.assign(n, 0); r.acc.assign(n, 0.0); }
     const std::size_t lo = L.colptr[j], hi = L.colptr[j + 1];
     const double djj = L.valor[lo];
@@ -176,18 +203,29 @@ SelInv inversa_seletiva(const Csc& L, std::size_t bloco = 0) {
       r.ondice[r.linhas[idx]] = static_cast<std::uint32_t>(idx);
       r.acc[idx] = 0.0;
     }
-    const std::uint32_t ultima = r.linhas.back();
-    for (std::size_t ic = 0; ic < m; ic++) {
-      const std::size_t c = r.linhas[ic];
-      const double lc = r.vals[ic];
-      for (std::size_t p = z.colptr[c]; p < z.colptr[c + 1]; p++) {
-        const std::uint32_t rr = z.linha[p];
-        if (rr > ultima) break;                // a coluna esta ordenada
-        if (r.marca[rr] != r.selo) continue;
-        const std::size_t ir = r.ondice[rr];
-        const double zv = z.valor[p];
-        if (ir == ic) r.acc[ic] += zv * lc;
-        else { r.acc[ir] += zv * lc; r.acc[ic] += zv * r.vals[ir]; }
+    if (m < COLUNA_LARGA) {
+      parcial(r, 0, m, r.acc.data());
+    } else {
+      const std::size_t np = (m + PEDACO - 1) / PEDACO;
+      if (r.pedacos.size() < np * m) r.pedacos.resize(np * m);
+      double* pd = r.pedacos.data();
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(nt_dentro) if (nt_dentro > 1) schedule(dynamic, 1)
+#endif
+      for (long k = 0; k < static_cast<long>(np); k++) {
+        const std::size_t kk = static_cast<std::size_t>(k);
+        double* a = pd + kk * m;
+        std::fill(a, a + m, 0.0);
+        parcial(r, kk * PEDACO, std::min(m, (kk + 1) * PEDACO), a);
+      }
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(nt_dentro) if (nt_dentro > 1) schedule(static)
+#endif
+      for (long ii = 0; ii < static_cast<long>(m); ii++) {
+        const std::size_t idx = static_cast<std::size_t>(ii);
+        double t = 0.0;
+        for (std::size_t k = 0; k < np; k++) t += pd[k * m + idx];
+        r.acc[idx] = t;
       }
     }
     for (std::size_t idx = 0; idx < m; idx++) z.valor[lo + 1 + idx] = -r.acc[idx];
@@ -198,7 +236,7 @@ SelInv inversa_seletiva(const Csc& L, std::size_t bloco = 0) {
   for (std::size_t v = 0; v + 1 < ini_nivel.size(); v++) {
     const std::size_t a = ini_nivel[v], b = ini_nivel[v + 1];
     if (b - a < 64 || nth <= 1) {
-      for (std::size_t q = a; q < b; q++) coluna(por_nivel[q], rasc[0]);
+      for (std::size_t q = a; q < b; q++) coluna(por_nivel[q], rasc[0], nth);
       continue;
     }
 #ifdef _OPENMP
@@ -212,7 +250,7 @@ SelInv inversa_seletiva(const Csc& L, std::size_t bloco = 0) {
       Rascunho& r = rasc[0];
 #endif
       for (long q = static_cast<long>(a); q < static_cast<long>(b); q++)
-        coluna(por_nivel[static_cast<std::size_t>(q)], r);
+        coluna(por_nivel[static_cast<std::size_t>(q)], r, 1);
     }
   }
 

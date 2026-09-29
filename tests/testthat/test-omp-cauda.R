@@ -10,7 +10,9 @@
 # (7) o pedido de threads nao passa do OMP_THREAD_LIMIT do ambiente; (8) a inversa densa
 # grande em ladrilhos e exata, igual com 1 e 4 threads, e bate com a rota do LAPACK; (9) o
 # Z Z' da G em ladrilhos (varios blocos de marcadores) e os produtos da APY: H^-1 exata
-# contra a formula, identica entre 1 e 4 threads, e a rota do BLAS a 1e-9.
+# contra a formula, identica entre 1 e 4 threads, e a rota do BLAS a 1e-9; (10) a recorrencia
+# por niveis; (11) a coluna LARGA (256 linhas ou mais) cortada em pedacos fixos, num nivel
+# estreito (paralela dentro da coluna) e num largo (em serie dentro da thread).
 
 matriz_com_cauda <- function(n_esp, T, seed = 7, pd = TRUE) {
   set.seed(seed)
@@ -195,6 +197,39 @@ test_that("a recorrencia da inversa seletiva por niveis: exata e a mesma com 1 e
   cadeia <- (nl + 1):(nl + nc)                   # cadeia: cada no liga ao seguinte
   i <- c(i, cadeia[-1], cauda[1]); j <- c(j, cadeia[-nc], cadeia[nc])
   x <- c(x, rep(-0.5, nc - 1), 0.3)
+  a <- list(i = i, j = j, x = x, n = n)
+  A <- matrix(0, n, n); A[cbind(i, j)] <- x; A[cbind(j, i)] <- x
+  antes <- br_threads()
+  on.exit(br_threads(antes$threads, lapack = antes$lapack))
+  br_threads(1); s1 <- selected_inverse(a)
+  br_threads(4); s4 <- selected_inverse(a)
+  expect_identical(s1$x, s4$x)
+  Ai <- solve(A)
+  expect_lt(max(abs(s1$x - Ai[cbind(s1$i, s1$j)])), 1e-10)
+})
+
+test_that("a coluna larga da recorrencia: exata e a mesma com 1 e 4 threads", {
+  # 70 folhas ligadas a 300 nos de uma cauda de 400 (colunas de 300 linhas num nivel largo) e
+  # uma cadeia de 5 nos, cada um ligado a 280 nos da cauda (colunas largas em niveis
+  # estreitos, uma por nivel)
+  set.seed(31)
+  nf <- 70; nc <- 5; T <- 400
+  n <- nf + nc + T
+  cauda <- (nf + nc + 1):n
+  M <- matrix(stats::rnorm(T * (T + 3)), T); D <- tcrossprod(M) / T + 3 * diag(T)
+  lo <- which(lower.tri(D), arr.ind = TRUE)
+  i <- c(seq_len(n), cauda[lo[, 1]]); j <- c(seq_len(n), cauda[lo[, 2]])
+  x <- c(rep(40, nf + nc), diag(D), D[lo])
+  for (k in seq_len(nf)) {
+    alvo <- sample(cauda, 300)
+    i <- c(i, alvo); j <- c(j, rep(k, 300)); x <- c(x, stats::runif(300, -0.1, 0.1))
+  }
+  cadeia <- (nf + 1):(nf + nc)
+  for (k in cadeia) {
+    alvo <- sample(cauda, 280)
+    i <- c(i, alvo); j <- c(j, rep(k, 280)); x <- c(x, stats::runif(280, -0.1, 0.1))
+  }
+  i <- c(i, cadeia[-1]); j <- c(j, cadeia[-nc]); x <- c(x, rep(-0.5, nc - 1))
   a <- list(i = i, j = j, x = x, n = n)
   A <- matrix(0, n, n); A[cbind(i, j)] <- x; A[cbind(j, i)] <- x
   antes <- br_threads()
