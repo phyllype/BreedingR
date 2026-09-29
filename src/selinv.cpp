@@ -20,6 +20,9 @@
 // Aqui o fator e L L', entao D[j] = L[j,j]^2 e a unitaria e L~[k,j] = L[k,j] / L[j,j].
 
 #include "mme.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace br {
 
@@ -89,26 +92,32 @@ SelInv inversa_seletiva(const Csc& L, std::size_t bloco = 0) {
   //
   // Para um bloco final denso T o complemento de Schur e exatamente L[T,T] L[T,T]', logo
   // Z[T,T] = inv(L[T,T] L[T,T]'). Como L[T,T] JA E o fator desse produto, formar o produto
-  // e fatorar de novo seria fazer a mesma fatoracao duas vezes.
+  // e fatorar de novo seria fazer a mesma fatoracao duas vezes. O bloco vai ao nucleo
+  // compactado em ladrilhos (inversa_empacotada), em paralelo: copiado das entradas de L
+  // (zero onde o padrao nao tem entrada, quando `bloco` pede mais que a cauda densa) e
+  // devolvido so nas posicoes do padrao.
+  const int nth = threads();
   if (t >= 2) {
-    Densa ltt(t, t);
+    std::vector<std::size_t> off(t + 1, 0);
+    for (std::size_t j = 0; j < t; j++) off[j + 1] = off[j] + (t - j);
+    std::vector<double> lp(off[t], 0.0), zp(off[t]);
     for (std::size_t j = inicio; j < n; j++)
       for (std::size_t p = L.colptr[j]; p < L.colptr[j + 1]; p++) {
         const std::size_t i = L.linha[p];
-        if (i >= inicio) ltt.at(i - inicio, j - inicio) = L.valor[p];
+        if (i >= inicio) lp[off[j - inicio] + (i - j)] = L.valor[p];
       }
-    Densa zt = inv_do_fator(ltt);
+    inversa_empacotada(lp.data(), t, zp.data(), nth);
     for (std::size_t j = inicio; j < n; j++)
       for (std::size_t p = L.colptr[j]; p < L.colptr[j + 1]; p++) {
         const std::size_t i = L.linha[p];
-        if (i >= inicio) z.valor[p] = zt.at(i - inicio, j - inicio);
+        if (i >= inicio) z.valor[p] = zp[off[j - inicio] + (i - j)];
       }
   }
 
   // Recorrencia para cima nas colunas restantes.
   //
   // A leitura ingenua da identidade pede, para cada par ORDENADO (i,k) de linhas abaixo da
-  // diagonal, o elemento Z[max,min] — e acha-lo por busca binaria custa m^2 log sondagens
+  // diagonal, o elemento Z[max,min], e acha-lo por busca binaria custa m^2 log sondagens
   // aleatorias numa coluna com m elementos. Nao precisa: a coluna c guarda Z[r,c] para r >= c
   // em ordem crescente, e pela simetria esse UNICO elemento serve aos dois pares ordenados.
   // Percorrer as colunas guardadas com um vetor de selo dizendo quais linhas estao no padrao
@@ -116,53 +125,95 @@ SelInv inversa_seletiva(const Csc& L, std::size_t bloco = 0) {
   //
   // Um par fora do padrao continua contribuindo zero, que e a mesma semantica que a busca
   // binaria tinha ao nao encontrar.
-  std::vector<std::uint32_t> marca(n, 0), ondice(n, 0);
-  std::uint32_t selo = 0;
-  std::vector<double> acc(n, 0.0);
-  std::vector<std::uint32_t> linhas;
-  std::vector<double> vals;
-
+  //
+  // Em paralelo POR NIVEL da arvore de eliminacao: a coluna j le so as colunas das linhas do
+  // seu padrao, que sao ancestrais dela na arvore, e escreve so a propria coluna. Colunas do
+  // mesmo nivel (mesma distancia ate a cauda ou a raiz) sao independentes; cada uma e feita
+  // inteira por uma thread, com a mesma ordem de soma do laco serial, entao o resultado e bit
+  // a bit o mesmo com qualquer numero de threads.
   const std::size_t primeiro = (t >= 2) ? inicio : n;
+  std::vector<std::uint32_t> nivel(primeiro, 0);
+  std::uint32_t maior = 0;
   for (std::size_t j = primeiro; j-- > 0;) {
+    const std::size_t lo = L.colptr[j], hi = L.colptr[j + 1];
+    if (hi - lo > 1) {
+      const std::size_t pai = L.linha[lo + 1];
+      nivel[j] = pai >= primeiro ? 0 : nivel[pai] + 1;
+    }
+    maior = std::max(maior, nivel[j]);
+  }
+  std::vector<std::size_t> ini_nivel(static_cast<std::size_t>(maior) + 2, 0);
+  for (std::size_t j = 0; j < primeiro; j++) ini_nivel[nivel[j] + 1]++;
+  for (std::size_t v = 0; v + 1 < ini_nivel.size(); v++) ini_nivel[v + 1] += ini_nivel[v];
+  std::vector<std::size_t> por_nivel(primeiro);
+  {
+    std::vector<std::size_t> pos = ini_nivel;
+    for (std::size_t j = primeiro; j-- > 0;) por_nivel[pos[nivel[j]]++] = j;
+  }
+
+  struct Rascunho {
+    std::vector<std::uint32_t> marca, ondice, linhas;
+    std::vector<double> acc, vals;
+    std::uint32_t selo = 0;
+  };
+  std::vector<Rascunho> rasc(static_cast<std::size_t>(std::max(1, nth)));
+  auto coluna = [&](std::size_t j, Rascunho& r) {
+    if (r.marca.empty()) { r.marca.assign(n, 0); r.ondice.assign(n, 0); r.acc.assign(n, 0.0); }
     const std::size_t lo = L.colptr[j], hi = L.colptr[j + 1];
     const double djj = L.valor[lo];
     const double d = djj * djj;
-
-    linhas.clear();
-    vals.clear();
+    r.linhas.clear();
+    r.vals.clear();
     for (std::size_t p = lo + 1; p < hi; p++) {
-      linhas.push_back(L.linha[p]);
-      vals.push_back(L.valor[p] / djj);
+      r.linhas.push_back(L.linha[p]);
+      r.vals.push_back(L.valor[p] / djj);
     }
-    const std::size_t m = linhas.size();
-    if (m == 0) { z.valor[lo] = 1.0 / d; continue; }
-
-    selo++;
+    const std::size_t m = r.linhas.size();
+    if (m == 0) { z.valor[lo] = 1.0 / d; return; }
+    r.selo++;
     for (std::size_t idx = 0; idx < m; idx++) {
-      marca[linhas[idx]] = selo;
-      ondice[linhas[idx]] = static_cast<std::uint32_t>(idx);
-      acc[idx] = 0.0;
+      r.marca[r.linhas[idx]] = r.selo;
+      r.ondice[r.linhas[idx]] = static_cast<std::uint32_t>(idx);
+      r.acc[idx] = 0.0;
     }
-    const std::uint32_t ultima = linhas.back();
-
+    const std::uint32_t ultima = r.linhas.back();
     for (std::size_t ic = 0; ic < m; ic++) {
-      const std::size_t c = linhas[ic];
-      const double lc = vals[ic];
+      const std::size_t c = r.linhas[ic];
+      const double lc = r.vals[ic];
       for (std::size_t p = z.colptr[c]; p < z.colptr[c + 1]; p++) {
-        const std::uint32_t r = z.linha[p];
-        if (r > ultima) break;               // a coluna esta ordenada
-        if (marca[r] != selo) continue;
-        const std::size_t ir = ondice[r];
+        const std::uint32_t rr = z.linha[p];
+        if (rr > ultima) break;                // a coluna esta ordenada
+        if (r.marca[rr] != r.selo) continue;
+        const std::size_t ir = r.ondice[rr];
         const double zv = z.valor[p];
-        if (ir == ic) acc[ic] += zv * lc;
-        else { acc[ir] += zv * lc; acc[ic] += zv * vals[ir]; }
+        if (ir == ic) r.acc[ic] += zv * lc;
+        else { r.acc[ir] += zv * lc; r.acc[ic] += zv * r.vals[ir]; }
       }
     }
-
-    for (std::size_t idx = 0; idx < m; idx++) z.valor[lo + 1 + idx] = -acc[idx];
+    for (std::size_t idx = 0; idx < m; idx++) z.valor[lo + 1 + idx] = -r.acc[idx];
     double dg = 0.0;
-    for (std::size_t idx = 0; idx < m; idx++) dg += vals[idx] * z.valor[lo + 1 + idx];
+    for (std::size_t idx = 0; idx < m; idx++) dg += r.vals[idx] * z.valor[lo + 1 + idx];
     z.valor[lo] = 1.0 / d - dg;
+  };
+  for (std::size_t v = 0; v + 1 < ini_nivel.size(); v++) {
+    const std::size_t a = ini_nivel[v], b = ini_nivel[v + 1];
+    if (b - a < 64 || nth <= 1) {
+      for (std::size_t q = a; q < b; q++) coluna(por_nivel[q], rasc[0]);
+      continue;
+    }
+#ifdef _OPENMP
+#pragma omp parallel num_threads(nth)
+#endif
+    {
+#ifdef _OPENMP
+      Rascunho& r = rasc[static_cast<std::size_t>(omp_get_thread_num())];
+#pragma omp for schedule(dynamic, 16)
+#else
+      Rascunho& r = rasc[0];
+#endif
+      for (long q = static_cast<long>(a); q < static_cast<long>(b); q++)
+        coluna(por_nivel[static_cast<std::size_t>(q)], r);
+    }
   }
 
   return z;

@@ -123,8 +123,9 @@ Csc de_triplos(std::size_t nlin, std::size_t ncol,
 // falha a reportar como tal.
 bool chol_densa(Densa& s);
 
-// inv(L L') a partir de L triangular inferior, sem nunca formar L L'.
-Densa inv_do_fator(const Densa& l);
+// inv(L L') a partir de L, os dois no triangulo inferior compactado por coluna (coluna j =
+// linhas j..n-1 em sequencia), em ladrilhos e em paralelo (estruturas.cpp)
+void inversa_empacotada(const double* l, std::size_t n, double* z, int nth);
 
 // Inversa de uma simetrica positiva-definida, pela Cholesky.
 Densa inv_pd(const Densa& s);

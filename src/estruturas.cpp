@@ -89,101 +89,14 @@ bool chol_densa(Densa& s) {
   return info == 0;
 }
 
-Densa inv_do_fator(const Densa& l) {
-  const std::size_t n = l.nlin;
-  if (l.ncol != n) throw Erro("factor is not square");
-  if (n == 0) return Densa();
-  for (std::size_t i = 0; i < n; i++)
-    if (l.at(i, i) == 0.0) throw Erro("singular factor: zero diagonal");
-
-  // L^-1, coluna a coluna em rascunho contiguo. As colunas sao independentes: cada thread
-  // faz as suas inteiras, com o proprio rascunho, na mesma ordem de soma do laco serial.
-  Densa inv(n, n);
-  const int nth = threads();
-#ifdef _OPENMP
-#pragma omp parallel num_threads(nth)
-#endif
-  {
-    std::vector<double> col(n, 0.0);
-#ifdef _OPENMP
-#pragma omp for schedule(dynamic, 8)
-#endif
-    for (long jj = 0; jj < static_cast<long>(n); jj++) {
-      const std::size_t j = static_cast<std::size_t>(jj);
-      col[j] = 1.0 / l.at(j, j);
-      for (std::size_t i = j + 1; i < n; i++) {
-        const double* ri = l.linha(i);
-        double acc = 0.0;
-        for (std::size_t k = j; k < i; k++) acc += ri[k] * col[k];
-        col[i] = -acc / ri[i];
-      }
-      for (std::size_t i = j; i < n; i++) inv.at(i, j) = col[i];
-    }
-  }
-
-  // S^-1 = (L^-1)' (L^-1), LADRILHADO.
-  //
-  // A versao linha a linha le o triangulo inferior inteiro da saida a cada linha de L^-1,
-  // o que da n^3/2 doubles de trafego. A aritmetica e a mesma n^3/6 nos dois casos, logo o
-  // custo nunca foi de conta: e de memoria. Tres ladrilhos ficam em L2 enquanto o laco
-  // interno corre.
-  //
-  // Em paralelo, cada ladrilho (ib, jb) da SAIDA e de uma thread so e percorre kb em ordem
-  // crescente: a ordem de soma de cada entrada e a do laco serial (kb por fora), entao o
-  // resultado e bit a bit o mesmo com qualquer numero de threads.
-  const std::size_t B = 96;
-  const std::size_t nbl = (n + B - 1) / B;
-  Densa out(n, n);
-#ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic, 1) num_threads(nth)
-#endif
-  for (long t = 0; t < static_cast<long>(nbl * (nbl + 1) / 2); t++) {
-    std::size_t it = static_cast<std::size_t>((std::sqrt(8.0 * static_cast<double>(t) + 1.0) - 1.0) / 2.0);
-    while (it * (it + 1) / 2 > static_cast<std::size_t>(t)) it--;
-    while ((it + 1) * (it + 2) / 2 <= static_cast<std::size_t>(t)) it++;
-    const std::size_t ib = it * B, jb = (static_cast<std::size_t>(t) - it * (it + 1) / 2) * B;
-    const std::size_t iff = std::min(ib + B, n);
-    const std::size_t jf = std::min(jb + B, n);
-    for (std::size_t kb = ib; kb < n; kb += B) {
-      const std::size_t kf = std::min(kb + B, n);
-      for (std::size_t k = kb; k < kf; k++) {
-        const double* rk = inv.linha(k);
-        const std::size_t ihi = std::min(iff, k + 1);
-        for (std::size_t i = ib; i < ihi; i++) {
-          const double a = rk[i];
-          if (a == 0.0) continue;
-          const std::size_t jhi = std::min(jf, i + 1);
-          double* dst = out.linha(i);
-          for (std::size_t j = jb; j < jhi; j++) dst[j] += a * rk[j];
-        }
-      }
-    }
-  }
-  for (std::size_t i = 0; i < n; i++)
-    for (std::size_t j = 0; j < i; j++) out.at(j, i) = out.at(i, j);
-  return out;
-}
-
-// Inversa densa SPD em ladrilhos, em paralelo e determinista, para as matrizes grandes (a
-// G* e a A22 do passo unico). O LAPACK de referencia que o R traz no Windows roda numa
-// thread a ~1.5 GFlops, e as duas inversas n^3 dominavam o preparo com 3.000 genotipados.
-// (1) Cholesky pelo mesmo nucleo da cauda do fator esparso, no triangulo compactado por
-// coluna; (2) L^-1 por blocos de 64 colunas, substituicao para frente com as 64 de uma vez
-// (cada coluna de L lida uma vez por bloco, e nao uma vez por coluna de L^-1); (3)
-// S^-1 = L^-T L^-1 por produtos internos de colunas contiguas de L^-1, um ladrilho de saida
-// por thread. Cada numero tem um dono e soma em ordem fixa: bit a bit o mesmo com qualquer
-// numero de threads. Memoria: dois triangulos compactados e a saida, o mesmo n^2 + n^2 da
-// rota do LAPACK.
-static Densa inv_pd_ladrilhos(const Densa& s) {
-  const std::size_t n = s.nlin;
+// (L L')^-1 a partir de L, os dois no triangulo inferior COMPACTADO por coluna (coluna j =
+// linhas j..n-1 em sequencia): L^-1 por blocos de 64 colunas, substituicao para frente com
+// as 64 de uma vez, e Z = L^-T L^-1 por produtos internos de colunas contiguas de L^-1, um
+// ladrilho de saida por thread. E o mesmo nucleo da inversa densa grande e da forma fechada
+// do bloco denso final da inversa seletiva, onde o fator da cauda JA esta guardado assim.
+void inversa_empacotada(const double* l, std::size_t n, double* z, int nth) {
   std::vector<std::size_t> off(n + 1, 0);
   for (std::size_t j = 0; j < n; j++) off[j + 1] = off[j] + (n - j);
-  std::vector<double> l(off[n]);
-  for (std::size_t j = 0; j < n; j++)
-    for (std::size_t i = j; i < n; i++) l[off[j] + (i - j)] = s.at(i, j);
-  const int nth = threads();
-  if (!cholesky_empacotada(l, n, nth)) throw Erro("the matrix is not positive-definite");
-
   const std::size_t LB = 64;
   const std::size_t nbl = (n + LB - 1) / LB;
   std::vector<double> li(off[n], 0.0);
@@ -202,7 +115,7 @@ static Densa inv_pd_ladrilhos(const Densa& s) {
       x.assign((n - j0) * w, 0.0);
       for (std::size_t c = 0; c < w; c++) x[c * w + c] = 1.0;
       for (std::size_t k = j0; k < n; k++) {
-        const double* lk = &l[off[k]];          // coluna k de L, linhas k..n-1
+        const double* lk = l + off[k];          // coluna k de L, linhas k..n-1
         double* xk = &x[(k - j0) * w];
         const double dk = lk[0];
         for (std::size_t c = 0; c < w; c++) xk[c] /= dk;
@@ -220,8 +133,6 @@ static Densa inv_pd_ladrilhos(const Densa& s) {
       }
     }
   }
-
-  Densa out(n, n);
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic, 1) num_threads(nth)
 #endif
@@ -237,13 +148,48 @@ static Densa inv_pd_ladrilhos(const Densa& s) {
       const std::size_t jf = std::min(j1, i + 1);
       for (std::size_t j = j0; j < jf; j++) {
         const double* cj = &li[off[j]] + (i - j);        // L^-1(i.., j)
-        double acc = 0.0;
-        for (std::size_t k = 0; k < n - i; k++) acc += ci[k] * cj[k];
-        out.at(i, j) = acc;
-        out.at(j, i) = acc;
+        // quatro acumuladores independentes: a soma unica e uma cadeia presa na latencia da
+        // adicao; a ordem continua fixa, a mesma com qualquer numero de threads
+        const std::size_t len = n - i;
+        double a0 = 0.0, a1 = 0.0, a2 = 0.0, a3 = 0.0;
+        std::size_t k = 0;
+        for (; k + 4 <= len; k += 4) {
+          a0 += ci[k] * cj[k];
+          a1 += ci[k + 1] * cj[k + 1];
+          a2 += ci[k + 2] * cj[k + 2];
+          a3 += ci[k + 3] * cj[k + 3];
+        }
+        for (; k < len; k++) a0 += ci[k] * cj[k];
+        z[off[j] + (i - j)] = (a0 + a1) + (a2 + a3);
       }
     }
   }
+}
+
+// Inversa densa SPD em ladrilhos, em paralelo e determinista, para as matrizes grandes (a
+// G* e a A22 do passo unico). O LAPACK de referencia que o R traz no Windows roda numa
+// thread a ~1.5 GFlops, e as duas inversas n^3 dominavam o preparo com 3.000 genotipados.
+// Cholesky pelo mesmo nucleo da cauda do fator esparso, no triangulo compactado por coluna,
+// e depois inversa_empacotada(). Cada numero tem um dono e soma em ordem fixa: bit a bit o
+// mesmo com qualquer numero de threads.
+static Densa inv_pd_ladrilhos(const Densa& s) {
+  const std::size_t n = s.nlin;
+  std::vector<std::size_t> off(n + 1, 0);
+  for (std::size_t j = 0; j < n; j++) off[j + 1] = off[j] + (n - j);
+  std::vector<double> l(off[n]);
+  for (std::size_t j = 0; j < n; j++)
+    for (std::size_t i = j; i < n; i++) l[off[j] + (i - j)] = s.at(i, j);
+  const int nth = threads();
+  if (!cholesky_empacotada(l, n, nth)) throw Erro("the matrix is not positive-definite");
+  std::vector<double> zp(off[n]);
+  inversa_empacotada(l.data(), n, zp.data(), nth);
+  Densa out(n, n);
+  for (std::size_t j = 0; j < n; j++)
+    for (std::size_t i = j; i < n; i++) {
+      const double v = zp[off[j] + (i - j)];
+      out.at(i, j) = v;
+      out.at(j, i) = v;
+    }
   return out;
 }
 

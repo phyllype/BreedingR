@@ -256,6 +256,16 @@
 * In `model()`, `model_mt()`, `model_ar1()` and `gibbs()` the symmetric
   permutation of the mixed model equations is a stored map of values from the
   second evaluation on, instead of a new sort by triplets at each one.
+* The selected inverse (every PEV and every AI-REML trace reads it) takes the
+  closed form of the dense tail straight from the packed factor, on the same
+  parallel kernel as the dense inverses, and runs the recurrence of the other
+  columns by levels of the elimination tree: a column reads only its ancestors,
+  so the columns of one level are independent. Bit for bit the same with any
+  number of threads. `selected_inverse()` with a dense tail of 3000 columns,
+  1.89 to 1.14 s on 8 threads; the tail inverse inside a genomic evaluation 0.97
+  to 0.62 s. How much of the recurrence goes parallel depends on the pedigree: in
+  a genomic fit with 5000 animals outside the tail, 10 of 194 levels held 1954
+  columns, and the recurrence time did not change.
 * `sparse_chol()`, `sparse_solve()` and `selected_inverse()` keep the ordering and
   the symbolic analysis of the last four patterns they saw, so the Newton loops of
   `model_threshold()` and `model_survival()`, which call them with one pattern and

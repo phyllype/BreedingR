@@ -173,3 +173,35 @@ test_that("o Z Z' em ladrilhos (G de VanRaden, varios blocos de marcadores) e a 
   expect_lt(max(abs(h_inverse(ped, geno)$x - h1$x)), 1e-9)
   expect_lt(max(abs(h_inverse(ped, geno, apy_core = gid[seq(1, 301, by = 3)])$x - a1$x)), 1e-9)
 })
+
+test_that("a recorrencia da inversa seletiva por niveis: exata e a mesma com 1 e 4 threads", {
+  # 2000 nos ligados so a cauda (sem ligacao entre si): todos no mesmo nivel da arvore de
+  # eliminacao, o caso em que a recorrencia corre em paralelo; mais uma cadeia curta, que
+  # corre em serie, no mesmo fator
+  set.seed(29)
+  nl <- 2000; T <- 150; nc <- 40
+  n <- nl + nc + T
+  cauda <- (nl + nc + 1):n
+  i <- c(seq_len(n)); j <- c(seq_len(n)); x <- c(rep(6, nl + nc), rep(0, T))
+  M <- matrix(stats::rnorm(T * (T + 3)), T); D <- tcrossprod(M) / T + 3 * diag(T)
+  lo <- which(lower.tri(D, diag = TRUE), arr.ind = TRUE)
+  x[cauda] <- diag(D)
+  fora <- lo[lo[, 1] != lo[, 2], , drop = FALSE]
+  i <- c(i, cauda[fora[, 1]]); j <- c(j, cauda[fora[, 2]]); x <- c(x, D[fora])
+  for (k in seq_len(nl)) {                       # cada folha liga a 3 nos da cauda
+    alvo <- sample(cauda, 3)
+    i <- c(i, alvo); j <- c(j, rep(k, 3)); x <- c(x, stats::runif(3, -0.4, 0.4))
+  }
+  cadeia <- (nl + 1):(nl + nc)                   # cadeia: cada no liga ao seguinte
+  i <- c(i, cadeia[-1], cauda[1]); j <- c(j, cadeia[-nc], cadeia[nc])
+  x <- c(x, rep(-0.5, nc - 1), 0.3)
+  a <- list(i = i, j = j, x = x, n = n)
+  A <- matrix(0, n, n); A[cbind(i, j)] <- x; A[cbind(j, i)] <- x
+  antes <- br_threads()
+  on.exit(br_threads(antes$threads, lapack = antes$lapack))
+  br_threads(1); s1 <- selected_inverse(a)
+  br_threads(4); s4 <- selected_inverse(a)
+  expect_identical(s1$x, s4$x)
+  Ai <- solve(A)
+  expect_lt(max(abs(s1$x - Ai[cbind(s1$i, s1$j)])), 1e-10)
+})
