@@ -108,7 +108,7 @@ static std::vector<double> kinv_vezes(const Csc& k, const double* u, std::size_t
 Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
                  CacheSimbolica* cache) {
   Avaliacao A;
-  Montado M = monta_mme(d, theta);
+  Montado M = monta_mme(d, theta, cache);
   if (!M.ok) return A;
 
   CacheSimbolica local;
@@ -236,18 +236,7 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
       for (std::size_t b = 0; b < dim; b++) {
         double s = 0.0;
         if (d.kinv[g].ncol > 0) {
-          const Csc& k = d.kinv[g];
-          for (std::size_t c = 0; c < nl; c++)
-            for (std::size_t p = k.colptr[c]; p < k.colptr[c + 1]; p++) {
-              const std::size_t r = k.linha[p];
-              double zv;
-              if (z_orig(off + a * nl + r, off + b * nl + c, zv)) s += k.valor[p] * zv;
-              else A.fora_do_padrao++;
-              if (r != c) {
-                if (z_orig(off + a * nl + c, off + b * nl + r, zv)) s += k.valor[p] * zv;
-                else A.fora_do_padrao++;
-              }
-            }
+          s = traco_kinv(d.kinv[g], nl, off + a * nl, off + b * nl, z_orig, A.fora_do_padrao);
         } else {
           for (std::size_t l = 0; l < nl; l++) {
             double zv;
@@ -1229,7 +1218,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // entao [C_s^-1]_ii ja e PEV_i / s2e, a multiplicacao devolve a escala absoluta. Sem
   // esse fator a acuracia sai sistematicamente errada e ainda parece plausivel.
   {
-    Montado M = monta_mme(d, theta);
+    Montado M = monta_mme(d, theta, &cs);
     if (M.ok) {
       if (!cs.pronto) {
         cs.perm = grau_minimo(M.c);

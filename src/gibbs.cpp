@@ -179,7 +179,7 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
       imprime_theta(theta, d.modelo.nomes_theta(), d.modelo);
     }
     // ---- 1. localizacoes: (b, u) ~ N(solucao, s2e C_s^-1)
-    Montado M = monta_mme(d, theta);
+    Montado M = monta_mme(d, theta, &cs);
     if (!M.ok) { S.mensagem = "theta INADMISSIBLE inside the chain"; break; }
     if (total_cols == 0) {
       total_cols = M.total;

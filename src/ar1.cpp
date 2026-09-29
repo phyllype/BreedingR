@@ -431,18 +431,7 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
       for (std::size_t b = 0; b < dim; b++) {
         double s = 0.0;
         if (d.kinv[g].ncol > 0) {
-          const Csc& k = d.kinv[g];
-          for (std::size_t c = 0; c < nl; c++)
-            for (std::size_t p = k.colptr[c]; p < k.colptr[c + 1]; p++) {
-              const std::size_t r = k.linha[p];
-              double zv;
-              if (z_orig(off + a * nl + r, off + b * nl + c, zv)) s += k.valor[p] * zv;
-              else A.fora_do_padrao++;
-              if (r != c) {
-                if (z_orig(off + a * nl + c, off + b * nl + r, zv)) s += k.valor[p] * zv;
-                else A.fora_do_padrao++;
-              }
-            }
+          s = traco_kinv(d.kinv[g], nl, off + a * nl, off + b * nl, z_orig, A.fora_do_padrao);
         } else {
           for (std::size_t l = 0; l < nl; l++) {
             double zv;

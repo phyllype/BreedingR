@@ -256,7 +256,16 @@ static std::vector<std::vector<std::pair<std::uint32_t, double>>> linhas_de(cons
   return out;
 }
 
-Montado monta_mme(const Desenho& d, const std::vector<double>& theta) {
+// Montagem das MME. W'W nao depende de theta nem de y e, com um cache (o ajuste AI-REML e a
+// cadeia de Gibbs passam o seu), e montada UMA vez com zeros explicitos nas posicoes da
+// penalidade, junto com a posicao de cada entrada da penalidade no padrao final; nas
+// avaliacoes seguintes so os valores da penalidade sao somados no lugar. W'y e refeito a cada
+// chamada, coluna a coluna: na cadeia probit y e a liabilidade, sorteada de novo a cada
+// iteracao NO MESMO desenho (guardar W'y deixava a cadeia com o y da primeira iteracao, e o
+// portao do probit pegou). O resultado e bit a bit o da montagem por triplos: cada posicao
+// superior recebe UMA entrada de penalidade, (soma dos dados + 0) + penalidade e a mesma soma
+// na mesma ordem, e cada entrada de W'y soma os registros na mesma ordem crescente.
+Montado monta_mme(const Desenho& d, const std::vector<double>& theta, CacheSimbolica* cache) {
   Montado M;
   M.s2e = theta[d.modelo.offset_residual];
   if (!(M.s2e > 0.0)) return M;          // inadmissivel: nao e resultado
@@ -269,61 +278,90 @@ Montado monta_mme(const Desenho& d, const std::vector<double>& theta) {
     acc += d.largura(g);
   }
   M.total = acc;
-
-  // (indice do aleatorio, primeira coluna global) por grupo, na ordem dos slots
-  std::vector<std::vector<std::pair<std::size_t, std::size_t>>> slots(d.modelo.grupos.size());
-  for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
-    std::size_t col = M.offset_grupo[g];
-    for (std::size_t t : d.modelo.grupos[g].termos)
-      for (std::size_t a = 0; a < d.aleatorios.size(); a++)
-        if (d.aleatorios[a].termo == t) {
-          slots[g].push_back({a, col});
-          col += d.aleatorios[a].z.ncol;
-        }
-  }
-
-  std::vector<std::vector<std::vector<std::pair<std::uint32_t, double>>>> zl;
-  for (const DesenhoTermo& a : d.aleatorios) zl.push_back(linhas_de(a.z));
+  const bool pronto = cache && cache->mont_dono == &d && cache->mont_base.ncol == M.total;
 
   std::vector<std::uint32_t> ti, tj;
   std::vector<double> tv;
-  M.rhs.assign(M.total, 0.0);
-  std::vector<std::pair<std::uint32_t, double>> lin;
-  lin.reserve(64);
-
-  for (std::size_t r = 0; r < d.nlin; r++) {
-    if (!d.usa[r]) continue;
-    lin.clear();
+  if (pronto) {
+    M.rhs.assign(M.total, 0.0);
     for (std::size_t j = 0; j < d.x.ncol; j++) {
-      const double v = d.x.at(r, j);
-      if (v != 0.0) lin.push_back({static_cast<std::uint32_t>(j), v});
+      double s = 0.0;
+      for (std::size_t r = 0; r < d.nlin; r++) {
+        if (!d.usa[r]) continue;
+        const double v = d.x.at(r, j);
+        if (v != 0.0) s += v * d.y[r];
+      }
+      M.rhs[j] = s;
     }
-    for (std::size_t g = 0; g < slots.size(); g++)
-      for (const auto& [a, col0] : slots[g])
-        for (const auto& [c, v] : zl[a][r])
-          lin.push_back({static_cast<std::uint32_t>(col0 + c), v});
+    for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
+      std::size_t col = M.offset_grupo[g];
+      for (std::size_t t : d.modelo.grupos[g].termos)
+        for (const DesenhoTermo& a : d.aleatorios)
+          if (a.termo == t) {
+            for (std::size_t c = 0; c < a.z.ncol; c++) {
+              double s = 0.0;
+              for (std::size_t p = a.z.colptr[c]; p < a.z.colptr[c + 1]; p++)
+                if (d.usa[a.z.linha[p]]) s += a.z.valor[p] * d.y[a.z.linha[p]];
+              M.rhs[col + c] = s;
+            }
+            col += a.z.ncol;
+          }
+    }
+  } else {
+    // (indice do aleatorio, primeira coluna global) por grupo, na ordem dos slots
+    std::vector<std::vector<std::pair<std::size_t, std::size_t>>> slots(d.modelo.grupos.size());
+    for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
+      std::size_t col = M.offset_grupo[g];
+      for (std::size_t t : d.modelo.grupos[g].termos)
+        for (std::size_t a = 0; a < d.aleatorios.size(); a++)
+          if (d.aleatorios[a].termo == t) {
+            slots[g].push_back({a, col});
+            col += d.aleatorios[a].z.ncol;
+          }
+    }
 
-    const double yv = d.y[r];
-    for (std::size_t p = 0; p < lin.size(); p++) {
-      M.rhs[lin[p].first] += lin[p].second * yv;
-      for (std::size_t q = p; q < lin.size(); q++) {
-        std::uint32_t i = lin[p].first, j = lin[q].first;
-        if (i > j) std::swap(i, j);
-        ti.push_back(i);
-        tj.push_back(j);
-        tv.push_back(lin[p].second * lin[q].second);
+    std::vector<std::vector<std::vector<std::pair<std::uint32_t, double>>>> zl;
+    for (const DesenhoTermo& a : d.aleatorios) zl.push_back(linhas_de(a.z));
+
+    M.rhs.assign(M.total, 0.0);
+    std::vector<std::pair<std::uint32_t, double>> lin;
+    lin.reserve(64);
+
+    for (std::size_t r = 0; r < d.nlin; r++) {
+      if (!d.usa[r]) continue;
+      lin.clear();
+      for (std::size_t j = 0; j < d.x.ncol; j++) {
+        const double v = d.x.at(r, j);
+        if (v != 0.0) lin.push_back({static_cast<std::uint32_t>(j), v});
+      }
+      for (std::size_t g = 0; g < slots.size(); g++)
+        for (const auto& [a, col0] : slots[g])
+          for (const auto& [c, v] : zl[a][r])
+            lin.push_back({static_cast<std::uint32_t>(col0 + c), v});
+
+      const double yv = d.y[r];
+      for (std::size_t p = 0; p < lin.size(); p++) {
+        M.rhs[lin[p].first] += lin[p].second * yv;
+        for (std::size_t q = p; q < lin.size(); q++) {
+          std::uint32_t i = lin[p].first, j = lin[q].first;
+          if (i > j) std::swap(i, j);
+          ti.push_back(i);
+          tj.push_back(j);
+          tv.push_back(lin[p].second * lin[q].second);
+        }
       }
     }
   }
 
-  // penalidade por grupo, so o triangulo superior
+  // os fatores da penalidade por grupo, e o inadmissivel antes de emitir qualquer coisa
+  std::vector<Densa> cinvs(d.modelo.grupos.size());
+  std::vector<std::size_t> nls(d.modelo.grupos.size(), 0);
   for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
     Densa cg = cov_grupo(d.modelo, theta, g);
     // escala por s2e: C_s = W'W + kron(C_g^-1 s2e, K^-1) e o sistema em unidades de s2e
     Densa cgs = cg;
     for (double& v : cgs.dados) v /= M.s2e;
-    Densa cinv;
-    try { cinv = inv_pd(cgs); } catch (const Erro&) { return M; }
+    try { cinvs[g] = inv_pd(cgs); } catch (const Erro&) { return M; }
     const double ld = logdet_pd(cgs);
     if (std::isnan(ld)) return M;
 
@@ -331,47 +369,81 @@ Montado monta_mme(const Desenho& d, const std::vector<double>& theta) {
         [&]{ for (const auto& a : d.aleatorios)
                if (a.termo == d.modelo.grupos[g].termos[0]) return a.n_niveis;
              return static_cast<std::size_t>(0); }();
+    nls[g] = nl;
     M.logdet_g += static_cast<double>(nl) * ld - static_cast<double>(d.modelo.grupos[g].dim) * d.kinv_logdet[g];
-
-    const std::size_t off = M.offset_grupo[g];
-    const bool com_k = d.kinv[g].ncol > 0;
-    for (std::size_t a = 0; a < d.modelo.grupos[g].dim; a++)
-      for (std::size_t b = 0; b < d.modelo.grupos[g].dim; b++) {
-        const double f = cinv.at(a, b);
-        // f == 0 NAO pula mais: a covariancia que comeca em zero ganharia um padrao
-        // menor na primeira avaliacao, e o cache da simbolica congelaria esse padrao
-        // errado para o ajuste inteiro. Zero explicito ocupa o slot e nao muda numero.
-        // EMITE A MATRIZ CHEIA E MANTEM SO gi <= gj, SEM TROCAR.
-        //
-        // A primeira versao trocava (swap) e espelhava: com o laco percorrendo a e b
-        // completos, cada posicao fora da diagonal era emitida DUAS vezes, e como a
-        // montagem soma duplicados, a penalidade saia dobrada. Uma penalidade dobrada
-        // ainda e simetrica e definida, converge, para o lugar errado. Mantendo so o
-        // triangulo sem trocar, a propria varredura completa de (a,b) garante que cada
-        // posicao superior da kron cheia e emitida exatamente uma vez.
-        auto poe = [&](std::size_t gi, std::size_t gj, double val) {
-          if (gi > gj) return;
-          ti.push_back(static_cast<std::uint32_t>(gi));
-          tj.push_back(static_cast<std::uint32_t>(gj));
-          tv.push_back(val);
-        };
-        if (com_k) {
-          const Csc& k = d.kinv[g];
-          for (std::size_t col = 0; col < k.ncol; col++)
-            for (std::size_t p = k.colptr[col]; p < k.colptr[col + 1]; p++) {
-              const std::size_t rk = k.linha[p];
-              // K^-1 vem no triangulo inferior: a matriz cheia tem (rk,col) e (col,rk)
-              poe(off + a * nl + rk, off + b * nl + col, f * k.valor[p]);
-              if (rk != col) poe(off + a * nl + col, off + b * nl + rk, f * k.valor[p]);
-            }
-        } else {
-          for (std::size_t l = 0; l < nl; l++)
-            poe(off + a * nl + l, off + b * nl + l, f);
-        }
-      }
   }
 
-  M.c = de_triplos(M.total, M.total, ti, tj, tv);
+  // A penalidade, emitida sempre na MESMA ordem: f(i, j, valor) para cada posicao do
+  // triangulo superior. f == 0 NAO pula: a covariancia que comeca em zero ganharia um padrao
+  // menor na primeira avaliacao, e o cache da simbolica congelaria esse padrao errado para o
+  // ajuste inteiro. Zero explicito ocupa o slot e nao muda numero. EMITE A MATRIZ CHEIA E
+  // MANTEM SO gi <= gj, SEM TROCAR: a primeira versao trocava (swap) e espelhava, e com o
+  // laco percorrendo a e b completos cada posicao fora da diagonal era emitida DUAS vezes; a
+  // montagem soma duplicados, e a penalidade saia dobrada (ainda simetrica e definida,
+  // converge, para o lugar errado). Mantendo so o triangulo sem trocar, a varredura completa
+  // de (a,b) emite cada posicao superior da kron cheia exatamente uma vez.
+  auto emite = [&](auto&& f) {
+    for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
+      const Densa& cinv = cinvs[g];
+      const std::size_t nl = nls[g], off = M.offset_grupo[g];
+      const bool com_k = d.kinv[g].ncol > 0;
+      for (std::size_t a = 0; a < d.modelo.grupos[g].dim; a++)
+        for (std::size_t b = 0; b < d.modelo.grupos[g].dim; b++) {
+          const double fab = cinv.at(a, b);
+          auto poe = [&](std::size_t gi, std::size_t gj, double val) {
+            if (gi > gj) return;
+            f(gi, gj, val);
+          };
+          if (com_k) {
+            const Csc& k = d.kinv[g];
+            for (std::size_t col = 0; col < k.ncol; col++)
+              for (std::size_t p = k.colptr[col]; p < k.colptr[col + 1]; p++) {
+                const std::size_t rk = k.linha[p];
+                // K^-1 vem no triangulo inferior: a matriz cheia tem (rk,col) e (col,rk)
+                poe(off + a * nl + rk, off + b * nl + col, fab * k.valor[p]);
+                if (rk != col) poe(off + a * nl + col, off + b * nl + rk, fab * k.valor[p]);
+              }
+          } else {
+            for (std::size_t l = 0; l < nl; l++)
+              poe(off + a * nl + l, off + b * nl + l, fab);
+          }
+        }
+    }
+  };
+
+  if (!cache) {
+    emite([&](std::size_t i, std::size_t j, double v) {
+      ti.push_back(static_cast<std::uint32_t>(i));
+      tj.push_back(static_cast<std::uint32_t>(j));
+      tv.push_back(v);
+    });
+    M.c = de_triplos(M.total, M.total, ti, tj, tv);
+    M.ok = true;
+    return M;
+  }
+  if (!pronto) {
+    emite([&](std::size_t i, std::size_t j, double) {
+      ti.push_back(static_cast<std::uint32_t>(i));
+      tj.push_back(static_cast<std::uint32_t>(j));
+      tv.push_back(0.0);
+    });
+    cache->mont_base = de_triplos(M.total, M.total, ti, tj, tv);
+    std::vector<std::uint32_t>().swap(ti);
+    std::vector<std::uint32_t>().swap(tj);
+    std::vector<double>().swap(tv);
+    const Csc& b = cache->mont_base;
+    cache->mont_pos.clear();
+    emite([&](std::size_t i, std::size_t j, double) {
+      const auto ini = b.linha.begin() + static_cast<std::ptrdiff_t>(b.colptr[j]);
+      const auto fim = b.linha.begin() + static_cast<std::ptrdiff_t>(b.colptr[j + 1]);
+      const auto it = std::lower_bound(ini, fim, static_cast<std::uint32_t>(i));
+      cache->mont_pos.push_back(static_cast<std::size_t>(it - b.linha.begin()));
+    });
+    cache->mont_dono = &d;
+  }
+  M.c = cache->mont_base;
+  std::size_t idx = 0;
+  emite([&](std::size_t, std::size_t, double v) { M.c.valor[cache->mont_pos[idx++]] += v; });
   M.ok = true;
   return M;
 }

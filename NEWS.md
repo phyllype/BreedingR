@@ -273,6 +273,14 @@
 
 ## Performance
 
+* The traces of the AI-REML score, `tr(K^-1 C^uu)` read from the selected inverse, run in
+  parallel over the columns of `K^-1`, with the partial sums added in column order (the same
+  result with any number of threads); `W'W` is assembled once per fit, and each evaluation
+  only adds the penalty in place, bit for bit the assembly by triplets. A genomic fit of
+  three iterations on 8000 animals with 3000 genotyped, 12.5 to 10.3 s (median of 3); a
+  Gibbs chain of 2000 iterations on 5100 animals barely moves (70.3 to 69.4 s), its time is
+  elsewhere. `W'y` is rebuilt at every call: in the probit chain `y` is the liability,
+  drawn again at each iteration in the same design.
 * Minimum degree ordering: a node set aside as dense now leaves the graph, and
   not only the queue, and at the start a node is dense when its degree passes
   both `10 sqrt(n)` (the AMD rule) and 0.8 of the 99th percentile of the degrees.

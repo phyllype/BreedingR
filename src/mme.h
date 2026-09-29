@@ -124,6 +124,12 @@ struct CacheSimbolica {
   bool com_mapa = false;
   std::vector<std::uint32_t> mapa;
   Csc permutada;
+  // a montagem das MME de um desenho (monta_mme): W'W com zeros explicitos nas posicoes da
+  // penalidade e a posicao de cada entrada da penalidade no padrao final (W'y nao: y muda
+  // entre chamadas na cadeia probit)
+  const void* mont_dono = nullptr;
+  Csc mont_base;
+  std::vector<std::size_t> mont_pos;
 };
 double logdet(const Csc&);
 std::vector<double> resolve(const Csc&, const std::vector<double>&);
@@ -219,7 +225,7 @@ void casa_niveis_nulos(const Modelo& m, const std::vector<DesenhoTermo*>& aleato
                        const Tabela& t, std::size_t nlin);
 void kinv_declarada(const Modelo&, const Grupo&, const std::vector<KernelDecl>*,
                     std::vector<Csc>&, std::vector<double>&);
-Montado monta_mme(const Desenho&, const std::vector<double>&);
+Montado monta_mme(const Desenho&, const std::vector<double>&, CacheSimbolica* = nullptr);
 Densa cov_grupo(const Modelo&, const std::vector<double>&, std::size_t);
 
 // ---- aireml.cpp: Cholesky of a small dense covariance group; false when not PD.
@@ -333,6 +339,41 @@ struct Genotipos {
   }
   void coluna(std::size_t j, double* out) const { trecho(j, 0, n, out); }
 };
+
+// tr(K^-1 Z_ab) lendo a inversa seletiva Z so onde K^-1 (triangulo inferior) tem nao-zero,
+// com os blocos a e b de Z nas colunas off_a e off_b. As colunas de K^-1 vao em paralelo, cada
+// uma com a sua soma parcial, e as parciais sao somadas na ordem das colunas: o mesmo
+// resultado com qualquer numero de threads. Um pedido fora do padrao do fator e CONTADO em
+// `fora`, nunca pulado em silencio (uma soma que pula termos nao e um traco).
+template <class Z>
+double traco_kinv(const Csc& k, std::size_t nl, std::size_t off_a, std::size_t off_b,
+                  const Z& z, std::size_t& fora) {
+  std::vector<double> parc(nl, 0.0);
+  std::vector<std::size_t> nf(nl, 0);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 64) num_threads(threads())
+#endif
+  for (long cc = 0; cc < static_cast<long>(nl); cc++) {
+    const std::size_t c = static_cast<std::size_t>(cc);
+    double s = 0.0;
+    std::size_t f = 0;
+    for (std::size_t p = k.colptr[c]; p < k.colptr[c + 1]; p++) {
+      const std::size_t r = k.linha[p];
+      double zv;
+      if (z(off_a + r, off_b + c, zv)) s += k.valor[p] * zv;
+      else f++;
+      if (r != c) {
+        if (z(off_a + c, off_b + r, zv)) s += k.valor[p] * zv;
+        else f++;
+      }
+    }
+    parc[c] = s;
+    nf[c] = f;
+  }
+  double s = 0.0;
+  for (std::size_t c = 0; c < nl; c++) { s += parc[c]; fora += nf[c]; }
+  return s;
+}
 
 struct RelatorioG {
   std::size_t n_imputados = 0;
