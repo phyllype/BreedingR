@@ -458,8 +458,8 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
       // que falta esta no R0 ele nao alcanca, e aceitar um ganho de 1e-8 so desvia um
       // caminho saudavel para um ponto de onde o passo AI nao sai (medido: uma celula
       // que certificava com decremento 1.3e-04 passou a parar em 8.4e-04). Com um piso
-      // relativo, o EM entra onde ele de fato resolve — a fronteira, onde o passo
-      // amortecido trava — e sai da frente onde nao resolve.
+      // relativo, o EM entra onde ele de fato resolve, a fronteira, onde o passo
+      // amortecido trava, e sai da frente onde nao resolve.
       const double ganho_em = atual.neg2logl - prox.neg2logl;
       if (!prox.ok || ganho_em < 1e-6 * std::max(1.0, std::fabs(atual.neg2logl))) break;
       double num = 0.0, den = 0.0;

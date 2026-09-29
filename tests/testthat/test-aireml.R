@@ -117,7 +117,7 @@ test_that("the maternal model fits in one formula, and two pe() must be named", 
 
 test_that("component names do not depend on which other terms are present", {
   # The failure this gate exists for: a model with one random() reported var(random),
-  # and adding a second one renamed the FIRST to var(random(cg)) — so code indexing a
+  # and adding a second one renamed the FIRST to var(random(cg)), so code indexing a
   # component by name broke by the mere arrival of another term. Names are now a
   # function of their own term, and a collision is a message.
   set.seed(2)
@@ -167,7 +167,7 @@ test_that("a fixed level whose records are all missing is dropped, not left as a
                          offspring_per_generation = 60, h2 = 0.4, seed = 77)
   d <- s$data
   # a contemporary group whose ONLY records are missing: the column is nonzero in the
-  # table, and a rank test over all rows would keep it — then the assembly, which walks
+  # table, and a rank test over all rows would keep it, then the assembly, which walks
   # only the used rows, would leave that column empty and the factorization would find a
   # zero pivot. It must come out as a dropped fixed column instead.
   d$cg[1:3] <- "orphan"
@@ -196,7 +196,7 @@ test_that("weights of one change nothing, and a two-step recovers the simulated 
 
   # and the use the argument exists for: records that are means of k observations carry
   # weight k. The means DISCARD the within-animal variation, so this is not an algebraic
-  # identity with the individual-record fit — it is a statistical claim, and what it must
+  # identity with the individual-record fit, it is a statistical claim, and what it must
   # deliver is the simulated genetic variance back.
   set.seed(64)
   k <- sample(2:8, nrow(s$data), TRUE)

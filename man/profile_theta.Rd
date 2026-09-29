@@ -42,7 +42,7 @@ optimizer met \code{tol} within \code{maxit}), plus the fitted minimum as attrib
 \description{
 Fixes component \code{k} at each value of a grid, RE-OPTIMIZES every other component with
 it held there, and returns the profile of -2logL. Where the delta method assumes a
-parabola, this draws the actual curve — which is what you want when a component sits
+parabola, this draws the actual curve, which is what you want when a component sits
 near zero, when a correlation approaches its boundary, or when a reviewer asks how
 flat the optimum really is.
 }
@@ -51,7 +51,7 @@ The re-optimization is the whole point. Evaluating the likelihood at the estimat
 theta with only component \code{k} swapped is a SLICE, not a profile: the slice rises
 faster than the profile everywhere except at the estimate itself (the other
 components are pinned where they no longer belong), so an interval read off a slice
-is too narrow — anticonservative, and worst exactly when components are correlated,
+is too narrow, anticonservative, and worst exactly when components are correlated,
 which is when the profile is wanted. An earlier version of this function computed the
 slice while its documentation promised the profile; the gates in
 \code{test-inference-profile.R} now hold the difference.
@@ -59,7 +59,7 @@ slice while its documentation promised the profile; the gates in
 Each grid point is a Nelder-Mead optimization over \code{\link[=eval_internal]{eval_internal()}} (variances in
 log scale, covariances free; an inadmissible candidate is refused by the engine and
 scored as a penalty). Expect the whole profile to cost roughly \code{length(grid)} times
-\code{maxit} likelihood evaluations — minutes where one fit takes seconds. The grid is
+\code{maxit} likelihood evaluations, minutes where one fit takes seconds. The grid is
 walked outward from the estimate, each point warm-started from the previous optimum,
 because the profile is continuous.
 

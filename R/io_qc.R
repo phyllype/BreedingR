@@ -173,7 +173,7 @@ simulate_breeding <- function(n_founders = 40, n_generations = 3,
 #'
 #' The mirror of [qc_genotypes()] for the observation side: flags the missing code,
 #' flags Tukey-fence outliers (turning them into missing rather than DROPPING the
-#' row — removing a row silently changes contemporary groups and pen compositions),
+#' row, removing a row silently changes contemporary groups and pen compositions),
 #' and reports contemporary-group levels too small to estimate. Everything it does
 #' is counted and returned; nothing is silent.
 #'

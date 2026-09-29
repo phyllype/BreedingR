@@ -7,11 +7,11 @@
 //     um limiar absoluto na norma do score, que e O(n_registros): a mesma tolerancia que
 //     converge com 500 registros declara nao-convergido com 200 mil, com as estimativas
 //     paradas no otimo. O certificado final soma o DECREMENTO DE NEWTON dos componentes
-//     livres, g' AI^-1 g — normalizado pela curvatura, ele mede o gap em -2logL e nao a
+//     livres, g' AI^-1 g, normalizado pela curvatura, ele mede o gap em -2logL e nao a
 //     escala do score, entao nao reintroduz o defeito de O(n_registros).
 //  2. theta inadmissivel nao e resultado. C_g nao definida interrompe o passo; nunca vira
 //     resposta.
-//  3. a partida vem de var(y), nunca de valores de um cartao ja ajustado — partir das
+//  3. a partida vem de var(y), nunca de valores de um cartao ja ajustado, partir das
 //     estimativas finais de outro programa mede o quanto o estimador se afasta da resposta,
 //     nao se ele a encontra.
 //  4. um ajuste que nao convergiu DIZ isso.
@@ -230,7 +230,7 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
     // T[a,b] = s2e tr(K^-1 [Cs^-1]_{a,b}): le a inversa seletiva SO onde K^-1 tem nao-zero.
     // Todo nao-zero de K^-1 esta na penalidade, a penalidade esta em C, e todo nao-zero de C
     // esta no padrao do fator: um pedido fora do padrao significa que esse fechamento quebrou,
-    // e e CONTADO em vez de ignorado — uma soma que pula termos em silencio nao e um traco.
+    // e e CONTADO em vez de ignorado, uma soma que pula termos em silencio nao e um traco.
     Densa T(dim, dim);
     for (std::size_t a = 0; a < dim; a++)
       for (std::size_t b = 0; b < dim; b++) {
@@ -259,7 +259,7 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
       }
 
     // tr(C_s^-1 Pen) deste grupo, para o EM do residual:
-    // tr(kron(Cs^-1,K^-1) Z) somado — igual a soma_ab Cs^-1[a,b] tr(K^-1 Z_ba) = soma T/s2e * Cs^-1
+    // tr(kron(Cs^-1,K^-1) Z) somado, igual a soma_ab Cs^-1[a,b] tr(K^-1 Z_ba) = soma T/s2e * Cs^-1
     for (std::size_t a = 0; a < dim; a++)
       for (std::size_t b = 0; b < dim; b++)
         trpen_total += cinv_s.at(a, b) * (T.at(b, a) / s2e);
@@ -314,7 +314,7 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
   //
   // A primeira versao escreveu so (n - p)/s2e - e'e/s2e^2, sem o -q + trpen: o traco de P
   // nao e (n - p)/s2e porque os efeitos ALEATORIOS tambem absorvem graus de liberdade, na
-  // medida em que o parentesco os deixa. O gate de diferencas finitas pegou na hora — e
+  // medida em que o parentesco os deixa. O gate de diferencas finitas pegou na hora, e
   // com o score errado o passo amortecido ainda ACEITA (a verossimilhanca esta certa),
   // so que converge para o lugar errado. Um estimador com score errado e verossimilhanca
   // certa e o pior dos mundos: converge, reporta convergencia, e estima outra coisa.
@@ -539,7 +539,7 @@ void pisos_z(const MapaZ& mp, const std::vector<double>& z, double escala_residu
 // regra da cadeia, os pisos, e os DOIS conjuntos ativos. Existe porque separar essas peças
 // entre o passo e o certificado foi um defeito medido: o passo foi portado para z e o
 // certificado ficou em theta, com regra propria. O teste que ele usava, lmin < 1e-3 lmax,
-// e exatamente a desigualdade que o piso do passo torna FALSA por construcao — no ponto em
+// e exatamente a desigualdade que o piso do passo torna FALSA por construcao, no ponto em
 // que o laco para, o grampo deixa lmin = 1e-3 lmax exato e o `<` estrito nunca dispara. A
 // direcao grampeada ficava entao congelada no passo (relDelta ~ 0 sempre) e cobrada
 // integralmente no certificado (decremento travado em 3.25e+03), e o ajuste girava ate o
@@ -590,8 +590,8 @@ PassoZ passo_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& t
   }
   // e a parede prende o BLOCO, nao a coordenada: o piso relativo fixa a RAZAO entre as
   // diagonais de Cholesky, entao um bloco encostado nele esta confinado a uma face de
-  // dimensao menor e nenhuma das coordenadas dele — a fora da diagonal inclusive, que nao
-  // tem piso proprio — e uma direcao livre.
+  // dimensao menor e nenhuma das coordenadas dele, a fora da diagonal inclusive, que nao
+  // tem piso proprio, e uma direcao livre.
   for (std::size_t b = 0; b < mp.blocos.size(); b++) {
     const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
     if (dim < 2) continue;
@@ -614,7 +614,7 @@ PassoZ passo_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& t
   // e a linha correspondente de AI_z ficava da ordem de 1e-13. O gradiente ali ja tinha
   // zerado (sz = -1e-04, dentro do arredondamento), entao a regra do score para fora NAO
   // a excluia, e inverter uma matriz com essa direcao quase nula devolvia decremento 14.87
-  // num ponto onde uma descida por coordenada ainda achava 0.0063 unidade — mil vezes a
+  // num ponto onde uma descida por coordenada ainda achava 0.0063 unidade, mil vezes a
   // folga real. Uma direcao sem curvatura em z nao carrega informacao para o certificado:
   // a forma quadratica ali e ruido amplificado, nao gap de verossimilhanca.
   double maior = 0.0;
@@ -656,7 +656,7 @@ double decremento_z(const PassoZ& P) {
   // direcao mal condicionada nao e uma excecao rara aqui: e o estado normal perto de uma
   // fronteira de covariancia, onde dtheta/dz encolhe com a diagonal de Cholesky presa.
   // Invertendo cheio, o decremento devolvia 0.0339 num ponto que uma descida por
-  // coordenada melhorava em 1.3e-05 — duas mil vezes a folga real, e o certificado
+  // coordenada melhorava em 1.3e-05, duas mil vezes a folga real, e o certificado
   // reprovava um ajuste que estava no otimo. Truncar em 1e-8 do maior autovalor mede o gap
   // nas direcoes que existem e descarta as que nao carregam curvatura. E a mesma escolha
   // ja feita para o Gamma dos metafundadores.
@@ -816,7 +816,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
 
   // EM de aquecimento: monotono, fica no cone, e de graca. A checagem extra de
   // z_de_theta garante que o ponto de onde o passo amortecido parte tem fator de
-  // Cholesky — um EM que encoste numericamente na singularidade nao vira partida.
+  // Cholesky, um EM que encoste numericamente na singularidade nao vira partida.
   for (std::size_t e = 0; e < n_em; e++) {
     std::vector<double> zt;
     // o EM tambem respeita o preso: ele recalcula TODOS os componentes por formula
@@ -835,8 +835,8 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // CONJUNTO ATIVO, agora em z. Duas fronteiras REAIS do espaco de parametros passam
   // pelo mesmo mecanismo: uma variancia com piso em zero e um C_g de grupo encostando na
   // singularidade (correlacao em +/-1, o regime medido no modelo direto-social). Nos dois
-  // casos a diagonal do fator de Cholesky tem um piso — absoluto para a variancia, RELATIVO
-  // a maior diagonal do grupo para a singularidade — e a entrada presa no piso com o score
+  // casos a diagonal do fator de Cholesky tem um piso, absoluto para a variancia, RELATIVO
+  // a maior diagonal do grupo para a singularidade, e a entrada presa no piso com o score
   // empurrando para fora e congelada, com o resto otimizado CONDICIONALMENTE a isso, que e
   // a solucao correta do problema com restricao.
   double lambda = 1e-3;
@@ -861,8 +861,8 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // SAME floors and the SAME outward-score rule, differing only in reach. `congelado` is
   // the step's (strictly at the clamp), `na_parede` is the certificate's and the boundary
   // report's (within a factor of 2 of the floor): a component pinned at a floor with the
-  // score pushing outward never zeroes its gradient — it points out of the cone by
-  // construction — so the certificate must exclude it, whether the walker left it clamped
+  // score pushing outward never zeroes its gradient, it points out of the cone by
+  // construction, so the certificate must exclude it, whether the walker left it clamped
   // or resting a hair above the clamp. Excluding anything more would certify a point with
   // a live direction ignored.
   struct PecasZ {
@@ -904,7 +904,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
         // measured fact the boundary report handles with the same factor-2 tolerance).
         // A hair above the floor the z-gradient of the pinned diagonal is ~L^2 and its
         // AI_z diagonal ~L^4, so the quadratic form returns that direction's FULL
-        // theta-scale share — measured 1.1499 on a true boundary optimum (seed 11 of
+        // theta-scale share, measured 1.1499 on a true boundary optimum (seed 11 of
         // test-aireml-boundary.R) where the free directions were flat. On the floor
         // with the score pointing outward is pinned, whether clamped or resting.
         // um componente PRESO tambem sai do certificado: ele nao pode andar, entao o
@@ -929,8 +929,8 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // parametrization; the active set is defined in z). Near the optimum, -2logL exceeds
   // its minimum by ~dec/2 (second-order Taylor with the AI for the Hessian), so dec is a
   // GAP ON THE -2logL SCALE: the tolerance 2e-4 certifies the fit sits within ~1e-4 of
-  // its optimum — four orders of magnitude below the ~4 units a likelihood-ratio test
-  // calls a difference — while the measured defect (gap 6.9, dec ~14) fails it by five.
+  // its optimum, four orders of magnitude below the ~4 units a likelihood-ratio test
+  // calls a difference, while the measured defect (gap 6.9, dec ~14) fails it by five.
   // An AI too singular to solve on the free block certifies nothing and counts as a
   // refusal.
   const double tol_dec = 2e-4;
@@ -1002,7 +1002,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     R.iters = it;
     R_CheckUserInterrupt();
     // chain rule (score_z = J' score, AI_z = J' AI J), floors and active set, all at
-    // the current point — the same pieces the certificate reads at the exits
+    // the current point, the same pieces the certificate reads at the exits
     PecasZ P = pecas_z(z, cur);
     const std::vector<double>& piso = P.piso;
     const std::vector<double>& sz = P.sz;
@@ -1017,7 +1017,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
         const double di = m.at(i, i);
         m.at(i, i) = (di == 0.0) ? lambda : di * (1.0 + lambda);
       }
-      // congelado: linha e coluna viram identidade e o score sai — e o sistema REDUZIDO
+      // congelado: linha e coluna viram identidade e o score sai, e o sistema REDUZIDO
       // dos que ainda podem andar, sem que o bloqueado contamine a direcao dos outros
       std::vector<double> sc = sz;
       for (std::size_t i = 0; i < m.nlin; i++)
@@ -1067,7 +1067,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     }
     if (!aceitou) {
       // before giving up, hand the point to the EM rescue: measured on the direct-social
-      // gate, the damped step can be stuck while EM still walks — and after a rescue the
+      // gate, the damped step can be stuck while EM still walks, and after a rescue the
       // damping RESTARTS, or the next AI step would inherit a lambda pumped to 1e20+ by
       // the failed attempts and stay parked forever ("amortecimento preso")
       if (resgate_em()) {
@@ -1078,7 +1078,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
       }
       // In z every candidate is admissible, so this exit means the likelihood itself
       // refused 90 second-order variants AND the EM step. That is where the walker
-      // rests — but resting is not an optimum: on the measured direct+indirect regime
+      // rests, but resting is not an optimum: on the measured direct+indirect regime
       // the AI and the EM stall TOGETHER against the wall with the gradient far from
       // zero (the certificate defect above). Only the Newton decrement tells a numerical
       // optimum from a stall; the code before this stage declared converged TRUE here
@@ -1106,7 +1106,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     }
     if (R.reldelta < tol) {
       // O PASSO PEQUENO NAO PROVA OTIMO. Com uma componente encostada numa fronteira a AI
-      // fica quase singular naquela direcao, o amortecimento cresce, o passo encolhe — e
+      // fica quase singular naquela direcao, o amortecimento cresce, o passo encolhe, e
       // um criterio que olha so o tamanho do passo declararia convergencia com o score
       // longe de zero. Antes de declarar, o EM tem de confirmar que nao anda mais; se
       // ainda melhora, nao havia convergencia nenhuma, e o amortecimento reinicia.
@@ -1118,7 +1118,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
       }
       // ... e um EM parado tambem nao prova nada quando AI e EM travam JUNTOS (o defeito
       // do certificado, medido): converged exige ainda o decremento de Newton dos
-      // componentes livres. A recusa NAO encerra o ajuste — o passo pode voltar a andar —
+      // componentes livres. A recusa NAO encerra o ajuste, o passo pode voltar a andar,
       // e se maxiter chegar, a mensagem final carrega o decremento reprovado.
       R.decremento = decremento_livre(pecas_z(z, cur));
       if (R.decremento < tol_dec) {
@@ -1174,7 +1174,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     // The maxiter exit, and it comes BEFORE the boundary notes so those append to the
     // explanation instead of silencing it. Measured by the user on the 2x2 group
     // warm-started from the reduced model: 100 iterations ended with relDelta still
-    // 1.6e-04 — not a defect, a model that walks slowly. The message says exactly
+    // 1.6e-04, not a defect, a model that walks slowly. The message says exactly
     // that, and how to ask for more.
     char buf[128];
     std::snprintf(buf, sizeof(buf), " (relDelta %.3g, Newton decrement of the free "
@@ -1210,7 +1210,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
       R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + std::to_string(nsing) +
           " covariance group direction(s) at the singularity boundary (a correlation at "
           "+/-1), held there while the others were optimized conditional on that; the "
-          "boundary is real, but a delta-method interval there is not — profile the "
+          "boundary is real, but a delta-method interval there is not, profile the "
           "component instead";
   }
   if (cur.fora_do_padrao > 0)
@@ -1226,7 +1226,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // PEV: a diagonal da inversa seletiva das MME no otimo, vezes s2e.
   //
   // As MME estao em unidades de s2e (a penalidade e kron(Cs^-1, K^-1) com Cs = C/s2e),
-  // entao [C_s^-1]_ii ja e PEV_i / s2e — a multiplicacao devolve a escala absoluta. Sem
+  // entao [C_s^-1]_ii ja e PEV_i / s2e, a multiplicacao devolve a escala absoluta. Sem
   // esse fator a acuracia sai sistematicamente errada e ainda parece plausivel.
   {
     Montado M = monta_mme(d, theta);

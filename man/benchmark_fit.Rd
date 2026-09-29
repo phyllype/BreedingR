@@ -18,6 +18,6 @@ every run returned bit-identical components), and \code{fit} (the first run's re
 }
 \description{
 Runs \code{fun} (a function of no arguments returning a fit) \code{reps} times, reports the
-spread, and CHECKS that the numerical results are identical across runs — a timing
+spread, and CHECKS that the numerical results are identical across runs, a timing
 whose results differ between replicates is measuring two different things.
 }

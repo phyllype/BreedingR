@@ -2,7 +2,7 @@
 #
 # The defect, reported by a user fitting a direct + indirect model warm-started from the
 # reduced model: the fit stopped short of the optimum (32 -2logL units short on the real
-# data), sometimes with converged FALSE, sometimes — worse — declaring convergence.
+# data), sometimes with converged FALSE, sometimes, worse, declaring convergence.
 # Reproduced here on simulated cells with a strong direct-social correlation: the REML
 # optimum sits ON the boundary det(C_g) = 0 (correlation -1), which in raw theta
 # coordinates is a curved wall. The old walker stepped in theta: every candidate near the
@@ -10,8 +10,8 @@
 # crawled on single EM steps until the EM gain fell under 1e-8 and it declared a FALSE
 # optimum. Measured on the cells below, old engine vs the true optimum:
 #
-#   seed 11: stopped at 283.1991 "converged", optimum 269.8704 — 13.3 units short
-#   seed 51: stopped at 254.9991 "converged", optimum 249.8594 —  5.1 units short
+#   seed 11: stopped at 283.1991 "converged", optimum 269.8704, 13.3 units short
+#   seed 51: stopped at 254.9991 "converged", optimum 249.8594,  5.1 units short
 #
 # The fix steps in log-Cholesky coordinates (every point admissible, the wall pushed to
 # -infinity) with a relative floor on the Cholesky diagonals, step halving, and an EM
@@ -67,7 +67,7 @@ test_that("warm-started from the reduced model, the fit reaches the boundary opt
     fit <- model(f_forte, s$data, s$ped, verbose = FALSE,
                  start = c(red$theta[["var(animal)"]], 0, 0.02,
                            red$theta[["var(residual)"]]))
-    # within 1e-3 of the independent optimum — the old engine missed by 13.3 and 5.1
+    # within 1e-3 of the independent optimum, the old engine missed by 13.3 and 5.1
     expect_lte(fit$neg2logl, alvo[[as.character(sd)]] + 1e-3)
     expect_true(fit$converged)
     # the estimate IS on the boundary: the correlation is pinned at -1 ...
@@ -80,7 +80,7 @@ test_that("warm-started from the reduced model, the fit reaches the boundary opt
 
 test_that("the default start reaches the same boundary optimum", {
   # no warm start: partida() from var(y). Same optimum, so the answer does not depend
-  # on where the search began — which is the property start= exists to check
+  # on where the search began, which is the property start= exists to check
   s <- simula_ige_forte(seed = 11, cds = -0.9 * sqrt(0.4 * 0.1))
   fit <- model(f_forte, s$data, s$ped, verbose = FALSE)
   expect_true(fit$converged)

@@ -54,13 +54,13 @@ test_that("Example 16.1: the Weibull frailty solutions of p.291, all 23 publishe
                "19" = -0.290)
   expect_lt(max(abs(ebv(fit)[names(livro_a)] - livro_a)), 5e-4)
 
-  # RRS = exp(solution): herd 2 at 0.196 (p.291) — a relative risk, ~80% LESS,
+  # RRS = exp(solution): herd 2 at 0.196 (p.291), a relative risk, ~80% LESS,
   # not the "20% more" the text says (book error 2 above)
   # (2e-3 relative: the book publishes 3 decimals, exp(-1.63106) = 0.19572 -> 0.196)
   expect_equal(unname(exp(coef(fit, "fixed")["herd=2"])), 0.196, tolerance = 2e-3)
   expect_equal(unname(exp(ebv(fit)["1"])), 0.459, tolerance = 2e-3)
 
-  # p.292: percentage of live daughters of sire 1 in herd 1, YSP 4, at 40 months —
+  # p.292: percentage of live daughters of sire 1 in herd 1, YSP 4, at 40 months,
   # d1 = 0 - 2.982 - 0.779 = -3.761 and S(40) = exp(-40 * exp(d1)) = 0.394
   s40 <- predict(fit, data.frame(herd = "1", ysp = "4", cow = "1"),
                  time = 40, type = "survival")
@@ -81,7 +81,7 @@ test_that("Example 16.1: the Weibull frailty solutions of p.291, all 23 publishe
 test_that("Example 16.1 under the book's LITERAL sigma2 = 20 does NOT give the published table", {
   # This pins book error 1: whoever runs the printed text as written must land far
   # from the printed solutions. If this test ever fails, the sharp minimum at 0.4
-  # (or the fitter) has moved — investigate, do not delete.
+  # (or the fitter) has moved, investigate, do not delete.
   fit <- model_survival(lpl ~ herd + ysp + animal(cow), data = dado_16_1(),
                         pedigree = ped_16_1, censor = "code",
                         rho = 1, lambda = 1, sigma2 = 20, verbose = FALSE)
@@ -91,7 +91,7 @@ test_that("Example 16.1 under the book's LITERAL sigma2 = 20 does NOT give the p
 
 test_that("censoring is the model, not a nuisance: the wrong treatment biases and reranks", {
   # Simulated truth: 100 iid sire frailties, 30 daughters each, Weibull rho = 1.5,
-  # lambda = 0.02, sigma2 = 0.3, per-record censoring times U(15, 75) — about 44%
+  # lambda = 0.02, sigma2 = 0.3, per-record censoring times U(15, 75), about 44%
   # of the records censored. The WRONG fit records the censoring time as a failure
   # time, which is exactly what a linear model does when it treats a censored record
   # as observed.
@@ -182,7 +182,7 @@ test_that("the survival interface refuses what it cannot mean", {
   # markers outside the survival model are refused by name
   expect_error(model_survival(lpl ~ herd + indirect(cow, pen = "herd"), d, ped_16_1,
                               censor = "code", verbose = FALSE), "indirect\\(\\)")
-  # a missing record is dropped and counted — missing is not censored
+  # a missing record is dropped and counted, missing is not censored
   d4 <- d; d4$lpl[2] <- NA
   fit <- model_survival(lpl ~ herd + ysp + animal(cow), d4, ped_16_1, censor = "code",
                         rho = 1, lambda = 1, sigma2 = 0.4, verbose = FALSE)

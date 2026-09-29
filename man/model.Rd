@@ -46,17 +46,17 @@ only the incidence changes. A pen of size 1 keeps its zero social row under ever
 \code{kernel(id, K = D)} is a random term with a user-supplied (user-defined)
 covariance matrix, called a DECLARED covariance throughout this package: K is a symmetric positive-definite matrix whose rownames
 are the level identifiers, and every row of K gets an equation, with or without a
-record — a dominance D (\code{\link[=dominance_matrix]{dominance_matrix()}}, \code{\link[=g_dominance]{g_dominance()}}), an epistatic G_AA
+record, a dominance D (\code{\link[=dominance_matrix]{dominance_matrix()}}, \code{\link[=g_dominance]{g_dominance()}}), an epistatic G_AA
 (\code{\link[=g_epistasis]{g_epistasis()}}), a partial multibreed matrix (\code{\link[=partial_a]{partial_a()}}), or any relationship
 the pedigree and the markers do not already provide. A row of K that is ENTIRELY
 zero, diagonal included, declares a level with no contribution to this term: it
-gets no equation and its records stay in the analysis with zero incidence here —
+gets no equation and its records stay in the analysis with zero incidence here,
 the generalized-inverse pattern of the multibreed partial matrices (Mrode &
 Pocrnic, 4th ed., p.243-244). An id absent from K altogether still excludes the
 record, as with an animal missing from the pedigree: a zero row is a declaration,
 an absence is a gap. Two kernel terms need \verb{nome=} to tell their components apart.
 The inversion of K is dense, so the declared route is for matrices of moderate
-size — the size of a genotyped set, not of a national pedigree.}
+size, the size of a genotyped set, not of a national pedigree.}
 
 \item{data}{data.frame with the columns referenced}
 
@@ -84,7 +84,7 @@ with \code{apy_core}}
 
 \item{maxiter}{maximum number of iterations of the damped step. The default 300 was
 raised from 100 after a measured case: a direct-indirect model warm-started from
-the reduced fit still had relDelta 1.6e-4 at iteration 100 — no defect, a model
+the reduced fit still had relDelta 1.6e-4 at iteration 100, no defect, a model
 that walks slowly along a covariance boundary. A fit that hits the ceiling says so
 in \code{message} and reports \code{converged = FALSE}}
 
@@ -94,7 +94,7 @@ conv_crit equals this tol squared (their 1e-10 is tol = 1e-5 here; this 1e-8
 default is 1e-16 on their scale). A small step alone never certifies convergence:
 \code{converged = TRUE} additionally requires the Newton decrement of the free
 components, g' AI^-1 g restricted to the components not held at a boundary, to
-fall under 2e-4 — near the optimum the decrement is about twice the -2logL gap
+fall under 2e-4, near the optimum the decrement is about twice the -2logL gap
 to it, so the certificate bounds that gap by ~1e-4. The value is reported in
 \code{newton_dec}. Measured motivation: a fit that stalled against the singularity
 boundary with relDelta 5.1e-9 and the score far from zero sat 6.9 -2logL units
@@ -124,13 +124,13 @@ eigenvalue, which does not generate a covariance matrix at all}
 \item{verbose}{print the fit as it walks: one line per AI iteration with the
 -2logL and the relative step, so a long fit is a progress report instead of
 silence. The relative step is half of the convergence criterion; the Newton
-decrement, reported in \code{newton_dec}, is the other half. Defaults to interactive() — live in a
+decrement, reported in \code{newton_dec}, is the other half. Defaults to interactive(), live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 
 \item{weights}{a column of \code{data}, or a numeric vector: a record of weight w has
 residual variance \code{s2e / w}. Weights enter as a row scaling by sqrt(w), so the
 normal equations solved are the weighted ones. Use them when records are means of
-different sizes, or estimates that carry their own precision — a two-step analysis,
+different sizes, or estimates that carry their own precision, a two-step analysis,
 a de-regressed proof}
 
 \item{start}{starting values for the components, in the order the fit reports them.

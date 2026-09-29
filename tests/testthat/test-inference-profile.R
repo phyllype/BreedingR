@@ -2,10 +2,10 @@
 #
 # The defect these gates exist for, reported by a user reading intervals off the curve:
 # the function promised "letting the others move" but evaluated the likelihood at the
-# ESTIMATED theta with only component k swapped — a slice. A slice rises faster than the
+# ESTIMATED theta with only component k swapped, a slice. A slice rises faster than the
 # profile everywhere except at the estimate (the other components stay pinned where they
 # no longer belong), so its interval is too narrow, systematically anticonservative, and
-# worst exactly when components are correlated — which is when anyone reaches for a
+# worst exactly when components are correlated, which is when anyone reaches for a
 # profile. Every gate here failed against the old code.
 
 # 50 animals with 3 records each: animal + pe is the classic pair of CORRELATED

@@ -9,7 +9,7 @@
 # Before that marker existed the package could not express any model in this file.
 #
 # Two conventions to read the tolerances by. The book prints 3 decimals, so a solution
-# vector is checked to 1e-3 — that IS the print precision, not slack. And the book zeroes
+# vector is checked to 1e-3, that IS the print precision, not slack. And the book zeroes
 # no intercept while the package fits one, so fixed effects are compared by CONTRAST
 # (pen1 - pen2), which is the parametrization-free quantity; a contrast of two printed
 # values carries up to two half-units of rounding, hence 1.5e-3 there.
@@ -155,7 +155,7 @@ test_that("Example 13.4 (p.235-236): genomic inbreeding as a covariate", {
                     kernel(id, K = g_dominance(geno_c13) + diag(0.01, 15), nome = "dom"),
                data = d, start = c(90, 80, 120), maxiter = 0L, n_em = 0L,
                verbose = FALSE)
-  # THE number of the example: the inbreeding depression, b = -3.767 (p.236) — a fixed
+  # THE number of the example: the inbreeding depression, b = -3.767 (p.236), a fixed
   # regression, invariant to the intercept parametrization, read straight from fit$b
   expect_lt(abs(fit$b[["f=f"]] - (-3.767)), 5e-4)
   # pen printed 19.933 and 23.518

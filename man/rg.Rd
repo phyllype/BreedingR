@@ -22,6 +22,6 @@ reason given above.
 \description{
 r_g = cov(a@t1, a@t2) / sqrt(var(a@t1) var(a@t2)), read by parameter NAME. The standard
 error is NOT given: it needs the delta method with the covariance between components, and
-the honesty here is the same as summary's — making the number up would be worse than not
+the honesty here is the same as summary's, making the number up would be worse than not
 giving it.
 }

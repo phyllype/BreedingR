@@ -19,7 +19,7 @@ test_that("start= reaches the same optimum from a different place", {
 test_that("a nested model never ends above its submodel's likelihood", {
   # The failure this gate exists for: with a component pinned near zero the AI step
   # shrinks, the relative-step criterion fires, and the LARGER model stops at a WORSE
-  # -2logL than the model nested inside it — which is impossible at an optimum.
+  # -2logL than the model nested inside it, which is impossible at an optimum.
   set.seed(45)
   s <- simulate_breeding(n_founders = 40, n_generations = 2,
                          offspring_per_generation = 80, h2 = 0.4, seed = 45)

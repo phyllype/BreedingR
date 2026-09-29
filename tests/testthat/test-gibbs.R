@@ -1,6 +1,6 @@
 # GATES of the Gibbs sampler. The hierarchy ties the chain to already-validated numbers:
 # (1) with theta FIXED, the location block is exact Gaussian sampling, so the sample mean
-# must reproduce the BLUP and the sample variance the PEV of the selected inverse — the
+# must reproduce the BLUP and the sample variance the PEV of the selected inverse, the
 # sampler checked against two quantities the package already proves elsewhere;
 # (2) the full chain's posterior means must land where REML lands on well-informed data;
 # (3) the chain is deterministic under set.seed; (4) the diagnostics behave on iid draws.

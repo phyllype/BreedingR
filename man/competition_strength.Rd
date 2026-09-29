@@ -21,7 +21,7 @@ competition_strength(
 
 \item{competitor}{who competed}
 
-\item{exposure}{opportunity of that competitor in that contest — a semen dose, a
+\item{exposure}{opportunity of that competitor in that contest, a semen dose, a
 number of attempts. NULL means every competitor had the same. It enters as an
 offset, so the strength is ability PER UNIT of exposure}
 
@@ -49,8 +49,8 @@ share: strengths are free parameters, while only the probabilities are normalize
 }
 \details{
 FORD'S CONDITION decides whether the number means anything. Ford (1957) showed that this
-likelihood has a finite and unique maximum only when the WIN GRAPH — an arrow from i to j
-whenever i won an outcome in a contest j also entered — is strongly connected. A
+likelihood has a finite and unique maximum only when the WIN GRAPH, an arrow from i to j
+whenever i won an outcome in a contest j also entered, is strongly connected. A
 competitor outside that core, someone who only ever lost or only ever won, sits on a
 likelihood that keeps improving in one direction: the Gamma prior is what keeps his
 estimate finite, and there is no curvature for a standard error to read. The result marks

@@ -4,7 +4,7 @@
 #
 # Both exist because the interesting quantities are almost never the components
 # themselves. Heritability, a genetic correlation, Bijma's total heritable variance
-# (Bijma, Muir and Van Arendonk, 2007) —
+# (Bijma, Muir and Van Arendonk, 2007),
 # each is a function of several components, and reporting it without an interval is
 # reporting half a result.
 
@@ -17,7 +17,7 @@
 #'
 #' The delta method assumes `f` is close to linear over the region the components could
 #' plausibly occupy, and that they are approximately normal. Neither holds near a
-#' boundary — a variance pinned at zero, a correlation at +/-1 — and there the interval
+#' boundary, a variance pinned at zero, a correlation at +/-1, and there the interval
 #' is not meaningful no matter how small it looks. Use [profile_theta()] instead when a
 #' component sits at an edge.
 #'
@@ -48,7 +48,7 @@ se_function <- function(fit, f, h = 1e-6) {
 #'
 #' Fixes component `k` at each value of a grid, RE-OPTIMIZES every other component with
 #' it held there, and returns the profile of -2logL. Where the delta method assumes a
-#' parabola, this draws the actual curve — which is what you want when a component sits
+#' parabola, this draws the actual curve, which is what you want when a component sits
 #' near zero, when a correlation approaches its boundary, or when a reviewer asks how
 #' flat the optimum really is.
 #'
@@ -56,7 +56,7 @@ se_function <- function(fit, f, h = 1e-6) {
 #' theta with only component `k` swapped is a SLICE, not a profile: the slice rises
 #' faster than the profile everywhere except at the estimate itself (the other
 #' components are pinned where they no longer belong), so an interval read off a slice
-#' is too narrow — anticonservative, and worst exactly when components are correlated,
+#' is too narrow, anticonservative, and worst exactly when components are correlated,
 #' which is when the profile is wanted. An earlier version of this function computed the
 #' slice while its documentation promised the profile; the gates in
 #' `test-inference-profile.R` now hold the difference.
@@ -64,7 +64,7 @@ se_function <- function(fit, f, h = 1e-6) {
 #' Each grid point is a Nelder-Mead optimization over [eval_internal()] (variances in
 #' log scale, covariances free; an inadmissible candidate is refused by the engine and
 #' scored as a penalty). Expect the whole profile to cost roughly `length(grid)` times
-#' `maxit` likelihood evaluations — minutes where one fit takes seconds. The grid is
+#' `maxit` likelihood evaluations, minutes where one fit takes seconds. The grid is
 #' walked outward from the estimate, each point warm-started from the previous optimum,
 #' because the profile is continuous.
 #'

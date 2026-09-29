@@ -2,7 +2,7 @@
 # builders, none of this is a fitter: partial_a() builds the partial relationship matrices
 # of Garcia-Cortes and Toro (2006) and the model runs through the generic declared-
 # covariance marker, kernel(id, K = ), one term per matrix. The zero rows those matrices
-# carry — an animal with no genes from a breed has a whole row of zeros — are understood
+# carry, an animal with no genes from a breed has a whole row of zeros, are understood
 # by the engine as "this level contributes nothing to this term", which is exactly the
 # generalized-inverse pattern the book uses on p.243-244.
 
@@ -15,7 +15,7 @@
 #' fraction of genes from breed p; each pair of breeds gets a segregation matrix from the
 #' same recursion with `c_i = 2 (f_pS f_qS + f_pD f_qD)`. The combined additive
 #' covariance is the variance-weighted sum of all of them (Eqn 14.1), and a model with
-#' one random term per matrix — `kernel(id, K = )`, one variance each — is the
+#' one random term per matrix, `kernel(id, K = )`, one variance each, is the
 #' equivalent model 14.8, returning breed-specific breeding values that sum to the
 #' combined ones.
 #'
@@ -30,16 +30,16 @@
 #'
 #' @param ped data.frame with animal, sire and dam, as in [model()]; unknown parent 0 or
 #'   NA. Every animal must have both parents known or neither: with a single known
-#'   parent the breed fractions are undefined — add the missing parent as a founder
+#'   parent the breed fractions are undefined, add the missing parent as a founder
 #'   with a declared breed
 #' @param breed named character vector giving the breed of every FOUNDER: names are the
 #'   founder ids, values the breed labels. Non-founders take the mean of their parents'
 #'   fractions, so declaring them is an error, not a convenience
 #' @return list with three pieces, all rows in the topological order of [pedigree()]:
-#'   `f`, the matrix of breed fractions (animals x breeds) — the fixed breed regression
+#'   `f`, the matrix of breed fractions (animals x breeds), the fixed breed regression
 #'   of the book's model enters the data from here; `h`, the matrix of segregation
 #'   coefficients (animals x breed pairs, columns named `"p:q"`); and `K`, the named
-#'   list of partial relationship matrices ready for `kernel(id, K = )` — one per breed,
+#'   list of partial relationship matrices ready for `kernel(id, K = )`, one per breed,
 #'   plus one per breed pair that actually segregates (an all-zero segregation matrix is
 #'   left out, there is nothing to estimate from it)
 #' @examples
@@ -49,7 +49,7 @@
 #' pa <- partial_a(ped, breed = c("1" = "A", "2" = "B"))
 #' pa$f["3", ]              # the F1 cross: half A, half B
 #' pa$K[["A"]]["3", "3"]    # partial diagonal 0.5
-#' pa$h["5", "A:B"]         # the F2 segregates: h = 1 (an F1 does not — h = 0)
+#' pa$h["5", "A:B"]         # the F2 segregates: h = 1 (an F1 does not, h = 0)
 #' pa$K[["A:B"]]["5", "5"]
 #' @export
 partial_a <- function(ped, breed) {

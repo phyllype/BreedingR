@@ -17,7 +17,7 @@ genomic relationship matrix, rows and columns named by \code{ids}
 The G of VanRaden (2008), first method: genotypes centered by twice the allele
 frequency, \verb{G = Z Z' / (2 sum p q)}, frequencies from the genotyped animals
 themselves. This is the RAW G of the book's worked examples (Mrode & Pocrnic, 4th
-ed., Example 13.3, p.233) — no blending with A22 and no affine adjustment, which are
+ed., Example 13.3, p.233), no blending with A22 and no affine adjustment, which are
 the single-step steps that \code{model(genotypes = )} performs internally. With few
 animals G is singular; add a small ridge before declaring it, \code{G + diag(0.01, n)},
 as the book does in its examples.

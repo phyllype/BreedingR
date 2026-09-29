@@ -105,7 +105,7 @@ eigenvalue, which does not generate a covariance matrix at all}
 \item{verbose}{print the fit as it walks: one line per AI iteration with the
 -2logL and the relative step, so a long fit is a progress report instead of
 silence. The relative step is half of the convergence criterion; the Newton
-decrement, reported in \code{newton_dec}, is the other half. Defaults to interactive() — live in a
+decrement, reported in \code{newton_dec}, is the other half. Defaults to interactive(), live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 }
 \value{

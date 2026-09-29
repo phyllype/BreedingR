@@ -152,7 +152,7 @@ test_that("the multi-trait optimum is EQUIVARIANT in the scale of the declared K
   # dispersao 2.8e-09, componentes batendo a 4.4e-06, e as tres corridas gastando as MESMAS
   # 9 iteracoes. As tolerancias abaixo ficam varias ordens acima do medido, para caber
   # diferenca de BLAS entre plataformas, e ainda assim sao muito mais duras que as da versao
-  # anterior — que reprovaria de qualquer jeito, com 146 unidades de dispersao.
+  # anterior, que reprovaria de qualquer jeito, com 146 unidades de dispersao.
   z <- fixture_bi(n = 400)
   fml <- function(cc) stats::as.formula(sprintf(
     "cbind(p1, p2) ~ cg + animal(id) + kernel(id, K = %g * K, nome = 'dom')", cc))

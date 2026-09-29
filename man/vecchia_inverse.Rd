@@ -17,7 +17,7 @@ rows (deterministic ties by index). \code{k >= n - 1} reproduces the exact inver
 
 \item{g}{optionally, a ready relationship matrix (then \code{m} is ignored): the
 recursion applies to any symmetric positive-definite matrix, the pedigree A
-included — with the parents as neighbors it reproduces Henderson's A^-1 exactly}
+included, with the parents as neighbors it reproduces Henderson's A^-1 exactly}
 }
 \value{
 list with i, j, x, n (triplets of the lower triangle of the approximate

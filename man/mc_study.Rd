@@ -27,6 +27,6 @@ attributes \code{h2_true}, \code{bias}, \code{sd}
 Simulates \code{n_rep} populations with \code{\link[=simulate_breeding]{simulate_breeding()}}, fits each with \code{\link[=model]{model()}}
 and the given formula, and reports the estimated heritability against the simulated
 one. Each replicate gets its own seed (\code{seed + rep}), and every fit starts cold from
-\code{var(y)} like any other fit — the harness never warm-starts, by the package's own
+\code{var(y)} like any other fit, the harness never warm-starts, by the package's own
 rule.
 }

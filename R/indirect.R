@@ -218,7 +218,7 @@ print.breeding_indirect_residual <- function(x, ...) {
 # (conferido por Monte Carlo com 4e6 replicas: o desvio maximo entre a matriz simulada e
 # esta formula e 0.005 em n = 12, que e o ruido amostral.) O ponto e que a covariancia CRESCE
 # com n. Um random(pen) comum tem uma variancia so por baia, entao ele reproduz esta
-# estrutura apenas quando todas as baias tem o mesmo tamanho — e baias iguais sao justamente
+# estrutura apenas quando todas as baias tem o mesmo tamanho, e baias iguais sao justamente
 # o caso em que o s2_ES nao se separa do intercepto. A saida que o roxygen de
 # indirect_residual() prescrevia nao servia no regime para o qual a funcao existe.
 #
@@ -268,7 +268,7 @@ print.breeding_indirect_residual <- function(x, ...) {
 #' the same pair of matrices on a balanced design and is a rank deficiency, not a
 #' refinement. And a `pen` that is fixed, or nested inside the contemporary group, absorbs
 #' the within-pen contrasts that carry the covariance, leaving only the diagonal slope in
-#' `n_i` — which is what [indirect_residual()] already fits.
+#' `n_i`, which is what [indirect_residual()] already fits.
 #'
 #' The derivation assumes one record per animal within a pen: with two records of the same
 #' animal in one pen the direct deviation `eps_D` is shared between them and the block is

@@ -1,4 +1,4 @@
-// ssSNPBLUP: o passo unico SEM G — os marcadores como equacoes (Liu et al. 2014).
+// ssSNPBLUP: o passo unico SEM G, os marcadores como equacoes (Liu et al. 2014).
 //
 // O modelo equivalente, escrito por extenso porque cada bloco abaixo vem de um termo dele:
 //
@@ -20,13 +20,13 @@
 //   A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v,
 //
 // com UMA fatoracao esparsa do bloco nao-genotipado A^11 feita no comeco e uma resolucao
-// triangular por aplicacao. w -> 1 desliga os marcadores e colapsa no BLUP de pedigree —
+// triangular por aplicacao. w -> 1 desliga os marcadores e colapsa no BLUP de pedigree,
 // e esse colapso e um dos gates.
 //
 // Limites declarados: theta e DADO (isto e um resolvedor, como o BLUP com componentes
 // fixas da pratica; a REML continua nos caminhos exatos), o termo genomico e um grupo
 // escalar, e G* implicita = (1-w) Z Z'/kd + w A22, SEM o ajuste afim do caminho
-// genotypes= — em populacoes fora do equilibrio os dois caminhos diferem por construcao.
+// genotypes=, em populacoes fora do equilibrio os dois caminhos diferem por construcao.
 
 #include "mme.h"
 
@@ -224,7 +224,7 @@ SnpBlup snp_blup(const Desenho& d, Densa& mg, const std::vector<std::string>& ge
   for (std::size_t k = 0; k < M.total; k++) rhs[k] = M.rhs[k];
 
   // precondicionador diagonal: diag(C) mais os acrescimos, com diag(A^22) como
-  // substituto de diag(A22^-1) — e um majorante (o Schur so subtrai), entao o
+  // substituto de diag(A22^-1), e um majorante (o Schur so subtrai), entao o
   // escalonamento fica do lado conservador e a correcao vem das iteracoes
   std::vector<double> prec(N, 0.0);
   for (std::size_t j = 0; j < M.c.ncol; j++)

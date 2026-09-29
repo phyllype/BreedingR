@@ -1,15 +1,15 @@
 # GATES for the AR(1)/CAR(1) residual.
 #
-# The hierarchy: (1) dense V form with R = s2e Gamma explicit — a path sharing nothing
+# The hierarchy: (1) dense V form with R = s2e Gamma explicit, a path sharing nothing
 # with the tridiagonal assembly; (2) finite differences in ALL parameters, including rho;
-# (3) the COLLAPSE: rho = 0 has to reproduce the existing iid path identically — the gate
+# (3) the COLLAPSE: rho = 0 has to reproduce the existing iid path identically, the gate
 # that ties the new machinery to the old; (4) recovery of a simulated rho.
 
 simula_ar1 <- function(n_animais = 80, reps = 6, seed = 7, va = 0.4, s2e = 0.6,
                        rho = 0.5, pe = 0) {
   set.seed(seed)
   id <- sprintf("a%03d", seq_len(n_animais)); pa <- ma <- rep("0", n_animais)
-  # seq(21, n) and not 21:n — with n < 21 R counts BACKWARDS and creates element 21
+  # seq(21, n) and not 21:n, with n < 21 R counts BACKWARDS and creates element 21
   for (i in seq(21, n_animais, length.out = max(0, n_animais - 20))) {
     pa[i] <- id[sample(1:20, 1)]
     ma[i] <- id[sample(seq_len(i - 1), 1)]

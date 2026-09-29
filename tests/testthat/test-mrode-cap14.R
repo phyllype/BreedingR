@@ -8,8 +8,8 @@
 # The piece of engine these gates lock is the STRUCTURALLY NULL ROW of a declared K: an
 # animal with no genes from a breed has a whole row of zeros in that partial matrix, and
 # the book handles it with a generalized inverse that keeps the pattern of the null rows
-# (p.243-244). Here the zero row declares the level out of the term — no equation, zero
-# incidence for its records — while an id ABSENT from K still excludes the record, as
+# (p.243-244). Here the zero row declares the level out of the term, no equation, zero
+# incidence for its records, while an id ABSENT from K still excludes the record, as
 # before. Before that distinction existed, every one of these models either lost the
 # crossbred records or died on "K is not positive-definite".
 #
@@ -145,7 +145,7 @@ test_that("Example 14.1 (p.242-245): breeding values split by breed, and the equ
   expect_lt(max(abs(unname(soma) - comb_livro)), 1e-3)
 
   # model 14.3: ONE term with the combined G = A1 s2_1 + A2 s2_2 + A12 s2_12 gives the
-  # same combined solutions — the equivalence the example exists to show (p.244-245)
+  # same combined solutions, the equivalence the example exists to show (p.244-245)
   fe <- model(y ~ herd + cov(f1) + cov(f2) +
                   kernel(id, K = pa$K[["1"]] * 1 + pa$K[["2"]] * 2 + pa$K[["1:2"]] * 0.5),
               data = d, start = c(1, 4), maxiter = 0L, n_em = 0L, verbose = FALSE)
@@ -220,7 +220,7 @@ test_that("a null row declares the level out; an absent id still excludes the re
   pa <- partial_a(ped_c14, breed = racas_c14)
   d <- dados_c14
   # K trimmed to the contributing animals: the ids of 3, 4 and 7 are now ABSENT, which
-  # is a gap, not a declaration — their records leave the analysis, loudly countable
+  # is a gap, not a declaration, their records leave the analysis, loudly countable
   tem <- which(pa$f[, "1"] > 0)
   f <- model(y ~ herd + kernel(id, K = pa$K[["1"]][tem, tem]),
              data = d, start = c(1, 4), maxiter = 0L, n_em = 0L, verbose = FALSE)

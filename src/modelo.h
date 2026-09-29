@@ -25,7 +25,7 @@
 namespace br {
 
 enum class Efeito { Classe, Covariavel };
-// Declarada: o termo traz a PROPRIA matriz de covariancia (kernel(id, K=)) — D de
+// Declarada: o termo traz a PROPRIA matriz de covariancia (kernel(id, K=)), D de
 // dominancia, G_AA de epistasia, uma parcial por raca. O K^-1 do grupo vem da K declarada
 // em vez de A ou H, e todo o resto (penalidade kron, score, AI) nem sabe a diferenca.
 enum class Estrutura { Fixo, Diagonal, Parentesco, Declarada };
@@ -106,7 +106,7 @@ struct Modelo {
 
 // Constroi o layout: valida, resolve os grupos, e numera theta.
 //
-// Um termo aleatorio sem grupo declarado ganha um grupo proprio — e o comportamento que
+// Um termo aleatorio sem grupo declarado ganha um grupo proprio, e o comportamento que
 // mantem compativel o modelo comum, em que cada efeito tem a sua variancia.
 Modelo monta_modelo(const std::string& alvo, std::vector<Termo> termos,
                     const std::vector<std::pair<std::string, std::vector<std::string>>>& grupos,

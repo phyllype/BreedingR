@@ -1,7 +1,7 @@
 # GATES of the Vecchia inverse. The one that anchors it in this field: Henderson's
 # sparse A^-1 IS Vecchia with the parents as conditioning set, so on a pedigree without
 # full sibs, k = 2 with nearest-by-relationship selection MUST reproduce a_inverse()
-# exactly — the recursion rediscovers the pedigree rules from the matrix alone. Then
+# exactly, the recursion rediscovers the pedigree rules from the matrix alone. Then
 # the collapse (k >= n - 1 is the exact inverse), the monotone improvement with nested
 # neighborhoods, the fit-path collapse, and the declared errors.
 

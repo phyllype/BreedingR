@@ -104,7 +104,7 @@ struct Csc {
 // Constroi a CSC a partir de triplos, SOMANDO duplicados.
 //
 // Somar e obrigatorio e nao conveniencia: o A^-1 de Henderson escreve varias vezes na mesma
-// posicao — o d/4 entre um casal chega por CADA filho — e a matriz so fica certa se essas
+// posicao, o d/4 entre um casal chega por CADA filho, e a matriz so fica certa se essas
 // contribuicoes acumularem. Uma montagem em que o ultimo vence apaga parte do G^-1 em
 // silencio e ainda converge, para o lugar errado.
 //
@@ -119,7 +119,7 @@ Csc de_triplos(std::size_t nlin, std::size_t ncol,
 // ------------------------------------------------------------------------ densa: fatoracao
 
 // Cholesky densa em bloco, no lugar. O triangulo inferior de `s` vira L. Devolve false se a
-// matriz nao for positiva-definida — o que, neste engine, e informacao sobre theta e nao
+// matriz nao for positiva-definida, o que, neste engine, e informacao sobre theta e nao
 // falha a reportar como tal.
 bool chol_densa(Densa& s);
 

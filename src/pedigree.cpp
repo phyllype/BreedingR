@@ -4,8 +4,8 @@
 // simetrica, positiva-definida e plausivel mesmo quando esta errada. Dois pontos concentram
 // isso:
 //
-//  1. a VARIANCIA MENDELIANA depende de quantos pais sao conhecidos — 1/2 com os dois,
-//     3/4 com um, 1 com nenhum — e a endogamia dos pais entra nela. Usar 1/2 sempre e o erro
+//  1. a VARIANCIA MENDELIANA depende de quantos pais sao conhecidos, 1/2 com os dois,
+//     3/4 com um, 1 com nenhum, e a endogamia dos pais entra nela. Usar 1/2 sempre e o erro
 //     classico, e ele so aparece num pedigree com endogamia de verdade.
 //  2. as contribuicoes ACUMULAM na mesma posicao: o d/4 entre um casal chega por cada filho.
 //     Uma montagem em que o ultimo valor vence produz uma matriz que ainda converge, para o

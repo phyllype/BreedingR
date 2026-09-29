@@ -5,7 +5,7 @@
 #                   U[c,i] = -b / sqrt(d), U[i,i] = 1 / sqrt(d),   G^-1 ~ U U'
 #
 # The bridge that makes this familiar: Henderson's (1976) sparse A^-1 IS the Vecchia
-# approximation of A with the parents as the conditioning set — exact because the
+# approximation of A with the parents as the conditioning set, exact because the
 # pedigree is Markovian. APY is the other special case (everyone conditions on one
 # global core). Schafer, Katzfuss and Owhadi (2021) prove the factor built this way
 # minimizes the Kullback-Leibler divergence given the pattern, and that larger
@@ -20,7 +20,7 @@
 #' @param lambda shrinkage on the diagonal of G, as in [apy_inverse()]
 #' @param g optionally, a ready relationship matrix (then `m` is ignored): the
 #'   recursion applies to any symmetric positive-definite matrix, the pedigree A
-#'   included — with the parents as neighbors it reproduces Henderson's A^-1 exactly
+#'   included, with the parents as neighbors it reproduces Henderson's A^-1 exactly
 #' @return list with i, j, x, n (triplets of the lower triangle of the approximate
 #'   G^-1), the diagnostic `mendeliano` (the conditional residual d_i of each animal;
 #'   tiny = collinear with its neighborhood) and the parameters used

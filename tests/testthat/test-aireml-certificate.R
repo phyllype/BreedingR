@@ -4,8 +4,8 @@
 # direct + indirect fit (2x2 covariance group) ended converged TRUE with relDelta
 # 5.1e-09 and scores up to -506050 on the group components, sitting 6.9 -2logL units
 # ABOVE the optimum a manual restart loop reached. The damped AI step and the EM rescue
-# had stalled TOGETHER against the singularity wall, and the certificate of the time —
-# a small relative step plus a stalled EM — accepted the point.
+# had stalled TOGETHER against the singularity wall, and the certificate of the time,
+# a small relative step plus a stalled EM, accepted the point.
 #
 # converged now additionally requires the NEWTON DECREMENT restricted to the FREE
 # components (the active set of floored Cholesky diagonals excluded),
@@ -18,7 +18,7 @@
 # reintroduce the O(n_records) score-norm defect the relative criterion exists to avoid.
 #
 # The cells below are the same seeds as test-aireml-boundary.R (the etapa-1b campaign):
-# the certificate must coexist with LEGITIMATE boundary optima — there the free
+# the certificate must coexist with LEGITIMATE boundary optima, there the free
 # gradients vanish even though the score of the floored direction never does.
 
 simula_ige_forte <- function(n_baias = 60, por_baia = 4, seed = 17,
@@ -61,7 +61,7 @@ test_that("boundary optima still certify: the etapa-1b seeds end converged with 
   # the user's warm-start recipe on the seeds that used to fail; the reference optima
   # are the independently obtained constants of test-aireml-boundary.R. Old-engine full
   # decrements at these optima (score' AI^-1 score over ALL components) were 1.15 and
-  # 0.37 — the boundary direction never zeroes its score — so a certificate that did
+  # 0.37, the boundary direction never zeroes its score, so a certificate that did
   # not exclude the active set would refuse every legitimate boundary fit.
   alvo <- c("11" = 269.870359, "51" = 249.859421)
   for (sd in c(11, 51)) {
@@ -116,7 +116,7 @@ test_that("suite invariant: every converged fit carries a decrement under the to
 test_that("the multi-trait and AR(1) walkers report the same decrement diagnostic", {
   # the mirrors REPORT the boundary-excluded decrement (a failed certificate is a
   # warning in message, not a converged gate: these walkers step in raw theta and can
-  # jam whole against a boundary — the declared 1B limit). On an INTERIOR cell
+  # jam whole against a boundary, the declared 1B limit). On an INTERIOR cell
   # (simulated r_g 0.56, as in test-multitrait.R) the decrement must be small, which
   # pins that the diagnostic itself is computed correctly in both fitters.
   set.seed(29)
@@ -201,7 +201,7 @@ test_that("an AR(1) fit jammed against the zero boundary says so instead of a cl
 
 test_that("maxiter: the defaults, and the ceiling message says how to ask for more", {
   # measured by the user: the 2x2 group warm-started from the reduced model still had
-  # relDelta 1.6e-4 at iteration 100 — the old default cut a healthy walk short, and
+  # relDelta 1.6e-4 at iteration 100, the old default cut a healthy walk short, and
   # the old message ("parou em N iteracoes...") did not say what to do about it.
   #
   # Os espelhos estiveram em 1000 por uma razao que deixou de valer: sem resgate EM eles

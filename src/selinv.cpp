@@ -30,7 +30,7 @@ namespace br {
 //
 // Num modelo de passo unico o bloco genomico e um clique denso, e o produto de Kronecker com
 // a covariancia do grupo o propaga: as ultimas colunas de L ficam cheias. Detectar esse bloco
-// e o que permite a forma fechada, e ele so existe se a ordenacao deixou o clique no FIM —
+// e o que permite a forma fechada, e ele so existe se a ordenacao deixou o clique no FIM,
 // que e por que o pacote ordena por grau minimo e nao por Cuthill-McKee reverso.
 std::size_t bloco_denso_simbolico(const Simbolica& sb) {
   const std::size_t n = sb.n;

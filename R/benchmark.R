@@ -5,7 +5,7 @@
 #' Benchmark a fit with replication built in
 #'
 #' Runs `fun` (a function of no arguments returning a fit) `reps` times, reports the
-#' spread, and CHECKS that the numerical results are identical across runs — a timing
+#' spread, and CHECKS that the numerical results are identical across runs, a timing
 #' whose results differ between replicates is measuring two different things.
 #'
 #' @param fun function of no arguments, e.g. `function() model(y ~ cg + animal(id), d, p)`

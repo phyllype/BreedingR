@@ -37,7 +37,7 @@ outlier pass), \code{n_outliers}, \code{fences} (the two cutoffs), and \code{sma
 \description{
 The mirror of \code{\link[=qc_genotypes]{qc_genotypes()}} for the observation side: flags the missing code,
 flags Tukey-fence outliers (turning them into missing rather than DROPPING the
-row — removing a row silently changes contemporary groups and pen compositions),
+row, removing a row silently changes contemporary groups and pen compositions),
 and reports contemporary-group levels too small to estimate. Everything it does
 is counted and returned; nothing is silent.
 }

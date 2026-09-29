@@ -2,7 +2,7 @@
 # (Bradley and Terry, 1952; Luce, 1959; Plackett, 1975), with an exposure offset.
 #
 # The setting is any trait where individuals compete for a FIXED number of outcomes
-# inside a group — paternity shares in a semen pool, dominance encounters, tournament
+# inside a group, paternity shares in a semen pool, dominance encounters, tournament
 # wins. Modeling the share directly is a trap: shares sum to one inside the group, so a
 # direct and an indirect effect on that scale are linked by an identity and their
 # correlation is pinned near -1 by construction, not by biology.
@@ -32,8 +32,8 @@
 #' share: strengths are free parameters, while only the probabilities are normalized.
 #'
 #' FORD'S CONDITION decides whether the number means anything. Ford (1957) showed that this
-#' likelihood has a finite and unique maximum only when the WIN GRAPH — an arrow from i to j
-#' whenever i won an outcome in a contest j also entered — is strongly connected. A
+#' likelihood has a finite and unique maximum only when the WIN GRAPH, an arrow from i to j
+#' whenever i won an outcome in a contest j also entered, is strongly connected. A
 #' competitor outside that core, someone who only ever lost or only ever won, sits on a
 #' likelihood that keeps improving in one direction: the Gamma prior is what keeps his
 #' estimate finite, and there is no curvature for a standard error to read. The result marks
@@ -45,7 +45,7 @@
 #' @param wins number of outcomes competitor `competitor[k]` won in group `group[k]`
 #' @param group the contest each row belongs to (a litter, a pen, a match)
 #' @param competitor who competed
-#' @param exposure opportunity of that competitor in that contest — a semen dose, a
+#' @param exposure opportunity of that competitor in that contest, a semen dose, a
 #'   number of attempts. NULL means every competitor had the same. It enters as an
 #'   offset, so the strength is ability PER UNIT of exposure
 #' @param prior a Gamma(prior, prior) shrinkage toward strength one, which keeps a
@@ -114,7 +114,7 @@ competition_strength <- function(wins, group, competitor, exposure = NULL,
   # MM is monotone but linear, and on a real panel it crawls. SQUAREM (Varadhan and
   # Roland 2008) extrapolates through two MM steps at the cost of nothing but a
   # likelihood check, and falls back to the plain double step whenever the extrapolation
-  # would not improve — so it never trades convergence for speed.
+  # would not improve, so it never trades convergence for speed.
   lam <- rep(1, na)
   convergiu <- FALSE
   it <- 0L

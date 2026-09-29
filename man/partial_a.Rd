@@ -9,7 +9,7 @@ partial_a(ped, breed)
 \arguments{
 \item{ped}{data.frame with animal, sire and dam, as in \code{\link[=model]{model()}}; unknown parent 0 or
 NA. Every animal must have both parents known or neither: with a single known
-parent the breed fractions are undefined — add the missing parent as a founder
+parent the breed fractions are undefined, add the missing parent as a founder
 with a declared breed}
 
 \item{breed}{named character vector giving the breed of every FOUNDER: names are the
@@ -18,10 +18,10 @@ fractions, so declaring them is an error, not a convenience}
 }
 \value{
 list with three pieces, all rows in the topological order of \code{\link[=pedigree]{pedigree()}}:
-\code{f}, the matrix of breed fractions (animals x breeds) — the fixed breed regression
+\code{f}, the matrix of breed fractions (animals x breeds), the fixed breed regression
 of the book's model enters the data from here; \code{h}, the matrix of segregation
 coefficients (animals x breed pairs, columns named \code{"p:q"}); and \code{K}, the named
-list of partial relationship matrices ready for \code{kernel(id, K = )} — one per breed,
+list of partial relationship matrices ready for \code{kernel(id, K = )}, one per breed,
 plus one per breed pair that actually segregates (an all-zero segregation matrix is
 left out, there is nothing to estimate from it)
 }
@@ -33,7 +33,7 @@ breed contribution on the diagonal, \verb{a_ii = c_i + 0.5 a_SD}, where \code{c_
 fraction of genes from breed p; each pair of breeds gets a segregation matrix from the
 same recursion with \verb{c_i = 2 (f_pS f_qS + f_pD f_qD)}. The combined additive
 covariance is the variance-weighted sum of all of them (Eqn 14.1), and a model with
-one random term per matrix — \code{kernel(id, K = )}, one variance each — is the
+one random term per matrix, \code{kernel(id, K = )}, one variance each, is the
 equivalent model 14.8, returning breed-specific breeding values that sum to the
 combined ones.
 }
@@ -54,6 +54,6 @@ ped <- data.frame(animal = c("1", "2", "3", "4", "5"),
 pa <- partial_a(ped, breed = c("1" = "A", "2" = "B"))
 pa$f["3", ]              # the F1 cross: half A, half B
 pa$K[["A"]]["3", "3"]    # partial diagonal 0.5
-pa$h["5", "A:B"]         # the F2 segregates: h = 1 (an F1 does not — h = 0)
+pa$h["5", "A:B"]         # the F2 segregates: h = 1 (an F1 does not, h = 0)
 pa$K[["A:B"]]["5", "5"]
 }

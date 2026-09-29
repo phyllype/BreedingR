@@ -1,10 +1,10 @@
 # The model advisor: looks at the SHAPE of the data (records per animal, time axis,
 # missingness) and says which terms the shape asks for, with the reason. It advises,
-# never decides — every suggestion names the trap it is protecting against.
+# never decides, every suggestion names the trap it is protecting against.
 
 #' Suggest model terms from the shape of the data
 #'
-#' Reads the structure — repeated records, a time axis, missing observations — and
+#' Reads the structure, repeated records, a time axis, missing observations, and
 #' returns the modeling suggestions that structure implies, each with its reason.
 #' The classic trap it guards first: repeated records without a permanent-environment
 #' term load the within-animal covariance onto the additive variance, and the

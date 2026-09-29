@@ -253,7 +253,7 @@ MontadoAR monta_mme_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
         M.yry += (i == j ? 1.0 : 2.0) * w * yy;
       }
     }
-    // um push por posicao do clique — ZEROS INCLUIDOS, que e o que garante o padrao
+    // um push por posicao do clique, ZEROS INCLUIDOS, que e o que garante o padrao
     for (std::size_t a2 = 0; a2 < nc; a2++)
       for (std::size_t b2 = 0; b2 <= a2; b2++) {
         std::uint32_t p2 = cols_s[a2], q2 = cols_s[b2];
@@ -379,7 +379,7 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
   const std::size_t ntheta = d.modelo.ntheta;
   A.score.assign(ntheta, 0.0);
   // proposta EM: comeca no theta corrente, os grupos sao sobrescritos abaixo, e R0 e
-  // rho ficam onde estao — o rho nao tem passo M fechado e o R0 multivariado ainda
+  // rho ficam onde estao, o rho nao tem passo M fechado e o R0 multivariado ainda
   // nao tem o seu. Quem chama so aceita a proposta se ela baixar a verossimilhanca.
   A.em_theta = theta;
   A.ai = Densa(ntheta, ntheta);

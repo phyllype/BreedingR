@@ -4,7 +4,7 @@
 // ## O desenho
 //
 // Bloco UNICO de localizacao: (b, u) | theta, y e Gaussiana com media na solucao das MME
-// e covariancia C^-1 — amostrada exata via a MESMA Cholesky esparsa do REML (fator L da
+// e covariancia C^-1, amostrada exata via a MESMA Cholesky esparsa do REML (fator L da
 // C permutada; media + sqrt(s2e) P L'^-1 z, z ~ N(0, I)). Um refactor numerico por
 // iteracao, simbolica em cache. Single-site misturaria pior e jogaria fora a maquinaria
 // ja validada; o bloco unico faz da media amostral o proprio BLUP, que e o gate.
@@ -20,7 +20,7 @@
 //
 // O do PROPRIO R (GetRNGstate / Rf_rnorm / Rf_rchisq): respeita set.seed() do usuario e
 // nao adiciona dependencia. Por isso este arquivo, ao contrario do resto da numerica,
-// inclui R.h — ele E a fronteira.
+// inclui R.h, ele E a fronteira.
 
 #include "mme.h"
 #include <R_ext/Print.h>

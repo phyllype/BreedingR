@@ -18,7 +18,7 @@ the index, same length as the inputs
 \verb{THI = (1.8 T + 32) - (0.55 - 0.0055 RH) (1.8 T - 26)}, with the temperature in
 degrees Celsius and the relative humidity in percent. This is the formula the
 heat-stress literature calls NRC (1971); other THI variants exist and differ by a few
-tenths — if a study uses another one, compute it and pass it as the covariate, the
+tenths, if a study uses another one, compute it and pass it as the covariate, the
 reaction norm does not care where the axis came from.
 }
 \references{

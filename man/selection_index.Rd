@@ -23,6 +23,6 @@ animals as attribute \code{n_dropped}
 \verb{I = sum_t w_t ebv_t}, optionally with each trait standardized to unit EBV standard
 deviation first (then the weights read as "relative emphasis in genetic standard
 deviations", the scale-free form). Animals are matched BY NAME across traits, and an
-animal missing in any trait is dropped with a count — silently keeping it at zero
+animal missing in any trait is dropped with a count, silently keeping it at zero
 would reward incomplete evaluation.
 }

@@ -11,7 +11,7 @@ dominance_matrix(ped)
 }
 \value{
 dominance relationship matrix, rows and columns named by animal in the
-topological order of \code{\link[=pedigree]{pedigree()}} — ready for \code{kernel(id, K = )}
+topological order of \code{\link[=pedigree]{pedigree()}}, ready for \code{kernel(id, K = )}
 }
 \description{
 The D of Cockerham (1954), Eqn 13.1 of Mrode & Pocrnic (4th ed., p.226): between
@@ -22,7 +22,7 @@ the pedigree the off-diagonals are the classic approximation, not an exact ident
 }
 \details{
 The matrix is DENSE and is built from the full tabular A, so this is for pedigrees of
-moderate size — the toy and research scale where dominance is actually estimated, not
+moderate size, the toy and research scale where dominance is actually estimated, not
 a national evaluation. The family-structured inverse of Hoeschele & VanRaden (1991),
 which the book itself flags as probably superseded by the genomic D (p.230), is not
 implemented.

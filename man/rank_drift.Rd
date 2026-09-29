@@ -22,6 +22,6 @@ rank changes, positive = climbed)
 \description{
 The honest form of the "sequential update" question: after new data (or a new model),
 how much did the ranking actually move? Reports the rank correlation, the retention
-in the selected fraction, and the animals that moved most — the numbers a breeder
+in the selected fraction, and the animals that moved most, the numbers a breeder
 checks before trusting an updated evaluation.
 }

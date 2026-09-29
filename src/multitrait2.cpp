@@ -78,7 +78,7 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
   d.nlin = tab.nlin;
 
   // y n x t. Caracteristica ausente NAO derruba o registro: marca obs = 0, e o registro
-  // participa com a submatriz de R0 do seu padrao. y ausente vira zero — com a inversa
+  // participa com a submatriz de R0 do seu padrao. y ausente vira zero, com a inversa
   // embutida zerada naquela linha, o valor nunca e lido, e zero e mais seguro que NaN,
   // que contamina qualquer soma que um defeito futuro deixar passar.
   d.y = Densa(d.nlin, d.t);
@@ -341,7 +341,7 @@ AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::s
   mz.blocos.push_back(std::make_pair(d.modelo.offset_residual, d.t));
 
   // O certificado final, espelhado do ajustador univariado (o racional completo esta em
-  // aireml.cpp): passo relativo pequeno nao prova otimo — AI amortecida pode aceitar um
+  // aireml.cpp): passo relativo pequeno nao prova otimo, AI amortecida pode aceitar um
   // passo minusculo com o gradiente longe de zero. converged exige tambem o decremento
   // de Newton, g' AI^-1 g, ~2x o gap em -2logL perto do otimo. Este laco anda em theta
   // cru, sem pisos e sem log-Cholesky (o limite declarado da etapa 1B), entao as
@@ -349,7 +349,7 @@ AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::s
   // nunca zera. O certificado exclui o que este laco consegue reconhecer: uma variancia
   // diagonal em zero numerico (<= 1e-6 da escala residual) com o score empurrando para
   // baixo, e TODO componente de um grupo cuja C_g esta a 1e-3 (razao das diagonais do
-  // Cholesky, o mesmo piso relativo do univariado) da singularidade — este laco nao
+  // Cholesky, o mesmo piso relativo do univariado) da singularidade, este laco nao
   // anda sobre a parede, entao a certificacao e CONDICIONAL a ela e a mensagem diz
   // isso. AI que nao inverte no bloco livre nao certifica nada: conta como recusa.
   const double tol_dec = 2e-4;
@@ -393,8 +393,8 @@ AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::s
       // que falta esta no R0 ele nao alcanca, e aceitar um ganho de 1e-8 so desvia um
       // caminho saudavel para um ponto de onde o passo AI nao sai (medido: uma celula
       // que certificava com decremento 1.3e-04 passou a parar em 8.4e-04). Com um piso
-      // relativo, o EM entra onde ele de fato resolve — a fronteira, onde o passo
-      // amortecido trava — e sai da frente onde nao resolve.
+      // relativo, o EM entra onde ele de fato resolve, a fronteira, onde o passo
+      // amortecido trava, e sai da frente onde nao resolve.
       const double ganho_em = atual.neg2logl - prox.neg2logl;
       if (!prox.ok || ganho_em < 1e-6 * std::max(1.0, std::fabs(atual.neg2logl))) break;
       double num = 0.0, den = 0.0;
@@ -523,7 +523,7 @@ AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::s
         break;
       }
       // A recusa nao encerra o ajuste: o passo pode voltar a andar. Mas ele so volta se o
-      // amortecimento for solto — depois de uma sequencia de aceites lambda esta no piso
+      // amortecimento for solto, depois de uma sequencia de aceites lambda esta no piso
       // e a direcao e sempre a mesma. `parado` conta os aceites sem ganho real e desiste
       // quando nem soltar o amortecimento adianta.
       // O corte de estagnacao ficou mais paciente depois que o resgate EM entrou, porque

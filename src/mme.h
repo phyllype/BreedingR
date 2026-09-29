@@ -2,7 +2,7 @@
 // travessia (entrada.cpp).
 //
 // Um unico lugar, de proposito: a primeira versao redefinia `Desenho` em dois .cpp, o que e
-// violacao de ODR — os dois corpos tem de ser identicos token a token, e qualquer edicao
+// violacao de ODR, os dois corpos tem de ser identicos token a token, e qualquer edicao
 // futura num deles quebraria o outro em silencio, no vinculo ou pior, em tempo de execucao.
 
 #ifndef BREEDINGR_MME_H
@@ -153,7 +153,7 @@ SelInv inversa_seletiva(const Csc&, std::size_t);
 
 // Uma matriz de covariancia DECLARADA pelo usuario (kernel(id, K=)): os ids que nomeiam
 // linhas e colunas, e a K densa. O vetor de declaracoes anda PARALELO aos termos do
-// modelo — entrada vazia para termo que nao e kernel — para que o desenho ache a K do
+// modelo, entrada vazia para termo que nao e kernel, para que o desenho ache a K do
 // termo sem um mapa a parte.
 struct KernelDecl {
   std::vector<std::string> ids;
@@ -174,7 +174,7 @@ struct Desenho {
   std::vector<char> usa;
   std::size_t nlin = 0;
   // Pesos: um registro de peso w tem residual s2e/w. Entram como ESCALA DE LINHA por
-  // sqrt(w) em y, X e Z — as equacoes normais da tabela escalada SAO as equacoes
+  // sqrt(w) em y, X e Z, as equacoes normais da tabela escalada SAO as equacoes
   // ponderadas, entao score, AI e inversa seletiva continuam valendo sem uma linha de
   // mudanca. So a verossimilhanca precisa do jacobiano, que e esta constante.
   double logdet_peso = 0.0;
@@ -238,7 +238,7 @@ std::vector<double> theta_de_z(const MapaZ& mp, std::size_t ntheta,
                                const std::vector<double>& z);
 Densa jacobiano_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& z);
 // Todas as pecas do passo num ponto: z, score e AI levados para z, os pisos, e os DOIS
-// conjuntos ativos sobre os mesmos pisos e a mesma regra de score para fora — o do passo
+// conjuntos ativos sobre os mesmos pisos e a mesma regra de score para fora, o do passo
 // (piso + 1e-9) e o do certificado, deliberadamente mais largo (piso + log 2). Ver o
 // racional em src/aireml.cpp.
 struct PassoZ {
@@ -328,7 +328,7 @@ RelatorioG aplica_genomica(Desenho&, const Pedigree&, const std::vector<std::str
                            std::size_t = 0);
 std::vector<double> partida(const Desenho&);
 
-// ---- sssnp.cpp: o passo unico sem G — marcadores como equacoes, PCG, A22^-1 livre de
+// ---- sssnp.cpp: o passo unico sem G, marcadores como equacoes, PCG, A22^-1 livre de
 // matriz (Liu et al. 2014; Masuda et al. 2017; Vandenplas et al. 2018, 2019). theta e
 // dado: e um resolvedor.
 struct SnpBlup {
@@ -405,7 +405,7 @@ struct DesenhoMT {
   Densa y;
   std::vector<char> usa;
   // obs[r*t + tau]: a caracteristica tau foi observada no registro r. Um registro pode
-  // participar com um subconjunto — e a R0 dele e a submatriz do padrao.
+  // participar com um subconjunto, e a R0 dele e a submatriz do padrao.
   std::vector<char> obs;
   std::size_t nlin = 0;
   std::size_t n_usadas() const { std::size_t s = 0; for (char u : usa) s += u; return s; }
@@ -499,7 +499,7 @@ struct DesenhoAR {
   // Os intervalos dentro de um sujeito caem todos numa GRADE INTEIRA? A pergunta decide se
   // rho negativo e um modelo. Gamma(dt) = rho^dt so e uma funcao de correlacao valida com
   // rho < 0 quando dt e inteiro: fora da grade a convencao de sinal quebra a
-  // multiplicatividade — s(2.5)|rho|^2.5 ao quadrado da +|rho|^5, e s(5)|rho|^5 e -|rho|^5 —
+  // multiplicatividade, s(2.5)|rho|^2.5 ao quadrado da +|rho|^5, e s(5)|rho|^5 e -|rho|^5,
   // e com ela a propriedade de Markov de que a Gamma^-1 tridiagonal depende. A rota densa e
   // a esparsa passam a discordar. Em tempo continuo o modelo e o CAR(1), com rho em (0, 1).
   bool tempo_inteiro = true;

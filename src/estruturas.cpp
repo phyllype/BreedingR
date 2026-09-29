@@ -74,7 +74,7 @@ Csc de_triplos(std::size_t nlin, std::size_t ncol,
 // quebra a regra de dependencia: o BLAS/LAPACK vem com toda instalacao do R, e quem
 // trocar o BLAS do R (OpenBLAS, MKL) acelera o pacote sem recompilar nada. O truque de
 // layout: a Densa e linha-major, entao o triangulo INFERIOR daqui e o triangulo
-// superior ('U') na convencao coluna-major do Fortran — mesma memoria, sem transpor.
+// superior ('U') na convencao coluna-major do Fortran, mesma memoria, sem transpor.
 
 bool chol_densa(Densa& s) {
   const std::size_t t = s.nlin;
@@ -216,7 +216,7 @@ Densa inv_geral(const Densa& a) {
   for (const double v : m.dados)
     if (!std::isfinite(v)) throw Erro("singular matrix");
   // dgetrf + dgetri sobre a transposta implicita (linha-major lida como coluna-major da
-  // pela transposta, e inv(A') = inv(A)' — a leitura linha-major do resultado ja e a
+  // pela transposta, e inv(A') = inv(A)', a leitura linha-major do resultado ja e a
   // inversa certa)
   int n = static_cast<int>(t), info = 0;
   std::vector<int> piv(t);

@@ -7,13 +7,13 @@
 //          = (n - p) log s2e + log|M| + log|X'M^-1 X| + y'P*y / s2e ,   M = Z G* Z' + I
 //
 // O lado esquerdo vem das MME montadas aqui; o direito e a forma V, computada DENSA no
-// modulo de referencia. Se os dois nao coincidem, um esta errado — e e assim que a montagem
+// modulo de referencia. Se os dois nao coincidem, um esta errado, e e assim que a montagem
 // e validada sem nunca se conferir contra si mesma.
 //
 // W'W e acumulada um REGISTRO de cada vez. Cada registro contribui um pequeno clique entre
 // as colunas que toca, entao o custo e a soma de nnz_linha^2/2 por registro, e nada
 // quadratico no numero de colunas. A penalidade kron(C_g^-1, K^-1) entra depois, na mesma
-// lista de triplos — e a montagem SOMAR duplicados e o que faz uma posicao tocada por
+// lista de triplos, e a montagem SOMAR duplicados e o que faz uma posicao tocada por
 // registros e pela penalidade acumular em vez de um apagar o outro.
 
 #include "mme.h"
@@ -126,7 +126,7 @@ void casa_niveis_nulos(const Modelo& m, const std::vector<DesenhoTermo*>& aleato
 void kinv_declarada(const Modelo& mo, const Grupo& g,
                     const std::vector<KernelDecl>* kernels,
                     std::vector<Csc>& kinv, std::vector<double>& kinv_logdet) {
-        // K DECLARADA (kernel): a matriz veio pronta do usuario — D de dominancia, G_AA de
+        // K DECLARADA (kernel): a matriz veio pronta do usuario, D de dominancia, G_AA de
         // epistasia, uma parcial por raca. A inversao aqui e DENSA de proposito: a K
         // declarada tem o tamanho do problema que o usuario montou, e a rota esparsa para D
         // de pedigree grande (Hoeschele & VanRaden 1991) segue por fazer.
@@ -332,7 +332,7 @@ Montado monta_mme(const Desenho& d, const std::vector<double>& theta) {
         // A primeira versao trocava (swap) e espelhava: com o laco percorrendo a e b
         // completos, cada posicao fora da diagonal era emitida DUAS vezes, e como a
         // montagem soma duplicados, a penalidade saia dobrada. Uma penalidade dobrada
-        // ainda e simetrica e definida — converge, para o lugar errado. Mantendo so o
+        // ainda e simetrica e definida, converge, para o lugar errado. Mantendo so o
         // triangulo sem trocar, a propria varredura completa de (a,b) garante que cada
         // posicao superior da kron cheia e emitida exatamente uma vez.
         auto poe = [&](std::size_t gi, std::size_t gj, double val) {
@@ -390,7 +390,7 @@ Neg2LogL neg2logl_esparsa(const Desenho& d, const std::vector<double>& theta) {
   const double p = static_cast<double>(M.n_fixo);
   r.logdet_c = logdet(L);
   // O expoente de s2e e n - p e nao n: o REML integra os efeitos fixos. E log|G| carrega
-  // log|K|, nao log|K^-1| — a diferenca e constante em theta, entao o OTIMO nao se move e so
+  // log|K|, nao log|K^-1|, a diferenca e constante em theta, entao o OTIMO nao se move e so
   // o VALOR sai errado, o que arruina qualquer comparacao com outro programa sem arruinar as
   // estimativas. Invisivel num teste de recuperacao, fatal num de -2logL.
   r.valor = (n - p) * std::log(M.s2e) + M.logdet_g + r.logdet_c + (yy - bry) / M.s2e
@@ -594,7 +594,7 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
   for (std::size_t j = 0; j < cols.size(); j++)
     for (std::size_t i = 0; i < d.nlin; i++) xfull.at(i, j) = cols[j].second[i];
 
-  // aleatorios, com niveis do pedigree quando ha parentesco e da K quando declarada — em
+  // aleatorios, com niveis do pedigree quando ha parentesco e da K quando declarada, em
   // ambos os casos todo nivel da estrutura ganha equacao, com ou sem registro
   for (std::size_t k = 0; k < m.termos.size(); k++) {
     if (!m.termos[k].aleatorio()) continue;
@@ -613,7 +613,7 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
   // linhas que entram: nem ausente, nem nivel sem casar no parentesco.
   //
   // NA/NaN na observacao E ausente, com ou sem codigo declarado: e o idioma do R, os
-  // caminhos multi e AR ja tratavam assim, e o univariado nao — um NA atravessava a
+  // caminhos multi e AR ja tratavam assim, e o univariado nao, um NA atravessava a
   // marcacao e virava NaN na verossimilhanca inteira, sem erro nenhum, so um -2logL
   // NaN. O valor tambem TEM de ser zerado: a linha sai de `usa`, mas NaN * 0 continua
   // NaN nas somas que varrem o vetor inteiro.

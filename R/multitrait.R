@@ -4,7 +4,7 @@
 #
 # A record with a missing trait PARTICIPATES with its observation pattern: its R0
 # is the submatrix of the traits present. That is the information that stabilizes the
-# genetic correlation — the animal measured only for p1 still says something about
+# genetic correlation, the animal measured only for p1 still says something about
 # cov(p1,p2) through the relationship. A record with no observed trait at all drops
 # out, and is counted.
 
@@ -45,7 +45,7 @@
 #' @param verbose print the fit as it walks: one line per AI iteration with the
 #'   -2logL and the relative step, so a long fit is a progress report instead of
 #'   silence. The relative step is half of the convergence criterion; the Newton
-#'   decrement, reported in `newton_dec`, is the other half. Defaults to interactive() — live in a
+#'   decrement, reported in `newton_dec`, is the other half. Defaults to interactive(), live in a
 #'   session, quiet in scripts and checks. Every fitter also honors Ctrl+C now
 #' @param metafounders labels of unknown-parent groups; a parent with one of these
 #'   labels needs no line of its own (any OTHER cited-without-line parent is still a
@@ -201,7 +201,7 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
 #'
 #' r_g = cov(a@t1, a@t2) / sqrt(var(a@t1) var(a@t2)), read by parameter NAME. The standard
 #' error is NOT given: it needs the delta method with the covariance between components, and
-#' the honesty here is the same as summary's — making the number up would be worse than not
+#' the honesty here is the same as summary's, making the number up would be worse than not
 #' giving it.
 #' @param fit result of model_mt()
 #' @param term name of the term (for example "animal")

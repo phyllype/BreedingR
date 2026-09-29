@@ -17,6 +17,6 @@ pmax(0, x - threshold)
 \description{
 \code{max(0, x - threshold)}: the broken-stick transform that turns an environmental
 gradient into a heat-load covariate, zero in the comfort zone and linear above it.
-The threshold is part of the model choice — 68 to 72 THI points are the usual pig and
+The threshold is part of the model choice, 68 to 72 THI points are the usual pig and
 cattle comfort limits, but the honest way to pick one is to compare fits.
 }

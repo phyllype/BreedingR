@@ -49,17 +49,17 @@ ARGS_MARCADOR <- local({
 #'   `kernel(id, K = D)` is a random term with a user-supplied (user-defined)
 #'   covariance matrix, called a DECLARED covariance throughout this package: K is a symmetric positive-definite matrix whose rownames
 #'   are the level identifiers, and every row of K gets an equation, with or without a
-#'   record — a dominance D ([dominance_matrix()], [g_dominance()]), an epistatic G_AA
+#'   record, a dominance D ([dominance_matrix()], [g_dominance()]), an epistatic G_AA
 #'   ([g_epistasis()]), a partial multibreed matrix ([partial_a()]), or any relationship
 #'   the pedigree and the markers do not already provide. A row of K that is ENTIRELY
 #'   zero, diagonal included, declares a level with no contribution to this term: it
-#'   gets no equation and its records stay in the analysis with zero incidence here —
+#'   gets no equation and its records stay in the analysis with zero incidence here,
 #'   the generalized-inverse pattern of the multibreed partial matrices (Mrode &
 #'   Pocrnic, 4th ed., p.243-244). An id absent from K altogether still excludes the
 #'   record, as with an animal missing from the pedigree: a zero row is a declaration,
 #'   an absence is a gap. Two kernel terms need `nome=` to tell their components apart.
 #'   The inversion of K is dense, so the declared route is for matrices of moderate
-#'   size — the size of a genotyped set, not of a national pedigree.
+#'   size, the size of a genotyped set, not of a national pedigree.
 #' @param data data.frame with the columns referenced
 #' @param pedigree data.frame animal, sire, dam; required with a relationship term
 #' @param missing_code missing-value code for observations, for example -999
@@ -79,7 +79,7 @@ ARGS_MARCADOR <- local({
 #'   with `apy_core`
 #' @param maxiter maximum number of iterations of the damped step. The default 300 was
 #'   raised from 100 after a measured case: a direct-indirect model warm-started from
-#'   the reduced fit still had relDelta 1.6e-4 at iteration 100 — no defect, a model
+#'   the reduced fit still had relDelta 1.6e-4 at iteration 100, no defect, a model
 #'   that walks slowly along a covariance boundary. A fit that hits the ceiling says so
 #'   in `message` and reports `converged = FALSE`
 #' @param tol RELATIVE tolerance on the components, sqrt(sum delta^2 / sum theta^2).
@@ -88,7 +88,7 @@ ARGS_MARCADOR <- local({
 #'   default is 1e-16 on their scale). A small step alone never certifies convergence:
 #'   `converged = TRUE` additionally requires the Newton decrement of the free
 #'   components, g' AI^-1 g restricted to the components not held at a boundary, to
-#'   fall under 2e-4 — near the optimum the decrement is about twice the -2logL gap
+#'   fall under 2e-4, near the optimum the decrement is about twice the -2logL gap
 #'   to it, so the certificate bounds that gap by ~1e-4. The value is reported in
 #'   `newton_dec`. Measured motivation: a fit that stalled against the singularity
 #'   boundary with relDelta 5.1e-9 and the score far from zero sat 6.9 -2logL units
@@ -100,12 +100,12 @@ ARGS_MARCADOR <- local({
 #' @param weights a column of `data`, or a numeric vector: a record of weight w has
 #'   residual variance `s2e / w`. Weights enter as a row scaling by sqrt(w), so the
 #'   normal equations solved are the weighted ones. Use them when records are means of
-#'   different sizes, or estimates that carry their own precision — a two-step analysis,
+#'   different sizes, or estimates that carry their own precision, a two-step analysis,
 #'   a de-regressed proof
 #' @param verbose print the fit as it walks: one line per AI iteration with the
 #'   -2logL and the relative step, so a long fit is a progress report instead of
 #'   silence. The relative step is half of the convergence criterion; the Newton
-#'   decrement, reported in `newton_dec`, is the other half. Defaults to interactive() — live in a
+#'   decrement, reported in `newton_dec`, is the other half. Defaults to interactive(), live in a
 #'   session, quiet in scripts and checks. Every fitter also honors Ctrl+C now
 #' @param metafounders labels of unknown-parent groups; a parent with one of these
 #'   labels needs no line of its own (any OTHER cited-without-line parent is still a
@@ -316,7 +316,7 @@ valida_pesos <- function(weights, data) {
 }
 
 # The declared-K route: evaluates each kernel(id, K=) expression in the environment of the
-# formula and validates the shape the engine needs — square, named, symmetric, finite.
+# formula and validates the shape the engine needs, square, named, symmetric, finite.
 # Positive-definiteness is left to the factorization, where the answer is exact instead of
 # a tolerance. Returns NULL when the model has no kernel term, so every fitter can pass
 # the result straight to .Call.
@@ -361,7 +361,7 @@ decompoe_formula <- function(expr) {
   #
   # An earlier version disambiguated duplicated markers by appending the column, so a
   # model with one pe() reported var(pe) and the same model with a second pe() reported
-  # var(pe(id)) and var(pe(dam)) — the FIRST term silently renamed because a second one
+  # var(pe(id)) and var(pe(dam)), the FIRST term silently renamed because a second one
   # was added. Code indexing components by name then broke without a word. Two terms of
   # the same marker now require an explicit name, which keeps every name stable and turns
   # the collision into a message instead of a rename.
@@ -468,7 +468,7 @@ interpreta_termo <- function(e) {
   }
   # kernel(id, K = D): a random term whose covariance matrix is DECLARED instead of
   # derived from the pedigree or the markers. The K expression is kept as language here
-  # and evaluated by the fitter in the environment of the formula — this parser also runs
+  # and evaluated by the fitter in the environment of the formula, this parser also runs
   # where no K is wanted (accuracy() re-reads the stored formula), and evaluating a
   # possibly large matrix there would be work done for nobody.
   kexpr <- NULL

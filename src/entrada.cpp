@@ -64,7 +64,7 @@ static SEXP csc_para_R(const br::Csc& m) {
 // Converte a excecao do dominio em condicao do R.
 //
 // Variadica de proposito: chaves NAO protegem virgulas no preprocessador, so parenteses. Com
-// um parametro so, qualquer virgula dentro do corpo — e ha uma em cada Rf_allocVector — vira
+// um parametro so, qualquer virgula dentro do corpo, e ha uma em cada Rf_allocVector, vira
 // separador de argumento e a macro deixa de existir. Foi exatamente esse o erro na primeira
 // versao deste arquivo.
 //
@@ -447,7 +447,7 @@ static br::Modelo modelo_do_R(SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov, SEXP 
         Rf_error("dilution: expected one numeric value per term");
       t.diluicao = REAL(tdil)[k];
     }
-    // base: colunas separadas por virgula. E o que faz um termo virar regressao aleatoria —
+    // base: colunas separadas por virgula. E o que faz um termo virar regressao aleatoria,
     // um termo com m coeficientes e uma covariancia m x m, nao m termos independentes.
     const char* base = CHAR(STRING_ELT(tbase, k));
     if (*base) {
@@ -678,7 +678,7 @@ SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
 // Conversao + aplicacao da genomica, comum aos tres ajustadores (o desenho e template
 // porque uni, multi e AR carregam os mesmos campos que o passo unico toca). Devolve a
 // nota do relatorio, vazia sem genotipos. O extern "C++" existe porque este arquivo vive
-// num bloco extern "C" — e template nao tem linkage de C.
+// num bloco extern "C", e template nao tem linkage de C.
 
 SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
@@ -736,7 +736,7 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     //
     // Um ajuste que parou ANTES da primeira avaliacao volta sem theta: montar as MME com
     // esse vetor vazio lia fora dele. Sem theta nao ha solucao para fatiar, e o objeto ja
-    // carrega a mensagem — as fatias saem NA, como no resto do caminho de falha.
+    // carrega a mensagem, as fatias saem NA, como no resto do caminho de falha.
     br::Montado M;
     if (!r.theta.empty()) M = br::monta_mme(d, r.theta);
     if (M.offset_grupo.empty()) M.offset_grupo.assign(m.grupos.size(), 0);
@@ -779,7 +779,7 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     Rf_setAttrib(sc, R_NamesSymbol, Rf_duplicate(nms_t));
 
     // Solucoes dos efeitos fixos: as primeiras x.ncol posicoes da solucao, nomeadas pelas
-    // colunas de X — os MESMOS nomes termo=nivel que dropped_x usa. Nada e recalculado: o
+    // colunas de X, os MESMOS nomes termo=nivel que dropped_x usa. Nada e recalculado: o
     // solver ja resolveu o sistema inteiro, isto e uma fatia. Sem theta nao ha solucao e a
     // fatia sai NA, como no resto do caminho de falha.
     SEXP bfix = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) d.x.ncol));
@@ -984,7 +984,7 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     Rf_setAttrib(theta, R_NamesSymbol, nms_t);
     Rf_setAttrib(se, R_NamesSymbol, nms_t);
 
-    // EBV e PEV por grupo: a fatia do grupo, com nomes "nivel|caracteristica" — a coluna
+    // EBV e PEV por grupo: a fatia do grupo, com nomes "nivel|caracteristica", a coluna
     // (tau * n_coef + ct) * n_niveis + nv e caracteristica-major no coeficiente
     SEXP ebv = PROTECT(Rf_allocVector(VECSXP, (R_xlen_t) d.modelo.grupos.size()));
     SEXP pev = PROTECT(Rf_allocVector(VECSXP, (R_xlen_t) d.modelo.grupos.size()));

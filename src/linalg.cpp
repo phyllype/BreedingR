@@ -339,8 +339,8 @@ bool cholesky_empacotada(std::vector<double>& v, std::size_t n, int nth) {
   return fatora_cauda(c, nth);
 }
 
-// Fatoracao numerica olhando-para-cima. Devolve false se a matriz nao for positiva-definida
-// — o que, neste engine, e informacao sobre theta e nao uma falha a reportar como tal.
+// Fatoracao numerica olhando-para-cima. Devolve false se a matriz nao for positiva-definida,
+// o que, neste engine, e informacao sobre theta e nao uma falha a reportar como tal.
 bool cholesky(const Csc& au, const Simbolica& sb, Csc& L) {
   const std::size_t n = sb.n;
   const std::size_t nz = sb.nnz();
@@ -498,7 +498,7 @@ std::vector<double> resolve(const Csc& L, const std::vector<double>& b) {
 
 // Permuta simetricamente e devolve o triangulo SUPERIOR de P A P'.
 //
-// A ENTRADA TEM DE TER CADA PAR GUARDADO UMA VEZ SO — um triangulo, qualquer um deles.
+// A ENTRADA TEM DE TER CADA PAR GUARDADO UMA VEZ SO, um triangulo, qualquer um deles.
 // Duas armadilhas ja apareceram aqui, em direcoes opostas:
 //
 //  - com uma matriz CHEIA, (i,j) e (j,i) caem na mesma posicao permutada e a montagem por

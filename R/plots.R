@@ -78,7 +78,7 @@ h2_curve <- function(fit, group = NULL, limits, points = 101L) {
 #' @export
 plot.breeding_fit <- function(x, limits = NULL, ...) {
   # with a reaction norm and given limits, the curve; otherwise, EBV against accuracy is not
-  # possible because accuracy needs the pedigree — so the basic plot is the EBV distribution
+  # possible because accuracy needs the pedigree, so the basic plot is the EBV distribution
   tem_rn <- any(grepl("\\[1\\]", names(x$theta)))
   if (tem_rn && !is.null(limits)) {
     cv <- h2_curve(x, limits = limits)
@@ -106,7 +106,7 @@ plot.breeding_fit <- function(x, limits = NULL, ...) {
 #' @param covariates covariate columns to check against the missing-value code
 #' @param missing_code missing-value code for the trait observations. When given together with
 #'   `covariates`, each covariate is checked: the code only applies to the trait, and
-#'   a -999 in a covariate enters the regression LITERALLY — in real data this once went
+#'   a -999 in a covariate enters the regression LITERALLY, in real data this once went
 #'   unnoticed past two programs at the same time
 #' @export
 describe <- function(data, trait, classes = NULL, pedigree = NULL,

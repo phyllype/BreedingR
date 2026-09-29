@@ -1,6 +1,6 @@
 # GATES for the contest model. The truth is planted: strengths are drawn, contests are
 # simulated from the multinomial the model assumes, and the estimates must come back.
-# The gate that matters most for the intended use is the last one — the strength must
+# The gate that matters most for the intended use is the last one, the strength must
 # NOT inherit the closure of a share.
 
 simula_disputa <- function(n_comp = 120, n_grupos = 400, por_grupo = 5,

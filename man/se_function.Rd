@@ -26,7 +26,7 @@ gradient of \code{f}.
 \details{
 The delta method assumes \code{f} is close to linear over the region the components could
 plausibly occupy, and that they are approximately normal. Neither holds near a
-boundary — a variance pinned at zero, a correlation at +/-1 — and there the interval
+boundary, a variance pinned at zero, a correlation at +/-1, and there the interval
 is not meaningful no matter how small it looks. Use \code{\link[=profile_theta]{profile_theta()}} instead when a
 component sits at an edge.
 }

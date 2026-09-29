@@ -7,7 +7,7 @@
 #' `I = sum_t w_t ebv_t`, optionally with each trait standardized to unit EBV standard
 #' deviation first (then the weights read as "relative emphasis in genetic standard
 #' deviations", the scale-free form). Animals are matched BY NAME across traits, and an
-#' animal missing in any trait is dropped with a count — silently keeping it at zero
+#' animal missing in any trait is dropped with a count, silently keeping it at zero
 #' would reward incomplete evaluation.
 #'
 #' @param ebvs a named list of named vectors (one per trait, as [ebv()] returns), or a
@@ -48,7 +48,7 @@ selection_index <- function(ebvs, weights, standardize = TRUE) {
 #'
 #' The honest form of the "sequential update" question: after new data (or a new model),
 #' how much did the ranking actually move? Reports the rank correlation, the retention
-#' in the selected fraction, and the animals that moved most — the numbers a breeder
+#' in the selected fraction, and the animals that moved most, the numbers a breeder
 #' checks before trusting an updated evaluation.
 #'
 #' @param old named vector of EBVs from the previous evaluation

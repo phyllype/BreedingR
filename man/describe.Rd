@@ -26,7 +26,7 @@ describe(
 
 \item{missing_code}{missing-value code for the trait observations. When given together with
 \code{covariates}, each covariate is checked: the code only applies to the trait, and
-a -999 in a covariate enters the regression LITERALLY — in real data this once went
+a -999 in a covariate enters the regression LITERALLY, in real data this once went
 unnoticed past two programs at the same time}
 }
 \description{

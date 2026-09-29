@@ -5,8 +5,8 @@
 //
 // A caracteristica NAO ganha um caminho proprio: ela vira mais uma dimensao de coeficiente.
 // Um termo com n_coef coeficientes e t caracteristicas tem dim = n_coef * t no grupo, a
-// covariancia C_g e (n_coef t) x (n_coef t) cheia — o que inclui as covariancias geneticas
-// ENTRE caracteristicas — e a penalidade continua kron(C_g^-1, K^-1), sem caso especial.
+// covariancia C_g e (n_coef t) x (n_coef t) cheia, o que inclui as covariancias geneticas
+// ENTRE caracteristicas, e a penalidade continua kron(C_g^-1, K^-1), sem caso especial.
 // A convencao de coluna continua a mesma: coluna = coef_multi * n_niveis + nivel, com
 // coef_multi = tau * n_coef + c (caracteristica major).
 //
@@ -18,7 +18,7 @@
 //   C = W' (I (x) R0^-1) W + Pen        rhs = W' (I (x) R0^-1) y
 //   -2logL = n log|R0| + soma_g [nl log|C_g| - dim log|K^-1|] + log|C| + (y'R^-1y - b'rhs)
 //
-// O log|C| em unidades absolutas ja carrega o log|X'V^-1X| do REML — nao ha termo (n-p)
+// O log|C| em unidades absolutas ja carrega o log|X'V^-1X| do REML, nao ha termo (n-p)
 // separado. A forma V densa de referencia computa a MESMA quantidade por um caminho sem
 // nada em comum: log|V| + log|X'V^-1X| + y'Py.
 //
@@ -168,7 +168,7 @@ MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
       }
     }
     // Z: coluna c do termo (coef ct, nivel nv) na caracteristica tau vai para
-    // col0 + (tau * n_coef + ct) * n_niveis + nv  — caracteristica major no coeficiente
+    // col0 + (tau * n_coef + ct) * n_niveis + nv , caracteristica major no coeficiente
     for (std::size_t g = 0; g < slots.size(); g++)
       for (const auto& [a, col0] : slots[g]) {
         const DesenhoTermo& dt = d.aleatorios[a];
@@ -264,7 +264,7 @@ MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
 }
 
 // A nota da diagonal duplicada acima: com i == j vindos de colunas distintas p != q do mesmo
-// registro (acontece quando a mesma coluna aparece para duas caracteristicas — nao acontece
+// registro (acontece quando a mesma coluna aparece para duas caracteristicas, nao acontece
 // aqui porque a coluna carrega a caracteristica, mas a guarda fica) o par (p,q) representa
 // as duas ordens. Mantida por seguranca; o gate da forma V pega qualquer dupla contagem.
 
@@ -342,7 +342,7 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
   };
 
   // PEV: a diagonal de C^-1 na numeracao original. Este caminho ja esta em unidades
-  // absolutas, entao e a diagonal direta — sem o s2e do caminho uni.
+  // absolutas, entao e a diagonal direta, sem o s2e do caminho uni.
   {
     std::vector<double> dz = z.diagonal();
     A.pev.assign(M.total, std::nan(""));
@@ -404,7 +404,7 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
         Q.at(a, b) = s;
       }
 
-    // T[a,b] = tr(K^-1 [C^-1]_{a,b}) — unidades absolutas, sem fator s2e
+    // T[a,b] = tr(K^-1 [C^-1]_{a,b}), unidades absolutas, sem fator s2e
     for (std::size_t a = 0; a < dim; a++)
       for (std::size_t b = 0; b < dim; b++) {
         double s = 0.0;
@@ -474,7 +474,7 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
   //   tr(P dV) = n tr(R0^-1 E) - soma_registros tr(C^-1 W_i' R0^-1 E R0^-1 W_i)
   //   y'P dV P y = soma_i (R0^-1 e_i)' E (R0^-1 e_i)
   //
-  // O traco por registro le a inversa seletiva nas posicoes do clique do registro — que
+  // O traco por registro le a inversa seletiva nas posicoes do clique do registro, que
   // estao no padrao do fator porque o clique esta em C. Fora do padrao e CONTADO.
   {
     const std::size_t off_r0 = d.modelo.offset_residual;
@@ -503,7 +503,7 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
     for (std::size_t ja = 0; ja < t; ja++)
       for (std::size_t jb = ja; jb < t; jb++) {
         const std::size_t k = off_r0 + vech_idx(jb, ja, t);
-        // tr(R^-1 dV) = soma por registro de tr(R0p^-1 E) — so os registros cujo padrao
+        // tr(R^-1 dV) = soma por registro de tr(R0p^-1 E), so os registros cujo padrao
         // OBSERVA as duas caracteristicas contribuem, e a inversa embutida faz isso sozinha
         double tr_rinv = 0.0;
         double quad = 0.0;
@@ -582,7 +582,7 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
                       + rir2.at(lin[p].trait, jb) * rir2.at(ja, lin[q].trait);
               // SUBTRAIDO: tr(P dV) = tr(R^-1 dV) - tr(C^-1 W'R^-1 dV R^-1 W). A primeira
               // versao somava, e o gate de diferencas finitas apontou os TRES parametros de
-              // R0 errados por exatamente 2x este traco — o comentario dizia o sinal certo
+              // R0 errados por exatamente 2x este traco, o comentario dizia o sinal certo
               // e o codigo fazia o errado. E o motivo de o gate cobrir TODOS os parametros.
               A.score[k] -= w * m2;
             }

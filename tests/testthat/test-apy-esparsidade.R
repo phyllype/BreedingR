@@ -3,8 +3,8 @@
 # A APY sempre esteve matematicamente certa aqui, e test-apy.R cobre isso: nucleo = todos
 # devolve a inversa exata, os jovens regridem no nucleo, o colinear e erro declarado. O que
 # faltava era o outro lado, e ele nao aparece em nenhuma dessas contas: a G^-1 da APY tem
-# ESTRUTURA — nucleo cheio, cruzado cheio, e o bloco jovem x jovem so na diagonal, porque
-# Mnn e diagonal — e essa estrutura era descartada no armazenamento. O H^-1 saia denso no
+# ESTRUTURA, nucleo cheio, cruzado cheio, e o bloco jovem x jovem so na diagonal, porque
+# Mnn e diagonal, e essa estrutura era descartada no armazenamento. O H^-1 saia denso no
 # bloco genotipado, a fatoracao do MME continuava O(n_geno^3) por iteracao, e a APY comprava
 # so estabilidade numerica: medido, 12.10 s/iter denso contra 11.76 com nucleo de 300 em
 # 2400 genotipados, dentro do ruido, e em 600 ela era 4x MAIS LENTA.
@@ -36,7 +36,7 @@ test_that("a G^-1 da APY tem EXATAMENTE os nao-zeros que a estrutura preve", {
 
 test_that("os zeros do bloco jovem sao EXATOS, que e o que permite descarta-los", {
   # o filtro em constroi_hinv() e `x == 0.0`, nao uma tolerancia, de proposito: nada e
-  # aproximado. Isso so e legitimo se os zeros forem exatos, e sao — nunca sao escritos.
+  # aproximado. Isso so e legitimo se os zeros forem exatos, e sao, nunca sao escritos.
   z <- cel(600, nc = 150)
   tri <- apy_inverse(z$G, core = z$core)
   M <- matrix(0, z$ng, z$ng, dimnames = list(z$ids, z$ids))

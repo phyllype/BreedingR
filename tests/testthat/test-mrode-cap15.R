@@ -13,7 +13,7 @@
 # on p.281): joint analysis of birth weight (Gaussian) and calving difficulty (binary)
 # after Foulley, Gianola & Thompson (1983), with the components GIVEN. The relationship
 # matrix is the sire / maternal-grandsire one, which a_inverse() cannot build from a
-# pedigree — it enters through k_inverse=.
+# pedigree, it enters through k_inverse=.
 #
 # The book zeroes the first herd level and the Male sex level in 15.1, and uses origin
 # full / season 2 / sex 2 as references in 15.2; the factors below are ordered so that
@@ -51,7 +51,7 @@ dado_15_2 <- function() {
     sire = as.character(c(rep(1,10),rep(2,7),rep(3,6),rep(4,4),rep(5,11),rep(6,9))))
 }
 
-# the sire / maternal-grandsire A^-1 PRINTED on p.278 — a_inverse() cannot build it
+# the sire / maternal-grandsire A^-1 PRINTED on p.278, a_inverse() cannot build it
 ainv_smgs <- function() {
   matrix(c( 1.424, 0.182,-0.667,-0.364, 0.000, 0.000,
             0.182, 1.818, 0.364,-0.727,-0.364,-0.727,
@@ -219,7 +219,7 @@ test_that("Mrode Example 15.2: the converged joint analysis is column '13', and 
 
 test_that("Dempster & Lerner (1950): the two heritability scales convert and invert", {
   # Example 15.2 regime: h2 = 0.178 on the liability scale, incidence 0.234, publishes
-  # as 0.093 on the observed scale — the factor z^2 / (p(1-p)) is 0.524
+  # as 0.093 on the observed scale, the factor z^2 / (p(1-p)) is 0.524
   expect_equal(h2_observed(0.1781, 0.234), 0.0934, tolerance = 1e-3)
   expect_equal(h2_liability(h2_observed(0.1781, 0.234), 0.234), 0.1781)
   # vectorized over incidences

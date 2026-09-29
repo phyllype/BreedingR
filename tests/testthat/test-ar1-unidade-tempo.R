@@ -63,8 +63,8 @@ test_that("the estimated correlation at the adjacent gap does not depend on the 
 
 test_that("a negative rho is REFUSED off the integer time grid, and honoured on it", {
   # Gamma(dt) = s(dt)|rho|^dt com rho < 0 so e uma funcao de correlacao valida em dt
-  # INTEIRO. Fora da grade a multiplicatividade quebra — s(2.5)|rho|^2.5 ao quadrado da
-  # +|rho|^5 enquanto s(5)|rho|^5 e -|rho|^5 — e com ela a propriedade de Markov de que a
+  # INTEIRO. Fora da grade a multiplicatividade quebra, s(2.5)|rho|^2.5 ao quadrado da
+  # +|rho|^5 enquanto s(5)|rho|^5 e -|rho|^5, e com ela a propriedade de Markov de que a
   # Gamma^-1 tridiagonal depende: a rota esparsa e a densa passam a descrever modelos
   # diferentes, e o gradiente deixa de ser o da verossimilhanca que se esta computando
   # (medido: score -41.8 contra -39.5 por diferenca finita). Antes disso o theta era aceito

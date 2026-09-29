@@ -6,7 +6,7 @@
 #' Simulates `n_rep` populations with [simulate_breeding()], fits each with [model()]
 #' and the given formula, and reports the estimated heritability against the simulated
 #' one. Each replicate gets its own seed (`seed + rep`), and every fit starts cold from
-#' `var(y)` like any other fit — the harness never warm-starts, by the package's own
+#' `var(y)` like any other fit, the harness never warm-starts, by the package's own
 #' rule.
 #'
 #' @param n_rep number of replicates

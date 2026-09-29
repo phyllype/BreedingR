@@ -16,7 +16,7 @@ named vector of genomic inbreeding coefficients, one per genotyped animal
 \description{
 \code{f = 1 - h/N}, the proportion of homozygous SNPs per animal (Mrode & Pocrnic, 4th
 ed., Eqn 13.10-13.11, p.234-235). Fitted as a fixed covariate, \code{cov(f)}, its
-regression coefficient is the inbreeding depression — the number Example 13.4
+regression coefficient is the inbreeding depression, the number Example 13.4
 publishes, read back from \code{fit$b}. This is input data, not a model: join the vector
 to the data by animal before the fit.
 }

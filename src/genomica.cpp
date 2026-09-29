@@ -7,7 +7,7 @@
 //
 // e isso NAO e o bloco 22 de A^-1. As duas matrizes tem a mesma forma, as duas sao
 // simetricas e definidas, e so uma esta certa. O gate que separa as duas exige que a
-// fixture as distinga — senao o teste e cego.
+// fixture as distinga, senao o teste e cego.
 //
 // B11^-1 B12 nunca e formado denso: B11 e o bloco NAO-genotipado inteiro, e a 20 mil
 // animais com 2 mil genotipados isso seria uma densa de 18k x 18k para obter uma resposta
@@ -324,7 +324,7 @@ Csc constroi_hinv(const Csc& ainv, const std::vector<std::size_t>& geno,
   // enterrava tudo isso: o H^-1 saia denso no bloco genotipado, a fatoracao do MME ficava
   // O(n_geno^3) por iteracao e a APY comprava so estabilidade numerica, nenhum tempo
   // (medido: 12.10 s/iter denso contra 11.76 s/iter com nucleo de 300, em 2400
-  // genotipados — dentro do ruido).
+  // genotipados, dentro do ruido).
   //
   // O filtro e por zero EXATO e nao por tolerancia, de proposito: nao ha aproximacao
   // nenhuma aqui. A fracao de nao-zeros da diferenca e a mesma contando `!= 0` e contando
@@ -458,7 +458,7 @@ static Densa apy_de(const Densa& g, const std::vector<std::size_t>& nucleo) {
 }
 
 // A inversa de Vecchia (1988): cada animal condiciona nos SEUS k vizinhos mais proximos entre
-// os anteriores, nao num nucleo global. E a generalizacao da APY — e do proprio A^-1 de
+// os anteriores, nao num nucleo global. E a generalizacao da APY, e do proprio A^-1 de
 // Henderson (1976), que e exatamente Vecchia com os PAIS como conjunto de condicionamento
 // (exato porque o pedigree e markoviano). Schafer, Katzfuss & Owhadi (2021) mostram que,
 // dado o padrao, o fator esparso assim construido minimiza a divergencia KL; conjuntos
@@ -543,7 +543,7 @@ static Densa vecchia_de(const Densa& g, std::size_t k) {
 }
 
 // O nucleo, comum aos tres desenhos: tudo o que a genomica toca sao os grupos do modelo
-// e os K^-1 com seus log-determinantes — uni, multi e AR(1) carregam exatamente esses
+// e os K^-1 com seus log-determinantes, uni, multi e AR(1) carregam exatamente esses
 // campos, entao o passo unico e UM caminho, nao tres.
 // A H^-1 do passo unico, de um pedigree e seus genotipos: A^-1 + [0 0; 0 G*^-1 - A22^-1],
 // com G* a G de VanRaden trazida a escala de A22 e misturada, invertida exata, pela APY ou

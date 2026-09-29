@@ -58,7 +58,7 @@ Two more things the design has to avoid. A free \code{random(pen)} alongside thi
 the same pair of matrices on a balanced design and is a rank deficiency, not a
 refinement. And a \code{pen} that is fixed, or nested inside the contemporary group, absorbs
 the within-pen contrasts that carry the covariance, leaving only the diagonal slope in
-\code{n_i} — which is what \code{\link[=indirect_residual]{indirect_residual()}} already fits.
+\code{n_i}, which is what \code{\link[=indirect_residual]{indirect_residual()}} already fits.
 
 The derivation assumes one record per animal within a pen: with two records of the same
 animal in one pen the direct deviation \code{eps_D} is shared between them and the block is

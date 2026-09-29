@@ -1,7 +1,7 @@
 # The non-additive covariance matrices of Mrode & Pocrnic (2023, 4th ed.), chapter 13. None of
 # this is a fitter: each function builds a K that enters the model through the generic
 # declared-covariance marker, kernel(id, K = ...), and the engine treats it exactly like
-# A or H — the same kron(C, K^-1) penalty, the same score, the same AI.
+# A or H, the same kron(C, K^-1) penalty, the same score, the same AI.
 #
 # The split of labor is deliberate. The book publishes the MATRICES (D on p.227, the
 # genomic G and D on p.233, G_AA on p.238), so building them in R keeps them inspectable
@@ -17,14 +17,14 @@
 #' the pedigree the off-diagonals are the classic approximation, not an exact identity.
 #'
 #' The matrix is DENSE and is built from the full tabular A, so this is for pedigrees of
-#' moderate size — the toy and research scale where dominance is actually estimated, not
+#' moderate size, the toy and research scale where dominance is actually estimated, not
 #' a national evaluation. The family-structured inverse of Hoeschele & VanRaden (1991),
 #' which the book itself flags as probably superseded by the genomic D (p.230), is not
 #' implemented.
 #'
 #' @param ped data.frame with animal, sire and dam, as in [model()]; unknown parent 0 or NA
 #' @return dominance relationship matrix, rows and columns named by animal in the
-#'   topological order of [pedigree()] — ready for `kernel(id, K = )`
+#'   topological order of [pedigree()], ready for `kernel(id, K = )`
 #' @examples
 #' ped <- data.frame(animal = c("1", "2", "3", "4"),
 #'                   sire   = c("0", "0", "1", "1"),
@@ -60,7 +60,7 @@ dominance_matrix <- function(ped) {
 #' The G of VanRaden (2008), first method: genotypes centered by twice the allele
 #' frequency, `G = Z Z' / (2 sum p q)`, frequencies from the genotyped animals
 #' themselves. This is the RAW G of the book's worked examples (Mrode & Pocrnic, 4th
-#' ed., Example 13.3, p.233) — no blending with A22 and no affine adjustment, which are
+#' ed., Example 13.3, p.233), no blending with A22 and no affine adjustment, which are
 #' the single-step steps that `model(genotypes = )` performs internally. With few
 #' animals G is singular; add a small ridge before declaring it, `G + diag(0.01, n)`,
 #' as the book does in its examples.
@@ -131,12 +131,12 @@ g_dominance <- function(genotypes) {
 #' The G_AA behind the book's epistatic GBLUP (Mrode & Pocrnic, 4th ed., Eqn 13.13 and
 #' Example 13.5, p.237-238): the Hadamard square of the additive genomic relationship,
 #' rescaled so the diagonal averages 1, `G_AA = (G * G) / mean(diag(G * G))`. Cheap on
-#' purpose — once a G exists, epistasis is one elementwise product away. The book notes
+#' purpose, once a G exists, epistasis is one elementwise product away. The book notes
 #' this is the one non-additive term that visibly reordered the animals in its example.
 #'
 #' @param g additive relationship matrix, usually [g_matrix()]; any square symmetric
 #'   relationship works
-#' @return epistatic relationship matrix with the dimnames of `g`, raw like the input —
+#' @return epistatic relationship matrix with the dimnames of `g`, raw like the input,
 #'   ridge it before `kernel()` if `g` was singular
 #' @examples
 #' geno <- list(ids = c("a", "b"), m = rbind(c(0, 1, 2), c(2, 1, 0)))
@@ -230,7 +230,7 @@ g_epistasis_order <- function(g, order = 2L) {
 #'
 #' `f = 1 - h/N`, the proportion of homozygous SNPs per animal (Mrode & Pocrnic, 4th
 #' ed., Eqn 13.10-13.11, p.234-235). Fitted as a fixed covariate, `cov(f)`, its
-#' regression coefficient is the inbreeding depression — the number Example 13.4
+#' regression coefficient is the inbreeding depression, the number Example 13.4
 #' publishes, read back from `fit$b`. This is input data, not a model: join the vector
 #' to the data by animal before the fit.
 #'

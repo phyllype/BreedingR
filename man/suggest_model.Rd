@@ -23,7 +23,7 @@ character vector of suggestions (empty when the shape asks for nothing),
 invisibly; they are also printed
 }
 \description{
-Reads the structure — repeated records, a time axis, missing observations — and
+Reads the structure, repeated records, a time axis, missing observations, and
 returns the modeling suggestions that structure implies, each with its reason.
 The classic trap it guards first: repeated records without a permanent-environment
 term load the within-animal covariance onto the additive variance, and the
