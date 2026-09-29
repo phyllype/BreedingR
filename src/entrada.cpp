@@ -105,6 +105,38 @@ static std::vector<char> mgs_de(SEXP mae) {
 }
 
 
+// As portas esparsas do R (sparse_chol, sparse_solve, selected_inverse) sao chamadas dentro
+// dos lacos de Newton do limiar e da sobrevivencia, sempre com o MESMO padrao e valores
+// novos. Cada chamada refazia o grau minimo e a simbolica. Aqui ficam os ultimos quatro
+// padroes vistos, pela assinatura do padrao: a mesma permutacao e a mesma simbolica, logo
+// o mesmo resultado bit a bit, sem refazer nada.
+namespace {
+struct PadraoVisto {
+  std::uint64_t assinatura = 0;
+  std::size_t n = 0, nnz = 0;
+  br::CacheSimbolica cs;
+};
+std::vector<PadraoVisto> g_padroes;
+
+br::CacheSimbolica& simbolica_do_padrao(const br::Csc& a) {
+  const std::uint64_t h = br::assinatura_padrao(a);
+  for (std::size_t k = 0; k < g_padroes.size(); k++)
+    if (g_padroes[k].assinatura == h && g_padroes[k].n == a.ncol &&
+        g_padroes[k].nnz == a.nnz()) {
+      std::rotate(g_padroes.begin() + k, g_padroes.begin() + k + 1, g_padroes.end());
+      return g_padroes.back().cs;
+    }
+  PadraoVisto p;
+  p.assinatura = h; p.n = a.ncol; p.nnz = a.nnz();
+  p.cs.perm = br::grau_minimo(a);
+  p.cs.sb = br::simbolica(br::permuta_sim(a, p.cs.perm));
+  p.cs.pronto = true;
+  if (g_padroes.size() >= 4) g_padroes.erase(g_padroes.begin());
+  g_padroes.push_back(std::move(p));
+  return g_padroes.back().cs;
+}
+}  // namespace
+
 extern "C" {
 
 // Devolve o pedigree em ORDEM TOPOLOGICA, com a endogamia de cada animal.
@@ -287,38 +319,6 @@ SEXP R_inv_pd(SEXP m) {
     return out;
   )
 }
-
-// As portas esparsas do R (sparse_chol, sparse_solve, selected_inverse) sao chamadas dentro
-// dos lacos de Newton do limiar e da sobrevivencia, sempre com o MESMO padrao e valores
-// novos. Cada chamada refazia o grau minimo e a simbolica. Aqui ficam os ultimos quatro
-// padroes vistos, pela assinatura do padrao: a mesma permutacao e a mesma simbolica, logo
-// o mesmo resultado bit a bit, sem refazer nada.
-namespace {
-struct PadraoVisto {
-  std::uint64_t assinatura = 0;
-  std::size_t n = 0, nnz = 0;
-  br::CacheSimbolica cs;
-};
-std::vector<PadraoVisto> g_padroes;
-
-br::CacheSimbolica& simbolica_do_padrao(const br::Csc& a) {
-  const std::uint64_t h = br::assinatura_padrao(a);
-  for (std::size_t k = 0; k < g_padroes.size(); k++)
-    if (g_padroes[k].assinatura == h && g_padroes[k].n == a.ncol &&
-        g_padroes[k].nnz == a.nnz()) {
-      std::rotate(g_padroes.begin() + k, g_padroes.begin() + k + 1, g_padroes.end());
-      return g_padroes.back().cs;
-    }
-  PadraoVisto p;
-  p.assinatura = h; p.n = a.ncol; p.nnz = a.nnz();
-  p.cs.perm = br::grau_minimo(a);
-  p.cs.sb = br::simbolica(br::permuta_sim(a, p.cs.perm));
-  p.cs.pronto = true;
-  if (g_padroes.size() >= 4) g_padroes.erase(g_padroes.begin());
-  g_padroes.push_back(std::move(p));
-  return g_padroes.back().cs;
-}
-}  // namespace
 
 // Fatoracao esparsa completa: ordena por grau minimo, permuta, fatora, e devolve L com a
 // permutacao e o log-determinante.
