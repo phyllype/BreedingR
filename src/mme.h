@@ -462,8 +462,16 @@ struct DesenhoAR {
   // separabilidade Gamma (x) R0 nao sobrevive a um padrao parcial e o registro sai inteiro.
   // E exclusao por lista, e exclusao por lista tem de ser DITA: sem isso o unico sinal e um
   // n_used menor que nrow(data), que ninguem confere.
-  std::size_t n_incompletos = 0;
+  std::size_t n_incompletos = 0;    // registros sem NENHUMA caracteristica observada
   std::size_t n_sem_tempo = 0;     // registros sem tempo finito, fora da serie
+  // CELULAS AUSENTES (restricao #6). obs[r*t + tau] diz se a caracteristica tau do registro
+  // r foi observada. Cada celula ausente de um registro usado ganha uma coluna de efeito
+  // FIXO propria no fim do vetor de solucoes (off_mv + k), com y = 0 na celula: e o termo
+  // mv do ASReml, que mantem o residuo Gamma (x) R0 separavel e cheio. O -2logL, o score e
+  // a AI dessa MME aumentada sao EXATAMENTE os da verossimilhanca marginal das celulas
+  // observadas (complemento de Schur no bloco mv), sem mudar formula nenhuma do avaliador.
+  std::vector<char> obs;
+  std::size_t n_mv = 0, off_mv = 0;
   // Esqueleto pre-computado no desenho (nada disto depende de theta): as linhas de W ja
   // em colunas globais COM a caracteristica, e as colunas distintas de cada sujeito.
   std::vector<std::vector<EntAR>> lw;
@@ -481,7 +489,7 @@ struct DesenhoAR {
   std::size_t total_colunas() const {
     std::size_t s = x.ncol * t;
     for (std::size_t g = 0; g < modelo.grupos.size(); g++) s += largura(g);
-    return s;
+    return s + n_mv;
   }
 };
 struct AvaliacaoAR {

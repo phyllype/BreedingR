@@ -25,24 +25,33 @@ library(BreedingR)
 The package covers the chain end to end.
 The pedigree becomes the relationship matrix `A` and its sparse inverse by Henderson's
 (1976) rules, with inbreeding by the Meuwissen and Luo (1992) trace and, where the base
-population is not one homogeneous pool, metafounders (Legarra et al., 2015). The model
+population is not one homogeneous pool, metafounders (Legarra et al., 2015). A pedigree
+of sires and maternal grandsires is declared with `sire_mgs()`, never guessed. The model
 is written as a formula; the mixed model
 equations are assembled sparse, one record at a time, and factored by a sparse Cholesky
-whose symbolic analysis is computed once and reused. The variance components come from
+after a minimum degree ordering (George and Liu, 1989) that sets dense nodes aside, as the
+dense-row rule of AMD does (Amestoy, Davis and Duff, 1996). In `model()`, `model_mt()`,
+`model_ar1()` and `gibbs()` the ordering and the symbolic analysis are computed once and
+reused; `model_threshold()` and `model_survival()`, written in R, order and factor again
+at every step. Everything runs on one thread: there is no OpenMP, and the dense corner of
+the factor is scalar C++, not BLAS. The variance components come from
 AI-REML (Gilmour, Thompson and Cullis, 1995): analytic score, average information, EM
 warm-up and an EM rescue (Dempster, Laird and Rubin, 1977), a damped step that walks in
 log-Cholesky coordinates so a covariance boundary is a limit rather than a wall, and
 convergence that takes both a small RELATIVE step and a Newton decrement under tolerance,
 so a stalled step cannot pass for an optimum. Breeding values fall out of the same solution, and
-their accuracy out of the selected inverse (Takahashi, Fagan and Chin, 1973).
+their accuracy out of the selected inverse (Takahashi, Fagan and Chin, 1973), over the
+prior variance each animal has: `1 + F`, or the diagonal of `G*` for a genotyped animal
+in a single step.
 
 Genotypes enter as an argument to the same fit: `G` by VanRaden (2008), brought to the
 scale of `A22` by an affine adjustment and a blend, and the single-step `H^-1` built as
 `A^-1` plus a correction on the genotyped block. When the genotyped set is large enough
 that inverting `G*` hurts, the same fit accepts APY (Misztal, Legarra and Aguilar, 2014)
-with a core, the Vecchia (1988) recursion with per-animal conditioning sets, or
-`snp_blup()`, which never builds `G` at all and
-solves the marker equations by conjugate gradients.
+with a core, chosen by hand or by `apy_core = "auto"`, which takes as many animals as
+eigenvalues of `G` explain 98% of its trace (Pocrnic et al., 2016); the Vecchia (1988)
+recursion with per-animal conditioning sets; or `snp_blup()`, which never builds `G` at
+all and solves the marker equations by conjugate gradients.
 
 Several further model families are formula terms here, because the unit of layout is the
 covariance group rather than the term: direct-maternal (Willham, 1972),
@@ -54,8 +63,13 @@ through a block Gibbs sampler (Geman and Geman, 1984) over the same equations.
 
 The trunk is Gaussian, but the trait does not have to be. An ordered categorical trait
 fits on a probit liability with `model_threshold()`, alone or jointly with a
-quantitative one; time until failure fits with `model_survival()`, where a
-right-censored record enters as a lower bound rather than a missing value. And a random
+quantitative one, with the components given or estimated by Laplace and EM (Foulley, Im,
+Gianola and Hoeschele, 1987); `gibbs(family = "probit")` samples a binary trait by data
+augmentation (Albert and Chib, 1993; Sorensen et al., 1995). Time until failure fits
+with `model_survival()`, where a right-censored record enters as a lower bound rather
+than a missing value and a covariate that changes during a life enters as elementary
+records. `model_threshold()` and `model_survival()` take `genotypes=` for a single step,
+through `h_inverse()`. And a random
 term can carry any user-supplied covariance matrix through `kernel(id, K = )`, called a
 DECLARED covariance throughout this package: the dominance
 and epistasis constructions of chapter 13 of Mrode and Pocrnic (2023), and the multibreed
@@ -77,9 +91,10 @@ fitter of its own.
 | dominance, epistasis, multibreed, any declared K | `kernel(id, K=)` | `model()` |
 | several traits, full residual matrix | `cbind(y1, y2) ~ ...` | `model_mt()` |
 | serial correlation in the residual | `subject=`, `time=` | `model_ar1()` |
-| the same models, sampled instead of maximised | same formula | `gibbs()` |
-| ordered categorical trait | same formula, components given | `model_threshold()` |
-| time to failure, right-censored | `censor=` | `model_survival()` |
+| the same models, sampled instead of maximised | same formula, `prior=` | `gibbs()` |
+| binary trait, sampled on the liability | same formula, `family = "probit"` | `gibbs()` |
+| ordered categorical trait | same formula, components given or `estimate = TRUE` | `model_threshold()` |
+| time to failure, right-censored | `censor=`; `entry=`, `subject=` for covariates that change | `model_survival()` |
 | competitive ability from grouped contests | contest table | `competition_strength()` |
 
 Relationships and genomics are arguments, not different programs.
@@ -87,15 +102,19 @@ Relationships and genomics are arguments, not different programs.
 | For | Use |
 |---|---|
 | pedigree A-inverse, inbreeding | `pedigree()`, `a_inverse()`, `a22_inverse()` |
+| a pedigree of sires and maternal grandsires | `sire_mgs()`, or `pedigree(type = "sire_mgs")` |
 | base populations that are not one pool | `metafounders=`, `gamma=` (full matrix, singular allowed) |
 | single step | `genotypes=`, and `apy_core=` or `vecchia_k=` when G is large |
+| the APY core, by the eigenvalues of G | `apy_core_select()`, or `apy_core = "auto"` |
+| the single-step H-inverse, as triplets | `h_inverse()` |
 | the single step without ever forming G | `snp_blup()` |
 | marker effects from a single-step fit | `snp_effects()` |
 | G, dominance, epistasis to any order | `g_matrix()`, `g_dominance()`, `g_epistasis_ad/dd/order()` |
 | multibreed partial matrices | `partial_a()` |
 | the associative residual, exactly | `associative_matrix()` |
 
-And around the fit: `ebv()`, `accuracy()`, `rg()`, `h2_curve()`, `h2_observed()`,
+And around the fit: `solutions()`, `h2()`, `t2()`, `ebv()`, `accuracy()`, `rg()`,
+`h2_curve()`, `h2_observed()`,
 `h2_liability()`, `selection_index()`, `rank_drift()`, `profile_theta()`, `se_function()`,
 `qc_genotypes()`, `qc_phenotypes()`, `read_plink()`, `describe()`, `thi()`, `heat_load()`,
 `fst()`, `roh()`, `simulate_breeding()`, `mc_study()`, `suggest_model()`,
@@ -104,8 +123,8 @@ And around the fit: `ebv()`, `accuracy()`, `rg()`, `h2_curve()`, `h2_observed()`
 **Where to read next.** Start with *Your first evaluation*, which goes from two files on
 disk to breeding values you can act on, and assumes nothing about this package. After
 that: *Theory and practice* walks a full evaluation in order, explaining each matrix, each
-algorithm and each iteration alongside the code that runs it; *Hands-on* works through 52
-of the 58 exported functions, step by step; *Contest models* derives the
+algorithm and each iteration alongside the code that runs it; *Hands-on* works through 54
+of the 64 exported functions, step by step; *Contest models* derives the
 competitive-ability estimators from the group multinomial, one identity at a time.
 [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
 
@@ -124,10 +143,10 @@ g  <- qc_genotypes(s$genotypes$m, min_maf = 0.01)       # call rate, MAF, HWE, w
 
 fit <- model(y ~ cg + animal(id), q$data, s$pedigree,
              genotypes = list(ids = s$genotypes$ids, m = g$m))
-fit                                # components, SEs, and each variance's share
-ebv(fit)[1:5]                      # breeding values, named by animal
-accuracy(fit, s$pedigree)[1:5]     # with the (1+F) of the PEDIGREE in the denominator,
-                                   # genotyped or not: see ?accuracy for what that costs
+fit                                # components, SEs, share of the phenotypic variance
+h2(fit)                            # the same ratio as the var(animal) share
+head(solutions(fit, s$pedigree))   # id, ebv, se, acc, sorted by breeding value
+accuracy(fit, s$pedigree)[1:5]     # prior 1+F, or the diagonal of G* if genotyped
 cor(ebv(fit)[names(s$tbv)], s$tbv) # against the simulator's own truth
 ```
 
@@ -137,6 +156,12 @@ current value of every component being estimated, not just the residual, so a ru
 drifting shows it while there is still time to stop; Ctrl+C interrupts any fitter. What
 `converged` means, and why the relative step alone is not enough, is under
 *Choices worth knowing about*.
+
+Before the first iteration `model()` also prints the size of the dense block of the
+factor, and `model()`, `model_mt()`, `model_ar1()` and `gibbs()` keep it in
+`fit$dense_block`. That k is what each factorization pays, about `k^3 / 3` flops: in a
+single step without `apy_core=` it is at least the number of genotyped animals, and the
+fill of the pedigree can add to it.
 
 ## Quality control before the model
 
@@ -175,7 +200,10 @@ model(weight ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), data, 
 model(weight ~ cg + animal(id, group = "g") + maternal(dam, group = "g") +
         pe(dam), data, ped)
 
-# reaction norm on a Legendre basis
+# reaction norm on a Legendre basis; pe() needs repeated records, since with one record
+# per animal it IS the residual and the fit says SINGULAR. h2() refuses a reaction norm:
+# h2_curve() gives h2 along the gradient, with every random regression, a pe() on the
+# same basis included, evaluated at the point
 d <- cbind(d, legendre(d$thi, order = 1))
 model(y ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d, ped)
 
@@ -188,37 +216,64 @@ model(y ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d, ped)
 # scales every mate's entry to (n_i - 1)^(-d) (Bijma, 2010): d=0 is the book's plain
 # sum and the default, d=1 the mate mean, and d is chosen by a small grid compared on
 # -2logL. The choice is not cosmetic: on pens of 2 to 12 generated with d=1, forcing
-# d=0 crushed var(indirect) to ~2% of its true value (0.046 against 2)
+# d=0 crushed var(indirect) to ~2% of its true value (0.046 against 2). The same d
+# dilutes the social environmental deviation, so indirect_residual() and
+# associative_matrix(dilution = d) describe the model the formula declares.
+# Whether the three components separate is a property of the design (Cantet and Cappa,
+# 2008): with pens of one size built from two full-sib families only two combinations
+# are identified, and the fit says SINGULAR and names the components. The share column
+# is blank here, because the phenotypic variance of a record depends on its pen size:
+# h2(fit, n = , r = ) and t2(fit, n = , r = ) take the size and the relationship
+# between mates (Bijma et al., 2007)
 model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "pen", group = "g"), d, ped)
 
-# single step (ssGBLUP); the same genotypes= works in model_mt() and model_ar1().
-# For the inverse of G*: exact, apy_core= (global core), or vecchia_k= (per-animal
+# single step (ssGBLUP); the same genotypes=, apy_core= and vecchia_k= work in
+# model_mt(), model_ar1() and gibbs(), and in model_threshold() and model_survival(),
+# which get their H^-1 from h_inverse(). For the inverse of G*: exact, apy_core= (a
+# global core; "auto" sizes it by the eigenvalues of G), or vecchia_k= (per-animal
 # neighborhoods, the generalization of APY and of Henderson's own A^-1)
 model(y ~ cg + animal(id), d, ped, genotypes = list(ids = gids, m = M))
+core <- apy_core_select(list(ids = gids, m = M))   # choose once, pass it to every fit
 
-# multi-trait with full R0 and missingness by pattern
+# a pedigree of sires and maternal grandsires is DECLARED, never guessed: the grandsire
+# path weighs 1/4 (Mrode & Pocrnic, 2023, secs. 3.6 and 3.7), and a third column named
+# mgs, mgsire or maternal_grandsire is refused unless declared
+model(y ~ herd + sire(sire), d, sire_mgs(bulls))
+
+# multi-trait with full R0 and missingness by pattern; a fixed level with no record for
+# one trait drops as the pair (column, trait), reported in dropped_x as 'CG=5|y1'
 model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped);  rg(fit, "animal", "t1", "t2")
 
 # AR(1)/CAR(1) residual for longitudinal data; cbind() on the left fits the
 # multi-trait version with the separable residual Gamma (x) R0
 model_ar1(y ~ cg + animal(id), d, ped, subject = "id", time = "day")
 
-# the Bayesian half: block Gibbs with conjugate updates and reference priors
+# the Bayesian half: block Gibbs with conjugate updates. prior = "jeffreys" (the
+# default), "flat", "uniform_sd" (Gelman, 2006) or a proper c(df =, scale =);
+# family = "probit" samples a binary trait on its liability, the residual fixed at 1
+# (Albert and Chib, 1993; Sorensen et al., 1995)
 gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)
 
 # ordered categorical trait on a probit liability (Gianola & Foulley 1983);
-# the components are GIVEN, thresholds replace the intercept, predict() gives
-# per-category probabilities. cbind(quant, bin) fits the joint analysis of
-# Foulley et al. (1983)
+# thresholds replace the intercept, predict() gives per-category probabilities.
+# The components are GIVEN, or with estimate = TRUE estimated by Laplace and the EM
+# step of Foulley et al. (1987), which runs low for a binary trait with few records
+# per level (Tempelman, 1998). cbind(quant, bin) fits the joint analysis of Foulley
+# et al. (1983), with pev for u1 and for the ranking value u2, and predict() the
+# probability of Eqn 15.25
 model_threshold(score ~ herd + sex + sire(sire), d, ped, start = 1/19)
 
 # time until failure with right-censoring: the Weibull frailty model of Kachman
 # (1999); a censored record is a lower bound, not a missing value, and censor=
-# is mandatory. Solutions are log relative risks; predict() gives RRS and S(t)
+# is mandatory. Solutions are log relative risks; predict() gives RRS and S(t).
+# A covariate that changes during a life enters as elementary records (entry, stop]
+# of one subject, the device of the Survival Kit; gaps are refused unless
+# gaps = "allow", and a late first entry is accepted and flagged
 model_survival(lpl ~ herd + ysp + animal(cow), d, ped, censor = "code")
 
 # a random term with a DECLARED covariance matrix: dominance beside the additive
-# term (chapter 13), or any K that is neither A nor H
+# term (chapter 13), or any K that is neither A nor H. kernel(id, K = , fixed = v)
+# holds the component at v in model() and gibbs(); model_mt() and model_ar1() refuse it
 model(y ~ pen + animal(id) + kernel(id, K = dominance_matrix(ped)), d, ped)
 
 # multibreed by pedigree: the partial relationship matrices of Garcia-Cortes &
@@ -249,10 +304,17 @@ g <- qc_genotypes(read_plink("chip")$m, min_maf = 0.01, hwe_p = 1e-7)
 ```
 
 Around the fit: `pedigree()` (topological order plus Meuwissen-Luo inbreeding),
-`a_inverse()`, `a22_inverse()`, `ebv()`, `accuracy()` (with the 1+F of the pedigree), `h2_curve()` and
+`a_inverse()`, `a22_inverse()`, `solutions()` (id, ebv, se and acc in one table, sorted
+by breeding value), `h2()` (over the phenotypic variance of the trait, covariances
+included and never the `rho(residual)` of `model_ar1()`; a direct-maternal covariance
+enters with coefficient 1, Willham, 1972), `t2()` (the total heritable variance of an
+indirect-effect model, with delta-method standard errors), `ebv()`, `accuracy()` (prior
+`1 + F`, or the diagonal of `G*` for a genotyped animal in a single step), `h2_curve()` and
 `plot()` for the reaction norm, `indirect_residual()` for the pen-size residual of the
-associative model, `var(e_i) = s2_ED + (n_i - 1) s2_ES`, by profile REML over exact
-weighted fits (Bijma, 2010), `describe()` to look at the data before estimating,
+associative model, `var(e_i) = s2_ED + (n_i - 1)^(1 - 2d) s2_ES` with `d` taken from the
+`indirect()` term (`d = 0` is the book's `(n_i - 1) s2_ES`), by profile REML over exact
+weighted fits (Bijma, 2010), `associative_matrix(dilution = d)` for the same residual as
+an exact covariance, `describe()` to look at the data before estimating,
 the selection-signature scans `fst()` (Weir and Cockerham, 1984) and `roh()` (the F_ROH
 of McQuillan et al., 2008, and islands),
 `simulate_breeding()`, a gene-dropping simulator so that examples and method studies
@@ -263,8 +325,8 @@ the data and names the term each shape asks for (and the trap it guards against)
 claims go through `benchmark_fit()`, which replicates at least three times and checks
 the runs returned identical numbers: the package's own timing rule as a tool.
 
-The full map of the 58 functions, grouped by kinship, is in
-[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 52 of them,
+The full map of the 64 functions, grouped by kinship, is in
+[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 54 of them,
 step by step on data simulated in the document itself, is the vignette
 `vignettes/hands-on.Rmd` (every chunk runs at build time, so it cannot rot). The theory
 behind `apy_core=` (why APY works and what the Mendelian residual means) is in
@@ -307,6 +369,17 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | kernel(K=), non-additive | Examples 13.1-13.5: the printed D and D^-1, solutions to 1e-3, and the MME-vs-V-form identity with a kernel term in the model |
 | multibreed partial matrices | Examples 14.1 and 14.2: the printed partial A's and solutions, and the identity model 14.8 == variance-weighted 14.3 |
 | survival model | Example 16.1: the 23 published solutions, RRS and S(40); a censoring gate where treating censored as observed provably distorts the fit |
+| survival, time-dependent covariates | a record split into two pieces with the same covariates changes nothing; the joint -2logL equals a Weibull likelihood written from scratch, with a late entry |
+| h2() and the share column | the denominators rebuilt by hand: Willham's for direct-maternal, `rho(residual)` kept out in AR(1), the phenotypic variance of Bijma et al. (2007) with `indirect()` |
+| two terms in one group, several traits | the bivariate with between-trait covariances at zero equals the sum of the univariates, by component NAME, to 1.7e-10 |
+| multi-trait, a level missing for one trait | sparse and dense V routes agree to 7.5e-12 after the per-trait drop; the components land where the single-trait fits land |
+| multi-trait AR(1) breeding values | EBV and PEV of the dense mixed-model equations built in R from the raw data |
+| indirect effects, identifiability | 30 replicates per design: pens of 2 to 8 recover the components (REML and Gibbs); pens of one size from two full-sib families flag SINGULAR and give the same -2logL from different starts |
+| sire / maternal-grandsire pedigree | exact: the pedigree expanded with a dummy dam per animal; the A^-1 printed for Example 15.2 |
+| APY core by eigenvalues | the count by two routes (eigenvalues of G, singular values of Z); `"auto"` == the same core passed by hand |
+| h_inverse() | the single-step formula rebuilt in R, exact and with APY; `kernel(K = H)` == `genotypes=` at the same theta |
+| threshold, estimated components | the EM fixed point against the minimum of the Laplace -2logL found without the EM step; 80 sires with 50 daughters each, binary, planted 0.15: mean 0.148 over 10 replicates |
+| Gibbs, probit and kernel() | with the components held, the posterior mean tracks the threshold-model mode (probit) and the `model()` BLUP (kernel); `K = I` == `random(id)`, the same chain |
 
 The tests in `tests/testthat` run these comparisons on every build, so a change that
 breaks one of the identities cannot pass quietly. `simulate_breeding()` is what they are
@@ -323,6 +396,12 @@ Aguilar, I., Misztal, I., Johnson, D.L., Legarra, A., Tsuruta, S. & Lawlor, T.J.
 A unified approach to utilize phenotypic, full pedigree, and genomic information for
 genetic evaluation of Holstein final score. *Journal of Dairy Science* 93:743-752.
 
+Albert, J.H. & Chib, S. (1993). Bayesian analysis of binary and polychotomous response
+data. *Journal of the American Statistical Association* 88:669-679.
+
+Amestoy, P.R., Davis, T.A. & Duff, I.S. (1996). An approximate minimum degree ordering
+algorithm. *SIAM Journal on Matrix Analysis and Applications* 17:886-905.
+
 Anderson, E., Bai, Z., Bischof, C., Blackford, S., Demmel, J., Dongarra, J., Du Croz,
 J., Greenbaum, A., Hammarling, S., McKenney, A. & Sorensen, D. (1999). *LAPACK Users'
 Guide*, 3rd ed. SIAM, Philadelphia.
@@ -335,6 +414,10 @@ quantitative genetics of inheritance and response to selection. *Genetics* 175:2
 
 Bradley, R.A. & Terry, M.E. (1952). Rank analysis of incomplete block designs: I. The
 method of paired comparisons. *Biometrika* 39:324-345.
+
+Cantet, R.J.C. & Cappa, E.P. (2008). On identifiability of (co)variance components in
+animal models with competition effects. *Journal of Animal Breeding and Genetics*
+125:371-381.
 
 Christensen, O.F. & Lund, M.S. (2010). Genomic prediction when some animals are not
 genotyped. *Genetics Selection Evolution* 42:2.
@@ -359,6 +442,9 @@ Foulley, J.L., Gianola, D. & Thompson, R. (1983). Prediction of genetic merit fr
 on binary and quantitative variates with an application to calving difficulty, birth
 weight and pelvic opening. *Genetics Selection Evolution* 15:401-424.
 
+Foulley, J.L., Im, S., Gianola, D. & Hoeschele, I. (1987). Empirical Bayes estimation of
+parameters for n polygenic binary traits. *Genetics Selection Evolution* 19:197-224.
+
 Fragomeni, B.O., Lourenco, D.A.L., Tsuruta, S., Masuda, Y., Aguilar, I., Legarra, A.,
 Lawlor, T.J. & Misztal, I. (2015). Use of genomic recursions in single-step genomic best
 linear unbiased predictor with a large number of genotypes. *Journal of Dairy Science*
@@ -366,6 +452,9 @@ linear unbiased predictor with a large number of genotypes. *Journal of Dairy Sc
 
 Garcia-Cortes, L.A. & Toro, M.A. (2006). Multibreed analysis by splitting the breeding
 values. *Genetics Selection Evolution* 38:601-615.
+
+Gelman, A. (2006). Prior distributions for variance parameters in hierarchical models.
+*Bayesian Analysis* 1:515-534.
 
 Geman, S. & Geman, D. (1984). Stochastic relaxation, Gibbs distributions, and the
 Bayesian restoration of images. *IEEE Transactions on Pattern Analysis and Machine
@@ -400,6 +489,10 @@ model. *Biometrics* 31:423-447.
 
 Henderson, C.R. (1976). A simple method for computing the inverse of a numerator
 relationship matrix used in prediction of breeding values. *Biometrics* 32:69-83.
+
+Hobert, J.P. & Casella, G. (1996). The effect of improper priors on Gibbs sampling in
+hierarchical linear mixed models. *Journal of the American Statistical Association*
+91:1461-1473.
 
 Hoeschele, I. & VanRaden, P.M. (1991). Rapid inversion of dominance relationship
 matrices for noninbred populations by including sire by dam subclass effects. *Journal
@@ -478,9 +571,15 @@ Applied to Livestock Production*, Guelph, 18:443-446.
 Schafer, F., Katzfuss, M. & Owhadi, H. (2021). Sparse Cholesky factorization by
 Kullback-Leibler minimization. *SIAM Journal on Scientific Computing* 43:A2019-A2046.
 
+Sorensen, D.A., Andersen, S., Gianola, D. & Korsgaard, I. (1995). Bayesian inference in
+threshold models using Gibbs sampling. *Genetics Selection Evolution* 27:229-249.
+
 Takahashi, K., Fagan, J. & Chin, M.-S. (1973). Formation of a sparse bus impedance
 matrix and its application to short circuit study. *Proceedings of the 8th PICA
 Conference*, 63-69.
+
+Tempelman, R.J. (1998). Generalized linear mixed models in dairy cattle breeding.
+*Journal of Dairy Science* 81:1428-1444.
 
 Tukey, J.W. (1977). *Exploratory Data Analysis*. Addison-Wesley, Reading, MA.
 
@@ -549,6 +648,16 @@ trusted. Components resting at a covariance boundary are excluded from it, becau
 component pinned there points out of the cone by construction and its gradient never
 vanishes; when that happens the message says how many were excluded, and the
 certification is conditional on that pinning.
+
+Two endings get their own verdict in `model()`, `model_mt()` and `model_ar1()`. When
+`maxiter` runs out with the Newton decrement already under tolerance, the likelihood is
+flat along some direction: the fit returns `converged = TRUE` and says so, because more
+iterations would not choose a point on that ridge. When the average information is
+singular at the end, the message says SINGULAR and names the components the data do not
+separate; their standard errors are NaN, the reported point depends on `start=`, and only
+combinations of them are estimable. That is the design speaking, the identifiability
+question Cantet and Cappa (2008) raise for the indirect-effect model, and the answer is
+more information, a simpler model, or a component held fixed.
 
 Fits start from `var(y)` by default, so a run does not inherit a neighbour's answer by
 accident. Two adjustments in `model_mt()` and `model_ar1()` keep that default meaning the

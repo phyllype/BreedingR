@@ -24,6 +24,19 @@
   proven sires) override the draw, and the object reports the cost of one
   factorization with that core against the exact one. The fit keeps the core it
   used in `fit$apy`.
+* `h_inverse()`: the single-step H^-1 as triplets with ids, built by the same
+  C++ code the Gaussian fitters use (G* scaled to A22 and blended, exact, APY or
+  Vecchia). `model_threshold()` and `model_survival()` take `genotypes =`,
+  `blend =`, `apy_core =` and `vecchia_k =` through it, so the single step now
+  reaches every fitter, and `accuracy()` there divides a genotyped animal by its
+  diagonal of G*.
+* `model_ar1()` with `cbind()` keeps a record with some traits missing: each
+  missing cell is carried as its own fixed effect (the `mv` device of ASReml),
+  which keeps the residual Gamma (x) R0 whole and gives exactly the marginal
+  likelihood of the observed cells. Records used to be dropped whole. Gated
+  three ways: the dense V over the observed cells, a REML written from the raw
+  data, and the collapse at rho = 0 onto `model_mt()`, which handles missing
+  cells with a different implementation.
 * `sire_mgs()` and `pedigree(type = "sire_mgs")`: a pedigree of sires and
   maternal grandsires, declared, never guessed. The grandsire path weighs 1/4 and
   the Mendelian variance is `11/16 - F_s/4 - F_k/16` (Henderson, 1975, 1976);
@@ -123,6 +136,8 @@
   through to `summary.default`, which returned a table with the shape of a result
   and no meaning. `summary()` and `print()` also divided by different
   denominators on the same fit; both now come from one table.
+* `gibbs()` accepted metafounders together with genotypes, which every other
+  fitter refuses because the genomic side does not know Gamma; now it refuses too.
 * The C++ engine printed some messages in Portuguese (the starting theta, the EM
   rescue, the factor pattern); they are in English now.
 
@@ -140,6 +155,13 @@
   applied to the genotyped clique of an exact single step (half the graph) it
   hid from the ordering how many genotyped neighbours each other animal has, and
   the exact fit was about 1.3x slower per iteration.
+* The score and the average information of `rho` in `model_ar1()` use the
+  tridiagonal derivative of Gamma^-1 instead of the dense Gamma and
+  Gamma^-1 dGamma Gamma^-1, which cost O(m^4) per subject of m records and per
+  evaluation. With 20 subjects, one evaluation at 50, 100 and 200 records
+  per subject took 0.25, 6.3 and 49.8 s before and under 0.01 s after (median
+  of 3); 500 records per subject did not finish in 15 minutes before and take
+  0.03 s now.
 * The degree of a hub is updated lazily: the ordering was 98 percent of a
   multi-trait evaluation; 16 000 animals 2.59 to 0.28 s, 8 000 0.77 to 0.14 s,
   with the same fill and -2logL (median of 3).

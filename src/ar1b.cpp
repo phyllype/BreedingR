@@ -30,14 +30,22 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   // caracteristica ausente sai inteiro.
   d.y = Densa(d.nlin, t);
   d.usa.assign(d.nlin, 1);
+  d.obs.assign(d.nlin * t, 1);
   for (std::size_t tau = 0; tau < t; tau++) {
     std::vector<double> col = tab.numerico(alvos[tau]);
     for (std::size_t i = 0; i < d.nlin; i++) {
       const bool falta = !std::isfinite(col[i]) ||
           (m.tem_ausente && std::fabs(col[i] - m.codigo_ausente) < 1e-9);
-      if (falta && d.usa[i]) { d.usa[i] = 0; d.n_incompletos++; }
+      if (falta) d.obs[i * t + tau] = 0;
       d.y.at(i, tau) = falta ? 0.0 : col[i];
     }
+  }
+  // o registro so sai quando NENHUMA caracteristica foi observada; celula ausente com outra
+  // observada no mesmo registro fica e vira coluna mv (ver DesenhoAR::obs)
+  for (std::size_t i = 0; i < d.nlin; i++) {
+    bool alguma = false;
+    for (std::size_t tau = 0; tau < t; tau++) if (d.obs[i * t + tau]) { alguma = true; break; }
+    if (!alguma) { d.usa[i] = 0; d.n_incompletos++; }
   }
 
   d.tempo = tab.numerico(col_tempo);
@@ -167,6 +175,29 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   }
   if (d.n_usadas() == 0) throw Erro("no row enters the analysis");
 
+  // POSTO DE X POR CARACTERISTICA sobre as celulas OBSERVADAS. Com celula ausente, um nivel
+  // fixo pode ficar sem nenhuma observacao numa caracteristica, e a coluna dele naquela
+  // caracteristica so encontra celulas mv, que a absorvem inteira: a MME fica singular.
+  // Nesta etapa isso e RECUSADO nomeando o par; derrubar o par (como o model_mt() faz)
+  // pede a numeracao por caracteristica no AR(1), que segue aberta.
+  if (t > 1)
+    for (std::size_t tau = 0; tau < t; tau++) {
+      std::vector<std::size_t> lin_tau;
+      for (std::size_t i = 0; i < d.nlin; i++)
+        if (d.usa[i] && d.obs[i * t + tau]) lin_tau.push_back(i);
+      Densa xt(lin_tau.size(), d.x.ncol);
+      for (std::size_t j = 0; j < d.x.ncol; j++)
+        for (std::size_t r = 0; r < lin_tau.size(); r++) xt.at(r, j) = d.x.at(lin_tau[r], j);
+      std::vector<std::size_t> fica_t, sai_t;
+      posto_completo(xt, 1e-9, fica_t, sai_t);
+      if (!sai_t.empty())
+        throw Erro("the fixed column '" + d.nomes_x[sai_t[0]] + "' is not estimable for "
+                   "trait '" + d.alvos[tau] + "' from the records where that trait was "
+                   "observed (" + std::to_string(sai_t.size()) + " column(s) in all): with "
+                   "missing cells a level can end up with no observation of one trait. "
+                   "Merge that level, or fit that trait's records with model_mt()");
+    }
+
   // layout: grupos com dim expandida por t (como na multi) + vech(R0) + rho
   std::size_t off = 0;
   for (Grupo& g : m.grupos) {
@@ -227,6 +258,20 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
             colbase += a.z.ncol * t;
           }
     }
+    // uma coluna mv por celula ausente de registro usado, DEPOIS dos grupos, para que os
+    // offsets de b, EBV e PEV nao se movam
+    d.off_mv = acc;
+    d.n_mv = 0;
+    if (t > 1)
+      for (std::size_t r = 0; r < d.nlin; r++) {
+        if (!d.usa[r]) continue;
+        for (std::size_t tau = 0; tau < t; tau++)
+          if (!d.obs[r * t + tau]) {
+            d.lw[r].push_back({static_cast<std::uint32_t>(d.off_mv + d.n_mv),
+                               static_cast<std::uint32_t>(tau), 1.0});
+            d.n_mv++;
+          }
+      }
     d.cols_suj.assign(d.sujeitos.size(), {});
     for (std::size_t s = 0; s < d.sujeitos.size(); s++) {
       std::vector<std::uint32_t>& cs = d.cols_suj[s];
@@ -295,7 +340,9 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
       double soma = 0.0, soma2 = 0.0;
       std::size_t n = 0;
       for (std::size_t i = 0; i < d.nlin; i++)
-        if (d.usa[i]) { soma += d.y.at(i, tau); soma2 += d.y.at(i, tau) * d.y.at(i, tau); n++; }
+        if (d.usa[i] && d.obs[i * t + tau]) {
+          soma += d.y.at(i, tau); soma2 += d.y.at(i, tau) * d.y.at(i, tau); n++;
+        }
       const double media = soma / std::max<std::size_t>(n, 1);
       double v = (soma2 - n * media * media) / std::max(1.0, static_cast<double>(n - 1));
       if (!(v > 0.0) || !std::isfinite(v)) v = 1.0;
@@ -555,14 +602,14 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
   if (d.n_sem_tempo > 0)
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
         std::to_string(d.n_sem_tempo) + " record(s) left out for a missing or non-finite time";
-  if (d.n_incompletos > 0) {
+  if (d.n_incompletos > 0)
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
-        std::to_string(d.n_incompletos) + " record(s) dropped ENTIRELY for having at "
-        "least one trait missing: the separable residual Gamma (x) R0 has no conditional "
-        "for a partial pattern, so this fitter deletes listwise where model_mt() keeps the "
-        "record and fits it against the R0 submatrix of its own pattern. Dropping a "
-        "mid-series point also widens the time gaps of that subject";
-  }
+        std::to_string(d.n_incompletos) + " record(s) with no trait observed left out";
+  if (d.n_mv > 0)
+    R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
+        std::to_string(d.n_mv) + " missing cell(s) kept in the series: the likelihood is "
+        "the marginal one of the observed cells, each missing cell carried as its own "
+        "fixed effect (the mv device of ASReml), which keeps the residual Gamma (x) R0 whole";
   if (na_fronteira > 0)
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
         std::to_string(na_fronteira) + " component(s) resting at a covariance boundary "

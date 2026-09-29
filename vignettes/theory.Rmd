@@ -16,7 +16,7 @@ library(BreedingR)
 This document follows a genetic evaluation in the order it actually happens, and at each
 step it says three things: what the matrices are and what they mean, what the algorithm
 does with them, and which function runs it. The formulas are the ones the package
-computes, not the textbook version they descend from — where the implementation makes a
+computes, not the textbook version they descend from; where the implementation makes a
 choice, the choice is stated.
 
 The data for every example is simulated here, so each result has its truth beside it.
@@ -67,7 +67,7 @@ Var(u_g) = C_g (x) K_g
 where `C_g` is the small covariance among the terms of the group and `K_g` is the
 relationship matrix among their levels; `D` is the block diagonal of these, one block
 per group. This is why direct-maternal, the reaction norm and the associative model have
-no dedicated fitter — they are the same engine with a different incidence and the same
+no dedicated fitter: they are the same engine with a different incidence and the same
 penalty.
 
 ## 2. The pedigree: A, F, and A inverse
@@ -81,7 +81,7 @@ variance `d_i`,
 A^-1 = sum_i (1/d_i) v_i v_i',    v_i = +1 at i, -1/2 at sire, -1/2 at dam
 ```
 
-so `A^-1` is built by adding one small outer product per animal — sparse from the start,
+so `A^-1` is built by adding one small outer product per animal, sparse from the start,
 never through a dense `A`. The Mendelian variance depends on how much of the parents'
 ancestry is already shared:
 
@@ -94,7 +94,7 @@ d_i = 1                             neither
 `F` is Wright's (1922) inbreeding coefficient, computed by the Meuwissen and Luo (1992) trace: for
 animal `i`, walk the ancestors in decreasing index order accumulating `l_j` contributions,
 and `F_i = sum_j l_j^2 d_j - 1`. A max-heap over the ancestors is what makes a single
-pass correct — every descendant of an ancestor has a larger index and has therefore
+pass correct: every descendant of an ancestor has a larger index and has therefore
 already deposited its share. This trace and the earlier strategy of Quaas (1976) share
 the point: the diagonal of `A` comes out of the decomposition while `A^-1` is being
 built, instead of storing `A` to read it back. Mrode and Pocrnic (2023, ch. 3) carry both
@@ -114,8 +114,8 @@ when sire and dam are the same animal, the coefficients are merged BEFORE the ou
 product, which puts `1/d` on that parent's diagonal; emitting the terms one by one into a
 half-stored triangle would give `3/4 d^-1` and no error message.
 
-**Metafounders.** When the base population is not one homogeneous unrelated pool —
-different lines, different years, animals whose parents are simply unknown — Legarra et
+**Metafounders.** When the base population is not one homogeneous unrelated pool
+(different lines, different years, animals whose parents are simply unknown), Legarra et
 al. (2015) replace the unknown parents with *metafounders*: virtual base animals with a
 self-relationship `gamma` that measures how related that base actually was. The
 implementation reduces to one line: a metafounder row is preloaded with
@@ -124,7 +124,7 @@ implementation reduces to one line: a metafounder row is preloaded with
 `A^-1` with no special case. `gamma` must be strictly inside `(0, 2)`, and the two ends
 are refused for different reasons. The upper one is Mendelian: the offspring of two copies
 of the same metafounder has `d = 1/2 - 1/4 (2 (gamma - 1)) = 1 - gamma/2`, which vanishes
-at `gamma = 2` — a base pool completely homozygous by descent, where every base animal is
+at `gamma = 2`, a base pool completely homozygous by descent, where every base animal is
 the same animal. The lower one is that a base pool needs a positive self-relationship to
 be a pool at all, and the package's error message names both. Zero is a limit with a
 meaning rather than a degeneracy: `gamma -> 0` is complete heterozygosity by descent, an
@@ -139,6 +139,16 @@ p_mf <- pedigree(ped_mf, metafounders = "L1", gamma = 0.7)
 round(mean(p_mf$F[p_mf$id %in% s$pedigree$id]), 4)   # base relatedness now shows up as F
 ```
 
+**Sires and maternal grandsires.** A sire model often has only the sire and the maternal
+grandsire of each animal. Then `u_i = u_s / 2 + u_k / 4 + m_i`, with the maternal granddam
+unknown: the grandsire path weighs 1/4, the Mendelian variance is
+`11/16 - F_s/4 - F_k/16`, and the inverse gets `(1, -1/2, -1/4)` in the rules above
+(Mrode and Pocrnic, 2023, secs. 3.6 and 3.7). Read as a dam, the grandsire would enter
+with 1/2, and the `A^-1` would still be symmetric and positive definite, so nothing
+downstream could catch it. The format is therefore declared, with `sire_mgs()` or
+`pedigree(type = "sire_mgs")`, and a third column named like a grandsire column is
+refused until it is.
+
 ## 3. The mixed model equations
 
 Henderson's equations (Henderson, 1950) solve for `b` and `u` at once. Writing `W = [X Z]`, the package
@@ -149,16 +159,16 @@ C_s = W'W + blockdiag_g [ kron(s2e * C_g^-1, K_g^-1) ],     rhs = W'y
 ```
 
 and solves `C_s sol = rhs`. Two conventions matter. The system is scaled by the residual
-variance — the penalty carries `s2e * C_g^-1`, not `C_g^-1` — so the solution is the same
+variance (the penalty carries `s2e * C_g^-1`, not `C_g^-1`), so the solution is the same
 BLUP but the matrix is in units of `s2e`. And inside a term, the column of `Z` for
 coefficient `a` and level `l` is `a * n_levels + l`: the **level varies fastest**.
-Reversing that convention does not break anything visibly — the model still assembles and
+Reversing that convention does not break anything visibly: the model still assembles and
 converges, and estimates something else.
 
 `W'W` is accumulated one record at a time. Each record touches a handful of columns and
 contributes a small clique among them, so the cost is the sum of squared row-lengths, not
 anything quadratic in the number of columns. The penalty is added afterwards into the
-same triplet list, and the triplet-to-sparse conversion **sums duplicates** — which is
+same triplet list, and the triplet-to-sparse conversion **sums duplicates**, which is
 not a convenience but a requirement: in `A^-1` the mate-mate term arrives once per
 offspring, and a build where the last write wins would silently discard part of the
 matrix.
@@ -171,7 +181,7 @@ The restricted likelihood, in the form the MME give:
 
 `D` is the covariance of the random effects of section 1, and it carries the same `s2e`
 scaling as `C_s`: per group the code accumulates `nl log|C_g / s2e| + dim log|K_g|`. With
-`weights =`, a `- sum_i log w_i` term joins the expression — the Jacobian of the weighted
+`weights =`, a `- sum_i log w_i` term joins the expression, the Jacobian of the weighted
 rescaling, constant in theta, so it moves the value and not the optimum.
 
 The package computes the same quantity a second way, through the dense
@@ -188,12 +198,24 @@ c(mme = ev$neg2logl, dense_V = ev$neg2logl_V, difference = abs(ev$neg2logl - ev$
 
 `C_s` is factored as `L L'` by an up-looking sparse Cholesky, preceded by a minimum
 degree ordering (George and Liu, 1989) that reduces fill-in and by a symbolic analysis that computes the pattern
-of `L` once. The symbolic factorization is cached across REML iterations, which is sound
+of `L` once. On a clique, minimum degree would cost the cube of its size rather than
+scale with the nonzeros, so a node whose degree passes 80 percent of the nodes still
+alive leaves the graph and goes to the end of the order; at the start, a node is set
+aside when its degree passes both `10 sqrt(n)`, the
+dense-row rule of AMD (Amestoy, Davis and Duff, 1996), and 0.8 of the 99th percentile of
+the degrees, provided the set aside is at most a quarter of the graph. Ordering never
+changes a result, only speed and fill. The symbolic factorization is cached across REML iterations, which is sound
 only because the pattern of `C_s` does not depend on the variance components: the
 assembly pushes the same slots every time, explicit zeros included.
 
+What the dense nodes leave behind is a completely full block at the end of `L`: `k`
+columns that cost about `k^3 / 3` flops per factorization, which dominates the fit once
+`k` is large. The fit reports it as `fit$dense_block = c(dense = k, columns = n)`; in a
+single step without APY, `k` is at least the number of genotyped animals. That block is
+factored by scalar C++, not by BLAS, and nothing in the package runs in parallel.
+
 Prediction error variances need the diagonal of `C_s^-1`, and the full inverse of a
-sparse matrix is dense — for a pedigree of any size, unaffordable. The identity of
+sparse matrix is dense, and for a pedigree of any size unaffordable. The identity of
 Takahashi, Fagan and Chin (1973) gives exactly the elements of the inverse that sit on
 the pattern of `L`, which is all the diagonal needs:
 
@@ -203,14 +225,14 @@ si <- selected_inverse(ai)
 c(logdet = round(ch$logdet, 4), dense_block = ch$dense_block)
 ```
 
-A position outside the pattern is not zero — it is unknown. The function returns only
+A position outside the pattern is not zero; it is unknown. The function returns only
 what it computed.
 
 ## 5. Estimating the variance components
 
 REML maximizes the likelihood of error contrasts instead of the likelihood of `y`. What
-that removes is not a bias in `b` — the fixed effects come out as the same GLS solution
-under either criterion — but the downward bias maximum likelihood carries IN THE VARIANCE
+that removes is not a bias in `b` (the fixed effects come out as the same GLS solution
+under either criterion) but the downward bias maximum likelihood carries IN THE VARIANCE
 COMPONENTS, whose cause is that those fixed effects were estimated from the same records.
 Mrode and Pocrnic (2023, ch. 17) write the restricted likelihood as three terms: a
 weighted sum of squares of the residuals, `log|V|`, and `log|X'V^-1X|`, the last of them a
@@ -241,7 +263,7 @@ d(-2logL)/ds2e = (n - p - q + trpen)/s2e - e'e/s2e^2
 
 where `q` is the number of random columns and `trpen` the trace of the penalty against
 `C_s^-1`. The `- q + trpen` is not decoration: the random effects absorb degrees of
-freedom too, and a version without it still converges — to the wrong place, reporting
+freedom too, and a version without it still converges, to the wrong place, reporting
 convergence. That is the worst failure mode available, which is why the score is checked
 against central finite differences on every parameter.
 
@@ -252,16 +274,24 @@ Levenberg-Marquardt damping (Levenberg, 1944; Marquardt, 1963), and it is a thir
 meaning of the letter: not the `s2e/s2a`
 ratio that scales `K^-1` inside the mixed model equations of section 3, and not the ridge
 that `apy_inverse()` calls `lambda`. The damping starts at 1e-3,
-multiplies by ten whenever a candidate is rejected — inadmissible covariance, singular
-damped matrix, or a likelihood that got worse — and divides by ten when one is accepted.
+multiplies by ten whenever a candidate is rejected (inadmissible covariance, singular
+damped matrix, or a likelihood that got worse) and divides by ten when one is accepted.
 Before the AI loop, a few EM rounds run: EM (Dempster, Laird and Rubin, 1977) is
 monotone and stays inside the cone, so it costs little and lands the search in the
 right basin.
 
 **Stopping.** Convergence is judged on the relative change of the components,
 `sqrt(sum(dtheta^2)/sum(theta^2)) < tol`, never on an absolute threshold on the score,
-whose norm grows with the number of records. Standard errors come from the inverse of the
-AI matrix, `SE_k = sqrt(2 [AI^-1]_kk)`.
+whose norm grows with the number of records. A small step is not an optimum, though, so
+`converged` also requires the Newton decrement `g' AI^-1 g`, about twice the remaining gap
+in -2logL, to fall under 2e-4, components resting at a boundary excluded; it is reported
+as `newton_dec`. At `maxiter` with the decrement already under tolerance the likelihood
+is flat along some direction, and the fit declares convergence and says so. Standard
+errors come from the inverse of the AI matrix, `SE_k = sqrt(2 [AI^-1]_kk)`. When AI is
+singular at the end, the fit names the components involved and their standard errors
+are NaN: the data do not separate them, the reported point depends on `start=`, and only
+combinations are estimable (for the indirect-effect model, the identifiability question
+of Cantet and Cappa, 2008).
 
 ```{r}
 fit <- model(y ~ cg + animal(id), d, s$pedigree)
@@ -269,8 +299,8 @@ fit
 ```
 
 Two rules protect the result. A covariance that stops being positive-definite ends the
-fit rather than being nudged back, and the starting point always comes from `var(y)`, so
-no run inherits a neighbour's answer.
+fit rather than being nudged back, and the starting point comes from `var(y)` unless
+`start=` gives one, so no run inherits a neighbour's answer.
 
 ## 6. Genomics: from markers to H
 
@@ -281,14 +311,14 @@ dosages. With `p_j` the allele frequency at marker `j` and `Z = M - 2p`,
 G = Z Z' / (2 sum_j p_j (1 - p_j))
 ```
 
-Missing genotypes are imputed with the marker mean and never with zero — zero is a valid
+Missing genotypes are imputed with the marker mean and never with zero: zero is a valid
 genotype, and confusing the two changes both the frequencies and every element of `G`
 with no error to notice. Markers that are fixed or entirely missing are dropped and
 counted.
 
 **A22, and the trap.** The single step needs the pedigree relationships *among the
 genotyped animals*, `A22`. That is the inverse of the genotyped block of the inverse, not
-the genotyped block of `A^-1` — two matrices of the same shape, both symmetric, only one
+the genotyped block of `A^-1`, two matrices of the same shape, both symmetric, only one
 correct. The package computes it by a sparse Schur complement,
 
 ```
@@ -320,7 +350,7 @@ H^-1 = A^-1 + [ 0        0            ]
 
 This is the identity that makes the single step practical: nothing dense is needed for
 the non-genotyped animals, and the correction is a small block added to a sparse matrix.
-It is also self-checking — with `blend = 1`, `G*` becomes `A22` exactly, the correction
+It is also self-checking: with `blend = 1`, `G*` becomes `A22` exactly, the correction
 block vanishes, and `H^-1` must equal `A^-1` through the whole fit. That collapse is one
 of the package's tests. Mrode and Pocrnic (2023, ch. 12) work the same identity through a
 small herd, number by number.
@@ -346,12 +376,21 @@ G_APY^-1 = [ Gcc^-1 + P Mnn^-1 P'   -P Mnn^-1 ]
 
 The Vecchia recursion (Vecchia, 1988) generalizes it: each animal conditions on its own `k` nearest
 relatives among the previous ones rather than on one shared core. Henderson's `A^-1` is
-this same recursion with the parents as the conditioning set — exact there, because a
+this same recursion with the parents as the conditioning set, exact there, because a
 pedigree is Markovian. Schafer, Katzfuss and Owhadi (2021) prove the factor is optimal in
 Kullback-Leibler divergence given the pattern, and that enlarging the sets never hurts.
 
 An honest limit: both approximations cut arithmetic, not memory. `G*^-1` is a dense
-matrix of the genotyped animals on all three paths.
+matrix of the genotyped animals on all three paths. What `H^-1` keeps of it is only the
+nonzeros, so with APY the dense block of the factor is at least the core size plus one
+rather than the whole genotyped set.
+
+How large a core? The dimensionality of the genomic information bounds it: Pocrnic et
+al. (2016) take as many animals as eigenvalues of `G` explain 98% of its trace, drawn at
+random. `apy_core_select()` applies that rule, reports the cost of one factorization
+with the core against the exact one, and takes `size =` and `include =` (proven sires,
+say) to override the draw; `apy_core = "auto"` calls it inside the fit, which then keeps
+the core in `fit$apy`. Choose the core once and pass it to every fit.
 
 ```{r}
 gid <- gen$ids
@@ -383,14 +422,16 @@ With the covariance group as the unit, several classical models are incidences r
 than fitters.
 
 *Direct-maternal* (Willham, 1972): the animal's own genes and its dam's maternal ability
-in one 2x2 matrix, with the direct-maternal covariance — usually negative, and the number
+in one 2x2 matrix, with the direct-maternal covariance, usually negative, and the number
 the model exists for.
 
 *Reaction norm* (Kirkpatrick, Lofsvold and Bulmer, 1990; in animal models, Schaeffer
 and Dekkers, 1994): each animal gets a vector of
 coefficients on an environmental gradient through `rn(id, base = ...)`, with
 `legendre()` building the orthogonal basis. The genetic variance becomes a function of
-the environment, which `h2_curve()` reads.
+the environment, which `h2_curve()` reads, evaluating every random regression at the
+point, a permanent environment on the same basis included; `h2()` refuses a reaction
+norm, because its heritability is a curve and not a number.
 
 *Indirect genetic effects* (Griffing, 1967; Muir and Schinckel, 2002; Bijma, Muir and
 Van Arendonk, 2007): the incidence of a record marks the animal's PEN MATES, so a phenotype carries its
@@ -405,32 +446,48 @@ into which the group size enters twice:
 ```
 TBV    = A_D + (n - 1) A_S
 s2_TBV = s2_AD + 2 (n - 1) s_ADS + (n - 1)^2 s2_AS
-t2     = s2_TBV / s2_p
+s2_P   = s2_AD + (n - 1) [1 + (n - 2) r] s2_AS + 2 (n - 1) r s_ADS + (the other components)
+T2     = s2_TBV / s2_P
 ```
 
 Because `(n - 1)` multiplies the covariance and `(n - 1)^2` the associative variance, the
 group size sets both the magnitude of the response and, under strong heritable
 competition, its direction: the response need not follow the selection pressure (Bijma,
-Muir and Van Arendonk, 2007; Mrode and Pocrnic, 2023, ch. 9). The package returns the
-three components; combining them into `TBV` and `t2` is the caller's step, and it takes
-the pen size.
+Muir and Van Arendonk, 2007; Mrode and Pocrnic, 2023, ch. 9). The phenotypic variance of
+a record carries the indirect effects of its `n - 1` mates, with `r` the relationship
+between them, so heritability here is not `var(animal)` over the plain sum of the
+components, and the `share` column of the printed fit is left blank. `h2(fit, n = , r = )`
+divides by `s2_P`, and `t2(fit, n, r)` returns `s2_TBV`, `s2_P`, T2 and the direct
+heritability with delta-method standard errors.
 
 The book fixes `n = 3`; real pens are unequal, and with a coefficient of 1 per mate the
 social sum grows with `n_i - 1`. `indirect(id, pen = "pen", dilution = d)` scales every
 mate's entry to `(n_i - 1)^(-d)`: `d = 0` (the default) is the book's sum, `d = 1` the
-mate mean, and the regime in between is the dilution of Bijma (2010) — chosen
+mate mean, and the regime in between is the dilution of Bijma (2010), chosen
 empirically by fitting a small grid of `d` and comparing `-2logL`, which stays
-comparable because only the incidence changes. The residual inherits the same
-heterogeneity, `var(e_i) = s2_ED + (n_i - 1) s2_ES`; `indirect_residual()` estimates
+comparable because only the incidence changes. Under dilution the `(n - 1)` of the TBV
+and of the covariance term of `s2_P` becomes `(n - 1)^(1 - d)`, and the one that
+multiplies `s2_AS` in `s2_P` becomes `(n - 1)^(1 - 2d)` (Bijma, 2010); `h2()` and `t2()`
+read `d` from the term.
+The residual inherits the same heterogeneity, `var(e_i) = s2_ED + (n_i - 1)^(1 - 2d) s2_ES`,
+the same `d` diluting the social environmental deviation; `indirect_residual()` estimates
 the ratio `s2_ES / s2_ED` by profile REML over weighted fits, and its documentation
-says which of the two the data actually pins.
+says which of the two the data actually pins. `associative_matrix(dilution = d)` writes
+the same residual as an exact covariance for a `kernel()` term.
+
+Whether the three genetic components can be told apart is a property of the design, not
+of the fitter (Cantet and Cappa, 2008). With pens of one size built from two full-sib
+families, the data identify only two combinations, the TBV variance and
+`s2_AD - 2 s_ADS + s2_AS`: fits from different starts land on different components with
+the same -2logL, and the fit says SINGULAR and names them. Pens of different sizes, or
+relatives spread across pens, separate them.
 
 *Multi-trait*: `cbind()` on the left, a full residual covariance between traits, and
 missingness handled by the pattern of each record rather than by dropping it.
 
 *AR(1)/CAR(1) residual* (Wade and Quaas, 1993): for repeated measures along time, the residual correlation
-decays as `rho^|dt|`. The inverse of that correlation matrix is tridiagonal — the
-classical Markov result — so the model costs no more than the iid one, and `rho` comes
+decays as `rho^|dt|`. The inverse of that correlation matrix is tridiagonal (the
+classical Markov result), so the model costs no more than the iid one, and `rho` comes
 out with its standard error.
 
 The textbook treatment of these models is Mrode and Pocrnic (2023): the repeatability
@@ -459,26 +516,30 @@ with the inbreeding coefficient in the denominator because an inbred animal has 
 additive variance to predict: `var(u_i) = a_ii s2a = (1 + F_i) s2a` (Mrode and Pocrnic,
 2023, ch. 3). The identity underneath, `PEV = var(a - a^) = C22 s2e`, is Henderson (1975).
 
-One declared limit comes with it. `accuracy()` reads `F` from the PEDIGREE even when the
-fit was single-step. For a genotyped animal the prior variance is the diagonal of `H`,
-which in that block is the diagonal of `G*`, and that is not `1 + F_ped`: on the
-population simulated at the top of this vignette, every animal genotyped, the two
-diagonals differ by up to 0.18 and an individual accuracy by up to 0.067. The herd mean
-does not move; the individual does. Read genomic accuracies with that in mind until the
-function reads the `H` diagonal itself.
+`accuracy()` divides by the prior the animal actually has. For a pedigree animal that is
+`1 + F`. For a genotyped animal in a single step it is the diagonal of `H`, which in that
+block is the diagonal of `G*`, and that is not `1 + F_ped`: on the population simulated
+at the top of this vignette, every animal genotyped, the two diagonals differ by up to
+0.18 and an individual accuracy by up to 0.067. The herd mean does not move; the
+individual does. A fit with `genotypes=` carries the diagonal of `G*`, and `accuracy()`
+uses it.
 
 Heritability is read off `theta`, and both halves of the ratio have to be picked rather
 than assumed. `theta` is a NAMED vector, and its first entry is the animal variance only
-when the formula happens to put that term first — `random(lot) + animal(id)` puts
-`var(random)` there. It also carries the covariances of a `group =` and the
-`rho(residual)` of `model_ar1()`, which belong in no variance denominator. So: numerator
-by name, denominator over the `var()` entries alone. That is what the `share` column of
-the printed fit already computes.
+when the formula happens to put that term first: `random(lot) + animal(id)` puts
+`var(random)` there. It also carries the `rho(residual)` of `model_ar1()`, a correlation
+that belongs in no variance denominator. The covariances of a `group =` are another
+matter. A direct-maternal covariance is part of the phenotypic variance of a record, with
+coefficient 1 (Willham, 1972); in the associative model the coefficients are those of
+`s2_P` in section 7, which depend on the pen size. `h2()` takes the numerator by name and
+divides by the phenotypic variance of the trait, covariances included, and the `share`
+column of the printed fit uses the same denominator, left blank where that denominator
+needs the pen size.
 
 The fixed effects come with the same solution vector: `fit$b`, named `term=level`, also
 reachable as `coef(fit, effects = "fixed")`. The parametrization is the implicit
 intercept, with linearly dependent columns dropped (`dropped_x`) and a dropped level
-holding the zero solution — while the book's examples zero one level per factor and fit
+holding the zero solution, while the book's examples zero one level per factor and fit
 no intercept. The two conventions agree only on CONTRASTS, differences between levels
 of the same factor, never on the raw values; contrasts are invariant to the
 parametrization, individual entries are not.
@@ -486,9 +547,8 @@ parametrization, individual entries are not.
 ```{r}
 e <- ebv(fit)
 a <- accuracy(fit, s$pedigree)
-v <- fit$theta[grepl("^var[(]", names(fit$theta))]     # the variances, and only them
 round(c(cor_with_truth = cor(e[names(s$tbv)], s$tbv),
-        mean_accuracy = mean(a), h2 = v[["var(animal)"]] / sum(v)), 3)
+        mean_accuracy = mean(a), h2 = h2(fit)), 3)
 ```
 
 From there the decisions: `selection_index()` combines traits with economic weights, and
@@ -498,13 +558,23 @@ From there the decisions: `selection_index()` combines traits with economic weig
 
 The same models can be sampled instead of maximized. `gibbs()` draws all locations in one
 block through the same sparse Cholesky, then draws each covariance from its conjugate
-inverse-Wishart and the residual from a scaled inverse chi-square, under reference priors.
-Where REML gives a point and a standard error from the information matrix, the sampler
-gives the whole posterior — worth the cost when a component sits near a boundary, where
-the normal approximation behind the standard error is least trustworthy. The sampler
+inverse-Wishart and the residual from a scaled inverse chi-square. The prior is a choice,
+`prior =`: `"jeffreys"`, the default, is `p(s2) ~ 1/s2`; `"flat"` is uniform on the
+variance; `"uniform_sd"` is uniform on the standard deviation, the one Gelman (2006)
+recommends for a variance with few levels; and `c(df =, scale =)` is the proper scaled
+inverse chi-square of the BLUPF90 Gibbs programs. The improper ones can leave the
+posterior of a weakly identified component with spurious mass near zero (Hobert and
+Casella, 1996). Where REML gives a point and a standard error from the information
+matrix, the sampler gives the whole posterior, worth the cost when a component sits near
+a boundary, where the normal approximation behind the standard error is least
+trustworthy. `summary()` of the chain gives the posterior quantiles and the heritability
+computed draw by draw. The sampler
 goes back to Geman and Geman (1984); Wang, Rutledge and Gianola (1993, 1994) brought it
 to variance components in animal models, and Mrode and Pocrnic (2023, ch. 18) set out
-the same sampler and the conjugate draws it uses.
+the same sampler and the conjugate draws it uses. With `family = "probit"` it samples a
+binary trait on its liability, each record's liability drawn from a normal truncated at
+the threshold and the residual fixed at 1 (Albert and Chib, 1993; Sorensen et al.,
+1995), which is the unbiased route to the components of such a trait.
 
 ```{r}
 g <- gibbs(y ~ cg + animal(id), d, s$pedigree, n_iter = 2000, burnin = 400, thin = 4)
@@ -518,13 +588,13 @@ data.frame(component = colnames(g$samples),
 Sections 2 and 6 derived the covariance of a random term from the pedigree or from the
 markers. `kernel(id, K = )` removes the derivation: the term's covariance matrix is
 DECLARED, symmetric positive-definite, its rownames naming the levels, and every animal
-in `K` gets an equation whether or not it has a record. Nothing else changes — the same
-`kron(C^-1, K^-1)` penalty, the same score, the same selected inverse — so any model
+in `K` gets an equation whether or not it has a record. Nothing else changes (the same
+`kron(C^-1, K^-1)` penalty, the same score, the same selected inverse), so any model
 whose only novelty is the covariance structure is a constructor plus a marker, not a new
 fitter (Mrode and Pocrnic, 2023, chs 13-14).
 
 The constructors cover the classical cases. `dominance_matrix()` builds Cockerham's
-(1954) D from the pedigree, `d_xy = 0.25 (a_sf a_dm + a_sd a_fm)` with diagonal 1 — the
+(1954) D from the pedigree, `d_xy = 0.25 (a_sf a_dm + a_sd a_fm)` with diagonal 1, the
 covariance of the dominance deviations, fitted BESIDE the additive term so the two
 partition the genetic variance. The genomic versions are `g_dominance()` (Vitezica,
 Varona and Legarra, 2013) and `g_epistasis()`, the Hadamard square of `G` with its
@@ -534,8 +604,8 @@ fitted as a `cov()` its coefficient in `fit$b` is the inbreeding depression.
 For a multibreed pedigree, `partial_a()` splits `A` by breed origin (Garcia-Cortes and
 Toro, 2006): one partial matrix per founder breed and one per segregating pair, built by
 the tabular recursion with the breed contribution on the diagonal. A purebred
-contributes nothing to the other breed's matrix, and its row there is entirely zero —
-which `kernel()` reads as "no equation for this level, keep its records" — so each
+contributes nothing to the other breed's matrix, and its row there is entirely zero,
+which `kernel()` reads as "no equation for this level, keep its records"; so each
 matrix enters as its own term and the breed-specific solutions sum to the combined
 breeding value.
 
@@ -546,7 +616,7 @@ round(f10$theta, 3)
 ```
 
 Read that split with care. This data has ONE record per animal and was simulated with
-no dominance, and `D` has a unit diagonal — so `var(kernel)` and `var(residual)` are
+no dominance, and `D` has a unit diagonal, so `var(kernel)` and `var(residual)` are
 separated only by the sib covariances, a weakly identified partition, and the
 likelihood is nearly flat between them. The estimate above is one point on that
 plateau, not a discovery of dominance. The hands-on vignette plants a real dominance
@@ -560,9 +630,19 @@ through thresholds: `y = j` when `t_{j-1} < l <= t_j`. Only signs and orderings 
 are observable, so the residual is FIXED at 1 (probit identifiability) and the
 thresholds replace the intercept. `model_threshold()` fits it by Fisher scoring on the
 Gianola and Foulley (1983) system, with the variance components on the liability scale
-GIVEN via `start=` — the Gaussian REML of section 5 has no likelihood for a categorical
-trait, and the package says so rather than pretending. `cbind(quant, binary)` fits the
-joint quantitative-binary analysis of Foulley, Gianola and Thompson (1983); Mrode and
+GIVEN via `start=`: the Gaussian REML of section 5 has no likelihood for a categorical
+trait, and the package says so rather than pretending. With `estimate = TRUE` the
+components are estimated instead, by approximate marginal maximum likelihood: the
+locations are integrated by the Laplace approximation around the mode, and the variances
+are updated by the EM step of Foulley, Im, Gianola and Hoeschele (1987),
+`s2 = (u' K^-1 u + tr(K^-1 C^uu)) / q`, with standard errors from the numerical Hessian of
+the Laplace -2logL. Its known weakness is a binary trait with few records per level of
+the random effect, where the Laplace approximation underestimates the variance
+(Tempelman, 1998); on 80 sires with 50 daughters each and a planted variance of 0.15 it
+averaged 0.148 over 10 replicates, and `gibbs(family = "probit")` is the unbiased
+alternative. `cbind(quant, binary)` fits the
+joint quantitative-binary analysis of Foulley, Gianola and Thompson (1983), with the PEV
+of u1 and of the ranking value u2, and `predict()` the probability of Eqn 15.25; Mrode and
 Pocrnic (2023, ch. 15) carry both through worked examples, which are the package's
 gates.
 
@@ -587,10 +667,19 @@ a LOWER BOUND on her length of productive life, not a missing value. The Weibull
 model (Kachman, 1999; Mrode and Pocrnic, 2023, ch. 16) writes the hazard as
 `h(t) = h0(t) exp(x'b + z'u)` with a Weibull baseline; a complete record contributes its
 density, a censored one its survival `S(t)`, and that difference is where the censoring
-information lives — `model_survival()` therefore refuses to run without `censor=`.
+information lives: `model_survival()` therefore refuses to run without `censor=`.
 Solutions are LOG RELATIVE RISKS (`exp()` gives the relative risk of failing), the
 Weibull `rho` is estimated by Newton alongside the effects, and the frailty variance
 comes from a Laplace profile of the marginal likelihood, or is given, as the book does.
+
+A covariate that changes during a life is constant by pieces, and each piece is an
+elementary record `(entry, stop]` of the same `subject`, with the failure only on the
+last piece. The cumulative hazard of a piece is `Lambda0(stop) - Lambda0(entry)`, so a
+life split into pieces with the same covariates has exactly the likelihood of the unsplit
+record. The pieces are checked: no overlap, the event only at the end, the frailty
+constant within the subject, and gaps refused unless `gaps = "allow"`. A first entry above
+zero is left truncation, accepted and flagged, because with a frailty its conditional
+likelihood is naive.
 
 ```{r}
 cows <- data.frame(
@@ -615,14 +704,19 @@ Henderson (1950) for the MME; Henderson (1976) for `A^-1`; Wright (1922) and
 Meuwissen and Luo (1992) for inbreeding; Patterson and
 Thompson (1971) and Gilmour, Thompson and Cullis (1995) for REML and average information;
 Legarra et al. (2015) for metafounders; VanRaden (2008), Aguilar et al. (2010) and
-Christensen and Lund (2010) for the single step; Misztal, Legarra and Aguilar (2014) and
+Christensen and Lund (2010) for the single step; Misztal, Legarra and Aguilar (2014),
+Pocrnic et al. (2016) and
 Schafer, Katzfuss and Owhadi (2021) for the approximate inverses; Liu et al. (2014), Masuda et al. (2017) and
-Vandenplas et al. (2018) for markers as equations; Takahashi, Fagan and Chin (1973) for the
+Vandenplas et al. (2018) for markers as equations; George and Liu (1989) and Amestoy,
+Davis and Duff (1996) for the ordering; Takahashi, Fagan and Chin (1973) for the
 selected inverse; Willham (1972), Kirkpatrick et al. (1990), Schaeffer and Dekkers
-(1994), Griffing (1967), Muir and Schinckel (2002), Bijma (2010) and Wade and Quaas (1993) for
+(1994), Griffing (1967), Muir and Schinckel (2002), Bijma, Muir and Van Arendonk (2007),
+Bijma (2010), Cantet and Cappa (2008) and Wade and Quaas (1993) for
 the models of section 7; Geman and Geman (1984) and Wang, Rutledge and Gianola (1993, 1994)
-for the sampler; Cockerham (1954), Vitezica et al. (2013) and Garcia-Cortes and Toro
+for the sampler, Gelman (2006) and Hobert and Casella (1996) for its priors, and Albert
+and Chib (1993) and Sorensen et al. (1995) for its probit mode; Cockerham (1954), Vitezica et al. (2013) and Garcia-Cortes and Toro
 (2006) for the declared covariances of section 10; Gianola and Foulley (1983), Foulley,
-Gianola and Thompson (1983) and Dempster and Lerner (1950) for the threshold model;
+Gianola and Thompson (1983), Foulley, Im, Gianola and Hoeschele (1987), Tempelman (1998)
+and Dempster and Lerner (1950) for the threshold model;
 Kachman (1999) for survival. Mrode and Pocrnic (2023) is the textbook behind the
 whole sequence, chapter by chapter.

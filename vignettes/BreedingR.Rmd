@@ -73,13 +73,12 @@ The truth was `va = 0.4`, `ve = 0.6`. The distance in standard errors is what sa
 whether the recovery is within expectation; an estimator that hit 0.400 on the nose
 would be reading the answer, not estimating it.
 
-`theta` is a named vector, so both halves of the ratio are taken by name: the numerator
-is the animal variance and the denominator sums the `var()` entries only, never a
-covariance or the `rho` an AR(1) residual adds.
+`h2()` takes the numerator by name and divides by the phenotypic variance, covariances
+included (a direct-maternal covariance belongs there), never the `rho` of an AR(1)
+residual:
 
 ```{r}
-v <- fit$theta[grepl("^var[(]", names(fit$theta))]
-c(h2_estimated = round(v[["var(animal)"]] / sum(v), 3),
+c(h2_estimated = round(h2(fit), 3),
   z_va = round(abs(fit$theta[["var(animal)"]] - va) / fit$se[["var(animal)"]], 2))
 ```
 
@@ -89,6 +88,7 @@ c(h2_estimated = round(v[["var(animal)"]] / sum(v), 3),
 vg <- ebv(fit)
 acc <- accuracy(fit, ped)
 summary(acc)
+head(solutions(fit, ped), 5)     # the same numbers as one table, sorted by EBV
 plot(vg[order(vg)], acc[order(vg)], pch = ".", cex = 2,
      xlab = "EBV (sorted)", ylab = "accuracy")
 ```
@@ -98,15 +98,19 @@ plot(vg[order(vg)], acc[order(vg)], pch = ".", cex = 2,
 The layout unit is the covariance group: `group = "g"` puts two random terms into the
 same matrix, with the correlation estimated.
 
+These calls need columns the herd above does not have: the dam of each record, an age
+`idade`, a pen `baia`, and a 0/1/2 genotype matrix `M` with its ids `gids`. With them:
+
 ```{r, eval = FALSE}
 # direct-maternal
 model(peso ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), data, ped)
 
-# reaction norm on a Legendre basis
+# reaction norm on a Legendre basis; pe(id) needs repeated records per animal
 d2 <- cbind(data, legendre(data$idade, order = 1, limits = c(150, 190)))
 model(peso ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d2, ped)
 
-# indirect genetic effect (the associative model of Muir & Schinckel, 2002)
+# indirect genetic effect (the associative model of Muir & Schinckel, 2002);
+# h2(fit, n = ) and t2(fit, n = ) read it with the pen size
 model(peso ~ cg + animal(id, group = "g") + indirect(id, pen = "baia", group = "g"),
         data, ped)
 
@@ -117,7 +121,7 @@ model(peso ~ cg + animal(id), data, ped, genotypes = list(ids = gids, m = M))
 ## 6. The Bayesian half
 
 The same model, sampled instead of maximized. The posterior means should land near the
-REML estimates — and they carry the whole distribution with them.
+REML estimates, and they carry the whole distribution with them.
 
 ```{r}
 gb <- gibbs(peso ~ cg + animal(id), data, pedigree = ped,
@@ -131,9 +135,10 @@ data.frame(component = colnames(gb$samples),
 
 For genomic examples the package ships its own generator, `simulate_breeding()`, which
 gene-drops haplotypes so the genotypes are CONSISTENT with the pedigree it emits. The
-single step runs three ways: exact, `apy_core=` (a global core), or `vecchia_k=` (each
-animal conditions on its own k strongest previous relationships — Henderson's (1976)
-A^-1 is this recursion with the parents as the set). And `snp_blup()` drops G entirely: markers
+single step runs three ways: exact, `apy_core=` (a global core, or `"auto"` to size it by
+the eigenvalues of G), or `vecchia_k=` (each animal conditions on its own k strongest
+previous relationships; Henderson's (1976) A^-1 is this recursion with the parents as the
+set). And `snp_blup()` drops G entirely: markers
 enter as equations and the system is solved by conjugate gradients at given components.
 
 ```{r}

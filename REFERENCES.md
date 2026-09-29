@@ -11,6 +11,12 @@ Aguilar, I., Misztal, I., Johnson, D.L., Legarra, A., Tsuruta, S. & Lawlor, T.J.
 A unified approach to utilize phenotypic, full pedigree, and genomic information for
 genetic evaluation of Holstein final score. *Journal of Dairy Science* 93:743-752.
 
+Albert, J.H. & Chib, S. (1993). Bayesian analysis of binary and polychotomous response
+data. *Journal of the American Statistical Association* 88:669-679.
+
+Amestoy, P.R., Davis, T.A. & Duff, I.S. (1996). An approximate minimum degree ordering
+algorithm. *SIAM Journal on Matrix Analysis and Applications* 17:886-905.
+
 Anderson, E., Bai, Z., Bischof, C., Blackford, S., Demmel, J., Dongarra, J., Du Croz,
 J., Greenbaum, A., Hammarling, S., McKenney, A. & Sorensen, D. (1999). *LAPACK Users'
 Guide*, 3rd ed. SIAM, Philadelphia.
@@ -23,6 +29,10 @@ quantitative genetics of inheritance and response to selection. *Genetics* 175:2
 
 Bradley, R.A. & Terry, M.E. (1952). Rank analysis of incomplete block designs: I. The
 method of paired comparisons. *Biometrika* 39:324-345.
+
+Cantet, R.J.C. & Cappa, E.P. (2008). On identifiability of (co)variance components in
+animal models with competition effects. *Journal of Animal Breeding and Genetics*
+125:371-381.
 
 Christensen, O.F. & Lund, M.S. (2010). Genomic prediction when some animals are not
 genotyped. *Genetics Selection Evolution* 42:2.
@@ -47,6 +57,9 @@ Foulley, J.L., Gianola, D. & Thompson, R. (1983). Prediction of genetic merit fr
 on binary and quantitative variates with an application to calving difficulty, birth
 weight and pelvic opening. *Genetics Selection Evolution* 15:401-424.
 
+Foulley, J.L., Im, S., Gianola, D. & Hoeschele, I. (1987). Empirical Bayes estimation of
+parameters for n polygenic binary traits. *Genetics Selection Evolution* 19:197-224.
+
 Fragomeni, B.O., Lourenco, D.A.L., Tsuruta, S., Masuda, Y., Aguilar, I., Legarra, A.,
 Lawlor, T.J. & Misztal, I. (2015). Use of genomic recursions in single-step genomic best
 linear unbiased predictor with a large number of genotypes. *Journal of Dairy Science*
@@ -54,6 +67,9 @@ linear unbiased predictor with a large number of genotypes. *Journal of Dairy Sc
 
 Garcia-Cortes, L.A. & Toro, M.A. (2006). Multibreed analysis by splitting the breeding
 values. *Genetics Selection Evolution* 38:601-615.
+
+Gelman, A. (2006). Prior distributions for variance parameters in hierarchical models.
+*Bayesian Analysis* 1:515-534.
 
 Geman, S. & Geman, D. (1984). Stochastic relaxation, Gibbs distributions, and the
 Bayesian restoration of images. *IEEE Transactions on Pattern Analysis and Machine
@@ -88,6 +104,10 @@ model. *Biometrics* 31:423-447.
 
 Henderson, C.R. (1976). A simple method for computing the inverse of a numerator
 relationship matrix used in prediction of breeding values. *Biometrics* 32:69-83.
+
+Hobert, J.P. & Casella, G. (1996). The effect of improper priors on Gibbs sampling in
+hierarchical linear mixed models. *Journal of the American Statistical Association*
+91:1461-1473.
 
 Hoeschele, I. & VanRaden, P.M. (1991). Rapid inversion of dominance relationship
 matrices for noninbred populations by including sire by dam subclass effects. *Journal
@@ -166,9 +186,15 @@ Applied to Livestock Production*, Guelph, 18:443-446.
 Schafer, F., Katzfuss, M. & Owhadi, H. (2021). Sparse Cholesky factorization by
 Kullback-Leibler minimization. *SIAM Journal on Scientific Computing* 43:A2019-A2046.
 
+Sorensen, D.A., Andersen, S., Gianola, D. & Korsgaard, I. (1995). Bayesian inference in
+threshold models using Gibbs sampling. *Genetics Selection Evolution* 27:229-249.
+
 Takahashi, K., Fagan, J. & Chin, M.-S. (1973). Formation of a sparse bus impedance
 matrix and its application to short circuit study. *Proceedings of the 8th PICA
 Conference*, 63-69.
+
+Tempelman, R.J. (1998). Generalized linear mixed models in dairy cattle breeding.
+*Journal of Dairy Science* 81:1428-1444.
 
 Tukey, J.W. (1977). *Exploratory Data Analysis*. Addison-Wesley, Reading, MA.
 

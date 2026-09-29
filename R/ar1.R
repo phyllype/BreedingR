@@ -10,11 +10,14 @@
 #'
 #' @param formula as in [model()], including reaction norm (`rn(id, base = ...)`); a
 #'   `cbind(t1, t2)` left-hand side fits the multi-trait AR(1)/CAR(1) with the separable
-#'   residual `Gamma (x) R0` (full R0 between traits, one rho in time). Declared limit of
-#'   this version: with `cbind()`, records must be complete across traits (partial
-#'   missingness breaks the separability). Both combinations carry their own gates: V
-#'   form, finite differences on every parameter, and collapse (rho = 0 reproduces the
-#'   iid and the multi-trait paths identically)
+#'   residual `Gamma (x) R0` (full R0 between traits, one rho in time). A record with
+#'   some traits missing stays in the series: each missing cell is carried as its own
+#'   fixed effect (the `mv` device of ASReml), which keeps the residual separable and
+#'   gives exactly the marginal likelihood of the observed cells; a record with no
+#'   trait observed leaves. A fixed level with no observation of one trait is refused
+#'   by name. Gates: V form over the observed cells, a REML written from the raw data,
+#'   collapse at rho = 0 onto the multi-trait fitter, finite differences on every
+#'   parameter
 #' @param data data.frame
 #' @param pedigree data.frame animal, sire, dam
 #' @param subject column identifying the subject (typically the animal)

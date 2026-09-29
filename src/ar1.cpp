@@ -59,6 +59,69 @@ static GammaInv gamma_inv(const std::vector<double>& t, double rho) {
   return g;
 }
 
+// O SINAL de r' (antes em dgamma_densa, que saiu):
+// Gamma(dt) = s(dt) |rho|^dt, com s(dt) = -1 quando rho < 0 e fmod(dt, 2) != 0, que e a
+// convencao de gamma_densa. Derivando essa MESMA expressao, para rho < 0 vale
+// |rho| = -rho, logo dGamma/drho = -s(dt) dt |rho|^(dt-1). O sinal e portanto uma funcao de
+// fmod(dt, 2), e nao de fmod(dt - 1, 2): as duas coincidem para dt INTEIRO e divergem fora
+// dele. Com dt = 2.5 e rho < 0, a regra antiga devolvia o sinal trocado, e a
+// verossimilhanca e o gradiente passavam a descrever Gammas diferentes: o caminhante
+// descia uma superficie que nao estava medindo.
+// dGamma^-1/drho, TRIDIAGONAL como a propria Gamma^-1, e dlog|Gamma|/drho. Por intervalo
+// com r = Gamma(dt) e r' = dr/drho (a convencao de sinal acima), u = 1 - r^2:
+// a diagonal dos dois registros ganha 2 r r'/u^2, o elo entre eles -r'(1 + r^2)/u^2, e
+// log|Gamma| = soma log u da -2 r r'/u. Com isto o score e a AI do rho saem em O(m) por
+// sujeito; antes montavam Gamma e dGamma densas e Gamma^-1 dGamma Gamma^-1 num laco
+// quadruplo, O(m^4) por sujeito e por avaliacao.
+struct DGammaInv {
+  std::vector<double> ddiag, dsub;
+  double dlogdet = 0.0;
+};
+
+static DGammaInv dgamma_inv(const std::vector<double>& t, double rho) {
+  const std::size_t m = t.size();
+  DGammaInv g;
+  g.ddiag.assign(m, 0.0);
+  g.dsub.assign(m > 0 ? m - 1 : 0, 0.0);
+  for (std::size_t k = 0; k + 1 < m; k++) {
+    const double dt = t[k + 1] - t[k];
+    const double r = std::pow(std::fabs(rho), dt) *
+                     ((rho < 0.0 && std::fmod(dt, 2.0) != 0.0) ? -1.0 : 1.0);
+    double rp;
+    if (dt == 1.0) rp = 1.0;
+    else if (rho == 0.0) rp = 0.0;
+    else {
+      rp = dt * std::pow(std::fabs(rho), dt - 1.0);
+      if (rho < 0.0 && std::fmod(dt, 2.0) == 0.0) rp = -rp;
+    }
+    const double u = 1.0 - r * r;
+    g.ddiag[k]     += 2.0 * r * rp / (u * u);
+    g.ddiag[k + 1] += 2.0 * r * rp / (u * u);
+    g.dsub[k]       = -rp * (1.0 + r * r) / (u * u);
+    g.dlogdet      += -2.0 * r * rp / u;
+  }
+  return g;
+}
+
+// x com Gamma^-1 x = v (Gamma^-1 tridiagonal simetrica positiva-definida, Thomas): e o
+// produto Gamma v sem formar Gamma
+static std::vector<double> resolve_tri(const GammaInv& gi, const std::vector<double>& v) {
+  const std::size_t m = v.size();
+  std::vector<double> c(m, 0.0), d(m, 0.0), x(m, 0.0);
+  if (m == 0) return x;
+  double b0 = gi.diag[0];
+  c[0] = m > 1 ? gi.sub[0] / b0 : 0.0;
+  d[0] = v[0] / b0;
+  for (std::size_t i = 1; i < m; i++) {
+    const double den = gi.diag[i] - gi.sub[i - 1] * c[i - 1];
+    c[i] = (i + 1 < m) ? gi.sub[i] / den : 0.0;
+    d[i] = (v[i] - gi.sub[i - 1] * d[i - 1]) / den;
+  }
+  x[m - 1] = d[m - 1];
+  for (std::size_t i = m - 1; i-- > 0;) x[i] = d[i] - c[i] * x[i + 1];
+  return x;
+}
+
 // Gamma_s densa (para dGamma/drho e para a forma V de referencia).
 static Densa gamma_densa(const std::vector<double>& t, double rho) {
   const std::size_t m = t.size();
@@ -73,33 +136,6 @@ static Densa gamma_densa(const std::vector<double>& t, double rho) {
   return g;
 }
 
-// dGamma/drho, densa por sujeito.
-//
-// Gamma(dt) = s(dt) |rho|^dt, com s(dt) = -1 quando rho < 0 e fmod(dt, 2) != 0, que e a
-// convencao de gamma_densa logo acima. Derivando essa MESMA expressao, para rho < 0 vale
-// |rho| = -rho, logo dGamma/drho = -s(dt) dt |rho|^(dt-1). O sinal e portanto uma funcao de
-// fmod(dt, 2), e nao de fmod(dt - 1, 2): as duas coincidem para dt INTEIRO e divergem fora
-// dele. Com dt = 2.5 e rho < 0, a regra antiga devolvia o sinal trocado, e a
-// verossimilhanca e o gradiente passavam a descrever Gammas diferentes — o caminhante
-// descia uma superficie que nao estava medindo.
-static Densa dgamma_densa(const std::vector<double>& t, double rho) {
-  const std::size_t m = t.size();
-  Densa g(m, m);
-  for (std::size_t i = 0; i < m; i++)
-    for (std::size_t j = 0; j < m; j++) {
-      if (i == j) continue;
-      const double dt = std::fabs(t[i] - t[j]);
-      double v;
-      if (dt == 1.0) v = 1.0;
-      else if (rho == 0.0) v = 0.0;                      // dt > 1 em rho = 0
-      else {
-        v = dt * std::pow(std::fabs(rho), dt - 1.0);
-        if (rho < 0.0 && std::fmod(dt, 2.0) == 0.0) v = -v;
-      }
-      g.at(i, j) = v;
-    }
-  return g;
-}
 
 // R0 lida do fim de theta (t = 1: o proprio s2e).
 static Densa r0_de(const DesenhoAR& d, const std::vector<double>& theta) {
@@ -146,7 +182,7 @@ MontadoAR monta_mme_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
     M.offset_grupo[g] = acc;
     acc += d.largura(g);
   }
-  M.total = acc;
+  M.total = acc + d.n_mv;   // as colunas mv vem depois dos grupos, sem penalidade
 
   std::vector<std::uint32_t> ti, tj;
   std::vector<double> tv;
@@ -525,67 +561,59 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
       std::vector<double> ts;
       for (std::size_t r : regs) ts.push_back(d.tempo[r]);
       const std::size_t m = regs.size();
-      Densa G = gamma_densa(ts, M.rho);
-      Densa D = dgamma_densa(ts, M.rho);
-      Densa Gi = inv_pd(G);
       GammaInv gi = gamma_inv(ts, M.rho);
+      DGammaInv dq = dgamma_inv(ts, M.rho);
 
-      // tr(Gamma^-1 D_k): para vech(R0), D = Gamma -> traco = m; para rho, tr(Gi D)
-      double trGiD_rho = 0.0;
-      for (std::size_t i = 0; i < m; i++)
-        for (std::size_t j = 0; j < m; j++) trGiD_rho += Gi.at(i, j) * D.at(j, i);
+      // tr(R^-1 dR): para vech(R0), m tr(R0^-1 S); para rho, t dlog|Gamma|/drho
       for (std::size_t k = 0; k + 1 < n_res; k++) {
         double trRS = 0.0;
         for (std::size_t a = 0; a < t; a++)
           for (std::size_t b = 0; b < t; b++) trRS += M.r0inv.at(a, b) * S[k].at(b, a);
         tr_rinv[k] += static_cast<double>(m) * trRS;
       }
-      tr_rinv[n_res - 1] += trGiD_rho * static_cast<double>(t);
+      tr_rinv[n_res - 1] += dq.dlogdet * static_cast<double>(t);
 
-      // M2 no espaco dos registros: para vech(R0), Gi Gamma Gi = Gi (tridiagonal!);
-      // para rho, Gi D Gi denso
-      Densa M2r(m, m);
-      for (std::size_t i = 0; i < m; i++)
-        for (std::size_t j = 0; j < m; j++) {
-          double s = 0.0;
-          for (std::size_t a = 0; a < m; a++)
-            for (std::size_t b = 0; b < m; b++)
-              s += Gi.at(i, a) * D.at(a, b) * Gi.at(b, j);
-          M2r.at(i, j) = s;
-        }
+      // R^-1 dR R^-1 no espaco dos registros, TRIDIAGONAL nos dois casos: para vech(R0)
+      // e Gamma^-1 (com R0^-1 S R0^-1 nas caracteristicas), para rho e
+      // Gamma^-1 dGamma Gamma^-1 = -dGamma^-1/drho (com R0^-1)
       auto giat = [&](std::size_t i, std::size_t j) -> double {
         if (i == j) return gi.diag[i];
         if (i + 1 == j) return gi.sub[i];
         if (j + 1 == i) return gi.sub[j];
         return 0.0;
       };
+      auto dqat = [&](std::size_t i, std::size_t j) -> double {
+        if (i == j) return -dq.ddiag[i];
+        if (i + 1 == j) return -dq.dsub[i];
+        if (j + 1 == i) return -dq.dsub[j];
+        return 0.0;
+      };
 
-      // quad_k = soma_ij D_k[i,j] . re_i' S_k re_j   (D = Gamma para R0; dGamma para rho)
-      for (std::size_t i = 0; i < m; i++)
-        for (std::size_t j = 0; j < m; j++) {
-          const double dG = G.at(i, j);
-          const double dD = D.at(i, j);
-          if (dG == 0.0 && dD == 0.0) continue;
+      // quad_k = e' (W_k (x) RSR_k) e, com W_k tridiagonal: re'(D (x) S)re reescrito em e
+      for (std::size_t i = 0; i < m; i++) {
+        const std::size_t j0 = i > 0 ? i - 1 : 0, j1 = std::min(m - 1, i + 1);
+        for (std::size_t j = j0; j <= j1; j++) {
+          const double w_r0 = giat(i, j), w_rho = dqat(i, j);
           for (std::size_t k = 0; k < n_res; k++) {
-            const double dk = (k + 1 < n_res) ? dG : dD;
-            if (dk == 0.0) continue;
-            double s = 0.0;
-            const Densa& Sk = S[k];
+            const double wk = (k + 1 < n_res) ? w_r0 : w_rho;
+            if (wk == 0.0) continue;
+            double s2 = 0.0;
             for (std::size_t a = 0; a < t; a++)
               for (std::size_t b = 0; b < t; b++)
-                s += re.at(regs[i], a) * Sk.at(a, b) * re.at(regs[j], b);
-            quad[k] += dk * s;
+                s2 += ehat.at(regs[i], a) * RSR[k].at(a, b) * ehat.at(regs[j], b);
+            quad[k] += wk * s2;
           }
         }
+      }
 
-      // meio_k = tr(C^-1 W' [M2^rec_k (x) RSR_k] W), lido na inversa seletiva.
-      // Para vech(R0) o M2 de registros e o proprio Gamma^-1 (TRIDIAGONAL); para rho e
-      // denso. Um laco so, com o peso certo por parametro.
+      // meio_k = tr(C^-1 W' [W_k (x) RSR_k] W), lido na inversa seletiva so nos pares de
+      // registros VIZINHOS, que estao no padrao do fator
       for (std::size_t i = 0; i < m; i++) {
         const auto& wi = lw[regs[i]];
-        for (std::size_t j = 0; j < m; j++) {
-          const double m2_r0 = giat(i, j);          // tridiagonal
-          const double m2_rho = M2r.at(i, j);       // denso
+        const std::size_t j0 = i > 0 ? i - 1 : 0, j1 = std::min(m - 1, i + 1);
+        for (std::size_t j = j0; j <= j1; j++) {
+          const double m2_r0 = giat(i, j);
+          const double m2_rho = dqat(i, j);
           if (m2_r0 == 0.0 && m2_rho == 0.0) continue;
           const auto& wj = lw[regs[j]];
           for (const auto& ea : wi)
@@ -668,31 +696,33 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
       std::vector<double> ts;
       for (std::size_t r : regs) ts.push_back(d.tempo[r]);
       const std::size_t m = regs.size();
-      Densa G = gamma_densa(ts, M.rho);
-      Densa D = dgamma_densa(ts, M.rho);
+      // f_k = (D_k (x) S_k) R^-1 e sem Gamma densa: para vech(R0) (Gamma (x) S)R^-1 e =
+      // (I (x) S R0^-1) e, local ao registro; para rho (dGamma (x) R0) R^-1 e =
+      // -(Gamma dGamma^-1 (x) I) e, uma solucao tridiagonal por caracteristica
+      GammaInv gi = gamma_inv(ts, M.rho);
+      DGammaInv dq = dgamma_inv(ts, M.rho);
       for (std::size_t i = 0; i < m; i++) {
-        // acumula por caracteristica: soma_j D[i,j] re_j primeiro
-        std::vector<double> sG(t, 0.0), sD(t, 0.0);
-        for (std::size_t j = 0; j < m; j++) {
-          const double dg = G.at(i, j), dd = D.at(i, j);
-          for (std::size_t b = 0; b < t; b++) {
-            sG[b] += dg * re.at(regs[j], b);
-            sD[b] += dd * re.at(regs[j], b);
-          }
-        }
+        std::vector<double> sG(t, 0.0);
+        for (std::size_t b = 0; b < t; b++)
+          for (std::size_t c2 = 0; c2 < t; c2++) sG[b] += M.r0inv.at(b, c2) * ehat.at(regs[i], c2);
         std::size_t k = 0;
         for (std::size_t jb = 0; jb < t; jb++)
           for (std::size_t ib = jb; ib < t; ib++) {
-            // S = E_ab simetrica
             f[d.offset_s2e + k].at(regs[i], ib) += sG[jb];
             if (ib != jb) f[d.offset_s2e + k].at(regs[i], jb) += sG[ib];
             k++;
           }
-        for (std::size_t a = 0; a < t; a++) {
-          double s = 0.0;
-          for (std::size_t b = 0; b < t; b++) s += M.r0.at(a, b) * sD[b];
-          f[d.offset_rho].at(regs[i], a) = s;
+      }
+      for (std::size_t a = 0; a < t; a++) {
+        std::vector<double> v(m, 0.0);
+        for (std::size_t i = 0; i < m; i++) {
+          double s2 = dq.ddiag[i] * ehat.at(regs[i], a);
+          if (i > 0) s2 += dq.dsub[i - 1] * ehat.at(regs[i - 1], a);
+          if (i + 1 < m) s2 += dq.dsub[i] * ehat.at(regs[i + 1], a);
+          v[i] = s2;
         }
+        std::vector<double> x = resolve_tri(gi, v);
+        for (std::size_t i = 0; i < m; i++) f[d.offset_rho].at(regs[i], a) = -x[i];
       }
     }
 
@@ -868,24 +898,44 @@ double neg2logl_densa_V_ar1(const DesenhoAR& d, const std::vector<double>& theta
       }
   }
 
+  // SO AS CELULAS OBSERVADAS: a verossimilhanca marginal delas, pela submatriz de V (a rota
+  // do SAS), que nao passa pelas colunas mv da rota esparsa. Sem celula ausente e a V de
+  // sempre.
+  std::vector<std::size_t> cel;
+  for (std::size_t k = 0; k < Nr; k++)
+    for (std::size_t a = 0; a < t; a++)
+      if (d.obs.empty() || d.obs[linhas[k] * t + a]) cel.push_back(k * t + a);
+  if (cel.size() != N) {
+    Densa Vo(cel.size(), cel.size());
+    for (std::size_t i2 = 0; i2 < cel.size(); i2++)
+      for (std::size_t j2 = 0; j2 < cel.size(); j2++) Vo.at(i2, j2) = V.at(cel[i2], cel[j2]);
+    V = Vo;
+  }
   const double ldV = logdet_pd(V);
   if (std::isnan(ldV)) return std::nan("");
   Densa Vi = inv_pd(V);
 
   const std::size_t p = d.x.ncol * t;
-  Densa X(N, p);
-  std::vector<double> y(N);
+  Densa Xc(N, p);
+  std::vector<double> yc(N);
   for (std::size_t k = 0; k < Nr; k++)
     for (std::size_t a = 0; a < t; a++) {
-      y[k * t + a] = d.y.at(linhas[k], a);
+      yc[k * t + a] = d.y.at(linhas[k], a);
       for (std::size_t j = 0; j < d.x.ncol; j++)
-        X.at(k * t + a, j * t + a) = d.x.at(linhas[k], j);
+        Xc.at(k * t + a, j * t + a) = d.x.at(linhas[k], j);
     }
-  Densa XtVi(p, N);
+  const std::size_t No = cel.size();
+  Densa X(No, p);
+  std::vector<double> y(No);
+  for (std::size_t i2 = 0; i2 < No; i2++) {
+    y[i2] = yc[cel[i2]];
+    for (std::size_t a = 0; a < p; a++) X.at(i2, a) = Xc.at(cel[i2], a);
+  }
+  Densa XtVi(p, No);
   for (std::size_t a = 0; a < p; a++)
-    for (std::size_t r2 = 0; r2 < N; r2++) {
+    for (std::size_t r2 = 0; r2 < No; r2++) {
       double s = 0.0;
-      for (std::size_t k = 0; k < N; k++) s += X.at(k, a) * Vi.at(k, r2);
+      for (std::size_t k = 0; k < No; k++) s += X.at(k, a) * Vi.at(k, r2);
       XtVi.at(a, r2) = s;
     }
   Densa XtViX(p, p);
@@ -893,18 +943,18 @@ double neg2logl_densa_V_ar1(const DesenhoAR& d, const std::vector<double>& theta
   for (std::size_t a = 0; a < p; a++) {
     for (std::size_t b = 0; b < p; b++) {
       double s = 0.0;
-      for (std::size_t r2 = 0; r2 < N; r2++) s += XtVi.at(a, r2) * X.at(r2, b);
+      for (std::size_t r2 = 0; r2 < No; r2++) s += XtVi.at(a, r2) * X.at(r2, b);
       XtViX.at(a, b) = s;
     }
-    for (std::size_t r2 = 0; r2 < N; r2++) XtViy[a] += XtVi.at(a, r2) * y[r2];
+    for (std::size_t r2 = 0; r2 < No; r2++) XtViy[a] += XtVi.at(a, r2) * y[r2];
   }
   const double ldX = logdet_pd(XtViX);
   if (std::isnan(ldX)) return std::nan("");
   Densa Xi = inv_pd(XtViX);
   double yViy = 0.0;
-  for (std::size_t r2 = 0; r2 < N; r2++) {
+  for (std::size_t r2 = 0; r2 < No; r2++) {
     double s = 0.0;
-    for (std::size_t k = 0; k < N; k++) s += Vi.at(r2, k) * y[k];
+    for (std::size_t k = 0; k < No; k++) s += Vi.at(r2, k) * y[k];
     yViy += y[r2] * s;
   }
   double quad = 0.0;

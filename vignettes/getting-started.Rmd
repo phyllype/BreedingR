@@ -80,12 +80,10 @@ Read that from the top. The variance components come from AI-REML. `converged` s
 
 ## Reading the answer
 
-**Heritability** is the additive share of the total variance. Pick the components by name and never sum a covariance:
+**Heritability** is the additive share of the phenotypic variance. `h2()` picks the numerator by name and puts the covariances in the denominator, where a direct-maternal covariance belongs (Willham, 1972); it is the same number as the `share` of `var(animal)` in the printed fit:
 
 ```{r}
-v  <- fit$theta[grepl("^var[(]", names(fit$theta))]
-h2 <- v[["var(animal)"]] / sum(v)
-round(h2, 3)
+round(h2(fit), 3)
 ```
 
 The file was simulated with a heritability of 0.35, so this is the estimate landing near a truth you happen to know. On your own data you will not have that check, which is why the last section of this guide is about what to look at instead.
@@ -101,13 +99,10 @@ summary(acc)
 
 `ebv()` returns every animal in the pedigree, including those without records, because a parent gets an estimate from its offspring. Accuracy carries the `(1 + F)` of the pedigree in its denominator, which is the honest one: an inbred animal has less Mendelian variance left to predict.
 
-**Ranking**, which is usually the actual question:
+**Ranking**, which is usually the actual question. `solutions()` puts the breeding value, its standard error and its accuracy in one table, sorted:
 
 ```{r}
-melhores <- head(sort(e, decreasing = TRUE), 5)
-data.frame(animal = names(melhores),
-           ebv = round(unname(melhores), 3),
-           acc = round(unname(acc[names(melhores)]), 3))
+head(solutions(fit, ped), 5)
 ```
 
 Read the accuracy column before you act on the ranking. A high breeding value with low accuracy is a young animal with little information, not a proven one.
@@ -120,13 +115,7 @@ If an animal has more than one record, the additive term alone will absorb what 
 rep_dados <- rbind(dados, transform(dados, y = dados$y + rnorm(nrow(dados), 0, 0.5)))
 sem_pe <- model(y ~ cg + animal(id), rep_dados, ped)
 com_pe <- model(y ~ cg + animal(id) + pe(id), rep_dados, ped)
-
-frac <- function(f, termo) {
-  v <- f$theta[grepl("^var[(]", names(f$theta))]
-  unname(v[[paste0("var(", termo, ")")]] / sum(v))
-}
-c(sem_pe = round(frac(sem_pe, "animal"), 3),
-  com_pe = round(frac(com_pe, "animal"), 3))
+c(sem_pe = round(h2(sem_pe), 3), com_pe = round(h2(com_pe), 3))
 ```
 
 The first number is inflated and the second is the heritability. The difference between them is exactly the within-animal covariance that had nowhere else to go. Repeatability is the two shares added together.
@@ -135,7 +124,9 @@ The first number is inflated and the second is the heritability. The difference 
 
 `converged = FALSE` has a small number of causes, and the message says which.
 
-Hitting the iteration cap means it was still moving. Raise `maxiter=`. Starting values far from the answer make this common, and `start=` from a simpler fit usually fixes it.
+Hitting the iteration cap means it was still moving. Raise `maxiter=`. Starting values far from the answer make this common, and `start=` from a simpler fit usually fixes it. The exception is a cap reached with the Newton decrement already under tolerance: the fit then reports `converged = TRUE` and says the likelihood is flat along some direction, because more iterations would not choose a point on that ridge.
+
+A message that says SINGULAR names components the data cannot separate. Their standard errors are NaN and their values depend on `start=`; only combinations of them are estimable. A `pe(id)` on data with one record per animal is the common case: there it is the residual under another name.
 
 A component walking to zero means the data does not support that term. This is information, not a failure: a permanent environment that goes to zero is telling you the repeated records share nothing beyond the genetics.
 
@@ -156,16 +147,15 @@ g$report
 
 fit_g <- model(y ~ cg + animal(id), dados, ped,
                genotypes = list(ids = s$genotypes$ids, m = g$m))
-round(c(pedigree = h2,
-        single_step = unname(fit_g$theta[["var(animal)"]] / sum(
-          fit_g$theta[grepl("^var[(]", names(fit_g$theta))]))), 3)
+round(c(pedigree = h2(fit), single_step = h2(fit_g)), 3)
+fit_g$dense_block
 ```
 
-That is single-step: genotyped and non-genotyped animals in one evaluation, with the relationship matrix built from both sources.
+That is single-step: genotyped and non-genotyped animals in one evaluation, with the relationship matrix built from both sources. In this fit `accuracy()` divides a genotyped animal by its own diagonal of `G*` rather than `1 + F`. `fit_g$dense_block` says how large the dense corner of the factor is, the k of the k^3 each factorization pays: without `apy_core=` it is at least the number of genotyped animals.
 
 The two heritabilities are not the same number and there is no reason to expect them to be. The denominator changed. Pedigree relationships are expectations, while genomic ones are what actually happened at the markers, so full sibs stop being 0.5 apiece and spread around it. Which of the two you report depends on which base population you mean, and the honest habit is to say which one you fitted rather than to pick the number you like.
 
-If your genotyped set is large enough that the dense route hurts, `apy_core=` and `vecchia_k=` are the two approximations, and `snp_blup()` solves the marker equations without forming the genomic relationship matrix at all.
+If your genotyped set is large enough that the dense route hurts, `apy_core=` and `vecchia_k=` are the two approximations, and `snp_blup()` solves the marker equations without forming the genomic relationship matrix at all. `apy_core_select()` chooses the APY core by the eigenvalues of G that explain 98% of its trace (Pocrnic et al., 2016); choose it once and pass it to every fit.
 
 ## Before you believe any of it
 

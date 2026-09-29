@@ -38,12 +38,12 @@ An unmarked term is a fixed class effect. Marked terms:
 | `cov(x)` | fixed covariate |
 | `animal(id)` | additive genetic, over A (or H with `genotypes=`) |
 | `maternal(dam)` | maternal genetic |
-| `sire(sire)` | sire model |
+| `sire(sire)` | sire model; a pedigree of sires and MATERNAL GRANDSIRES must be declared with `sire_mgs(ped)` (or `pedigree(type = "sire_mgs")`), so the grandsire path weighs 1/4 |
 | `pe(id)` | permanent environment: what the repeated records of one subject share and is not additive genetic, so it carries the non-additive genetic effects as well (Mrode & Pocrnic, 2023, Eqn 5.1); repeatability is `share(animal) + share(pe)` in the printed table. Two `pe()` in one model must be NAMED (`nome=`): a component's name never depends on how many terms the model has |
 | `random(litter)` | iid random (litter, batch, pen, technician) |
 | `rn(id, base = c("phi0","phi1"))` | random regression / reaction norm |
-| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel 2002). The SIGN of its covariance with the direct effect separates heritable competition from heritable co-operation; the response follows the total breeding value `A_D + (n-1) A_S`, so reading it takes the pen size n too (Bijma et al. 2007). With unequal pens, `indirect(id, pen="pen", dilution=1)` is the mate mean: `dilution=d` scales every mate's entry to `(n_i - 1)^(-d)` (Bijma 2010), `d=0` is the plain sum and the default, and d is chosen by a small grid of fits compared on `-2logL`. `model()` only: the sibling fitters refuse `dilution > 0`, saying so |
-| `kernel(id, K = D)` | random term with a DECLARED covariance matrix (symmetric PD, rownames = levels; an all-zero row = a level with no contribution). Constructors: `dominance_matrix()`, `g_matrix()`, `g_dominance()`, `g_epistasis()` (ch. 13), `partial_a()` for the multibreed partial matrices (ch. 14). Two kernels need `nome=` |
+| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel 2002). The SIGN of its covariance with the direct effect separates heritable competition from heritable co-operation; the response follows the total breeding value `A_D + (n-1) A_S`, so reading it takes the pen size n too (Bijma et al. 2007): `h2(fit, n = , r = )` and `t2(fit, n = , r = )` take the size and the relationship between mates, and the `share` column is blank for this model. With unequal pens, `indirect(id, pen="pen", dilution=1)` is the mate mean: `dilution=d` scales every mate's entry to `(n_i - 1)^(-d)` (Bijma 2010), `d=0` is the plain sum and the default, and d is chosen by a small grid of fits compared on `-2logL`. `dilution > 0` is `model()` only (the siblings refuse it, saying so); `indirect()` with `d = 0` also fits in `model_mt()`, `model_ar1()` and `gibbs()`. Separability is the design's: pens of one size made of two full-sib families identify only the TBV variance and `va - 2cov + vs`, and the fit says SINGULAR |
+| `kernel(id, K = D)` | random term with a DECLARED covariance matrix (symmetric PD, rownames = levels; an all-zero row = a level with no contribution). Constructors: `dominance_matrix()`, `g_matrix()`, `g_dominance()`, `g_epistasis()`, `g_epistasis_ad()`, `g_epistasis_dd()`, `g_epistasis_order()` (ch. 13), `partial_a()` for the multibreed partial matrices (ch. 14). Two kernels need `nome=`. `kernel(id, K = D, fixed = v)` holds the component at v in `model()` and `gibbs()`; `model_mt()` and `model_ar1()` refuse it |
 | `group = "g"` | put two terms in one covariance matrix |
 
 ```r
@@ -57,12 +57,24 @@ model(y ~ cg + animal(id,group="g") + indirect(id,pen="pen",group="g"), d, ped)
 model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped)                         # multi-trait
 model_ar1(y ~ cg + animal(id) + pe(id), d, ped, subject="id", time="day") # AR(1)/CAR(1)
 gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)                        # Bayesian
+gibbs(y01 ~ cg + sire(sire), d, ped, family = "probit")   # binary, liability sampled
 model(y ~ pen + animal(id) + kernel(id, K = dominance_matrix(ped)), d, ped) # dominance
 model_threshold(score ~ herd + sex + sire(sire), d, ped, start = 1/19)    # categorical,
                                        # probit liability, components GIVEN via start=
+model_threshold(score ~ herd + sire(sire), d, ped, start = 0.1, estimate = TRUE)
+                                       # components ESTIMATED by Laplace + EM
 model_survival(lpl ~ herd + ysp + animal(cow), d, ped, censor = "code")   # Weibull
                                        # frailty; a censored record is a LOWER BOUND
+model_survival(stop ~ herd + dz + animal(cow), d, ped, censor = "q",
+               entry = "start", subject = "cow")  # time-dependent covariate dz
 ```
+
+`gibbs()` takes `prior = "jeffreys"` (the default), `"flat"`, `"uniform_sd"` or a proper
+`c(df =, scale =)`. `model_threshold(estimate = TRUE)` runs LOW for a binary trait with few
+records per level of the random effect (Tempelman 1998); `gibbs(family = "probit")` is the
+unbiased route there. In `model_survival()` each row is an elementary record
+`(entry, stop]` of one subject, with `censor = 1` only on the last piece of a subject that
+failed; never set a covariate that is only known later from the start of the life.
 
 The full maternal model carries ONE permanent environment, the DAM's, which holds her
 non-additive maternal genetics as well (Mrode & Pocrnic, 2023, Eqn 8.1). A second `pe()` on
@@ -73,10 +85,13 @@ optimizer drifts instead, it takes `var(animal)` and the direct-maternal covaria
 (the number the model exists for) with it, and stops at the zero boundary.
 
 With unequal pens the residual of the associative model is heterogeneous too,
-`var(e_i) = s2_ED + (n_i - 1) s2_ES`. `indirect_residual(formula, data, ped)` estimates
+`var(e_i) = s2_ED + (n_i - 1)^(1 - 2d) s2_ES`, with d taken from the `indirect()` term
+(`d = 0` gives `(n_i - 1) s2_ES`). `indirect_residual(formula, data, ped)` estimates
 the ratio `k = s2_ES / s2_ED` by profile REML, each candidate k is an exact weighted
 `model()` fit, and returns the whole profile, because with one record per animal the
 data pins the slope `s2_ES` much better than the ratio (Bijma 2010; see its help page).
+`associative_matrix(pen, id, dilution = d)` gives the same residual as an exact
+covariance, for a record-level `kernel()` term.
 
 ## Getting the data in, which is where real sessions start
 
@@ -99,6 +114,11 @@ Every animal cited as a parent needs its own row. A cited-but-absent parent is a
 ERROR and not a warning: turning it silently into an unknown would change the Mendelian
 variance of its offspring and the relationships of everything downstream.
 
+A pedigree whose third column is the MATERNAL GRANDSIRE (the usual file of a sire model)
+is declared with `sire_mgs(ped)` and then passed as `pedigree =` to any fitter. Read as a
+dam, the grandsire would weigh 1/2 instead of 1/4 and nothing downstream could tell; a
+third column named `mgs`, `mgsire` or `maternal_grandsire` is refused until declared.
+
 ## The order of a real evaluation
 
 ```r
@@ -118,11 +138,13 @@ ai <- a_inverse(ped)         # Henderson's (1976) sparse A^-1, as triplets
 fit <- model(y ~ cg + animal(id), q$data, ped, missing_code = -999)
 
 # 5. read it
-fit                          # components, SEs, and each variance's share
+fit                          # estimate, SE, share of the phenotypic variance, correlation
+h2(fit); solutions(fit, ped) # heritability; id/ebv/se/acc sorted by ebv
 ebv(fit); ebv(fit, "animal"); ebv(fit_mt, "animal", trait = "t2")
-accuracy(fit, ped)           # with the (1+F) of the PEDIGREE, genotyped or not
+accuracy(fit, ped)           # prior 1+F, or the diagonal of G* for a genotyped animal
 rg(fit_mt, "animal", "t1", "t2")
 h2_curve(fit_rn, limits = c(55, 80)); plot(fit_rn)
+t2(fit_ige, n = 4)           # indirect effects: TBV variance, T2, direct h2, with SEs
 
 # 6. decide
 selection_index(list(t1 = ebv(f1), t2 = ebv(f2)), weights = c(t1=2, t2=1))
@@ -137,18 +159,26 @@ Genotypes are an argument, not a different program. `genotypes = list(ids=, m=)`
 ```r
 model(y ~ cg + animal(id), d, ped, genotypes = gen)                  # exact G*
 model(y ~ cg + animal(id), d, ped, genotypes = gen, blend = 0.05)    # A22 weight
+core <- apy_core_select(gen)       # eigenvalues of G for 98% of its trace; choose ONCE
 model(y ~ cg + animal(id), d, ped, genotypes = gen, apy_core = core) # APY
+model(y ~ cg + animal(id), d, ped, genotypes = gen, apy_core = "auto") # same rule, inline
 model(y ~ cg + animal(id), d, ped, genotypes = gen, vecchia_k = 100) # per-animal sets
 snp_blup(y ~ cg + animal(id), d, ped, gen, theta = unname(fit$theta))# markers as equations
 snp_effects(fit, ped, gen)                                           # backsolve
+h_inverse(ped, gen)                  # the same H^-1 as triplets, for k_inverse=
 ```
 
 `H^-1 = A^-1 + [0 0; 0 G*^-1 - A22^-1]`, with `G*` brought to the scale of `A22` by an
 affine adjustment and then blended. `blend = 1` collapses `H^-1` to `A^-1` exactly:
-a useful sanity check. `apy_core` and `vecchia_k` are mutually exclusive; both cut
-arithmetic, not memory (`G*^-1` is dense on all paths). `snp_blup()` never builds G at
-all, but takes theta as GIVEN, estimate components once with `model()`, then solve at
-scale.
+a useful sanity check. `apy_core` and `vecchia_k` are mutually exclusive. The same
+`genotypes=`, `apy_core=` and `vecchia_k=` work in `model_mt()`, `model_ar1()`,
+`gibbs()`, `model_threshold()` and `model_survival()`; metafounders with genotypes are
+refused. `fit$dense_block` gives the k of the k^3/3 each factorization pays: without
+`apy_core=` it is at least the number of genotyped animals, with it at least the core
+size plus one. `apy_core_select()` warns when one factorization with its core costs more
+than half of the exact one, which on a small genotyped set is the usual answer.
+`snp_blup()` never builds G at all, but takes theta as GIVEN, estimate components once
+with `model()`, then solve at scale; it has no PEV, so `accuracy()` refuses it.
 
 ## Weights, and what they are not
 
@@ -194,12 +224,22 @@ wrong without warning:
 - a fit that did not converge says so in the print, the message and the object;
 - two terms that would carry the same name is an error, not a silent rename, otherwise
   adding a term would quietly change the name of one already there, and code indexing
-  components by name would break without a word.
+  components by name would break without a word;
+- a third pedigree column named like a grandsire column is an error until declared with
+  `sire_mgs()`;
+- `kernel(fixed =)` in `model_mt()` or `model_ar1()` is an error, not a variance quietly
+  estimated in place of the one given;
+- metafounders together with genotypes are refused: the genomic side does not know Gamma
+  yet, and the base would be corrected twice;
+- `h2()` on a reaction norm is an error that points at `h2_curve()`, and on a fit with
+  `indirect()` it asks for the group size `n =`.
 
 ## Diagnosing a fit
 
-`verbose = TRUE` (the default interactively) prints one line per iteration: the -2logL
-and the relative step, which IS the convergence criterion. Ctrl+C interrupts any fitter.
+`verbose = TRUE` (the default interactively) prints the dense block of the factor once
+(in `model()`), then per iteration the -2logL, the relative step and every component,
+grouped by term. The relative step is half of the convergence criterion; the Newton
+decrement is the other half. Ctrl+C interrupts any fitter.
 
 | symptom | usual cause |
 |---|---|
@@ -208,12 +248,17 @@ and the relative step, which IS the convergence criterion. Ctrl+C interrupts any
 | `theta INADMISSIBLE` | starting covariance not positive-definite, or a group with a correlation forced to +/-1 |
 | a correlation of exactly -1 | a compositional phenotype, see the contest model above |
 | fixed columns in `dropped_x` | linear dependence, including levels whose records are all missing |
+| `CG=5\|y1` in `dropped_x` | `model_mt()`: that level has no record for that trait, and the pair (column, trait) drops |
 | h2 = 1 with residual 0 | rows were replicated to fake weights; use `weights =` |
+| `SINGULAR` in the message | the data do not separate the named components: their SEs are NaN and the point depends on `start=`; `pe(id)` with one record per animal, or indirect effects in pens of one size built from full-sib families (pens of different sizes, or relatives across pens, separate them) |
+| converged at `maxiter` and the message says the likelihood is flat | a flat ridge (`model()`, `model_mt()`, `model_ar1()`): the decrement is under tolerance and more iterations will not choose a point; read the SEs and the correlation of the components |
+| empty `share` column | the fit has `indirect()` (use `h2(fit, n = )` or `t2()`), or it is `model_survival()` |
 
 Convergence is RELATIVE on the components: `sqrt(sum(dtheta^2)/sum(theta^2)) < tol`,
 default 1e-8. Coming from BLUPF90, mind the scale: those programs test the SQUARED
 quantity, so a card's `conv_crit` is this `tol` squared (their 1e-12 is `tol = 1e-6`
-here).
+here). `converged` also needs the Newton decrement `g' AI^-1 g` under 2e-4, reported as
+`newton_dec`, with components resting at a boundary excluded.
 
 ## Internals worth knowing
 
@@ -221,7 +266,8 @@ Exposed on purpose, mostly for tests but useful:
 `eval_internal()` / `_mt` / `_ar1` (the -2logL by two independent routes plus the
 analytic score), `sparse_chol()`, `sparse_solve()`, `selected_inverse()` (Takahashi et al. 1973,
 every PEV reads it), `a22_inverse()` (the Schur complement, NOT the 22 block of A^-1),
-`apy_inverse()`, `vecchia_inverse()`, `inv_pd()`, `br_version()`.
+`apy_inverse()`, `vecchia_inverse()`, `inv_pd()`, `br_version()`. Everything runs on one
+thread: there is no OpenMP, and the dense corner of the factor is scalar C++, not BLAS.
 
 Study tools: `simulate_breeding()` (gene-dropping, so genotypes are consistent with the
 pedigree it emits), `mc_study()` (repeated simulate-and-refit), `benchmark_fit()` (at
@@ -233,5 +279,5 @@ scale.
 ## Where the theory is
 
 The vignette *Theory and practice* walks an evaluation in order, explaining each matrix
-and algorithm beside the code that runs it. *Hands-on* works through 48 of the 54
+and algorithm beside the code that runs it. *Hands-on* works through 54 of the 64
 exported functions. `FUNCTIONS.md` maps the surface; the README carries the references.

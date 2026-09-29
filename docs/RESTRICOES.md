@@ -106,7 +106,7 @@ nomes, e sem o fator `s2e` do univariado, porque as MME dos espelhos ja sao abso
 
 | # | origem | restricao | estado |
 |---|---|---|---|
-| 6 | `src/ar1b.cpp:26`, `R/ar1.R:13` | AR(1) multicaracter exige registro COMPLETO entre tracos | ABERTO |
+| 6 | `src/ar1b.cpp:26`, `R/ar1.R:13` | AR(1) multicaracter exige registro COMPLETO entre tracos | **FEITO** 2026-09-29 (etapa 1): celulas ausentes pela rota mv do ASReml; etapa 2 (score do rho tridiagonal, O(m^4) -> O(m)) ABERTA |
 
 ## ssSNPBLUP
 
