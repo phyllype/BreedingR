@@ -95,3 +95,72 @@ test_that("recusas: pai desconhecido fora dos metafundadores, e genotipo faltant
   geno$m[1, 1] <- NA
   expect_error(estimate_gamma(z$ped, geno, c("MFA", "MFB"), verbose = FALSE), "impute")
 })
+
+# UM metafundador: maxima verossimilhanca (Legarra et al. 2024b)
+sim_uma <- function(seed = 8, m = 3000, nf = 60, gen = 4, por_gen = 150) {
+  set.seed(seed)
+  pA <- stats::rbeta(m, 1.5, 1.5)
+  hap <- function(k) matrix(stats::rbinom(k * m, 1, rep(pA, each = k)), k, m)
+  ids <- sprintf("F%03d", 1:nf)
+  h1 <- hap(nf); h2 <- hap(nf)
+  ped <- data.frame(id = ids, sire = "MF", dam = "MF", stringsAsFactors = FALSE)
+  pais <- seq_along(ids)
+  for (g in seq_len(gen)) {
+    novos <- sprintf("G%d_%03d", g, seq_len(por_gen))
+    s <- sample(pais, por_gen, TRUE); d <- sample(pais, por_gen, TRUE)
+    lado <- function(pai)
+      ifelse(matrix(stats::runif(por_gen * m) < 0.5, por_gen, m), h1[pai, ], h2[pai, ])
+    n1 <- lado(s); n2 <- lado(d)
+    ped <- rbind(ped, data.frame(id = novos, sire = ped$id[s], dam = ped$id[d],
+                                 stringsAsFactors = FALSE))
+    h1 <- rbind(h1, n1); h2 <- rbind(h2, n2)
+    pais <- (nrow(ped) - por_gen + 1):nrow(ped)
+  }
+  list(ped = ped, M = h1 + h2, verdade = sum((2 * pA - 1)^2) / (m / 2), ultimas = pais)
+}
+
+verossim_densa <- function(ped, geno, gm) {
+  ai <- a_inverse(ped, metafounders = "MF", gamma = gm)
+  Ai <- matrix(0, ai$n, ai$n, dimnames = list(ai$id, ai$id))
+  Ai[cbind(ai$i, ai$j)] <- ai$x; Ai[cbind(ai$j, ai$i)] <- ai$x
+  A22 <- solve(Ai)[geno$ids, geno$ids]
+  G <- tcrossprod(geno$m - 1) / (ncol(geno$m) / 2)
+  -(ncol(geno$m) / 2) * (as.numeric(determinant(A22)$modulus) + sum(solve(A22) * G))
+}
+
+test_that("com um metafundador A^gamma = (1 - gamma/2) A + gamma 11', e o ML e o da verossimilhanca densa", {
+  z <- sim_uma(m = 400, nf = 12, gen = 2, por_gen = 30)
+  geno <- list(ids = z$ped$id[z$ultimas], m = z$M[z$ultimas, ])
+  ai <- a_inverse(z$ped, metafounders = "MF", gamma = 0.4)
+  Ai <- matrix(0, ai$n, ai$n, dimnames = list(ai$id, ai$id))
+  Ai[cbind(ai$i, ai$j)] <- ai$x; Ai[cbind(ai$j, ai$i)] <- ai$x
+  classico <- z$ped; classico$sire[classico$sire == "MF"] <- "0"
+  classico$dam[classico$dam == "MF"] <- "0"
+  a0 <- a_inverse(classico)
+  A0i <- matrix(0, a0$n, a0$n, dimnames = list(a0$id, a0$id))
+  A0i[cbind(a0$i, a0$j)] <- a0$x; A0i[cbind(a0$j, a0$i)] <- a0$x
+  reais <- z$ped$id
+  expect_lt(max(abs(solve(Ai)[reais, reais] -
+                      ((1 - 0.4 / 2) * solve(A0i)[reais, reais] + 0.4))), 1e-10)
+  ml <- estimate_gamma(z$ped, geno, "MF", method = "ml", verbose = FALSE)
+  densa <- stats::optimize(function(g) verossim_densa(z$ped, geno, g), c(0.01, 1.99),
+                           maximum = TRUE, tol = 1e-8)$maximum
+  expect_equal(ml$gamma[1, 1], densa, tolerance = 1e-4)
+  # e o maximo da verossimilhanca densa, nao so um ponto estacionario proximo
+  gm <- ml$gamma[1, 1]
+  expect_gt(verossim_densa(z$ped, geno, gm), verossim_densa(z$ped, geno, gm - 0.01))
+  expect_gt(verossim_densa(z$ped, geno, gm), verossim_densa(z$ped, geno, gm + 0.01))
+  expect_true(is.finite(ml$se) && ml$se > 0)
+  expect_output(print(ml), "log-likelihood")
+})
+
+test_that("ML de um metafundador recupera o gamma da base; com dois ele recusa", {
+  z <- sim_uma()
+  geno <- list(ids = z$ped$id[z$ultimas], m = z$M[z$ultimas, ])
+  ml <- estimate_gamma(z$ped, geno, "MF", method = "ml", verbose = FALSE)
+  expect_lt(abs(ml$gamma[1, 1] - z$verdade), 0.03)
+  expect_false(ml$boundary)
+  zz <- sim_bases(m = 200, nf = 4, gen = 1, por_gen = 10)
+  expect_error(estimate_gamma(zz$ped, list(ids = zz$ids[zz$ultimas], m = zz$M[zz$ultimas, ]),
+                              c("MFA", "MFB"), method = "ml", verbose = FALSE), "ONE metafounder")
+})

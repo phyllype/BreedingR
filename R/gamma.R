@@ -17,6 +17,13 @@
 #
 # Nada n2 x n2 e formado: V sai de q solucoes esparsas no complemento de Schur da A^-1,
 # A22^-1 X = B_oo X - B_ou B_uu^-1 B_uo X, com B a A^-1 (de metafundadores ou classica).
+#
+# E um terceiro, so para UM metafundador: a maxima verossimilhanca de Legarra et al. (2024b).
+# Com um metafundador A^gamma = (1 - gamma/2) A + gamma 11' (Legarra et al. 2015), e a
+# verossimilhanca gaussiana dos marcadores, -(m/2) [log|A22^gamma| + tr((A22^gamma)^-1 G)],
+# sai pelo lema do determinante e por Sherman-Morrison em funcao de tres resumos de A22 e G:
+# s = 1'A22^-1 1, t = tr(A22^-1 G) e r = 1'A22^-1 G A22^-1 1. O maximo em [0, 2) e achado
+# direto nessa funcao de uma variavel (o artigo o escreve como a raiz de uma cubica).
 
 #' Estimate the relationships among metafounders from genotypes
 #'
@@ -31,7 +38,12 @@
 #' accurate whether the genotyped animals are spread over the generations or only in the
 #' last ones. `"gls"` estimates the base allele frequencies by generalized least squares
 #' (Garcia-Baccino et al. 2017) and builds Gamma from them; it is biased when the
-#' genotyped animals are far from the bases (diagonal up, off-diagonal down).
+#' genotyped animals are far from the bases (diagonal up, off-diagonal down). `"ml"`, for
+#' a single metafounder, is the maximum likelihood of Legarra et al. (2024b): with one
+#' metafounder `A^gamma = (1 - gamma/2) A + gamma 11'`, and the Gaussian likelihood of the
+#' markers is a function of `gamma` through three summaries of `A22` and `G`, maximized on
+#' `[0, 2)`. It reports the log-likelihood and a standard error from its curvature; the
+#' markers enter as independent, so linkage disequilibrium makes that error optimistic.
 #'
 #' Every unknown parent in `pedigree` must be one of the `metafounders` labels, the
 #' convention of gammaf90. Genotypes must be complete (impute beforehand: imputing by the
@@ -45,7 +57,7 @@
 #'   metafounder label
 #' @param genotypes list with `ids` and `m` (animals x markers, 0/1/2, no NA)
 #' @param metafounders the metafounder labels
-#' @param method `"pseudo_em"` (default) or `"gls"`
+#' @param method `"pseudo_em"` (default), `"gls"`, or `"ml"` (one metafounder only)
 #' @param start starting Gamma for `"pseudo_em"`; `0.01 I` by default, as gammaf90
 #' @param tol convergence on the largest absolute change of Gamma between iterations
 #' @param maxiter maximum pseudo-EM iterations
@@ -55,7 +67,8 @@
 #'   `iterations`, `trace` (largest change per iteration), `estimable`, `p_base` (markers
 #'   x metafounders), `eigenvalues`, `n_markers` and `var_scale`, `1 + mean(diag)/2 -
 #'   mean(Gamma)`, the factor that relates the genetic variance on the metafounder base to
-#'   the usual one (`1 - gamma/2` with one metafounder, Legarra et al. 2015)
+#'   the usual one (`1 - gamma/2` with one metafounder, Legarra et al. 2015); with
+#'   `"ml"` also `loglik`, `se` and `boundary`
 #' @references Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I.
 #'   (2015). Genetics 200:455-468.
 #'
@@ -67,7 +80,7 @@
 #'   Legarra, A. et al. (2024b). Genetics Selection Evolution 56:35.
 #' @export
 estimate_gamma <- function(pedigree, genotypes, metafounders,
-                           method = c("pseudo_em", "gls"), start = NULL, tol = 1e-8,
+                           method = c("pseudo_em", "gls", "ml"), start = NULL, tol = 1e-8,
                            maxiter = 1000L, bounded = TRUE, verbose = interactive()) {
   method <- match.arg(method)
   mf <- as.character(metafounders)
@@ -103,7 +116,33 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
   Q2 <- Q[o, , drop = FALSE]
   estimavel <- colSums(Q2) > 1e-10
 
-  if (method == "gls") {
+  if (method == "ml") {
+    if (q != 1L)
+      stop("method = 'ml' is the maximum likelihood for ONE metafounder; with more, use ",
+           "'pseudo_em'")
+    classico <- pedigree
+    for (k in 2:3) {
+      v <- as.character(classico[[k]]); v[v %in% mf] <- "0"; classico[[k]] <- v
+    }
+    Bi <- a22_inverse(classico, match(g$gid, pedigree(classico)$id))
+    w <- rowSums(Bi)                                   # A22^-1 1
+    ss <- sum(w)
+    tt <- sum(Bi * tcrossprod(Z)) / s                  # tr(A22^-1 G)
+    rr <- sum(crossprod(Z, w)^2) / s                   # 1'A22^-1 G A22^-1 1
+    nn <- nrow(Z)
+    ell <- function(gm) {
+      a <- 1 - gm / 2
+      -s * ((nn - 1) * log(a) + log(a + gm * ss) + tt / a - gm * rr / (a * (a + gm * ss)))
+    }
+    op <- stats::optimize(ell, c(0, 2 - 1e-8), maximum = TRUE, tol = 1e-10)
+    gm <- op$maximum
+    h <- 1e-4 * max(gm, 1e-2)
+    d2 <- if (gm > h && gm < 2 - h) (ell(gm + h) - 2 * op$objective + ell(gm - h)) / h^2 else NA
+    out <- list(gamma = matrix(gm, 1, 1), converged = TRUE, iterations = 0L,
+                trace = numeric(0), p_base = NULL, loglik = op$objective,
+                se = if (isTRUE(d2 < 0)) 1 / sqrt(-d2) else NA_real_,
+                boundary = gm < 1e-6 || gm > 2 - 1e-6)
+  } else if (method == "gls") {
     classico <- pedigree
     for (k in 2:3) {
       v <- as.character(classico[[k]]); v[v %in% mf] <- "0"; classico[[k]] <- v
@@ -162,6 +201,9 @@ print.br_gamma <- function(x, ...) {
   cat("Gamma by ", x$method, ", ", x$n_markers, " markers",
       if (x$method == "pseudo_em") paste0(", ", x$iterations, " iteration(s)",
                                           if (!x$converged) " (DID NOT CONVERGE)" else ""),
+      if (x$method == "ml") paste0(", log-likelihood ", format(x$loglik, digits = 8),
+                                   ", SE ", format(x$se, digits = 3),
+                                   if (isTRUE(x$boundary)) " (at the boundary)" else ""),
       "\n", sep = "")
   print(round(x$gamma, 4))
   if (any(!x$estimable))

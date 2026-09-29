@@ -98,6 +98,15 @@
   deviations and the accuracy from 0.282 to 0.294, the same with the estimated
   and the true Gamma.
 
+* `estimate_gamma(method = "ml")`: the maximum likelihood of Gamma for a single
+  metafounder (Legarra et al., 2024b). With one metafounder
+  `A^gamma = (1 - gamma/2) A + gamma 11'`, so the Gaussian likelihood of the
+  markers depends on gamma through three summaries of A22 and G, and is maximized
+  on `[0, 2)` directly; the result carries the log-likelihood and a standard
+  error from the curvature (optimistic, markers taken as independent). Gates:
+  the identity against A(gamma) built by the pedigree code, the estimate equal to
+  the maximum of the dense likelihood, and recovery of the base gamma.
+
 * `survival_split(subjects, changes)`: the elementary records `(entry, stop]` of
   `model_survival(entry =, subject =)` from one row per subject and one row per
   covariate change, the event only on the last piece. `predict(type =

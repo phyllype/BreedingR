@@ -107,7 +107,7 @@ Relationships and genomics are arguments, not different programs.
 |---|---|
 | pedigree A-inverse, inbreeding | `pedigree()`, `a_inverse()`, `a22_inverse()` |
 | a pedigree of sires and maternal grandsires | `sire_mgs()`, or `pedigree(type = "sire_mgs")` |
-| base populations that are not one pool | `metafounders=`, `gamma=` (full matrix, singular allowed) |
+| base populations that are not one pool | `metafounders=`, `gamma=` (full matrix, singular allowed); `estimate_gamma()` from the genotypes |
 | single step | `genotypes=`, and `apy_core=` or `vecchia_k=` when G is large |
 | the APY core, by the eigenvalues of G | `apy_core_select()`, or `apy_core = "auto"` |
 | the single-step H-inverse, as triplets | `h_inverse()` |

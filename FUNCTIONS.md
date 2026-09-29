@@ -109,7 +109,8 @@ takes `genotypes=` and has a PEV. Metafounders with genotypes build H(Gamma) in 
 scale m/2), A22 from A(Gamma), and the blend without the affine adjustment, which is the
 base correction Gamma already makes; every unknown parent must be a metafounder.
 `snp_blup()` centres its markers the same way and solves the same system. `estimate_gamma()`
-estimates Gamma from the genotypes. The dense tail of
+estimates Gamma from the genotypes: pseudo-EM (Legarra et al. 2024b, the default), GLS
+(Garcia-Baccino et al. 2017), or the maximum likelihood for a single metafounder. The dense tail of
 every sparse factorization, the inverse of that tail inside `selected_inverse()`, the dense
 inverses of order 256 or more (G* and A22 in the single step), the columns of A22, the
 product Z Z' of the G of VanRaden and the two APY products run on `br_threads()` threads

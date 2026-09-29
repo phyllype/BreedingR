@@ -8,7 +8,7 @@ estimate_gamma(
   pedigree,
   genotypes,
   metafounders,
-  method = c("pseudo_em", "gls"),
+  method = c("pseudo_em", "gls", "ml"),
   start = NULL,
   tol = 1e-08,
   maxiter = 1000L,
@@ -24,7 +24,7 @@ metafounder label}
 
 \item{metafounders}{the metafounder labels}
 
-\item{method}{\code{"pseudo_em"} (default) or \code{"gls"}}
+\item{method}{\code{"pseudo_em"} (default), \code{"gls"}, or \code{"ml"} (one metafounder only)}
 
 \item{start}{starting Gamma for \code{"pseudo_em"}; \verb{0.01 I} by default, as gammaf90}
 
@@ -40,7 +40,8 @@ metafounder label}
 object of class \code{br_gamma}: \code{gamma} (with dimnames), \code{method}, \code{converged},
 \code{iterations}, \code{trace} (largest change per iteration), \code{estimable}, \code{p_base} (markers
 x metafounders), \code{eigenvalues}, \code{n_markers} and \code{var_scale}, \code{1 + mean(diag)/2 - mean(Gamma)}, the factor that relates the genetic variance on the metafounder base to
-the usual one (\code{1 - gamma/2} with one metafounder, Legarra et al. 2015)
+the usual one (\code{1 - gamma/2} with one metafounder, Legarra et al. 2015); with
+\code{"ml"} also \code{loglik}, \code{se} and \code{boundary}
 }
 \description{
 Gamma is the relationship among the base populations the metafounders stand for
@@ -54,7 +55,12 @@ gammaf90. \code{"pseudo_em"} (default) iterates
 accurate whether the genotyped animals are spread over the generations or only in the
 last ones. \code{"gls"} estimates the base allele frequencies by generalized least squares
 (Garcia-Baccino et al. 2017) and builds Gamma from them; it is biased when the
-genotyped animals are far from the bases (diagonal up, off-diagonal down).
+genotyped animals are far from the bases (diagonal up, off-diagonal down). \code{"ml"}, for
+a single metafounder, is the maximum likelihood of Legarra et al. (2024b): with one
+metafounder \verb{A^gamma = (1 - gamma/2) A + gamma 11'}, and the Gaussian likelihood of the
+markers is a function of \code{gamma} through three summaries of \code{A22} and \code{G}, maximized on
+\verb{[0, 2)}. It reports the log-likelihood and a standard error from its curvature; the
+markers enter as independent, so linkage disequilibrium makes that error optimistic.
 }
 \details{
 Every unknown parent in \code{pedigree} must be one of the \code{metafounders} labels, the

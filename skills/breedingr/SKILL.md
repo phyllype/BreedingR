@@ -249,7 +249,9 @@ wrong without warning:
   (G05), A22 from A(Gamma), blend WITHOUT the affine adjustment (Garcia-Baccino et al.,
   2017), and every unknown parent must be a metafounder or it is an error; `snp_blup()`
   centres its markers at 0.5 and solves the same system. `estimate_gamma()` gives Gamma
-  from the genotypes;
+  from the genotypes (`method = "pseudo_em"`, the default; `"gls"`, biased when the
+  genotyped animals are far from the bases; `"ml"` for ONE metafounder, with log-likelihood
+  and SE);
 - `h2()` on a reaction norm is an error that points at `h2_curve()`, and on a fit with
   `indirect()` it asks for the group size `n =`.
 
