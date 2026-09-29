@@ -61,33 +61,36 @@ Densa vanraden_g(Densa& m, RelatorioG& rel) {
     if (usa[j]) denom += 2.0 * p[j] * (1.0 - p[j]);
   if (!(denom > 0.0)) throw Erro("2 sum p(1-p) is not positive: the markers do not vary");
 
-  // Z Z' por dsyrk em blocos de marcadores: o bloco Z_b (n x B, coluna-major) e montado
-  // ja centrado, e o dsyrk acumula C += Z_b Z_b'. Memoria extra: um bloco + o C
-  // coluna-major, nada proporcional a m.
+  // Z Z' em blocos de marcadores: o bloco Z_b (n x B, coluna-major) e montado ja
+  // centrado e acumulado em C += Z_b Z_b', pelos ladrilhos em paralelo (padrao) ou pelo
+  // dsyrk do BLAS do R (br_threads(lapack = TRUE)). Os dois escrevem o mesmo triangulo:
+  // o superior coluna-major, que e o inferior linha-major. Memoria extra: um bloco + o C,
+  // nada proporcional a m.
   const std::size_t B = 2048;
   const int ni = static_cast<int>(n);
   std::vector<double> c(n * n, 0.0), zbuf(n * B);
   double beta = 0.0;
   std::size_t bcol = 0;
-  for (std::size_t j = 0; j < nm; j++) {
-    if (!usa[j]) continue;
-    const double dp = 2.0 * p[j];
-    for (std::size_t i = 0; i < n; i++) zbuf[i + n * bcol] = m.at(i, j) - dp;
-    if (++bcol == B) {
+  auto acumula = [&]() {
+    if (denso_lapack()) {
       const int k = static_cast<int>(bcol);
       const double um = 1.0;
       F77_CALL(dsyrk)("U", "N", &ni, &k, &um, zbuf.data(), &ni, &beta, c.data(), &ni
                       FCONE FCONE);
       beta = 1.0;
-      bcol = 0;
+    } else {
+      produto_ladrilhos(zbuf.data(), n, zbuf.data(), n, bcol, n, n, c.data(), n, true,
+                        threads());
     }
+    bcol = 0;
+  };
+  for (std::size_t j = 0; j < nm; j++) {
+    if (!usa[j]) continue;
+    const double dp = 2.0 * p[j];
+    for (std::size_t i = 0; i < n; i++) zbuf[i + n * bcol] = m.at(i, j) - dp;
+    if (++bcol == B) acumula();
   }
-  if (bcol > 0) {
-    const int k = static_cast<int>(bcol);
-    const double um = 1.0;
-    F77_CALL(dsyrk)("U", "N", &ni, &k, &um, zbuf.data(), &ni, &beta, c.data(), &ni
-                    FCONE FCONE);
-  }
+  if (bcol > 0) acumula();
   Densa g(n, n);
   for (std::size_t i = 0; i < n; i++)
     for (std::size_t k2 = i; k2 < n; k2++) {
@@ -358,16 +361,21 @@ static Densa apy_de(const Densa& g, const std::vector<std::size_t>& nucleo) {
     return out;
   }
 
-  // Os dois produtos nc^2 nj vao ao BLAS do R. A Densa e linha-major, entao cada matriz
-  // guardada e, para o BLAS coluna-major, a sua transposta: P' (nj x nc) = Gcn' Gcc^-1.
+  // Os dois produtos nc^2 nj vao aos ladrilhos em paralelo, ou ao BLAS do R com
+  // br_threads(lapack = TRUE). P = Gcc^-1 Gcn: P(a, b) = soma_k Gcc^-1(k, a) Gcn(k, b), com
+  // as duas "por k" como estao guardadas (Gcc^-1 simetrica). Para o BLAS coluna-major cada
+  // Densa linha-major e a transposta: P' (nj x nc) = Gcn' Gcc^-1.
   Densa gcn(nc, nj), pmat(nc, nj);
   for (std::size_t a = 0; a < nc; a++)
     for (std::size_t b = 0; b < nj; b++) gcn.at(a, b) = g.at(nucleo[a], jovens[b]);
-  {
+  if (denso_lapack()) {
     const int m_ = static_cast<int>(nj), n_ = static_cast<int>(nc);
     const double um = 1.0, zero = 0.0;
     F77_CALL(dgemm)("N", "N", &m_, &n_, &n_, &um, gcn.dados.data(), &m_,
                     gcc_inv.dados.data(), &n_, &zero, pmat.dados.data(), &m_ FCONE FCONE);
+  } else {
+    produto_ladrilhos(gcc_inv.dados.data(), nc, gcn.dados.data(), nj, nc, nc, nj,
+                      pmat.dados.data(), nj, false, threads());
   }
 
   double diag_media = 0.0;
@@ -401,10 +409,19 @@ static Densa apy_de(const Densa& g, const std::vector<std::size_t>& nucleo) {
       for (std::size_t k = 0; k < nj; k++) pa[k] *= std::sqrt(minv[k]);
     }
     Densa cc = gcc_inv;
-    const int n_ = static_cast<int>(nc), k_ = static_cast<int>(nj);
-    const double um = 1.0;
-    F77_CALL(dsyrk)("U", "T", &n_, &k_, &um, ps.dados.data(), &k_, &um, cc.dados.data(), &n_
-                    FCONE FCONE);
+    if (denso_lapack()) {
+      const int n_ = static_cast<int>(nc), k_ = static_cast<int>(nj);
+      const double um = 1.0;
+      F77_CALL(dsyrk)("U", "T", &n_, &k_, &um, ps.dados.data(), &k_, &um, cc.dados.data(), &n_
+                      FCONE FCONE);
+    } else {
+      // os ladrilhos querem "por k" (k = jovem): Ps' linha-major, nj x nc
+      Densa pst(nj, nc);
+      for (std::size_t a = 0; a < nc; a++)
+        for (std::size_t k = 0; k < nj; k++) pst.at(k, a) = ps.at(a, k);
+      produto_ladrilhos(pst.dados.data(), nc, pst.dados.data(), nc, nj, nc, nc,
+                        cc.dados.data(), nc, true, threads());
+    }
     // "U" coluna-major = triangulo inferior da linha-major: espelha a partir dele
     for (std::size_t a = 0; a < nc; a++)
       for (std::size_t b = 0; b <= a; b++) {

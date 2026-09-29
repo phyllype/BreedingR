@@ -4,15 +4,16 @@
 #' genotyped animals, or any dense relationship matrix, end up after the ordering),
 #' factored in tiles of 64 x 64; the inverse of that tail inside the selected inverse; the
 #' columns of A22 (Colleau, 2002) and of the sparse Schur complement in `a22_inverse()`;
-#' and the dense inverses of order 256 or more, such as G* and A22 in the single step.
+#' the dense inverses of order 256 or more, such as G* and A22 in the single step; and
+#' the products Z Z' of the G of VanRaden and the two of APY.
 #' Each output number is written by one thread only and every sum runs in a fixed order,
 #' so the factor, the -2logL and the solutions are bit for bit the same with 1 thread or
 #' with 16: the number of threads changes the time and nothing else.
 #'
-#' The dense inverses use the package's own tiles by default, because the reference
-#' BLAS that R ships on Windows runs them on one thread. With an optimized multithreaded
-#' BLAS (OpenBLAS, MKL) `br_threads(lapack = TRUE)` hands them to R's LAPACK, which is
-#' faster there; the results then depend on that BLAS.
+#' The dense inverses and products use the package's own tiles by default, because the
+#' reference BLAS that R ships on Windows runs them on one thread. With an optimized
+#' multithreaded BLAS (OpenBLAS, MKL) `br_threads(lapack = TRUE)` hands them to R's
+#' BLAS and LAPACK, which is faster there; the results then depend on that BLAS.
 #'
 #' The default is 1 thread. Set it for the session with `br_threads(8)`, or before the
 #' package loads with `options(BreedingR.threads = 8)` or the environment variable
@@ -20,8 +21,9 @@
 #' environment. A build without OpenMP accepts the call and runs on 1 thread.
 #'
 #' @param n number of threads; `NULL` leaves it as it is.
-#' @param lapack `TRUE` sends the dense inverses of order 256 or more to R's LAPACK,
-#'   `FALSE` (the default) to the package's tiles; `NULL` leaves it as it is.
+#' @param lapack `TRUE` sends the dense inverses of order 256 or more and the products of
+#'   the G and of APY to R's BLAS/LAPACK, `FALSE` (the default) to the package's tiles;
+#'   `NULL` leaves it as it is.
 #' @return invisibly when setting, visibly when querying: a list with `threads` (the
 #'   current setting), `available` (processors the system reports), `openmp` (whether
 #'   the package was built with OpenMP) and `lapack` (the route of the dense inverses).

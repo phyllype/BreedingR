@@ -99,6 +99,12 @@ void define_denso_lapack(bool v);
 // Cholesky em ladrilhos de uma matriz densa guardada como triangulo inferior compactado por
 // coluna (coluna j = linhas j..n-1, em sequencia). false se nao for positiva-definida.
 bool cholesky_empacotada(std::vector<double>& v, std::size_t n, int nth);
+// c[i*ldc + j] += soma_k x[k*ldx + i] y[k*ldy + j], i < m, j < n (x e y "por k": para cada k
+// os i sao contiguos). simetrico (x == y, m == n): so o triangulo j <= i e atualizado, e
+// quem chama espelha. Ladrilhos 64 x 64 com dono unico e soma em ordem fixa.
+void produto_ladrilhos(const double* x, std::size_t ldx, const double* y, std::size_t ldy,
+                       std::size_t K, std::size_t m, std::size_t n, double* c,
+                       std::size_t ldc, bool simetrico, int nth);
 
 // Cache da fatoracao simbolica para os lacos de ajuste: o PADRAO de C nao depende de
 // theta (a montagem empurra sempre os mesmos slots, zeros explicitos inclusive), entao

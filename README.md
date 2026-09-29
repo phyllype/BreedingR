@@ -35,7 +35,8 @@ dense-row rule of AMD does (Amestoy, Davis and Duff, 1996). In `model()`, `model
 reused; `model_threshold()` and `model_survival()`, written in R, order and factor again
 at every step. The dense tail of the factor, where the genotyped animals end up, is
 factored in tiles on `br_threads()` threads (OpenMP, default 1), and so are its inverse
-inside the selected inverse and the dense inverses of G* and A22 in the single step; each
+inside the selected inverse, the dense inverses of G* and A22 and the product Z Z' of the
+G in the single step; each
 number has one owner thread and a fixed summation order, so the result is the same bit for
 bit with any number of threads. The variance components come from
 AI-REML (Gilmour, Thompson and Cullis, 1995): analytic score, average information, EM

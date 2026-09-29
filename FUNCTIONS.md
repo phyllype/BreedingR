@@ -104,11 +104,11 @@ takes `genotypes=` and has a PEV. Metafounders combined with genotypes are refus
 `model()`, `model_mt()`, `model_ar1()`, `gibbs()` and `h_inverse()`, because the genomic
 side does not yet know Gamma; `estimate_gamma()` estimates Gamma itself. The dense tail of
 every sparse factorization, the inverse of that tail inside `selected_inverse()`, the dense
-inverses of order 256 or more (G* and A22 in the single step) and the columns of A22 run on
-`br_threads()` threads (OpenMP, tiles of 64 x 64, default 1); each number is written by one
-thread in a fixed summation order, so any thread count gives the same bits. The single step
-takes A22 by Colleau's algorithm, O(n) per genotyped column. The G of VanRaden and the two
-APY products go to R's BLAS; the rest of the engine runs on one thread.
+inverses of order 256 or more (G* and A22 in the single step), the columns of A22, the
+product Z Z' of the G of VanRaden and the two APY products run on `br_threads()` threads
+(OpenMP, tiles of 64 x 64, default 1); each number is written by one thread in a fixed
+summation order, so any thread count gives the same bits. The single step takes A22 by
+Colleau's algorithm, O(n) per genotyped column. The rest of the engine runs on one thread.
 
 ## Sibling fitters, a function of their own only when the mathematics changes
 

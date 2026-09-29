@@ -252,6 +252,83 @@ bool fatora_cauda(Cauda& c, int nth) {
 }
 }  // namespace
 
+// O produto X'Y dos kernels densos (a G de VanRaden, os dois produtos da APY), no lugar do
+// BLAS de referencia que o R traz no Windows, que roda numa thread. Por bloco de KB valores
+// de k: (1) empacota os paineis de 64 linhas de X e de Y, cada um contiguo [k][64], em
+// paralelo por painel; (2) cada ladrilho 64 x 64 de C e de UMA thread, com miolo 4 x 4 em
+// registradores (8 leituras e 32 flops por passo de k), e so ao fim do bloco o acumulador
+// sai para C. A soma de cada entrada anda em k crescente, bloco a bloco: a mesma com
+// qualquer numero de threads.
+void produto_ladrilhos(const double* x, std::size_t ldx, const double* y, std::size_t ldy,
+                       std::size_t K, std::size_t m, std::size_t n, double* c,
+                       std::size_t ldc, bool simetrico, int nth) {
+  const std::size_t L = LADRILHO, KB = 256;
+  const std::size_t mt = (m + L - 1) / L, nt = (n + L - 1) / L;
+  if (mt == 0 || nt == 0 || K == 0) return;
+  std::vector<double> px(mt * KB * L), py(simetrico ? 0 : nt * KB * L);
+  const long nlad = simetrico ? static_cast<long>(mt * (mt + 1) / 2)
+                              : static_cast<long>(mt * nt);
+  for (std::size_t k0 = 0; k0 < K; k0 += KB) {
+    const std::size_t kw = std::min(KB, K - k0);
+    auto empacota = [&](const double* src, std::size_t ld, std::size_t lim, std::size_t t,
+                        std::vector<double>& dst) {
+      double* d = &dst[t * KB * L];
+      const std::size_t i0 = t * L, w = std::min(L, lim - i0);
+      for (std::size_t kk = 0; kk < kw; kk++) {
+        const double* s = src + (k0 + kk) * ld + i0;
+        double* dk = d + kk * L;
+        std::size_t r = 0;
+        for (; r < w; r++) dk[r] = s[r];
+        for (; r < L; r++) dk[r] = 0.0;
+      }
+    };
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) num_threads(nth)
+#endif
+    for (long t = 0; t < static_cast<long>(mt + (simetrico ? 0 : nt)); t++) {
+      const std::size_t tt = static_cast<std::size_t>(t);
+      if (tt < mt) empacota(x, ldx, m, tt, px);
+      else empacota(y, ldy, n, tt - mt, py);
+    }
+    const std::vector<double>& qy = simetrico ? px : py;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 1) num_threads(nth)
+#endif
+    for (long t = 0; t < nlad; t++) {
+      std::size_t it, jt;
+      if (simetrico) {
+        it = static_cast<std::size_t>((std::sqrt(8.0 * static_cast<double>(t) + 1.0) - 1.0) / 2.0);
+        while (it * (it + 1) / 2 > static_cast<std::size_t>(t)) it--;
+        while ((it + 1) * (it + 2) / 2 <= static_cast<std::size_t>(t)) it++;
+        jt = static_cast<std::size_t>(t) - it * (it + 1) / 2;
+      } else {
+        it = static_cast<std::size_t>(t) / nt;
+        jt = static_cast<std::size_t>(t) % nt;
+      }
+      const double* pa = &px[it * KB * L];
+      const double* pb = &qy[jt * KB * L];
+      const std::size_t i0 = it * L, j0 = jt * L;
+      const std::size_t iw = std::min(L, m - i0), jw = std::min(L, n - j0);
+      for (std::size_t r0 = 0; r0 < iw; r0 += 4)
+        for (std::size_t s0 = 0; s0 < jw; s0 += 4) {
+          if (simetrico && j0 + s0 > i0 + r0 + 3) continue;   // bloco todo acima da diagonal
+          double acc[4][4] = {{0.0}};
+          const double* a = pa + r0;
+          const double* b = pb + s0;
+          for (std::size_t kk = 0; kk < kw; kk++, a += L, b += L)
+            for (std::size_t r = 0; r < 4; r++)
+              for (std::size_t s2 = 0; s2 < 4; s2++) acc[r][s2] += a[r] * b[s2];
+          for (std::size_t r = 0; r < 4 && r0 + r < iw; r++)
+            for (std::size_t s2 = 0; s2 < 4 && s0 + s2 < jw; s2++) {
+              const std::size_t i = i0 + r0 + r, j = j0 + s0 + s2;
+              if (simetrico && j > i) continue;
+              c[i * ldc + j] += acc[r][s2];
+            }
+        }
+    }
+  }
+}
+
 bool cholesky_empacotada(std::vector<double>& v, std::size_t n, int nth) {
   std::vector<std::size_t> colptr(n + 1, 0);
   for (std::size_t j = 0; j < n; j++) colptr[j + 1] = colptr[j] + (n - j);

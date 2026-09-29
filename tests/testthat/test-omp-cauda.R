@@ -8,7 +8,9 @@
 # mesmo -2logL e as mesmas solucoes com 1 e com 3 threads; (6) a inversa seletiva da cauda
 # densa (a inversa do bloco a partir do fator, em ladrilhos) e exata e a mesma com 1 e 4;
 # (7) o pedido de threads nao passa do OMP_THREAD_LIMIT do ambiente; (8) a inversa densa
-# grande em ladrilhos e exata, igual com 1 e 4 threads, e bate com a rota do LAPACK.
+# grande em ladrilhos e exata, igual com 1 e 4 threads, e bate com a rota do LAPACK; (9) o
+# Z Z' da G em ladrilhos (varios blocos de marcadores) e os produtos da APY: H^-1 exata
+# contra a formula, identica entre 1 e 4 threads, e a rota do BLAS a 1e-9.
 
 matriz_com_cauda <- function(n_esp, T, seed = 7, pd = TRUE) {
   set.seed(seed)
@@ -143,4 +145,31 @@ test_that("a inversa densa em ladrilhos: exata, igual com 1 e 4 threads, e a rot
   S[5, 5] <- -1
   br_threads(lapack = FALSE)
   expect_error(inv_pd(S), "positive-definite")
+})
+
+test_that("o Z Z' em ladrilhos (G de VanRaden, varios blocos de marcadores) e a APY", {
+  set.seed(23)
+  n <- 700
+  id <- sprintf("a%03d", seq_len(n)); pa <- ma <- rep("0", n)
+  for (i in 31:n) { pa[i] <- id[sample(1:(i - 1), 1)]; ma[i] <- id[sample(1:(i - 1), 1)] }
+  ped <- data.frame(id = id, sire = pa, dam = ma, stringsAsFactors = FALSE)
+  gid <- id[sort(sample(200:n, 301))]                # 301: nao e multiplo de 64 nem de 4
+  m <- sapply(1:4500, function(j) stats::rbinom(301, 2, stats::runif(1, 0.05, 0.95)))
+  geno <- list(ids = gid, m = m)                     # 4500 marcadores: tres blocos de 2048
+  antes <- br_threads()
+  on.exit(br_threads(antes$threads, lapack = antes$lapack))
+  br_threads(1, lapack = FALSE)
+  h1 <- h_inverse(ped, geno)
+  a1 <- h_inverse(ped, geno, apy_core = gid[seq(1, 301, by = 3)])
+  br_threads(4)
+  h4 <- h_inverse(ped, geno)
+  a4 <- h_inverse(ped, geno, apy_core = gid[seq(1, 301, by = 3)])
+  expect_identical(h1$x, h4$x)
+  expect_identical(a1$x, a4$x)
+  H <- denso_trip(h1)
+  ref <- hinv_formula(ped, geno)
+  expect_lt(max(abs(H - ref[rownames(H), colnames(H)])), 1e-8)
+  br_threads(lapack = TRUE)
+  expect_lt(max(abs(h_inverse(ped, geno)$x - h1$x)), 1e-9)
+  expect_lt(max(abs(h_inverse(ped, geno, apy_core = gid[seq(1, 301, by = 3)])$x - a1$x)), 1e-9)
 })

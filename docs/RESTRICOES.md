@@ -106,7 +106,7 @@ nomes, e sem o fator `s2e` do univariado, porque as MME dos espelhos ja sao abso
 
 | # | origem | restricao | estado |
 |---|---|---|---|
-| 6 | `src/ar1b.cpp:26`, `R/ar1.R:13` | AR(1) multicaracter exige registro COMPLETO entre tracos | **FEITO** 2026-09-29 (etapa 1): celulas ausentes pela rota mv do ASReml; etapa 2 (score do rho tridiagonal, O(m^4) -> O(m)) ABERTA |
+| 6 | `src/ar1b.cpp:26`, `R/ar1.R:13` | AR(1) multicaracter exige registro COMPLETO entre tracos | **FEITO** 2026-09-29: celulas ausentes pela rota mv do ASReml (etapa 1) e score/AI do rho pela derivada tridiagonal de Gamma^-1, O(m^4) -> O(m) (etapa 2, b7cbb9d) |
 
 ## ssSNPBLUP
 
@@ -126,15 +126,15 @@ nomes, e sem o fator `s2e` do univariado, porque as MME dos espelhos ja sao abso
 
 | # | origem | restricao | estado |
 |---|---|---|---|
-| 11 | `R/threshold.R:40` | componentes DADAS, nao estimadas: `start=` obrigatorio | ABERTO |
-| 12 | `R/threshold.R:96`, `R/model.R:584` | `predict()` e PEV indisponiveis no modo conjunto | ABERTO |
-| 13 | `R/survival.R:45` | sem covariaveis dependentes do tempo | ABERTO |
+| 11 | `R/threshold.R:40` | componentes DADAS, nao estimadas: `start=` obrigatorio | **FEITO** 2026-09-29: `estimate = TRUE`, Laplace + EM de Foulley et al. (1987), -2logL de Laplace e EP pela Hessiana (test-limiar-estimacao.R) |
+| 12 | `R/threshold.R:96`, `R/model.R:584` | `predict()` e PEV indisponiveis no modo conjunto | **FEITO** 2026-09-29: PEV de u1 e u2 e `predict()` da Eqn 15.25 de Mrode (test-mrode-cap15.R) |
+| 13 | `R/survival.R:45` | sem covariaveis dependentes do tempo | **FEITO** 2026-09-29: `entry =` e `subject =`, registros elementares com os intervalos validados (test-sobrevivencia-tdc.R) |
 
 ## Metafundadores
 
 | # | origem | restricao | estado |
 |---|---|---|---|
-| 14 | `src/pedigree.cpp` | estimar Gamma dos genotipos; inversa generalizada para Gamma singular | **PARCIAL** 2026-09-04: pseudo-inversa FEITA; estimar Gamma segue aberto |
+| 14 | `src/pedigree.cpp` | estimar Gamma dos genotipos; inversa generalizada para Gamma singular | **FEITO**: pseudo-inversa 2026-09-04; `estimate_gamma()` 2026-09-29, pseudo-EM de Legarra et al. (2024) e GLS de Garcia-Baccino et al. (2017) (test-estimate-gamma.R) |
 | 15 | `src/genomica.cpp`, `src/sssnp.cpp` | nao chegam ao lado genomico (DEFEITO, o unico nao declarado) | **RECUSADO** (erro declarado) 2026-09-04 |
 
 ## Restantes
@@ -182,6 +182,7 @@ em alguns milhares de registros e meia hora; 15 a 20 sao horas; 25 a 30 roda e n
 usavel. Nos tracos o crescimento e pior que quadratico porque a AI e `ntheta x ntheta` com
 `ntheta = t(t+1)/2` por grupo e e invertida a cada iteracao.
 
-**ABERTO, e o que mais incomoda:** nos REGISTROS o custo medido cresce ~n^2,2, quando um
-modelo misto esparso devia crescer bem melhor. Investigar se o caminho multicaracter faz
-algo denso em n. Isto NAO estava registrado em lugar nenhum.
+**RESOLVIDO 2026-09-28:** nos REGISTROS o custo medido crescia ~n^2,2. Era o grau minimo
+com hubs (touro, equacao de CG) recalculando o grau a cada filho eliminado, 98% de uma
+avaliacao; com grau preguicoso para hub, 16 mil animais 2,59 -> 0,28 s, mesmo enchimento e
+mesmo -2logL.

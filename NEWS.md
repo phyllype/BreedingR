@@ -92,8 +92,8 @@
   with 1 and 3 threads and requires identical -2logL and solutions, and the
   suite passes with 1 and 4. The default is 1 thread; `options(BreedingR.threads
   = )` or `BREEDINGR_THREADS` set it at load, and `OMP_THREAD_LIMIT` caps it.
-  `br_threads(lapack = TRUE)` hands the dense inverses to R's LAPACK, for an
-  optimized multithreaded BLAS.
+  `br_threads(lapack = TRUE)` hands the dense inverses and products to R's
+  BLAS and LAPACK, for an optimized multithreaded BLAS.
 
 ## Fixed
 
@@ -187,8 +187,12 @@
 * In `model()`, `model_mt()`, `model_ar1()` and `gibbs()` the symmetric
   permutation of the mixed model equations is a stored map of values from the
   second evaluation on, instead of a new sort by triplets at each one.
-* APY: the two products of order nc^2 nj go to R's BLAS (`dgemm`, `dsyrk`), and
-  the core animals are found by hash instead of a linear search per animal.
+* The product Z Z' of the G of VanRaden and the two APY products of order
+  nc^2 nj run on the same tiles, in parallel (R's BLAS with
+  `br_threads(lapack = TRUE)`); the APY core animals are found by hash instead of
+  a linear search per animal. `h_inverse()` with 3000 genotyped of 12 000 and
+  20 000 markers, 66.8 s with the reference BLAS to 10.3 s on 8 threads; with 600
+  markers, exact 3.3 to 2.6 s and APY 4.2 to 2.1 s.
 * The score and the average information of `rho` in `model_ar1()` use the
   tridiagonal derivative of Gamma^-1 instead of the dense Gamma and
   Gamma^-1 dGamma Gamma^-1, which cost O(m^4) per subject of m records and per

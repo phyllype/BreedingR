@@ -268,11 +268,12 @@ analytic score), `sparse_chol()`, `sparse_solve()`, `selected_inverse()` (Takaha
 every PEV reads it), `a22_inverse()` (the Schur complement, NOT the 22 block of A^-1),
 `apy_inverse()`, `vecchia_inverse()`, `inv_pd()`, `br_version()`. `br_threads(n)` sets the
 OpenMP threads of the dense tail of every factorization, of its inverse in
-`selected_inverse()`, of the dense inverses of order >= 256 (G*, A22) and of the A22
-columns (default 1, capped by `OMP_THREAD_LIMIT`); results are bit for bit the same for
-any `n`, so it changes time only. `br_threads(lapack = TRUE)` sends the dense inverses to
-R's LAPACK, for an optimized BLAS. The single step builds A22 by Colleau (2002). The G of
-VanRaden and the APY products use R's BLAS; the rest of the engine is single-threaded.
+`selected_inverse()`, of the dense inverses of order >= 256 (G*, A22), of the A22
+columns, of Z Z' in the G of VanRaden and of the APY products (default 1, capped by
+`OMP_THREAD_LIMIT`); results are bit for bit the same for any `n`, so it changes time
+only. `br_threads(lapack = TRUE)` sends the dense inverses and products to R's
+BLAS/LAPACK, for an optimized BLAS. The single step builds A22 by Colleau (2002); the rest
+of the engine is single-threaded.
 
 Study tools: `simulate_breeding()` (gene-dropping, so genotypes are consistent with the
 pedigree it emits), `mc_study()` (repeated simulate-and-refit), `benchmark_fit()` (at
