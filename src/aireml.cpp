@@ -115,13 +115,12 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
   CacheSimbolica* cs = cache ? cache : &local;
   if (!cs->pronto) {
     cs->perm = grau_minimo(M.c);
-    Csc pc0 = permuta_sim(M.c, cs->perm);
-    cs->sb = simbolica(pc0);
+    cs->sb = simbolica(permuta_sim(M.c, cs->perm));
     cs->pronto = true;
   }
   const std::vector<std::size_t>& perm = cs->perm;
   const Simbolica& sb = cs->sb;
-  Csc pc = permuta_sim(M.c, perm);
+  const Csc& pc = permuta_cache(M.c, *cs);
   Csc L;
   if (!cholesky(pc, sb, L)) return A;
 
@@ -1224,12 +1223,11 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     if (M.ok) {
       if (!cs.pronto) {
         cs.perm = grau_minimo(M.c);
-        Csc pc0 = permuta_sim(M.c, cs.perm);
-        cs.sb = simbolica(pc0);
+        cs.sb = simbolica(permuta_sim(M.c, cs.perm));
         cs.pronto = true;
       }
       const std::vector<std::size_t>& perm = cs.perm;
-      Csc pc = permuta_sim(M.c, perm);
+      const Csc& pc = permuta_cache(M.c, cs);
       Csc L;
       if (cholesky(pc, cs.sb, L)) {
         SelInv z = inversa_seletiva(L, 0);

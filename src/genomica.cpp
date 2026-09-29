@@ -13,7 +13,11 @@
 // animais com 2 mil genotipados isso seria uma densa de 18k x 18k para obter uma resposta
 // de 2k x 2k. Uma fatoracao esparsa de B11 e n_geno resolucoes triangulares fazem o mesmo.
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include "mme.h"
+#include <unordered_map>
 
 // O BLAS do proprio R para a G: o produto Z Z' e o unico n^2 m do pacote, e o dsyrk
 // faz em minutos o que o laco triplo fazia em horas de uma thread so.
@@ -110,10 +114,14 @@ Densa a22_inversa(const Csc& ainv, const std::vector<std::size_t>& geno) {
   for (std::size_t i = 0; i < n; i++) if (!eh_geno[i]) pos[i] = n1++;
   for (std::size_t k = 0; k < n2; k++) pos[geno[k]] = n1 + k;
 
-  // B11 (triangulo inferior esparso), B12 denso por coluna genotipada, B22 denso
+  // B11 (triangulo inferior esparso), B12 ESPARSO nas duas direcoes, B22 denso. B12 tem
+  // so os pais e filhos nao genotipados de cada genotipado, meia duzia por coluna; guardado
+  // denso (n1 x n2) ele custava memoria n1 n2 e, pior, o produto B21 x (B11^-1 B12) virava
+  // n1 n2^2 flops sobre zeros, o custo que dominava o preparo do passo unico.
   std::vector<std::uint32_t> li, cj;
   std::vector<double> v;
-  Densa b12(n1, n2), b22(n2, n2);
+  Densa b22(n2, n2);
+  std::vector<std::vector<std::pair<std::uint32_t, double>>> b12_col(n2), b12_lin;
   for (std::size_t c = 0; c < n; c++)
     for (std::size_t k = ainv.colptr[c]; k < ainv.colptr[c + 1]; k++) {
       const std::size_t r = ainv.linha[k];
@@ -133,9 +141,13 @@ Densa a22_inversa(const Csc& ainv, const std::vector<std::size_t>& geno) {
         // um em cada bloco: entra em B12 (nao-genotipado nas linhas)
         const std::size_t inng = rg ? pc : pr;
         const std::size_t ig = rg ? pr - n1 : pc - n1;
-        b12.at(inng, ig) = x;
+        b12_col[ig].push_back({static_cast<std::uint32_t>(inng), x});
       }
     }
+  b12_lin.resize(n1);
+  for (std::size_t ig = 0; ig < n2; ig++)
+    for (const auto& [i, x] : b12_col[ig])
+      b12_lin[i].push_back({static_cast<std::uint32_t>(ig), x});
 
   if (n1 == 0) return b22;   // todos genotipados: A22^-1 = A^-1 inteiro
 
@@ -147,21 +159,90 @@ Densa a22_inversa(const Csc& ainv, const std::vector<std::size_t>& geno) {
   if (!cholesky(pb, sb, L))
     throw Erro("the non-genotyped block of A^-1 is not positive-definite");
 
-  // A22^-1 = B22 - B21 (B11^-1 B12): uma resolucao por coluna genotipada
+  // A22^-1 = B22 - B21 (B11^-1 B12): uma resolucao por coluna genotipada, e o produto
+  // B21 x so pelas entradas nao nulas de B12, linha a linha em i crescente (a mesma ordem
+  // de soma do laco denso, sem as parcelas zero). As colunas sao independentes: cada thread
+  // escreve so as colunas jg que resolveu, entao o resultado nao depende do numero de threads.
   Densa out = b22;
-  std::vector<double> col(n1), pcol(n1);
-  for (std::size_t jg = 0; jg < n2; jg++) {
-    for (std::size_t i = 0; i < n1; i++) col[i] = b12.at(i, jg);
-    for (std::size_t i = 0; i < n1; i++) pcol[i] = col[perm[i]];
-    std::vector<double> px = resolve(L, pcol);
-    for (std::size_t i = 0; i < n1; i++) col[perm[i]] = px[i];
-    for (std::size_t ig = 0; ig < n2; ig++) {
-      double s = 0.0;
-      for (std::size_t i = 0; i < n1; i++) s += b12.at(i, ig) * col[i];
-      out.at(ig, jg) -= s;
+#ifdef _OPENMP
+#pragma omp parallel num_threads(threads())
+#endif
+  {
+    std::vector<double> col(n1), pcol(n1, 0.0), s(n2);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 4)
+#endif
+    for (long jj = 0; jj < static_cast<long>(n2); jj++) {
+      const std::size_t jg = static_cast<std::size_t>(jj);
+      std::fill(col.begin(), col.end(), 0.0);
+      for (const auto& [i, x] : b12_col[jg]) col[i] = x;
+      for (std::size_t i = 0; i < n1; i++) pcol[i] = col[perm[i]];
+      std::vector<double> px = resolve(L, pcol);
+      for (std::size_t i = 0; i < n1; i++) col[perm[i]] = px[i];
+      std::fill(s.begin(), s.end(), 0.0);
+      for (std::size_t i = 0; i < n1; i++) {
+        const double ci = col[i];
+        for (const auto& [ig, x] : b12_lin[i]) s[ig] += x * ci;
+      }
+      for (std::size_t ig = 0; ig < n2; ig++) out.at(ig, jg) -= s[ig];
     }
   }
   // simetriza contra o arredondamento das resolucoes
+  for (std::size_t i = 0; i < n2; i++)
+    for (std::size_t j = 0; j < i; j++) {
+      const double mdi = 0.5 * (out.at(i, j) + out.at(j, i));
+      out.at(i, j) = mdi;
+      out.at(j, i) = mdi;
+    }
+  return out;
+}
+
+// A22 pelo algoritmo de Colleau (2002): A x = T D T' x, com T = (I - P)^-1 e P os pesos dos
+// pais (1/2; 1/4 no avo materno de um pedigree pai/MGS), em tres passadas pelo pedigree
+// ordenado. Custa O(n) por coluna genotipada, contra uma resolucao inteira no fator do bloco
+// nao genotipado da rota de Schur, e e a rota do preGSf90 (Aguilar et al., 2011). Entrega A22,
+// que o passo unico precisa para escalar G; A22^-1 sai de UMA inversa densa dela, a mesma
+// que a rota de Schur ja pagava no sentido contrario. So vale sem metafundadores: com Gamma
+// a base deixa de ser independente e a rota de Schur, generica, continua sendo a usada.
+// As colunas sao independentes, cada uma de uma thread, com soma em ordem fixa.
+static Densa a22_colleau(const Pedigree& p, const std::vector<std::size_t>& geno) {
+  const std::size_t n = p.ids.size(), n2 = geno.size();
+  const std::vector<double> f = endogamia(p);
+  std::vector<double> d(n), w1(n), w2(n);
+  for (std::size_t i = 0; i < n; i++) {
+    d[i] = variancia_mendeliana(p, f, i);
+    w1[i] = 0.5;
+    w2[i] = (!p.mgs.empty() && p.mgs[i]) ? 0.25 : 0.5;
+  }
+  Densa out(n2, n2);
+#ifdef _OPENMP
+#pragma omp parallel num_threads(threads())
+#endif
+  {
+    std::vector<double> v(n);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 8)
+#endif
+    for (long jj = 0; jj < static_cast<long>(n2); jj++) {
+      const std::size_t jg = static_cast<std::size_t>(jj);
+      std::fill(v.begin(), v.end(), 0.0);
+      v[geno[jg]] = 1.0;
+      // z = T' x: dos mais novos para os mais velhos, cada um empurra para os pais
+      for (std::size_t i = n; i-- > 0;) {
+        if (v[i] == 0.0) continue;
+        if (p.pai[i] >= 0) v[static_cast<std::size_t>(p.pai[i])] += w1[i] * v[i];
+        if (p.mae[i] >= 0) v[static_cast<std::size_t>(p.mae[i])] += w2[i] * v[i];
+      }
+      for (std::size_t i = 0; i < n; i++) v[i] *= d[i];
+      // y = T w: dos mais velhos para os mais novos, cada um recebe dos pais
+      for (std::size_t i = 0; i < n; i++) {
+        if (p.pai[i] >= 0) v[i] += w1[i] * v[static_cast<std::size_t>(p.pai[i])];
+        if (p.mae[i] >= 0) v[i] += w2[i] * v[static_cast<std::size_t>(p.mae[i])];
+      }
+      for (std::size_t ig = 0; ig < n2; ig++) out.at(ig, jg) = v[geno[ig]];
+    }
+  }
+  // simetriza contra o arredondamento das duas passadas
   for (std::size_t i = 0; i < n2; i++)
     for (std::size_t j = 0; j < i; j++) {
       const double mdi = 0.5 * (out.at(i, j) + out.at(j, i));
@@ -277,37 +358,60 @@ static Densa apy_de(const Densa& g, const std::vector<std::size_t>& nucleo) {
     return out;
   }
 
+  // Os dois produtos nc^2 nj vao ao BLAS do R. A Densa e linha-major, entao cada matriz
+  // guardada e, para o BLAS coluna-major, a sua transposta: P' (nj x nc) = Gcn' Gcc^-1.
   Densa gcn(nc, nj), pmat(nc, nj);
   for (std::size_t a = 0; a < nc; a++)
     for (std::size_t b = 0; b < nj; b++) gcn.at(a, b) = g.at(nucleo[a], jovens[b]);
-  for (std::size_t a = 0; a < nc; a++)
-    for (std::size_t b = 0; b < nj; b++) {
-      double sacc = 0.0;
-      for (std::size_t k = 0; k < nc; k++) sacc += gcc_inv.at(a, k) * gcn.at(k, b);
-      pmat.at(a, b) = sacc;
-    }
+  {
+    const int m_ = static_cast<int>(nj), n_ = static_cast<int>(nc);
+    const double um = 1.0, zero = 0.0;
+    F77_CALL(dgemm)("N", "N", &m_, &n_, &n_, &um, gcn.dados.data(), &m_,
+                    gcc_inv.dados.data(), &n_, &zero, pmat.dados.data(), &m_ FCONE FCONE);
+  }
 
   double diag_media = 0.0;
   for (std::size_t i = 0; i < n; i++) diag_media += g.at(i, i);
   diag_media /= static_cast<double>(n);
   const double limiar = 1e-8 * diag_media;
 
+  // residuo mendeliano de cada jovem, com as linhas de Gcn e P lidas em sequencia
+  std::vector<double> mendv(nj);
+  for (std::size_t b = 0; b < nj; b++) mendv[b] = g.at(jovens[b], jovens[b]);
+  for (std::size_t k = 0; k < nc; k++) {
+    const double* gk = gcn.linha(k);
+    const double* pk = pmat.linha(k);
+    for (std::size_t b = 0; b < nj; b++) mendv[b] -= gk[b] * pk[b];
+  }
   std::vector<double> minv(nj);
   for (std::size_t b = 0; b < nj; b++) {
-    double mend = g.at(jovens[b], jovens[b]);
-    for (std::size_t k = 0; k < nc; k++) mend -= gcn.at(k, b) * pmat.at(k, b);
+    const double mend = mendv[b];
     if (mend <= limiar)
       throw Erro("degenerate Mendelian residual in APY: a non-core animal is collinear with the core "
                  "(clone or duplicate). Enlarge the core or the blend.");
     minv[b] = 1.0 / mend;
   }
 
-  for (std::size_t a = 0; a < nc; a++)
-    for (std::size_t b = 0; b < nc; b++) {
-      double sacc = gcc_inv.at(a, b);
-      for (std::size_t k = 0; k < nj; k++) sacc += pmat.at(a, k) * minv[k] * pmat.at(b, k);
-      out.at(nucleo[a], nucleo[b]) = sacc;
+  // bloco do nucleo: Gcc^-1 + P Mnn^-1 P' = Gcc^-1 + Ps Ps', Ps = P Mnn^-1/2 (Mnn > 0 pelo
+  // limiar acima), por dsyrk: C = A' A com A = Ps' (nj x nc) coluna-major
+  {
+    Densa ps = pmat;
+    for (std::size_t a = 0; a < nc; a++) {
+      double* pa = ps.linha(a);
+      for (std::size_t k = 0; k < nj; k++) pa[k] *= std::sqrt(minv[k]);
     }
+    Densa cc = gcc_inv;
+    const int n_ = static_cast<int>(nc), k_ = static_cast<int>(nj);
+    const double um = 1.0;
+    F77_CALL(dsyrk)("U", "T", &n_, &k_, &um, ps.dados.data(), &k_, &um, cc.dados.data(), &n_
+                    FCONE FCONE);
+    // "U" coluna-major = triangulo inferior da linha-major: espelha a partir dele
+    for (std::size_t a = 0; a < nc; a++)
+      for (std::size_t b = 0; b <= a; b++) {
+        out.at(nucleo[a], nucleo[b]) = cc.at(a, b);
+        out.at(nucleo[b], nucleo[a]) = cc.at(a, b);
+      }
+  }
   for (std::size_t a = 0; a < nc; a++)
     for (std::size_t b = 0; b < nj; b++) {
       const double v = -pmat.at(a, b) * minv[b];
@@ -432,8 +536,16 @@ Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::strin
   }
 
   Densa g = vanraden_g(m, rel);
-  Densa a22i = a22_inversa(ainv, idx);
-  Densa a22 = inv_pd(a22i);
+  const bool com_mf = !ped.eh_mf.empty() &&
+                      std::any_of(ped.eh_mf.begin(), ped.eh_mf.end(), [](char c) { return c != 0; });
+  Densa a22, a22i;
+  if (com_mf) {
+    a22i = a22_inversa(ainv, idx);
+    a22 = inv_pd(a22i);
+  } else {
+    a22 = a22_colleau(ped, idx);
+    a22i = inv_pd(a22);
+  }
   Densa gstar = ajusta_g_para_a22(g, a22, mistura);
   // a priori de cada genotipado, guardada AQUI porque este e o unico ponto em que G*
   // existe formada; accuracy() a usa no lugar de 1 + F do pedigree
@@ -456,12 +568,14 @@ Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::strin
   } else {
     std::vector<std::size_t> nc_idx;
     nc_idx.reserve(nucleo_apy.size());
+    std::unordered_map<std::string, std::size_t> onde;
+    onde.reserve(geno_ids.size());
+    for (std::size_t k = 0; k < geno_ids.size(); k++) onde.emplace(geno_ids[k], k);
     for (const std::string& nid : nucleo_apy) {
-      bool achou = false;
-      for (std::size_t k = 0; k < geno_ids.size(); k++)
-        if (geno_ids[k] == nid) { nc_idx.push_back(k); achou = true; break; }
-      if (!achou)
+      const auto it = onde.find(nid);
+      if (it == onde.end())
         throw Erro("APY core animal '" + nid + "' is not among the genotyped");
+      nc_idx.push_back(it->second);
     }
     gstar_inv = apy_de(gstar, nc_idx);
   }

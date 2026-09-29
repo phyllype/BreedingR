@@ -426,6 +426,8 @@ si <- selected_inverse(ai)                   # A at the factor's pattern (PEV re
 round(c(logdet = ch$logdet, x1_first = x1[1]), 3)
 inv_pd(matrix(c(4, 1, 1, 3), 2))             # dense positive-definite inverse
 br_version()
+br_threads()                                 # OpenMP threads of the dense tail (default 1);
+                                             # any number gives the same bits
 ```
 
 And `eval_internal()` (with `_mt` and `_ar1` twins) evaluates -2logL by the TWO

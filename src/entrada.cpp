@@ -1474,6 +1474,26 @@ SEXP R_snp_blup(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP t
 
 SEXP R_versao(void) { return Rf_mkString("0.4.0.9000"); }
 
+// Threads das regioes paralelas: n >= 1 define, qualquer outro valor so consulta; lapack
+// TRUE/FALSE escolhe a rota das inversas densas grandes, NA so consulta.
+SEXP R_threads(SEXP n, SEXP lapack) {
+  const int k = Rf_asInteger(n);
+  if (k != NA_INTEGER && k >= 1) br::define_threads(k);
+  const int lp = Rf_asLogical(lapack);
+  if (lp != NA_LOGICAL) br::define_denso_lapack(lp == TRUE);
+  SEXP out = PROTECT(Rf_allocVector(INTSXP, 4));
+  INTEGER(out)[0] = br::threads();
+  INTEGER(out)[1] = br::threads_disponiveis();
+#ifdef _OPENMP
+  INTEGER(out)[2] = 1;
+#else
+  INTEGER(out)[2] = 0;
+#endif
+  INTEGER(out)[3] = br::denso_lapack() ? 1 : 0;
+  UNPROTECT(1);
+  return out;
+}
+
 static const R_CallMethodDef metodos[] = {
   {"R_pedigree",   (DL_FUNC) &R_pedigree,   5},
   {"R_a_inversa",  (DL_FUNC) &R_a_inversa,  5},
@@ -1492,6 +1512,7 @@ static const R_CallMethodDef metodos[] = {
     {"R_gibbs", (DL_FUNC) &R_gibbs, 35},
   {"R_snp_blup",   (DL_FUNC) &R_snp_blup,  25},
 {"R_versao",     (DL_FUNC) &R_versao,     0},
+  {"R_threads",    (DL_FUNC) &R_threads,    2},
   {NULL, NULL, 0}
 };
 

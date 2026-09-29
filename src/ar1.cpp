@@ -334,13 +334,12 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
   CacheSimbolica* cs = cache ? cache : &local;
   if (!cs->pronto) {
     cs->perm = grau_minimo(M.c);
-    Csc pc0 = permuta_sim(M.c, cs->perm);
-    cs->sb = simbolica(pc0);
+    cs->sb = simbolica(permuta_sim(M.c, cs->perm));
     cs->pronto = true;
   }
   const std::vector<std::size_t>& perm = cs->perm;
   const Simbolica& sb = cs->sb;
-  Csc pc = permuta_sim(M.c, perm);
+  const Csc& pc = permuta_cache(M.c, *cs);
   Csc L;
   if (!cholesky(pc, sb, L)) return A;
 

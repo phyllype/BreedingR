@@ -87,6 +87,18 @@ struct Simbolica {
 Csc triu(const Csc&);
 Simbolica simbolica(const Csc&);
 bool cholesky(const Csc&, const Simbolica&, Csc&);
+// numero de threads das regioes paralelas (OpenMP). Todo codigo paralelo do pacote segue a
+// regra de DONO UNICO: cada numero de saida e escrito por uma thread so, com as somas em
+// ordem fixa, entao o resultado e bit a bit o mesmo com 1 ou com 16 threads.
+int threads();
+void define_threads(int n);
+int threads_disponiveis();
+// inversas densas grandes pelo LAPACK do R (true) ou pelos ladrilhos proprios (false, padrao)
+bool denso_lapack();
+void define_denso_lapack(bool v);
+// Cholesky em ladrilhos de uma matriz densa guardada como triangulo inferior compactado por
+// coluna (coluna j = linhas j..n-1, em sequencia). false se nao for positiva-definida.
+bool cholesky_empacotada(std::vector<double>& v, std::size_t n, int nth);
 
 // Cache da fatoracao simbolica para os lacos de ajuste: o PADRAO de C nao depende de
 // theta (a montagem empurra sempre os mesmos slots, zeros explicitos inclusive), entao
@@ -96,10 +108,21 @@ struct CacheSimbolica {
   bool pronto = false;
   std::vector<std::size_t> perm;
   Simbolica sb;
+  // O MAPA de valores de C para a C permutada. Refazer a permutacao por triplos a cada
+  // avaliacao custa uma ordenacao por contagem com acesso espalhado, da ordem da propria
+  // fatoracao da cauda quando ela roda em paralelo; com o mapa, cada avaliacao so espalha os
+  // valores. O padrao e conferido por uma assinatura a cada uso e o mapa e refeito se mudar.
+  std::uint64_t assinatura = 0;
+  int vistos = 0;               // o mapa so e montado na SEGUNDA avaliacao do mesmo padrao
+  bool com_mapa = false;
+  std::vector<std::uint32_t> mapa;
+  Csc permutada;
 };
 double logdet(const Csc&);
 std::vector<double> resolve(const Csc&, const std::vector<double>&);
 Csc permuta_sim(const Csc&, const std::vector<std::size_t>&);
+// a mesma permutacao, pelo mapa guardado em cs (cs.perm ja definido)
+const Csc& permuta_cache(const Csc&, CacheSimbolica& cs);
 std::vector<std::size_t> grau_minimo(const Csc&);
 
 // ---- selinv.cpp

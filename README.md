@@ -33,8 +33,11 @@ after a minimum degree ordering (George and Liu, 1989) that sets dense nodes asi
 dense-row rule of AMD does (Amestoy, Davis and Duff, 1996). In `model()`, `model_mt()`,
 `model_ar1()` and `gibbs()` the ordering and the symbolic analysis are computed once and
 reused; `model_threshold()` and `model_survival()`, written in R, order and factor again
-at every step. Everything runs on one thread: there is no OpenMP, and the dense corner of
-the factor is scalar C++, not BLAS. The variance components come from
+at every step. The dense tail of the factor, where the genotyped animals end up, is
+factored in tiles on `br_threads()` threads (OpenMP, default 1), and so are its inverse
+inside the selected inverse and the dense inverses of G* and A22 in the single step; each
+number has one owner thread and a fixed summation order, so the result is the same bit for
+bit with any number of threads. The variance components come from
 AI-REML (Gilmour, Thompson and Cullis, 1995): analytic score, average information, EM
 warm-up and an EM rescue (Dempster, Laird and Rubin, 1977), a damped step that walks in
 log-Cholesky coordinates so a covariance boundary is a limit rather than a wall, and

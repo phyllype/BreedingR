@@ -48,7 +48,7 @@ model()  ── THE TRUNK: one engine, one formula
 ├── chain diagnostics ..... ess() geweke_z()
 └── internals (for the tests) . eval_internal() eval_internal_mt() eval_internal_ar1()
                             sparse_chol() sparse_solve() selected_inverse() inv_pd()
-                            br_version()
+                            br_version() br_threads()
 ```
 
 ## The trunk: `model()`
@@ -101,10 +101,14 @@ and survival fitters are written in R over `sparse_solve()`, `selected_inverse()
 
 A genotyped animal's prior in `accuracy()` is its diagonal of `G*` in every fitter that
 takes `genotypes=` and has a PEV. Metafounders combined with genotypes are refused by
-`model()`, `model_mt()`, `model_ar1()` and `h_inverse()`, because the genomic side does
-not yet know Gamma; `gibbs()` does not check the combination, and the same limit applies
-there. Nothing in the package runs in parallel: there is no OpenMP, and the dense corner
-of the factor is scalar C++, not BLAS.
+`model()`, `model_mt()`, `model_ar1()`, `gibbs()` and `h_inverse()`, because the genomic
+side does not yet know Gamma; `estimate_gamma()` estimates Gamma itself. The dense tail of
+every sparse factorization, the inverse of that tail inside `selected_inverse()`, the dense
+inverses of order 256 or more (G* and A22 in the single step) and the columns of A22 run on
+`br_threads()` threads (OpenMP, tiles of 64 x 64, default 1); each number is written by one
+thread in a fixed summation order, so any thread count gives the same bits. The single step
+takes A22 by Colleau's algorithm, O(n) per genotyped column. The G of VanRaden and the two
+APY products go to R's BLAS; the rest of the engine runs on one thread.
 
 ## Sibling fitters, a function of their own only when the mathematics changes
 
@@ -137,4 +141,4 @@ of the factor is scalar C++, not BLAS.
 | environmental axis | `thi()` (NRC 1971), `heat_load()`, `legendre()` |
 | study and control | `describe()`, `suggest_model()` (names the term the data's shape asks for, and the trap), `simulate_breeding()` (gene dropping), `mc_study()`, `benchmark_fit()` (at least 3 replicates or it refuses) |
 | chain diagnostics | `ess()` (Geyer 1992), `geweke_z()` (Geweke 1992) |
-| internals, exposed for the tests | `eval_internal()`, `eval_internal_mt()`, `eval_internal_ar1()` (-2logL by TWO routes + analytic score), `sparse_chol()`, `sparse_solve()`, `selected_inverse()` (every PEV reads it), `inv_pd()`, `br_version()` |
+| internals, exposed for the tests | `eval_internal()`, `eval_internal_mt()`, `eval_internal_ar1()` (-2logL by TWO routes + analytic score), `sparse_chol()`, `sparse_solve()`, `selected_inverse()` (every PEV reads it), `inv_pd()`, `br_version()`, `br_threads()` (OpenMP threads of the dense tail) |

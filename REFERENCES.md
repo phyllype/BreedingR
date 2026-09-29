@@ -11,6 +11,10 @@ Aguilar, I., Misztal, I., Johnson, D.L., Legarra, A., Tsuruta, S. & Lawlor, T.J.
 A unified approach to utilize phenotypic, full pedigree, and genomic information for
 genetic evaluation of Holstein final score. *Journal of Dairy Science* 93:743-752.
 
+Aguilar, I., Misztal, I., Legarra, A. & Tsuruta, S. (2011). Efficient computation of the
+genomic relationship matrix and other matrices used in single-step evaluation. *Journal of
+Animal Breeding and Genetics* 128:422-428.
+
 Albert, J.H. & Chib, S. (1993). Bayesian analysis of binary and polychotomous response
 data. *Journal of the American Statistical Association* 88:669-679.
 
@@ -30,12 +34,18 @@ quantitative genetics of inheritance and response to selection. *Genetics* 175:2
 Bradley, R.A. & Terry, M.E. (1952). Rank analysis of incomplete block designs: I. The
 method of paired comparisons. *Biometrika* 39:324-345.
 
+Buttari, A., Langou, J., Kurzak, J. & Dongarra, J. (2009). A class of parallel tiled
+linear algebra algorithms for multicore architectures. *Parallel Computing* 35:38-53.
+
 Cantet, R.J.C. & Cappa, E.P. (2008). On identifiability of (co)variance components in
 animal models with competition effects. *Journal of Animal Breeding and Genetics*
 125:371-381.
 
 Christensen, O.F. & Lund, M.S. (2010). Genomic prediction when some animals are not
 genotyped. *Genetics Selection Evolution* 42:2.
+
+Colleau, J.J. (2002). An indirect approach to the extensive calculation of relationship
+coefficients. *Genetics Selection Evolution* 34:409-421.
 
 Cockerham, C.C. (1954). An extension of the concept of partitioning hereditary variance
 for analysis of covariances among relatives when epistasis is present. *Genetics*

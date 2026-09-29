@@ -17,6 +17,9 @@
 // transposta do triangulo inferior.
 
 #include "mme.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace br {
 
@@ -90,6 +93,175 @@ Simbolica simbolica(const Csc& au) {
   return sb;
 }
 
+
+// ---------------------------------------------------------------- paralelismo
+
+static int g_threads = 1;
+int threads() { return g_threads; }
+static bool g_lapack = false;
+bool denso_lapack() { return g_lapack; }
+void define_denso_lapack(bool v) { g_lapack = v; }
+// o pedido e limitado pelo OMP_THREAD_LIMIT do ambiente (o CRAN usa esse limite nos checks):
+// um pacote que passa por cima do limite de threads de quem o chama e rejeitado
+void define_threads(int n) {
+  if (n < 1) n = 1;
+#ifdef _OPENMP
+  const int lim = omp_get_thread_limit();
+  if (lim >= 1 && n > lim) n = lim;
+#endif
+  g_threads = n;
+}
+int threads_disponiveis() {
+#ifdef _OPENMP
+  return omp_get_num_procs();
+#else
+  return 1;
+#endif
+}
+
+// A CAUDA DENSA EM LADRILHOS. O bloco denso final do fator (o dense_block, as ultimas T
+// colunas completamente cheias) e onde mora o k^3 de cada fatoracao num passo unico. O laco
+// olhando-para-cima trata essa cauda como qualquer coluna esparsa: escalar, com acesso
+// indireto, sem reuso de cache. Aqui ela e fatorada por blocos, right-looking, com ladrilhos
+// de 64: a coluna j da cauda ja esta guardada em CSC como o triangulo inferior compactado
+// POR COLUNA (linhas j..n-1 em sequencia), entao a conta e feita no proprio vetor de valores,
+// sem copia T x T, e o laco interno corre contiguo em i nas duas colunas envolvidas.
+//
+// Cada entrada e escrita por UMA thread em cada passo (dono do ladrilho) e a soma sobre p
+// vai em ordem fixa: o fator e bit a bit o mesmo para qualquer numero de threads. Nada de
+// reduction(+:), cuja ordem de soma muda com o numero de threads.
+namespace {
+const std::size_t LADRILHO = 64;
+const std::size_t CAUDA_MINIMA = 128;
+
+struct Cauda {
+  std::size_t base, T;
+  const std::vector<std::size_t>* colptr;
+  std::vector<double>* valor;
+  double& at(std::size_t i, std::size_t j) {        // local, i >= j
+    return (*valor)[(*colptr)[base + j] + (i - j)];
+  }
+};
+
+// C[i, j] -= soma_p A[i, p] B[j, p], p em [0, kw), para j em [j0, j1) e i em [max(i0, j), i1).
+// A e B vem EMPACOTADOS por ladrilho: pa[p * LADRILHO + (i - i0)], um bloco contiguo de
+// 64 x kw. Na cauda guardada por coluna, cada passo em p pulava para outra coluna (outra
+// pagina de memoria quando a cauda passa de alguns milhares); empacotado, o miolo anda em
+// sequencia. O miolo e um bloco 4 x 4 em registradores: 8 leituras e 32 flops por passo.
+// A soma em p vai num acumulador e so depois sai de C: ordem fixa, a mesma com qualquer
+// numero de threads.
+void atualiza(Cauda& c, const double* pa, const double* pb, std::size_t i0, std::size_t i1,
+              std::size_t j0, std::size_t j1, std::size_t kw) {
+  const std::size_t LD = LADRILHO;
+  auto escalar = [&](std::size_t i, std::size_t j) {
+    double acc = 0.0;
+    for (std::size_t p = 0; p < kw; p++) acc += pa[p * LD + (i - i0)] * pb[p * LD + (j - j0)];
+    c.at(i, j) -= acc;
+  };
+  std::size_t j = j0;
+  for (; j + 4 <= j1; j += 4) {
+    std::size_t i = std::max(i0, j);
+    // o triangulo sobre a diagonal (so num ladrilho da diagonal): so i >= j + s existe
+    for (; i < std::min(i1, j + 4); i++)
+      for (std::size_t s2 = 0; s2 < 4 && j + s2 <= i; s2++) escalar(i, j + s2);
+    for (; i + 4 <= i1; i += 4) {
+      double acc[4][4] = {{0.0}};
+      const double* a = pa + (i - i0);
+      const double* b = pb + (j - j0);
+      for (std::size_t p = 0; p < kw; p++, a += LD, b += LD)
+        for (std::size_t r = 0; r < 4; r++)
+          for (std::size_t s2 = 0; s2 < 4; s2++) acc[r][s2] += a[r] * b[s2];
+      for (std::size_t s2 = 0; s2 < 4; s2++) {
+        double* cj = &c.at(i, j + s2);
+        for (std::size_t r = 0; r < 4; r++) cj[r] -= acc[r][s2];
+      }
+    }
+    for (; i < i1; i++)
+      for (std::size_t s2 = 0; s2 < 4; s2++) escalar(i, j + s2);
+  }
+  for (; j < j1; j++)
+    for (std::size_t i = std::max(i0, j); i < i1; i++) escalar(i, j);
+}
+
+bool fatora_cauda(Cauda& c, int nth) {
+  const std::size_t T = c.T;
+  const std::size_t nb = (T + LADRILHO - 1) / LADRILHO;
+  // o painel da vez, empacotado por ladrilho de linhas (preenchido no passo 2)
+  std::vector<double> painel(nb * LADRILHO * LADRILHO, 0.0);
+  for (std::size_t kb = 0; kb < nb; kb++) {
+    const std::size_t k0 = kb * LADRILHO, k1 = std::min(T, k0 + LADRILHO);
+    const std::size_t kw = k1 - k0;
+    // 1. ladrilho da diagonal, serial (left-looking dentro dele)
+    for (std::size_t j = k0; j < k1; j++) {
+      double d = c.at(j, j);
+      for (std::size_t p = k0; p < j; p++) d -= c.at(j, p) * c.at(j, p);
+      if (!(d > 0.0) || !std::isfinite(d)) return false;
+      d = std::sqrt(d);
+      c.at(j, j) = d;
+      for (std::size_t i = j + 1; i < k1; i++) {
+        double s = c.at(i, j);
+        for (std::size_t p = k0; p < j; p++) s -= c.at(i, p) * c.at(j, p);
+        c.at(i, j) = s / d;
+      }
+    }
+    if (k1 >= T) break;
+    // 2. painel: as linhas abaixo, um ladrilho de linhas por thread, que tambem o empacota
+    const std::size_t nlt = (T - k1 + LADRILHO - 1) / LADRILHO;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) num_threads(nth)
+#endif
+    for (long it = 0; it < static_cast<long>(nlt); it++) {
+      const std::size_t i0 = k1 + static_cast<std::size_t>(it) * LADRILHO;
+      const std::size_t i1 = std::min(T, i0 + LADRILHO);
+      for (std::size_t j = k0; j < k1; j++) {
+        for (std::size_t p = k0; p < j; p++) {
+          const double ljp = c.at(j, p);
+          double* col_j = &c.at(i0, j);
+          const double* col_p = &c.at(i0, p);
+          for (std::size_t i = 0; i < i1 - i0; i++) col_j[i] -= col_p[i] * ljp;
+        }
+        const double djj = c.at(j, j);
+        double* col_j = &c.at(i0, j);
+        for (std::size_t i = 0; i < i1 - i0; i++) col_j[i] /= djj;
+      }
+      double* pk = &painel[static_cast<std::size_t>(it) * LADRILHO * LADRILHO];
+      for (std::size_t p = 0; p < kw; p++) {
+        const double* col = &c.at(i0, k0 + p);
+        for (std::size_t i = 0; i < i1 - i0; i++) pk[p * LADRILHO + i] = col[i];
+      }
+    }
+    // 3. atualizacao do resto: cada ladrilho (ib, jb), jb <= ib, de UMA thread
+    const std::size_t t0 = kb + 1;
+    const std::size_t nt = nb - t0;
+    const long nlad = static_cast<long>(nt * (nt + 1) / 2);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 1) num_threads(nth)
+#endif
+    for (long t = 0; t < nlad; t++) {
+      std::size_t ib = static_cast<std::size_t>((std::sqrt(8.0 * static_cast<double>(t) + 1.0) - 1.0) / 2.0);
+      while (ib * (ib + 1) / 2 > static_cast<std::size_t>(t)) ib--;
+      while ((ib + 1) * (ib + 2) / 2 <= static_cast<std::size_t>(t)) ib++;
+      const std::size_t jb = static_cast<std::size_t>(t) - ib * (ib + 1) / 2;
+      const std::size_t i0 = (ib + t0) * LADRILHO, i1 = std::min(T, i0 + LADRILHO);
+      const std::size_t j0 = (jb + t0) * LADRILHO, j1 = std::min(T, j0 + LADRILHO);
+      atualiza(c, &painel[ib * LADRILHO * LADRILHO], &painel[jb * LADRILHO * LADRILHO],
+               i0, i1, j0, j1, kw);
+    }
+  }
+  return true;
+}
+}  // namespace
+
+bool cholesky_empacotada(std::vector<double>& v, std::size_t n, int nth) {
+  std::vector<std::size_t> colptr(n + 1, 0);
+  for (std::size_t j = 0; j < n; j++) colptr[j + 1] = colptr[j] + (n - j);
+  if (v.size() != colptr[n]) throw Erro("packed triangle of the wrong size");
+  for (const double x : v)
+    if (!std::isfinite(x)) return false;
+  Cauda c{0, n, &colptr, &v};
+  return fatora_cauda(c, nth);
+}
+
 // Fatoracao numerica olhando-para-cima. Devolve false se a matriz nao for positiva-definida
 // — o que, neste engine, e informacao sobre theta e nao uma falha a reportar como tal.
 bool cholesky(const Csc& au, const Simbolica& sb, Csc& L) {
@@ -103,8 +275,37 @@ bool cholesky(const Csc& au, const Simbolica& sb, Csc& L) {
   std::vector<double> x(n, 0.0);
   std::vector<std::uint32_t> s(n), marca(n, 0);
 
+  // A cauda densa vai para os ladrilhos quando e grande o bastante para compensar. As linhas
+  // dela calculam aqui so a parte FORA da cauda (W = L[cauda, resto]); o bloco da cauda sai
+  // depois, como a fatoracao de A_TT - W W'.
+  const std::size_t T_cauda = bloco_denso_simbolico(sb);
+  const bool hibrido = T_cauda >= CAUDA_MINIMA;
+  const std::size_t base = hibrido ? n - T_cauda : n;
+
   for (std::size_t k = 0; k < n; k++) {
     const std::size_t topo = alcance(au, k, sb.pai, s, marca);
+
+    if (k >= base) {
+      for (std::size_t p = au.colptr[k]; p < au.colptr[k + 1]; p++) {
+        const std::size_t i = au.linha[p];
+        if (i < base) x[i] = au.valor[p];
+      }
+      for (std::size_t t = topo; t < n; t++) {
+        const std::size_t j = s[t];
+        if (j >= base) continue;
+        const double lkj = x[j] / valor[colptr[j]];
+        x[j] = 0.0;
+        // as linhas da coluna j estao em ordem crescente: as da cauda vem por ultimo
+        for (std::size_t p = colptr[j] + 1; p < prox[j] && linha[p] < base; p++)
+          x[linha[p]] -= valor[p] * lkj;
+        if (prox[j] >= colptr[j + 1])
+          throw Erro("symbolic factorization too small: the matrix pattern grew afterwards");
+        linha[prox[j]] = static_cast<std::uint32_t>(k);
+        valor[prox[j]] = lkj;
+        prox[j]++;
+      }
+      continue;
+    }
 
     double d = 0.0;
     for (std::size_t p = au.colptr[k]; p < au.colptr[k + 1]; p++) {
@@ -132,6 +333,54 @@ bool cholesky(const Csc& au, const Simbolica& sb, Csc& L) {
     linha[prox[k]] = static_cast<std::uint32_t>(k);
     valor[prox[k]] = std::sqrt(d);   // a diagonal vai PRIMEIRO, e o laco acima conta com isso
     prox[k]++;
+  }
+
+  if (hibrido) {
+    const std::size_t T = T_cauda;
+    // S = A_TT, guardada ja no lugar do fator: a coluna j da cauda recebe as linhas j..n-1
+    for (std::size_t j = base; j < n; j++) {
+      for (std::size_t r = 0; r < n - j; r++) {
+        linha[colptr[j] + r] = static_cast<std::uint32_t>(j + r);
+        valor[colptr[j] + r] = 0.0;
+      }
+      prox[j] = colptr[j + 1];
+    }
+    Cauda c{base, T, &colptr, &valor};
+    for (std::size_t k = base; k < n; k++)
+      for (std::size_t p = au.colptr[k]; p < au.colptr[k + 1]; p++) {
+        const std::size_t i = au.linha[p];
+        if (i >= base && i <= k) c.at(k - base, i - base) = au.valor[p];
+      }
+    // onde comecam as entradas da cauda em cada coluna de fora dela
+    std::vector<std::size_t> ini(base);
+    for (std::size_t j = 0; j < base; j++) {
+      std::size_t q = prox[j];
+      while (q > colptr[j] + 1 && linha[q - 1] >= base) q--;
+      ini[j] = q;
+    }
+    // S -= W W': cada thread e dona de um ladrilho de COLUNAS de S e percorre as colunas de
+    // W em ordem fixa, aplicando so o que cai nas suas
+    const int nth = threads();
+    const std::size_t nct = (T + LADRILHO - 1) / LADRILHO;
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 1) num_threads(nth)
+#endif
+    for (long cb = 0; cb < static_cast<long>(nct); cb++) {
+      const std::size_t c0 = static_cast<std::size_t>(cb) * LADRILHO;
+      const std::size_t c1 = std::min(T, c0 + LADRILHO);
+      for (std::size_t j = 0; j < base; j++) {
+        for (std::size_t qb = ini[j]; qb < prox[j]; qb++) {
+          const std::size_t b = linha[qb] - base;
+          if (b < c0) continue;
+          if (b >= c1) break;
+          const double wb = valor[qb];
+          double* col_b = &c.at(b, b);
+          for (std::size_t qa = qb; qa < prox[j]; qa++)
+            col_b[linha[qa] - base - b] -= valor[qa] * wb;
+        }
+      }
+    }
+    if (!fatora_cauda(c, nth)) return false;
   }
 
   L = Csc(n, n);
@@ -185,6 +434,47 @@ std::vector<double> resolve(const Csc& L, const std::vector<double>& b) {
 //
 // Por isso nao ha filtro: cada entrada e mapeada uma vez e colocada no triangulo superior do
 // indice novo, venha ela de onde vier.
+static std::uint64_t assinatura_padrao(const Csc& a) {
+  std::uint64_t h = 1469598103934665603ULL;
+  auto mistura = [&](std::uint64_t v) { h ^= v; h *= 1099511628211ULL; };
+  mistura(a.nlin); mistura(a.ncol);
+  for (std::size_t v : a.colptr) mistura(v);
+  for (std::uint32_t v : a.linha) mistura(v);
+  return h;
+}
+
+const Csc& permuta_cache(const Csc& a, CacheSimbolica& cs) {
+  const std::uint64_t h = assinatura_padrao(a);
+  if (h != cs.assinatura) {
+    cs.assinatura = h;
+    cs.vistos = 0;
+    cs.com_mapa = false;
+    cs.mapa.clear();
+  }
+  cs.vistos++;
+  const bool cabe = a.nnz() < static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max());
+  if (!cs.com_mapa && cs.vistos >= 2 && cabe) {
+    // o mapa sai da propria permutacao aplicada ao INDICE de cada entrada; se a permutacao
+    // somasse entradas (duplicatas) o numero de entradas cairia, e ai fica sem mapa
+    Csc idx = a;
+    for (std::size_t k = 0; k < idx.valor.size(); k++) idx.valor[k] = static_cast<double>(k);
+    Csc p = permuta_sim(idx, cs.perm);
+    if (p.nnz() == a.nnz()) {
+      cs.mapa.assign(a.nnz(), 0);
+      for (std::size_t q = 0; q < p.valor.size(); q++)
+        cs.mapa[static_cast<std::size_t>(p.valor[q])] = static_cast<std::uint32_t>(q);
+      cs.permutada = std::move(p);
+      cs.com_mapa = true;
+    }
+  }
+  if (!cs.com_mapa) {
+    cs.permutada = permuta_sim(a, cs.perm);
+    return cs.permutada;
+  }
+  for (std::size_t k = 0; k < a.valor.size(); k++) cs.permutada.valor[cs.mapa[k]] = a.valor[k];
+  return cs.permutada;
+}
+
 Csc permuta_sim(const Csc& a, const std::vector<std::size_t>& perm) {
   const std::size_t n = a.ncol;
   if (perm.size() != n) throw Erro("permutation of the wrong size");

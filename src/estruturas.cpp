@@ -1,4 +1,8 @@
 #include "estruturas.h"
+#include "mme.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 // O BLAS/LAPACK do proprio R: zero dependencia nova, e o usuario que trocar o BLAS do R
 // acelera isto de graca. USE_FC_LEN_T + FCONE e o protocolo moderno de chamada Fortran.
@@ -92,19 +96,29 @@ Densa inv_do_fator(const Densa& l) {
   for (std::size_t i = 0; i < n; i++)
     if (l.at(i, i) == 0.0) throw Erro("singular factor: zero diagonal");
 
-  // L^-1, coluna a coluna em rascunho contiguo
+  // L^-1, coluna a coluna em rascunho contiguo. As colunas sao independentes: cada thread
+  // faz as suas inteiras, com o proprio rascunho, na mesma ordem de soma do laco serial.
   Densa inv(n, n);
-  std::vector<double> col(n, 0.0);
-  for (std::size_t j = 0; j < n; j++) {
-    for (std::size_t k = 0; k < j; k++) col[k] = 0.0;
-    col[j] = 1.0 / l.at(j, j);
-    for (std::size_t i = j + 1; i < n; i++) {
-      const double* ri = l.linha(i);
-      double acc = 0.0;
-      for (std::size_t k = j; k < i; k++) acc += ri[k] * col[k];
-      col[i] = -acc / ri[i];
+  const int nth = threads();
+#ifdef _OPENMP
+#pragma omp parallel num_threads(nth)
+#endif
+  {
+    std::vector<double> col(n, 0.0);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 8)
+#endif
+    for (long jj = 0; jj < static_cast<long>(n); jj++) {
+      const std::size_t j = static_cast<std::size_t>(jj);
+      col[j] = 1.0 / l.at(j, j);
+      for (std::size_t i = j + 1; i < n; i++) {
+        const double* ri = l.linha(i);
+        double acc = 0.0;
+        for (std::size_t k = j; k < i; k++) acc += ri[k] * col[k];
+        col[i] = -acc / ri[i];
+      }
+      for (std::size_t i = j; i < n; i++) inv.at(i, j) = col[i];
     }
-    for (std::size_t i = j; i < n; i++) inv.at(i, j) = col[i];
   }
 
   // S^-1 = (L^-1)' (L^-1), LADRILHADO.
@@ -113,24 +127,34 @@ Densa inv_do_fator(const Densa& l) {
   // o que da n^3/2 doubles de trafego. A aritmetica e a mesma n^3/6 nos dois casos, logo o
   // custo nunca foi de conta: e de memoria. Tres ladrilhos ficam em L2 enquanto o laco
   // interno corre.
+  //
+  // Em paralelo, cada ladrilho (ib, jb) da SAIDA e de uma thread so e percorre kb em ordem
+  // crescente: a ordem de soma de cada entrada e a do laco serial (kb por fora), entao o
+  // resultado e bit a bit o mesmo com qualquer numero de threads.
   const std::size_t B = 96;
+  const std::size_t nbl = (n + B - 1) / B;
   Densa out(n, n);
-  for (std::size_t kb = 0; kb < n; kb += B) {
-    const std::size_t kf = std::min(kb + B, n);
-    for (std::size_t ib = 0; ib <= kb; ib += B) {
-      const std::size_t iff = std::min(ib + B, n);
-      for (std::size_t jb = 0; jb <= ib; jb += B) {
-        const std::size_t jf = std::min(jb + B, n);
-        for (std::size_t k = kb; k < kf; k++) {
-          const double* rk = inv.linha(k);
-          const std::size_t ihi = std::min(iff, k + 1);
-          for (std::size_t i = ib; i < ihi; i++) {
-            const double a = rk[i];
-            if (a == 0.0) continue;
-            const std::size_t jhi = std::min(jf, i + 1);
-            double* dst = out.linha(i);
-            for (std::size_t j = jb; j < jhi; j++) dst[j] += a * rk[j];
-          }
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 1) num_threads(nth)
+#endif
+  for (long t = 0; t < static_cast<long>(nbl * (nbl + 1) / 2); t++) {
+    std::size_t it = static_cast<std::size_t>((std::sqrt(8.0 * static_cast<double>(t) + 1.0) - 1.0) / 2.0);
+    while (it * (it + 1) / 2 > static_cast<std::size_t>(t)) it--;
+    while ((it + 1) * (it + 2) / 2 <= static_cast<std::size_t>(t)) it++;
+    const std::size_t ib = it * B, jb = (static_cast<std::size_t>(t) - it * (it + 1) / 2) * B;
+    const std::size_t iff = std::min(ib + B, n);
+    const std::size_t jf = std::min(jb + B, n);
+    for (std::size_t kb = ib; kb < n; kb += B) {
+      const std::size_t kf = std::min(kb + B, n);
+      for (std::size_t k = kb; k < kf; k++) {
+        const double* rk = inv.linha(k);
+        const std::size_t ihi = std::min(iff, k + 1);
+        for (std::size_t i = ib; i < ihi; i++) {
+          const double a = rk[i];
+          if (a == 0.0) continue;
+          const std::size_t jhi = std::min(jf, i + 1);
+          double* dst = out.linha(i);
+          for (std::size_t j = jb; j < jhi; j++) dst[j] += a * rk[j];
         }
       }
     }
@@ -140,7 +164,91 @@ Densa inv_do_fator(const Densa& l) {
   return out;
 }
 
+// Inversa densa SPD em ladrilhos, em paralelo e determinista, para as matrizes grandes (a
+// G* e a A22 do passo unico). O LAPACK de referencia que o R traz no Windows roda numa
+// thread a ~1.5 GFlops, e as duas inversas n^3 dominavam o preparo com 3.000 genotipados.
+// (1) Cholesky pelo mesmo nucleo da cauda do fator esparso, no triangulo compactado por
+// coluna; (2) L^-1 por blocos de 64 colunas, substituicao para frente com as 64 de uma vez
+// (cada coluna de L lida uma vez por bloco, e nao uma vez por coluna de L^-1); (3)
+// S^-1 = L^-T L^-1 por produtos internos de colunas contiguas de L^-1, um ladrilho de saida
+// por thread. Cada numero tem um dono e soma em ordem fixa: bit a bit o mesmo com qualquer
+// numero de threads. Memoria: dois triangulos compactados e a saida, o mesmo n^2 + n^2 da
+// rota do LAPACK.
+static Densa inv_pd_ladrilhos(const Densa& s) {
+  const std::size_t n = s.nlin;
+  std::vector<std::size_t> off(n + 1, 0);
+  for (std::size_t j = 0; j < n; j++) off[j + 1] = off[j] + (n - j);
+  std::vector<double> l(off[n]);
+  for (std::size_t j = 0; j < n; j++)
+    for (std::size_t i = j; i < n; i++) l[off[j] + (i - j)] = s.at(i, j);
+  const int nth = threads();
+  if (!cholesky_empacotada(l, n, nth)) throw Erro("the matrix is not positive-definite");
+
+  const std::size_t LB = 64;
+  const std::size_t nbl = (n + LB - 1) / LB;
+  std::vector<double> li(off[n], 0.0);
+#ifdef _OPENMP
+#pragma omp parallel num_threads(nth)
+#endif
+  {
+    std::vector<double> x;
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 1)
+#endif
+    for (long bb = 0; bb < static_cast<long>(nbl); bb++) {
+      const std::size_t j0 = static_cast<std::size_t>(bb) * LB, j1 = std::min(n, j0 + LB);
+      const std::size_t w = j1 - j0;
+      // X (linhas j0..n-1, w colunas, linha-major): L X = as colunas j0..j1-1 da identidade
+      x.assign((n - j0) * w, 0.0);
+      for (std::size_t c = 0; c < w; c++) x[c * w + c] = 1.0;
+      for (std::size_t k = j0; k < n; k++) {
+        const double* lk = &l[off[k]];          // coluna k de L, linhas k..n-1
+        double* xk = &x[(k - j0) * w];
+        const double dk = lk[0];
+        for (std::size_t c = 0; c < w; c++) xk[c] /= dk;
+        for (std::size_t r = k + 1; r < n; r++) {
+          const double lrk = lk[r - k];
+          if (lrk == 0.0) continue;
+          double* xr = &x[(r - j0) * w];
+          for (std::size_t c = 0; c < w; c++) xr[c] -= lrk * xk[c];
+        }
+      }
+      for (std::size_t c = 0; c < w; c++) {
+        const std::size_t j = j0 + c;
+        double* dst = &li[off[j]];
+        for (std::size_t r = j; r < n; r++) dst[r - j] = x[(r - j0) * w + c];
+      }
+    }
+  }
+
+  Densa out(n, n);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 1) num_threads(nth)
+#endif
+  for (long t = 0; t < static_cast<long>(nbl * (nbl + 1) / 2); t++) {
+    std::size_t it = static_cast<std::size_t>((std::sqrt(8.0 * static_cast<double>(t) + 1.0) - 1.0) / 2.0);
+    while (it * (it + 1) / 2 > static_cast<std::size_t>(t)) it--;
+    while ((it + 1) * (it + 2) / 2 <= static_cast<std::size_t>(t)) it++;
+    const std::size_t jt = static_cast<std::size_t>(t) - it * (it + 1) / 2;
+    const std::size_t i0 = it * LB, i1 = std::min(n, i0 + LB);
+    const std::size_t j0 = jt * LB, j1 = std::min(n, j0 + LB);
+    for (std::size_t i = i0; i < i1; i++) {
+      const double* ci = &li[off[i]];                    // L^-1(i.., i)
+      const std::size_t jf = std::min(j1, i + 1);
+      for (std::size_t j = j0; j < jf; j++) {
+        const double* cj = &li[off[j]] + (i - j);        // L^-1(i.., j)
+        double acc = 0.0;
+        for (std::size_t k = 0; k < n - i; k++) acc += ci[k] * cj[k];
+        out.at(i, j) = acc;
+        out.at(j, i) = acc;
+      }
+    }
+  }
+  return out;
+}
+
 Densa inv_pd(const Densa& s) {
+  if (s.nlin >= 256 && s.ncol == s.nlin && !denso_lapack()) return inv_pd_ladrilhos(s);
   Densa l = s;
   if (!chol_densa(l)) throw Erro("the matrix is not positive-definite");
   int n = static_cast<int>(l.nlin), info = 0;

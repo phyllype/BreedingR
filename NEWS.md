@@ -82,6 +82,19 @@
   each covariance, and a `share` column that divides each variance or covariance
   by the phenotypic variance of its trait.
 
+* `br_threads()`: OpenMP where a genomic evaluation spends its k^3. The dense
+  tail of every sparse Cholesky (the genotyped block after the ordering) is
+  factored in tiles of 64 x 64 inside its own column storage (Buttari et al.,
+  2009); the inverse of that tail inside the selected inverse, the dense inverses
+  of order 256 or more (G* and A22 in the single step) and the columns of A22
+  run in parallel too. Every number has one owner thread and a fixed summation
+  order, so any thread count gives the same bits: a test fits a genomic model
+  with 1 and 3 threads and requires identical -2logL and solutions, and the
+  suite passes with 1 and 4. The default is 1 thread; `options(BreedingR.threads
+  = )` or `BREEDINGR_THREADS` set it at load, and `OMP_THREAD_LIMIT` caps it.
+  `br_threads(lapack = TRUE)` hands the dense inverses to R's LAPACK, for an
+  optimized multithreaded BLAS.
+
 ## Fixed
 
 * The multi-trait `model_ar1()` returned `ebv` and `pev` shifted by
@@ -155,6 +168,27 @@
   applied to the genotyped clique of an exact single step (half the graph) it
   hid from the ordering how many genotyped neighbours each other animal has, and
   the exact fit was about 1.3x slower per iteration.
+* Measured on 20 cores with R's reference BLAS, median of 3: a sparse factor
+  with a dense tail of 3000 columns took 4.09 s and takes 1.97 s on 1 thread and
+  0.73 s on 8 (the tail alone 1.2 to 0.16 s, the rest is converting triplets in
+  `sparse_chol()`); `h_inverse()` with 3000 genotyped animals of 12 000, exact
+  route, 22.9 s (before the tiled dense inverse) to 3.3 s on 8 threads.
+* The single step builds A22 by Colleau's (2002) algorithm, three passes over the
+  pedigree per genotyped column, and inverts it once (the preGSf90 route,
+  Aguilar et al., 2011), instead of the Schur complement of the non-genotyped
+  block: `h_inverse()` with 1500 genotyped of 12 000, 15.1 to 1.9 s on 1 thread,
+  the sum of all entries equal to 13 significant digits. Pedigrees with
+  metafounders keep the Schur route.
+* `a22_inverse()` (the Schur route) multiplied by the dense n1 x n2 block B12,
+  which holds a handful of parents and progeny per column: n1 n2^2 flops over
+  zeros. With B12 sparse and the columns in parallel, 1500 genotyped of 12 000
+  took 283 s and take 10.2 s on 1 thread and 1.6 s on 8, the sum of all entries
+  equal to 13 significant digits.
+* In `model()`, `model_mt()`, `model_ar1()` and `gibbs()` the symmetric
+  permutation of the mixed model equations is a stored map of values from the
+  second evaluation on, instead of a new sort by triplets at each one.
+* APY: the two products of order nc^2 nj go to R's BLAS (`dgemm`, `dsyrk`), and
+  the core animals are found by hash instead of a linear search per animal.
 * The score and the average information of `rho` in `model_ar1()` use the
   tridiagonal derivative of Gamma^-1 instead of the dense Gamma and
   Gamma^-1 dGamma Gamma^-1, which cost O(m^4) per subject of m records and per
