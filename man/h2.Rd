@@ -13,7 +13,7 @@ h2(fit, group = NULL, trait = NULL, n = NULL, r = 0)
 
 \item{trait}{for a multi-trait fit, which trait; all of them by default}
 
-\item{n}{group size, required when the model has an \code{\link[=indirect]{indirect()}} term and ignored
+\item{n}{group size, required when the model has an \code{indirect()} term and ignored
 otherwise; a vector gives one value per size}
 
 \item{r}{average additive relationship between group mates, used with \code{n}}
@@ -36,7 +36,7 @@ animal and not the phenotypic variance of a record. Parameters that are not
 denominator.
 }
 \details{
-With an \code{\link[=indirect]{indirect()}} term the phenotypic variance depends on the group size: each
+With an \code{indirect()} term the phenotypic variance depends on the group size: each
 record carries the indirect effects of its \code{n - 1} group mates. The denominator is then
 the one of Bijma, Muir and Van Arendonk (2007),
 \verb{sigma2_AD + c_V [1 + (n - 2) r] sigma2_AS + 2 r c_D sigma_ADS} plus the other

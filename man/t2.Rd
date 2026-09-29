@@ -7,7 +7,7 @@
 t2(fit, n, r = 0, trait = NULL)
 }
 \arguments{
-\item{fit}{result of \code{\link[=model]{model()}} or \code{\link[=model_mt]{model_mt()}} with an \code{\link[=indirect]{indirect()}} term}
+\item{fit}{result of \code{\link[=model]{model()}} or \code{\link[=model_mt]{model_mt()}} with an \code{indirect()} term}
 
 \item{n}{group size, one number or a vector of sizes}
 
@@ -30,7 +30,7 @@ the \code{n - 1} group mates (Bijma, Muir and Van Arendonk 2007). Its variance i
 \code{\link[=h2]{h2()}}:
 \verb{sigma2_P = sigma2_AD + c_V [1 + (n - 2) r] sigma2_AS + 2 r c_D sigma_ADS + others},
 with \code{c_D = (n - 1)^(1 - d)} and \verb{c_V = (n - 1)^(1 - 2d)} under the dilution \code{d} of
-the \code{\link[=indirect]{indirect()}} term (Bijma 2010; \code{d = 0} is the plain sum over mates). With \code{d = 0}
+the \code{indirect()} term (Bijma 2010; \code{d = 0} is the plain sum over mates). With \code{d = 0}
 and r = 0 the denominator reduces to \verb{sigma2_AD + (n - 1) sigma2_AS + others}, and the
 direct-indirect covariance leaves it. No program reports T2 by itself; this is the
 formula the literature computes by hand (Leite et al. 2023 use it with the average

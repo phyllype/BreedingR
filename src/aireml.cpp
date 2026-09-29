@@ -199,10 +199,20 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
     q_ordem += dim * nl;
 
     Densa cg = cov_grupo(d.modelo, theta, g);
-    Densa cinv = inv_geral(cg);
     Densa cgs = cg;
     for (double& v : cgs.dados) v /= s2e;
-    Densa cinv_s = inv_geral(cgs);
+    // Na fronteira (correlacao 1, a crista de um desenho aliasado) a Cholesky da montagem
+    // pode aceitar a C_g com um pivo de 1e-17 e a LU daqui achar um pivo zero exato: o
+    // arredondamento das duas difere, e qual delas vence muda de plataforma (medido no CI
+    // do Linux, com o mesmo teste passando no Windows). O ponto e inadmissivel, como na
+    // montagem, e nao um erro que derruba o ajuste.
+    Densa cinv, cinv_s;
+    try {
+      cinv = inv_geral(cg);
+      cinv_s = inv_geral(cgs);
+    } catch (const Erro&) {
+      return A;
+    }
 
     // Q[a,b] = u_a' K^-1 u_b
     Densa Q(dim, dim);

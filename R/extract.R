@@ -68,7 +68,7 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
 #' (co)variances, such as the `rho(residual)` of [model_ar1()], stay out of the
 #' denominator.
 #'
-#' With an [indirect()] term the phenotypic variance depends on the group size: each
+#' With an `indirect()` term the phenotypic variance depends on the group size: each
 #' record carries the indirect effects of its `n - 1` group mates. The denominator is then
 #' the one of Bijma, Muir and Van Arendonk (2007),
 #' `sigma2_AD + c_V [1 + (n - 2) r] sigma2_AS + 2 r c_D sigma_ADS` plus the other
@@ -88,7 +88,7 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
 #' @param fit result of `model()`, `model_mt()` or `model_ar1()`
 #' @param group covariance group; the first one by default
 #' @param trait for a multi-trait fit, which trait; all of them by default
-#' @param n group size, required when the model has an [indirect()] term and ignored
+#' @param n group size, required when the model has an `indirect()` term and ignored
 #'   otherwise; a vector gives one value per size
 #' @param r average additive relationship between group mates, used with `n`
 #' @return a single number, or one per trait in the multi-trait case, named by trait;
@@ -154,7 +154,7 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0) {
 #' [h2()]:
 #' `sigma2_P = sigma2_AD + c_V [1 + (n - 2) r] sigma2_AS + 2 r c_D sigma_ADS + others`,
 #' with `c_D = (n - 1)^(1 - d)` and `c_V = (n - 1)^(1 - 2d)` under the dilution `d` of
-#' the [indirect()] term (Bijma 2010; `d = 0` is the plain sum over mates). With `d = 0`
+#' the `indirect()` term (Bijma 2010; `d = 0` is the plain sum over mates). With `d = 0`
 #' and r = 0 the denominator reduces to `sigma2_AD + (n - 1) sigma2_AS + others`, and the
 #' direct-indirect covariance leaves it. No program reports T2 by itself; this is the
 #' formula the literature computes by hand (Leite et al. 2023 use it with the average
@@ -167,7 +167,7 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0) {
 #' add. With pens of different sizes, give the sizes as a vector and read one row per
 #' size, or give the average size, the convention of the literature.
 #'
-#' @param fit result of [model()] or [model_mt()] with an [indirect()] term
+#' @param fit result of [model()] or [model_mt()] with an `indirect()` term
 #' @param n group size, one number or a vector of sizes
 #' @param r average additive relationship between group mates (0 for unrelated mates)
 #' @param trait for a multi-trait fit, which trait; all of them by default
