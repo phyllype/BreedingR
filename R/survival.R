@@ -504,13 +504,19 @@ coef.breeding_fit_surv <- function(object, effects = c("components", "fixed"), .
 #'   included) -- that is how the book computes the percentage of live daughters.
 #' @param time survival mode only: the time (one number, or one per row of `newdata`)
 #'   at which to evaluate `S(t)`
+#' @param entry survival mode only: the time (one number, or one per row) the animal is
+#'   known alive at; the result is then `S(time | entry) = S(time) / S(entry)`, the
+#'   survival over the piece `(entry, time]` of an elementary record. For an animal whose
+#'   covariates change along its life, the survival to the end is the PRODUCT of this over
+#'   its pieces (each with its own covariates), which is how the time-dependent model of
+#'   `model_survival(entry =, subject =)` reads
 #' @param type `"risk"` (default) for the relative risk `exp(d)`, `"survival"` for
 #'   `S(time)`
 #' @param ... unused, kept for the generic
 #' @return a numeric vector, one value per row of `newdata`
 #' @export
 predict.breeding_fit_surv <- function(object, newdata, time = NULL,
-                                      type = c("risk", "survival"), ...) {
+                                      type = c("risk", "survival"), entry = NULL, ...) {
   type <- match.arg(type)
   if (!is.data.frame(newdata)) stop("newdata must be a data.frame")
   n <- nrow(newdata)
@@ -554,8 +560,84 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
     stop("time must be one positive number, or one per row of newdata")
   # the intercept, when estimated, is already rho*log(lambda) inside d; with lambda
   # given it enters here through (lambda t)^rho
-  base <- if (object$lambda_given) (object$lambda * time)^object$rho else time^object$rho
+  acumula <- function(t) if (object$lambda_given) (object$lambda * t)^object$rho else t^object$rho
+  base <- acumula(time)
+  if (!is.null(entry)) {
+    entry <- as.double(entry)
+    if (length(entry) == 1L) entry <- rep(entry, n)
+    if (length(entry) != n || any(!is.finite(entry)) || any(entry < 0) || any(entry >= time))
+      stop("entry must be one number, or one per row, with 0 <= entry < time")
+    base <- base - acumula(entry)
+  }
   exp(-base * exp(d))
+}
+
+#' Elementary survival records from subjects and covariate changes
+#'
+#' Builds the `(entry, stop]` pieces that `model_survival(entry =, subject =)` reads from
+#' two tables: one row per subject with the end of its follow-up, the event indicator and
+#' the covariates at the start, and one row per CHANGE of a time-dependent covariate, with
+#' the time it happens and the new values. Each subject is cut at its change times; every
+#' piece carries the covariate values in force during it, the subject's time-fixed columns,
+#' and the event only on the last piece (a piece that ends before the end of the follow-up
+#' is right-censored by construction). Changes at or after the end of the follow-up change
+#' nothing and are dropped, with the count in the attribute `"dropped_changes"`.
+#'
+#' @param subjects data.frame, one row per subject: `id`, `time` (end of follow-up),
+#'   `event` (1 failure, 0 censored), the starting values of every time-dependent
+#'   covariate named in `changes`, and any time-fixed column
+#' @param changes data.frame: `id`, `at` (the time of the change, `> 0`) and the new values
+#'   of one or more time-dependent covariates (columns also present in `subjects`)
+#' @param id,time,event,at column names
+#' @return data.frame of elementary records: the subject columns, with `entry` added,
+#'   `time` holding the end of each piece and `event` its indicator, ordered by subject
+#'   and entry. Fit it with `model_survival(time ~ ..., censor = "event", entry =
+#'   "entry", subject = "id")`.
+#' @export
+survival_split <- function(subjects, changes, id = "id", time = "time", event = "event",
+                           at = "at") {
+  if (!is.data.frame(subjects) || !is.data.frame(changes))
+    stop("subjects and changes must be data.frames")
+  falta <- setdiff(c(id, time, event), names(subjects))
+  if (length(falta)) stop("no column(s) in subjects: ", paste(falta, collapse = ", "))
+  falta <- setdiff(c(id, at), names(changes))
+  if (length(falta)) stop("no column(s) in changes: ", paste(falta, collapse = ", "))
+  tdc <- setdiff(names(changes), c(id, at))
+  if (!length(tdc)) stop("changes has no covariate column besides id and at")
+  sem <- setdiff(tdc, names(subjects))
+  if (length(sem))
+    stop("time-dependent column(s) missing from subjects (their starting values): ",
+         paste(sem, collapse = ", "))
+  chave <- as.character(subjects[[id]])
+  if (anyDuplicated(chave)) stop("a subject appears more than once in subjects")
+  fim <- as.double(subjects[[time]])
+  if (any(!is.finite(fim)) || any(fim <= 0)) stop("time must be finite and > 0")
+  ev <- subjects[[event]]
+  if (any(!ev %in% c(0, 1))) stop("event must be 0 or 1")
+  qual <- match(as.character(changes[[id]]), chave)
+  if (anyNA(qual)) stop("change(s) for subject(s) not in subjects: ",
+                        paste(utils::head(unique(changes[[id]][is.na(qual)]), 3), collapse = ", "))
+  quando <- as.double(changes[[at]])
+  if (any(!is.finite(quando)) || any(quando <= 0))
+    stop("at must be finite and > 0: the value at the start belongs in subjects")
+  if (anyDuplicated(paste(qual, quando, sep = "_")))
+    stop("two changes of the same subject at the same time: merge them into one row")
+  dentro <- quando < fim[qual]
+  # as linhas de partida (entry 0, valores de subjects) e as de mudanca, empilhadas e
+  # ordenadas por sujeito e inicio; o fim de cada trecho e o inicio do seguinte
+  ini <- c(rep(0, nrow(subjects)), quando[dentro])
+  suj <- c(seq_len(nrow(subjects)), qual[dentro])
+  o <- order(suj, ini)
+  suj <- suj[o]; ini <- ini[o]
+  ultimo <- c(suj[-1] != suj[-length(suj)], TRUE)
+  out <- subjects[suj, , drop = FALSE]
+  for (v in tdc)
+    out[[v]] <- c(subjects[[v]], changes[[v]][dentro])[o]
+  out$entry <- ini
+  out[[time]] <- ifelse(ultimo, fim[suj], c(ini[-1], NA))
+  out[[event]] <- ifelse(ultimo, ev[suj], 0)
+  rownames(out) <- NULL
+  structure(out, dropped_changes = sum(!dentro))
 }
 
 # Os registros elementares de cada sujeito: (entry, stop] com 0 <= entry < stop, sem

@@ -567,6 +567,21 @@ round(predict(fsu, data.frame(herd = "1", ysp = "4", cow = "1"),
               time = 40, type = "survival"), 3)   # S(40) = 0.394
 ```
 
+A covariate that changes along the life enters as elementary records `(entry, stop]` of one
+subject. `survival_split()` builds them from one row per subject and one row per change,
+and `predict(entry =)` is the survival over one piece, so the survival of a life is the
+product over its pieces:
+
+```{r}
+subj <- data.frame(id = c("a", "b"), time = c(40, 30), event = c(1, 0), ysp = "1",
+                   herd = "1", cow = c("1", "2"))
+chg <- data.frame(id = "a", at = 20, ysp = "2")
+pieces <- survival_split(subj, chg)
+pieces
+prod(predict(fsu, pieces[pieces$id == "a", ], time = pieces$time[pieces$id == "a"],
+             entry = pieces$entry[pieces$id == "a"], type = "survival"))
+```
+
 ## The rule behind the tour
 
 A new model is almost never a new function: it is a marker inside the formula of one

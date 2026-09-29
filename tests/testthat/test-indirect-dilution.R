@@ -100,10 +100,11 @@ test_that("dilution absent and dilution = 0 are the SAME fit, bit for bit", {
   expect_error(model(y ~ cg + animal(id, group = "g") +
                        indirect(id, pen = "baia", group = "g", dilution = "um"),
                      dat, ped, verbose = FALSE), "single finite number")
-  # the fitters that do not transport dilution refuse it instead of fitting d = 0
-  expect_error(model_mt(cbind(y, y) ~ cg + animal(id, group = "g") +
+  # the fitter that does not transport dilution (snp_blup) refuses it instead of fitting d = 0
+  expect_error(snp_blup(y ~ cg + animal(id, group = "g") +
                           indirect(id, pen = "baia", group = "g", dilution = 1),
-                        dat, ped), "does not carry dilution")
+                        dat, ped, genotypes = list(ids = "a01", m = matrix(1, 1, 1)),
+                        theta = c(1, 0, 1, 1)), "does not carry dilution")
 })
 
 test_that("THEOREM: d = 1 equals a dense GLS with the mate-mean Z_S built by hand", {

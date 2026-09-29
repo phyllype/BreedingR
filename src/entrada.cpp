@@ -419,10 +419,9 @@ SEXP R_resolve(SEXP i, SEXP j, SEXP x, SEXP n, SEXP b) {
 
 // Monta Modelo + Tabela + Pedigree a partir dos objetos do R.
 //
-// `tdil` e a diluicao por termo, paralela a tsoc; o padrao R_NilValue existe porque so os
-// pontos de entrada que ja transportam dilution= (R_ajustar, R_avaliar) a enviam. Os
-// demais ajustadores recusam dilution > 0 no lado R (recusa_dilution em R/model.R) e
-// continuam chamando com a aridade antiga.
+// `tdil` e a diluicao por termo, paralela a tsoc; o padrao R_NilValue existe porque o
+// snp_blup() ainda nao a envia (ele recusa dilution > 0 no lado R, recusa_dilution em
+// R/model.R) e continua chamando com a aridade antiga.
 static br::Modelo modelo_do_R(SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov, SEXP test,
                               SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP ausente,
                               SEXP usa_ausente, SEXP tdil = R_NilValue,
@@ -441,6 +440,7 @@ static br::Modelo modelo_do_R(SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov, SEXP 
                 : e == 1 ? br::Estrutura::Diagonal : br::Estrutura::Fixo;
     const char* nest = CHAR(STRING_ELT(tnest, k));
     if (*nest) t.aninhado = nest;
+    if (t.aninhado.rfind("mgs:", 0) == 0) { t.mgs = true; t.aninhado = t.aninhado.substr(4); }
     t.social = LOGICAL(tsoc)[k] != 0;
     if (tdil != R_NilValue) {
       if (TYPEOF(tdil) != REALSXP || XLENGTH(tdil) != nt)
@@ -882,11 +882,11 @@ SEXP R_a22_inversa(SEXP pid, SEXP ppai, SEXP pmae, SEXP geno) {
 SEXP R_avaliar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEXP tcov,
                   SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                   SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta,
-                  SEXP com_densa, SEXP mfx, SEXP gmx, SEXP kern) {
+                  SEXP com_densa, SEXP mfx, SEXP gmx, SEXP kern, SEXP tdil) {
   GUARDA(
     SEXP alvo1 = PROTECT(Rf_mkString(CHAR(STRING_ELT(alvos, 0))));
     br::Modelo m = modelo_do_R(alvo1, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
-                               ausente, usa_ausente);
+                               ausente, usa_ausente, tdil);
     UNPROTECT(1);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
@@ -935,11 +935,11 @@ SEXP R_avaliar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
 SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEXP tcov,
                   SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                   SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP maxiter,
-                  SEXP tol, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start) {
+                  SEXP tol, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start, SEXP tdil) {
   GUARDA(
     SEXP alvo1 = PROTECT(Rf_mkString(CHAR(STRING_ELT(alvos, 0))));
     br::Modelo m = modelo_do_R(alvo1, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
-                               ausente, usa_ausente);
+                               ausente, usa_ausente, tdil);
     UNPROTECT(1);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
@@ -1088,11 +1088,11 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
 SEXP R_avaliar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                    SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                    SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP sujeito,
-                   SEXP tempo, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx, SEXP kern) {
+                   SEXP tempo, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx, SEXP kern, SEXP tdil) {
   GUARDA(
     SEXP alvo1 = PROTECT(Rf_mkString(CHAR(STRING_ELT(alvo, 0))));
     br::Modelo m = modelo_do_R(alvo1, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
-                               ausente, usa_ausente);
+                               ausente, usa_ausente, tdil);
     UNPROTECT(1);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
@@ -1138,11 +1138,11 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
                    SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                    SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP sujeito,
                    SEXP tempo, SEXP maxiter, SEXP tol, SEXP gid, SEXP gm, SEXP mistura,
-                   SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start) {
+                   SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start, SEXP tdil) {
   GUARDA(
     SEXP alvo1 = PROTECT(Rf_mkString(CHAR(STRING_ELT(alvo, 0))));
     br::Modelo m = modelo_do_R(alvo1, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
-                               ausente, usa_ausente);
+                               ausente, usa_ausente, tdil);
     UNPROTECT(1);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
@@ -1289,12 +1289,12 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
              SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP gid, SEXP gm, SEXP mistura,
              SEXP anucleo, SEXP n_iter, SEXP burnin, SEXP thin, SEXP loc_fixa,
              SEXP theta_fixo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern,
-             SEXP tfix, SEXP ptipo, SEXP pdf, SEXP pesc, SEXP fam) {
+             SEXP tfix, SEXP ptipo, SEXP pdf, SEXP pesc, SEXP fam, SEXP tdil) {
   GUARDA(
     // kernel() e kernel(fixed =) chegam como no model(): o amostrador ja era generico em
     // K^-1 (o bloco de localizacao e a InvWishart leem d.kinv[g]); faltava so o transporte
     br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente,
-                               usa_ausente, R_NilValue, tfix);
+                               usa_ausente, tdil, tfix);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
     const br::Pedigree* pp = nullptr;
@@ -1613,11 +1613,11 @@ static const R_CallMethodDef metodos[] = {
   {"R_avaliar",      (DL_FUNC) &R_avaliar,     28},
   {"R_ajustar",      (DL_FUNC) &R_ajustar,     32},
   {"R_a22_inversa",  (DL_FUNC) &R_a22_inversa,  4},
-  {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  21},
-  {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  28},
-  {"R_avaliar_ar1",  (DL_FUNC) &R_avaliar_ar1, 23},
-  {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 30},
-    {"R_gibbs", (DL_FUNC) &R_gibbs, 35},
+  {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  22},
+  {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  29},
+  {"R_avaliar_ar1",  (DL_FUNC) &R_avaliar_ar1, 24},
+  {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 31},
+    {"R_gibbs", (DL_FUNC) &R_gibbs, 36},
   {"R_snp_blup",   (DL_FUNC) &R_snp_blup,  25},
 {"R_versao",     (DL_FUNC) &R_versao,     0},
   {"R_threads",    (DL_FUNC) &R_threads,    2},

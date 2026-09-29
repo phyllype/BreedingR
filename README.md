@@ -98,7 +98,7 @@ fitter of its own.
 | the same models, sampled instead of maximised | same formula, `prior=` | `gibbs()` |
 | binary trait, sampled on the liability | same formula, `family = "probit"` | `gibbs()` |
 | ordered categorical trait | same formula, components given or `estimate = TRUE` | `model_threshold()` |
-| time to failure, right-censored | `censor=`; `entry=`, `subject=` for covariates that change | `model_survival()` |
+| time to failure, right-censored | `censor=`; `entry=`, `subject=` for covariates that change | `model_survival()`; `survival_split()` builds the pieces |
 | competitive ability from grouped contests | contest table | `competition_strength()` |
 
 Relationships and genomics are arguments, not different programs.
@@ -242,8 +242,10 @@ core <- apy_core_select(list(ids = gids, m = M))   # choose once, pass it to eve
 
 # a pedigree of sires and maternal grandsires is DECLARED, never guessed: the grandsire
 # path weighs 1/4 (Mrode & Pocrnic, 2023, secs. 3.6 and 3.7), and a third column named
-# mgs, mgsire or maternal_grandsire is refused unless declared
+# mgs, mgsire or maternal_grandsire is refused unless declared; sire(sire, mgs = "mgs")
+# is the sire and maternal-grandsire model, 1 on the sire and 1/2 on the grandsire
 model(y ~ herd + sire(sire), d, sire_mgs(bulls))
+model(y ~ herd + sire(sire, mgs = "mgs"), d, sire_mgs(bulls))
 
 # multi-trait with full R0 and missingness by pattern; a fixed level with no record for
 # one trait drops as the pair (column, trait), reported in dropped_x as 'CG=5|y1'

@@ -26,7 +26,10 @@ model(
 \arguments{
 \item{formula}{for example \code{peso ~ cg + sexo + animal(id)}. An unmarked term is a fixed
 class effect; \code{cov(x)} is a fixed covariate; \code{animal(id)}, \code{maternal(dam)} and
-\code{sire(sire)} are random with relationship; \code{pe(id)} and \code{random(lote)} are random
+\code{sire(sire)} are random with relationship, and \code{sire(sire, mgs = "mgs")} is the sire
+and maternal-grandsire model, 1 on the sire and 1/2 on the maternal grandsire of the
+record in the same effect (an unknown grandsire, "0", leaves the sire only); \code{pe(id)}
+and \code{random(lote)} are random
 without relationship. \code{group = "nome"} puts two random terms in the SAME covariance
 matrix, with the correlation estimated. \code{indirect(id, pen = "pen")} is the indirect
 (associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a

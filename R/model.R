@@ -19,7 +19,7 @@ MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "indi
 # anything else is a typo or a misunderstanding, and both are worth stopping for.
 ARGS_MARCADOR <- local({
   comum <- c("nome", "group", "nested", "base")
-  list(animal = comum, maternal = comum, sire = comum, pe = comum, random = comum,
+  list(animal = comum, maternal = comum, sire = c(comum, "mgs"), pe = comum, random = comum,
        cov = comum, rn = comum,
        indirect = c(comum, "pen", "dilution"),
        kernel = c(comum, "K", "fixed"))
@@ -29,7 +29,10 @@ ARGS_MARCADOR <- local({
 #'
 #' @param formula for example `peso ~ cg + sexo + animal(id)`. An unmarked term is a fixed
 #'   class effect; `cov(x)` is a fixed covariate; `animal(id)`, `maternal(dam)` and
-#'   `sire(sire)` are random with relationship; `pe(id)` and `random(lote)` are random
+#'   `sire(sire)` are random with relationship, and `sire(sire, mgs = "mgs")` is the sire
+#'   and maternal-grandsire model, 1 on the sire and 1/2 on the maternal grandsire of the
+#'   record in the same effect (an unknown grandsire, "0", leaves the sire only); `pe(id)`
+#'   and `random(lote)` are random
 #'   without relationship. `group = "nome"` puts two random terms in the SAME covariance
 #'   matrix, with the correlation estimated. `indirect(id, pen = "pen")` is the indirect
 #'   (associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a
@@ -175,7 +178,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     stop("there is a term with relationship (animal, maternal or sire) and no pedigree was given")
 
   used_columns <- unique(c(trait, vapply(terms, function(t) t$column, character(1)),
-                             unlist(lapply(terms, function(t) t$nested)),
+                             unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
                              unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
@@ -438,6 +441,15 @@ interpreta_termo <- function(e) {
   # number of distinct animals in the pen of record i. d = 0 is the book's plain sum and
   # the default; d = 1 is the mate mean. The value crosses over in the dilution field and
   # only model() and eval_internal() carry it down to the engine.
+  # sire(sire, mgs = "mgs"): the sire / maternal-grandsire MODEL (Quaas and Pollak; Mrode and
+  # Pocrnic ch. 3): the record carries 1 on the sire and 1/2 on the maternal grandsire, two
+  # levels of the SAME effect. The grandsire column crosses over in the nested field with a
+  # "mgs:" prefix the engine strips; an unknown grandsire ("0", "", NA) leaves the sire only.
+  if (marc == "sire" && !is.null(args[["mgs"]])) {
+    if (nzchar(nested) || nzchar(base))
+      stop("sire(mgs =) takes neither nested = nor base =")
+    nested <- paste0("mgs:", pega("mgs"))
+  }
   dilution <- 0
   if (marc == "indirect") {
     pen <- pega("pen")
@@ -489,8 +501,8 @@ interpreta_termo <- function(e) {
        marcador = marc)
 }
 
-# dilution= only travels down the .Call of model() and eval_internal(). The fitters that
-# do not carry it yet call this right after decompoe_formula(): refusing loudly beats
+# dilution= travels down the .Call of every fitter except snp_blup(), which does not
+# carry it yet and calls this right after decompoe_formula(): refusing loudly beats
 # fitting d = 0 in silence and reporting components of a model the user did not write.
 recusa_dilution <- function(terms, quem) {
   d <- vapply(terms, function(t) t$dilution, numeric(1))
@@ -538,7 +550,7 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
   terms <- decompoe_formula(formula[[3]])
   recusa_materno_mgs(terms, pedigree)
   used_columns <- unique(c(trait, vapply(terms, function(t) t$column, character(1)),
-                             unlist(lapply(terms, function(t) t$nested)),
+                             unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
                              unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
   used_columns <- used_columns[nzchar(used_columns)]
   lst <- lapply(data[used_columns], function(col) {

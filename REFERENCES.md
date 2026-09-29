@@ -113,6 +113,12 @@ Griffing, B. (1967). Selection in reference to biological groups. I. Individual 
 group selection applied to populations of unordered groups. *Australian Journal of
 Biological Sciences* 20:127-140.
 
+Harville, D.A. (1974). Bayesian inference for variance components using only error
+contrasts. *Biometrika* 61:383-385.
+
+Hayes, J.F. & Hill, W.G. (1981). Modification of estimates of parameters in the
+construction of genetic selection indices ('bending'). *Biometrics* 37:483-493.
+
 Henderson, C.R. (1950). Estimation of genetic parameters (abstract). *Annals of
 Mathematical Statistics* 21:309-310.
 
@@ -272,6 +278,8 @@ aspects of maternal effects in animals. *Journal of Animal Science* 35:1288-1293
 Wright, S. (1922). Coefficients of inbreeding and relationship. *American Naturalist*
 56:330-338.
 
+Xavier, A. & Habier, D. (2022). A new approach fits multivariate genomic prediction
+models efficiently. *Genetics Selection Evolution* 54:45.
 
 ## Surveyed, not implemented
 

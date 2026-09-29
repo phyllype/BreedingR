@@ -58,7 +58,7 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   recusa_dilution(terms, "snp_blup()")
 
   used_columns <- unique(c(trait, vapply(terms, function(t) t$column, character(1)),
-                           unlist(lapply(terms, function(t) t$nested)),
+                           unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
                            unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))

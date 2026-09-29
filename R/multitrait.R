@@ -84,14 +84,13 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
 
   terms <- decompoe_formula(formula[[3]])
   recusa_materno_mgs(terms, pedigree)
-  recusa_dilution(terms, "model_mt()")
   recusa_kfixo(terms, "model_mt()")
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
   if (precisa_ped && is.null(pedigree))
     stop("there is a term with a relationship structure and no pedigree was given")
 
   used_columns <- unique(c(traits, vapply(terms, function(t) t$column, character(1)),
-                             unlist(lapply(terms, function(t) t$nested)),
+                             unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
                              unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
@@ -133,7 +132,8 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
              monta_kernels(terms, environment(formula)),
-             if (is.null(start)) numeric(0) else as.double(start))
+             if (is.null(start)) numeric(0) else as.double(start),
+             vapply(terms, function(t) t$dilution, numeric(1)))
   r$seconds <- proc.time()[["elapsed"]] - t0
   r <- anota_nucleo(r, nuc)
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
@@ -165,9 +165,8 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
   traits <- vapply(as.list(lhs)[-1], deparse, character(1))
   terms <- decompoe_formula(formula[[3]])
   recusa_materno_mgs(terms, pedigree)
-  recusa_dilution(terms, "eval_internal_mt()")
   used_columns <- unique(c(traits, vapply(terms, function(t) t$column, character(1)),
-                             unlist(lapply(terms, function(t) t$nested)),
+                             unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
                              unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
   used_columns <- used_columns[nzchar(used_columns)]
   lst <- lapply(data[used_columns], function(col) {
@@ -194,7 +193,8 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
-             monta_kernels(terms, environment(formula)))
+             monta_kernels(terms, environment(formula)),
+             vapply(terms, function(t) t$dilution, numeric(1)))
 }
 
 #' Genetic correlation between two traits, from the multi-trait fit

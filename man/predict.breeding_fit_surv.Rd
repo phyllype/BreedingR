@@ -4,7 +4,14 @@
 \alias{predict.breeding_fit_surv}
 \title{Relative risks and survival probabilities from a survival fit}
 \usage{
-\method{predict}{breeding_fit_surv}(object, newdata, time = NULL, type = c("risk", "survival"), ...)
+\method{predict}{breeding_fit_surv}(
+  object,
+  newdata,
+  time = NULL,
+  type = c("risk", "survival"),
+  entry = NULL,
+  ...
+)
 }
 \arguments{
 \item{object}{result of \code{\link[=model_survival]{model_survival()}}}
@@ -18,6 +25,13 @@ at which to evaluate \code{S(t)}}
 
 \item{type}{\code{"risk"} (default) for the relative risk \code{exp(d)}, \code{"survival"} for
 \code{S(time)}}
+
+\item{entry}{survival mode only: the time (one number, or one per row) the animal is
+known alive at; the result is then \code{S(time | entry) = S(time) / S(entry)}, the
+survival over the piece \verb{(entry, time]} of an elementary record. For an animal whose
+covariates change along its life, the survival to the end is the PRODUCT of this over
+its pieces (each with its own covariates), which is how the time-dependent model of
+\code{model_survival(entry =, subject =)} reads}
 
 \item{...}{unused, kept for the generic}
 }

@@ -98,6 +98,27 @@
   deviations and the accuracy from 0.282 to 0.294, the same with the estimated
   and the true Gamma.
 
+* `survival_split(subjects, changes)`: the elementary records `(entry, stop]` of
+  `model_survival(entry =, subject =)` from one row per subject and one row per
+  covariate change, the event only on the last piece. `predict(type =
+  "survival", entry =)` gives the survival over one piece, `S(time) / S(entry)`.
+  Gate: on the simulated data of the time-dependent test, the two tables
+  reproduce the hand-built records exactly, and the fit is the same.
+
+* `sire(sire, mgs = "mgs")`: the sire and maternal-grandsire model, the record
+  carrying 1 on its sire and 1/2 on its maternal grandsire in the same effect; an
+  unknown grandsire leaves the sire only. Gate: -2logL and BLUP equal to the
+  dense GLS with the incidence built by hand, over the A of the sire and
+  maternal-grandsire pedigree.
+
+* `indirect(dilution = )` also in `model_mt()`, `model_ar1()` and `gibbs()`: the
+  dilution of Bijma (2010) was applied by the design all of them share, and only
+  the argument did not cross their calls, so they refused it. Gates on pens of
+  unequal size: the bivariate fit without covariance between traits is the sum
+  of the two univariate fits with the same d, the AR(1) at rho = 0 is `model()`,
+  and the Gibbs chain with fixed components reproduces the diluted BLUP.
+  `snp_blup()` still refuses `dilution > 0`.
+
 * `pegs()`: the multivariate SNP-BLUP of Xavier and Habier (2022), ported from
   this project's validated Julia engine and giving the same numbers on the same
   data: the effects of one marker for every trait solved together by randomized
@@ -113,6 +134,13 @@
   The result pools the chains (locations by the total variance over all draws)
   and reports `rhat`, the rank-normalized split R-hat of Vehtari et al. (2021),
   also exported as `rhat()`.
+  Validated against Harville (1974): with flat priors the marginal posterior of
+  the components is the REML likelihood, so a 2-D quadrature of the -2logL of
+  `eval_internal()` gives the exact posterior. On 200 animals, four chains of
+  60 000 iterations gave posterior means 0.6977 and 0.7757 against 0.6972 and
+  0.7755 from the quadrature (z = 0.15 and 0.08 against the Monte Carlo error),
+  the posterior standard deviations within 1 percent, R-hat 1.0007
+  (`validation/gibbs_harville.R`).
 
 * `br_threads()`: OpenMP where a genomic evaluation spends its k^3. The dense
   tail of every sparse Cholesky (the genotyped block after the ordering) is

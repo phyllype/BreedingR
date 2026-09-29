@@ -52,6 +52,11 @@ struct Termo {
   // (coeficiente 1 por companheiro, Mrode e Pocrnic 2023 cap. 9, n fixo); diluicao = 1 e a
   // media dos companheiros. So tem sentido num termo social; validado em monta_modelo.
   double diluicao = 0.0;
+  // Modelo pai / avo materno (Quaas e Pollak; Mrode e Pocrnic cap. 3): a linha i leva 1 no
+  // PAI e 1/2 no AVO MATERNO, os dois niveis do MESMO efeito de touro. A coluna do avo vem em
+  // `aninhado` (o R a manda com o prefixo "mgs:", que modelo_do_R tira); avo desconhecido
+  // ("0", "", NA) deixa so a entrada do pai.
+  bool mgs = false;
   bool aleatorio() const { return estrutura != Estrutura::Fixo; }
   std::size_t n_coef() const { return base.empty() ? 1 : base.size(); }
 };

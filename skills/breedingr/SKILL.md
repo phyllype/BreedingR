@@ -39,10 +39,11 @@ An unmarked term is a fixed class effect. Marked terms:
 | `animal(id)` | additive genetic, over A (or H with `genotypes=`) |
 | `maternal(dam)` | maternal genetic |
 | `sire(sire)` | sire model; a pedigree of sires and MATERNAL GRANDSIRES must be declared with `sire_mgs(ped)` (or `pedigree(type = "sire_mgs")`), so the grandsire path weighs 1/4 |
+| `sire(sire, mgs = "mgs")` | the sire and maternal-grandsire model: 1 on the record's sire and 1/2 on its maternal grandsire in the SAME effect; "0" is an unknown grandsire (sire only) |
 | `pe(id)` | permanent environment: what the repeated records of one subject share and is not additive genetic, so it carries the non-additive genetic effects as well (Mrode & Pocrnic, 2023, Eqn 5.1); repeatability is `share(animal) + share(pe)` in the printed table. Two `pe()` in one model must be NAMED (`nome=`): a component's name never depends on how many terms the model has |
 | `random(litter)` | iid random (litter, batch, pen, technician) |
 | `rn(id, base = c("phi0","phi1"))` | random regression / reaction norm |
-| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel 2002). The SIGN of its covariance with the direct effect separates heritable competition from heritable co-operation; the response follows the total breeding value `A_D + (n-1) A_S`, so reading it takes the pen size n too (Bijma et al. 2007): `h2(fit, n = , r = )` and `t2(fit, n = , r = )` take the size and the relationship between mates, and the `share` column is blank for this model. With unequal pens, `indirect(id, pen="pen", dilution=1)` is the mate mean: `dilution=d` scales every mate's entry to `(n_i - 1)^(-d)` (Bijma 2010), `d=0` is the plain sum and the default, and d is chosen by a small grid of fits compared on `-2logL`. `dilution > 0` is `model()` only (the siblings refuse it, saying so); `indirect()` with `d = 0` also fits in `model_mt()`, `model_ar1()` and `gibbs()`. Separability is the design's: pens of one size made of two full-sib families identify only the TBV variance and `va - 2cov + vs`, and the fit says SINGULAR |
+| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel 2002). The SIGN of its covariance with the direct effect separates heritable competition from heritable co-operation; the response follows the total breeding value `A_D + (n-1) A_S`, so reading it takes the pen size n too (Bijma et al. 2007): `h2(fit, n = , r = )` and `t2(fit, n = , r = )` take the size and the relationship between mates, and the `share` column is blank for this model. With unequal pens, `indirect(id, pen="pen", dilution=1)` is the mate mean: `dilution=d` scales every mate's entry to `(n_i - 1)^(-d)` (Bijma 2010), `d=0` is the plain sum and the default, and d is chosen by a small grid of fits compared on `-2logL`. `indirect()` with its `dilution` fits in `model()`, `model_mt()`, `model_ar1()` and `gibbs()`; `snp_blup()` refuses `dilution > 0`, saying so. Separability is the design's: pens of one size made of two full-sib families identify only the TBV variance and `va - 2cov + vs`, and the fit says SINGULAR |
 | `kernel(id, K = D)` | random term with a DECLARED covariance matrix (symmetric PD, rownames = levels; an all-zero row = a level with no contribution). Constructors: `dominance_matrix()`, `g_matrix()`, `g_dominance()`, `g_epistasis()`, `g_epistasis_ad()`, `g_epistasis_dd()`, `g_epistasis_order()` (ch. 13), `partial_a()` for the multibreed partial matrices (ch. 14). Two kernels need `nome=`. `kernel(id, K = D, fixed = v)` holds the component at v in `model()` and `gibbs()`; `model_mt()` and `model_ar1()` refuse it |
 | `group = "g"` | put two terms in one covariance matrix |
 
@@ -78,6 +79,11 @@ records per level of the random effect (Tempelman 1998); `gibbs(family = "probit
 unbiased route there. In `model_survival()` each row is an elementary record
 `(entry, stop]` of one subject, with `censor = 1` only on the last piece of a subject that
 failed; never set a covariate that is only known later from the start of the life.
+`survival_split(subjects, changes)` builds those pieces from one row per subject (end of
+follow-up, event, starting values) and one row per covariate change (`id`, `at`, new
+values), and `predict(fit, nd, time =, entry =, type = "survival")` is the survival over
+one piece, `S(time) / S(entry)`: a life with changing covariates is the product over its
+pieces.
 
 The full maternal model carries ONE permanent environment, the DAM's, which holds her
 non-additive maternal genetics as well (Mrode & Pocrnic, 2023, Eqn 8.1). A second `pe()` on

@@ -115,7 +115,6 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   trait <- deparse(formula[[2]])
   terms <- decompoe_formula(formula[[3]])
   recusa_materno_mgs(terms, pedigree)
-  recusa_dilution(terms, "gibbs()")
   kfixo <- vapply(terms, function(t) if (is.null(t$kfixo)) NA_real_ else t$kfixo, numeric(1))
   if (!is.null(theta_fixed) && any(is.finite(kfixo)))
     stop("theta_fixed already fixes every component; drop it or drop kernel(fixed =)")
@@ -125,7 +124,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     stop("there is a term with relationship and no pedigree was given")
 
   used_columns <- unique(c(trait, vapply(terms, function(t) t$column, character(1)),
-                           unlist(lapply(terms, function(t) t$nested)),
+                           unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
                            unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
@@ -190,7 +189,8 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
              monta_kernels(terms, environment(formula)), kfixo,
-             pr$tipo, pr$df, pr$scale, as.integer(family == "probit"))
+             pr$tipo, pr$df, pr$scale, as.integer(family == "probit"),
+             vapply(terms, function(t) t$dilution, numeric(1)))
   }
   r <- if (chains == 1L) cadeia(NULL) else
     junta_cadeias(roda_cadeias(cadeia, sample.int(.Machine$integer.max, chains),

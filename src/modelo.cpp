@@ -84,8 +84,10 @@ Modelo monta_modelo(const std::string& alvo, std::vector<Termo> termos,
     // parariam de casar com kron(C, K). Recusados na declaracao.
     if (!t.aleatorio() && !t.base.empty())
       throw Erro("fixed term '" + t.nome + "' with base: base is for random terms");
-    if (t.aleatorio() && !t.aninhado.empty() && !t.social)
+    if (t.aleatorio() && !t.aninhado.empty() && !t.social && !t.mgs)
       throw Erro("random term '" + t.nome + "' nested: the levels would come from the class and the covariance from the term");
+    if (t.mgs && (!t.aleatorio() || !t.base.empty() || t.efeito != Efeito::Classe))
+      throw Erro("sire term '" + t.nome + "' with mgs =: the maternal grandsire enters a random class term without base");
     if (t.social && t.aninhado.empty())
       throw Erro("indirect term '" + t.nome + "' without the pen column: without knowing who lives with whom there is no indirect effect");
     if (t.social && !t.aleatorio())
@@ -221,6 +223,33 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
       }
     }
     d.z = de_triplos(nlin, d.n_niveis, li2, cj2, v2);
+    return d;
+  }
+
+  // modelo pai / avo materno: 1 no pai e 1/2 no avo, no mesmo efeito. Pai fora do conjunto
+  // de niveis exclui o registro (como qualquer classe); avo citado e fora dos niveis e ERRO,
+  // como o companheiro de baia do termo social; avo desconhecido deixa so o pai.
+  if (tm.mgs) {
+    const std::vector<std::string> avo = t.rotulos(tm.aninhado);
+    std::vector<std::uint32_t> li, cj;
+    std::vector<double> v;
+    for (std::size_t i = 0; i < nlin; i++) {
+      auto it = pos.find(rot[i]);
+      if (it == pos.end()) { d.casou[i] = 0; continue; }
+      li.push_back(static_cast<std::uint32_t>(i));
+      cj.push_back(static_cast<std::uint32_t>(it->second));
+      v.push_back(1.0);
+      const std::string& a = avo[i];
+      if (a.empty() || a == "0" || a == "NA") continue;
+      auto ja = pos.find(a);
+      if (ja == pos.end())
+        throw Erro("sire term '" + tm.nome + "': maternal grandsire '" + a +
+                   "' is not in the level set (pedigree)");
+      li.push_back(static_cast<std::uint32_t>(i));
+      cj.push_back(static_cast<std::uint32_t>(ja->second));
+      v.push_back(0.5);
+    }
+    d.z = de_triplos(nlin, d.n_niveis, li, cj, v);
     return d;
   }
 
