@@ -24,6 +24,7 @@
 #define USE_FC_LEN_T
 #include <Rconfig.h>
 #include <R_ext/BLAS.h>
+#include <R_ext/Utils.h>
 #ifndef FCONE
 # define FCONE
 #endif
@@ -119,6 +120,103 @@ Densa vanraden_g(Densa& m, RelatorioG& rel, bool meio) {
       g.at(k2, i) = v;
     }
   return g;
+}
+
+// Lanczos sobre G = ZZ'/k para a quadratura de Lanczos estocastica (Ubaru, Chen e Saad,
+// 2017, SIAM J. Matrix Anal. Appl. 38:1075): com sondas de Rademacher v normalizadas, os nos e
+// os pesos de Gauss da tridiagonal de cada sonda estimam a medida espectral de G, e dela sai
+// quantos autovalores explicam 98% do traco sem decompor G. Os autovalores nao nulos de ZZ'
+// e Z'Z sao os mesmos, entao o operador e o do lado menor, e os dois passes por Z de cada
+// passo vao aos ladrilhos com todas as sondas de uma vez (Z'V e Z W, este lendo Z por
+// linhas). Sem reortogonalizacao: a quadratura continua certa na perda de ortogonalidade
+// (Knizhnerman 1996; e o que o artigo usa), e o portao mede isso contra o eigen exato. Z e
+// centrada NO LUGAR, com a imputacao pela media de vanraden_g.
+LanczosG lanczos_g(Densa& m, const Densa& sondas, std::size_t passos, RelatorioG& rel) {
+  const std::size_t n = m.nlin, nm = m.ncol;
+  const FreqZ fz = frequencias_z(m, rel, false);
+  double traco = 0.0;
+  for (std::size_t i = 0; i < n; i++) {
+    double* zi = m.linha(i);
+    for (std::size_t j = 0; j < nm; j++) {
+      zi[j] = fz.usa[j] ? zi[j] - 2.0 * fz.p[j] : 0.0;
+      traco += zi[j] * zi[j];
+    }
+  }
+  const bool lado_n = n <= nm;
+  const std::size_t dim = lado_n ? n : nm, nv = sondas.ncol;
+  if (sondas.nlin != dim) throw Erro("probes with the wrong number of rows");
+  if (passos < 2) throw Erro("Lanczos needs at least 2 steps");
+  const int nth = threads();
+  LanczosG r;
+  r.dim = dim;
+  r.traco = traco / fz.denom;
+  r.alfa = Densa(passos, nv);
+  r.beta = Densa(passos, nv);
+  r.passos.assign(nv, passos);
+  std::vector<char> viva(nv, 1);
+
+  // A Q, com A = ZZ'/k (lado n) ou Z'Z/k (lado m); o intermediario tem a outra dimensao
+  const std::size_t outra = lado_n ? nm : n;
+  std::vector<double> meio(outra * nv), w(dim * nv);
+  auto aplica = [&](const std::vector<double>& q) {
+    std::fill(meio.begin(), meio.end(), 0.0);
+    std::fill(w.begin(), w.end(), 0.0);
+    if (lado_n) {
+      produto_ladrilhos(m.dados.data(), nm, q.data(), nv, n, nm, nv, meio.data(), nv, false, nth);
+      produto_ladrilhos(m.dados.data(), nm, meio.data(), nv, nm, n, nv, w.data(), nv, false, nth,
+                        true);
+    } else {
+      produto_ladrilhos(m.dados.data(), nm, q.data(), nv, nm, n, nv, meio.data(), nv, false, nth,
+                        true);
+      produto_ladrilhos(m.dados.data(), nm, meio.data(), nv, n, nm, nv, w.data(), nv, false, nth);
+    }
+    for (double& x : w) x /= fz.denom;
+  };
+
+  // q normalizada por coluna; q0 a anterior
+  std::vector<double> q(dim * nv), q0(dim * nv, 0.0);
+  for (std::size_t b = 0; b < nv; b++) {
+    double s2 = 0.0;
+    for (std::size_t i = 0; i < dim; i++) s2 += sondas.at(i, b) * sondas.at(i, b);
+    if (!(s2 > 0.0)) throw Erro("a probe is zero");
+    const double s = std::sqrt(s2);
+    for (std::size_t i = 0; i < dim; i++) q[i * nv + b] = sondas.at(i, b) / s;
+  }
+  for (std::size_t j = 0; j < passos; j++) {
+    R_CheckUserInterrupt();
+    aplica(q);
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(nth) schedule(static)
+#endif
+    for (long bb = 0; bb < static_cast<long>(nv); bb++) {
+      const std::size_t b = static_cast<std::size_t>(bb);
+      if (!viva[b]) continue;
+      double a = 0.0;
+      for (std::size_t i = 0; i < dim; i++) a += w[i * nv + b] * q[i * nv + b];
+      const double bprev = j > 0 ? r.beta.at(j - 1, b) : 0.0;
+      double s2 = 0.0;
+      for (std::size_t i = 0; i < dim; i++) {
+        const double x = w[i * nv + b] - a * q[i * nv + b] - bprev * q0[i * nv + b];
+        w[i * nv + b] = x;
+        s2 += x * x;
+      }
+      r.alfa.at(j, b) = a;
+      const double bt = std::sqrt(s2);
+      r.beta.at(j, b) = bt;
+      // subespaco invariante: a tridiagonal desta sonda para aqui, exata
+      if (!(bt > 1e-12 * std::fabs(a)) || j + 1 == passos) {
+        r.passos[b] = j + 1;
+        viva[b] = 0;
+        continue;
+      }
+      for (std::size_t i = 0; i < dim; i++) {
+        q0[i * nv + b] = q[i * nv + b];
+        q[i * nv + b] = w[i * nv + b] / bt;
+      }
+    }
+    if (std::none_of(viva.begin(), viva.end(), [](char c) { return c != 0; })) break;
+  }
+  return r;
 }
 
 // A22^-1 pelo Schur ESPARSO sobre A^-1, sem nunca formar B11^-1 denso, devolvido como o

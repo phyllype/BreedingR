@@ -258,10 +258,12 @@ bool fatora_cauda(Cauda& c, int nth) {
 // paralelo por painel; (2) cada ladrilho 64 x 64 de C e de UMA thread, com miolo 4 x 4 em
 // registradores (8 leituras e 32 flops por passo de k), e so ao fim do bloco o acumulador
 // sai para C. A soma de cada entrada anda em k crescente, bloco a bloco: a mesma com
-// qualquer numero de threads.
+// qualquer numero de threads. x_por_linha: X guardada com k CONTIGUO, o elemento (k, i) em
+// x[i ldx + k] (uma matriz por linhas multiplicando pela direita, o Z W de uma Z n x m);
+// so o empacotamento muda.
 void produto_ladrilhos(const double* x, std::size_t ldx, const double* y, std::size_t ldy,
                        std::size_t K, std::size_t m, std::size_t n, double* c,
-                       std::size_t ldc, bool simetrico, int nth) {
+                       std::size_t ldc, bool simetrico, int nth, bool x_por_linha) {
   const std::size_t L = LADRILHO, KB = 256;
   const std::size_t mt = (m + L - 1) / L, nt = (n + L - 1) / L;
   if (mt == 0 || nt == 0 || K == 0) return;
@@ -271,9 +273,20 @@ void produto_ladrilhos(const double* x, std::size_t ldx, const double* y, std::s
   for (std::size_t k0 = 0; k0 < K; k0 += KB) {
     const std::size_t kw = std::min(KB, K - k0);
     auto empacota = [&](const double* src, std::size_t ld, std::size_t lim, std::size_t t,
-                        std::vector<double>& dst) {
+                        std::vector<double>& dst, bool por_linha) {
       double* d = &dst[t * KB * L];
       const std::size_t i0 = t * L, w = std::min(L, lim - i0);
+      if (por_linha) {
+        for (std::size_t r = 0; r < L; r++) {
+          if (r < w) {
+            const double* s = src + (i0 + r) * ld + k0;
+            for (std::size_t kk = 0; kk < kw; kk++) d[kk * L + r] = s[kk];
+          } else {
+            for (std::size_t kk = 0; kk < kw; kk++) d[kk * L + r] = 0.0;
+          }
+        }
+        return;
+      }
       for (std::size_t kk = 0; kk < kw; kk++) {
         const double* s = src + (k0 + kk) * ld + i0;
         double* dk = d + kk * L;
@@ -287,8 +300,8 @@ void produto_ladrilhos(const double* x, std::size_t ldx, const double* y, std::s
 #endif
     for (long t = 0; t < static_cast<long>(mt + (simetrico ? 0 : nt)); t++) {
       const std::size_t tt = static_cast<std::size_t>(t);
-      if (tt < mt) empacota(x, ldx, m, tt, px);
-      else empacota(y, ldy, n, tt - mt, py);
+      if (tt < mt) empacota(x, ldx, m, tt, px, x_por_linha);
+      else empacota(y, ldy, n, tt - mt, py, false);
     }
     const std::vector<double>& qy = simetrico ? px : py;
 #ifdef _OPENMP

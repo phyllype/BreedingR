@@ -108,7 +108,7 @@ Relationships and genomics are arguments, not different programs.
 | For | Use |
 |---|---|
 | pedigree A-inverse, inbreeding | `pedigree()`, `a_inverse()`, `a22_inverse()` |
-| a pedigree of sires and maternal grandsires | `sire_mgs()`, or `pedigree(type = "sire_mgs")` |
+| a pedigree of sires and maternal grandsires | `sire_mgs()`, or `pedigree(type = "sire_mgs")`; dams where known and grandsires elsewhere with `sire_mgs(ped, dam = "dam")` |
 | base populations that are not one pool | `metafounders=`, `gamma=` (full matrix, singular allowed); `estimate_gamma()` from the genotypes |
 | single step | `genotypes=`, and `apy_core=` or `vecchia_k=` when G is large |
 | the APY core, by the eigenvalues of G | `apy_core_select()`, or `apy_core = "auto"` |
@@ -384,8 +384,8 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | multi-trait, a level missing for one trait | sparse and dense V routes agree to 7.5e-12 after the per-trait drop; the components land where the single-trait fits land |
 | multi-trait AR(1) breeding values | EBV and PEV of the dense mixed-model equations built in R from the raw data |
 | indirect effects, identifiability | 30 replicates per design: pens of 2 to 8 recover the components (REML and Gibbs); pens of one size from two full-sib families flag SINGULAR and give the same -2logL from different starts |
-| sire / maternal-grandsire pedigree | exact: the pedigree expanded with a dummy dam per animal; the A^-1 printed for Example 15.2 |
-| APY core by eigenvalues | the count by two routes (eigenvalues of G, singular values of Z); `"auto"` == the same core passed by hand |
+| sire / maternal-grandsire pedigree | exact: the pedigree expanded with a dummy dam per animal; the A^-1 printed for Example 15.2; the mixed pedigree (`dam =`) against the same expansion only where the dam is missing, A to 1e-12 and the fit identical; at scale, 20 replicates of 36 000 records recover var(sire) = va / 4 within 1.6% (`validation/sire_mgs_recovery.R`) |
+| APY core by eigenvalues | the count by two routes (eigenvalues of G, singular values of Z); `"auto"` == the same core passed by hand; the Lanczos estimate against the exact count on both sides of the Gram matrix, and at 10 000 x 10 000 the estimate within one standard error of the exact count (5973 to 5979 against 5953, `validation/apy_core_lanczos.R`) |
 | h_inverse() | the single-step formula rebuilt in R, exact and with APY; `kernel(K = H)` == `genotypes=` at the same theta |
 | threshold, estimated components | the EM fixed point against the minimum of the Laplace -2logL found without the EM step; 80 sires with 50 daughters each, binary, planted 0.15: mean 0.148 over 10 replicates |
 | Gibbs, probit and kernel() | with the components held, the posterior mean tracks the threshold-model mode (probit) and the `model()` BLUP (kernel); `K = I` == `random(id)`, the same chain |

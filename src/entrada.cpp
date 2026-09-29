@@ -1544,6 +1544,28 @@ static SEXP densa_para_R(const br::Densa& d) {
   return m;
 }
 
+SEXP R_lanczos_g(SEXP gm, SEXP sondas, SEXP passos) {
+  GUARDA(
+    br::Densa m = densa_do_R(gm), v = densa_do_R(sondas);
+    br::RelatorioG rel;
+    br::LanczosG r = br::lanczos_g(m, v, (std::size_t) Rf_asInteger(passos), rel);
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 5));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 5));
+    const char* campos[] = {"alpha", "beta", "steps", "trace", "dim"};
+    for (int k = 0; k < 5; k++) SET_STRING_ELT(nms, k, Rf_mkChar(campos[k]));
+    SEXP st = PROTECT(Rf_allocVector(INTSXP, (R_xlen_t) r.passos.size()));
+    for (std::size_t k = 0; k < r.passos.size(); k++) INTEGER(st)[k] = (int) r.passos[k];
+    SET_VECTOR_ELT(out, 0, densa_para_R(r.alfa));
+    SET_VECTOR_ELT(out, 1, densa_para_R(r.beta));
+    SET_VECTOR_ELT(out, 2, st);
+    SET_VECTOR_ELT(out, 3, Rf_ScalarReal(r.traco));
+    SET_VECTOR_ELT(out, 4, Rf_ScalarReal((double) r.dim));
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(3);
+    return out;
+  )
+}
+
 SEXP R_pegs(SEXP y, SEXP x, SEXP maxit, SEXP tol, SEXP defl, SEXP atualiza, SEXP vb0,
             SEXP ve0, SEXP estrutura, SEXP nfat) {
   GUARDA(
@@ -1631,6 +1653,7 @@ static const R_CallMethodDef metodos[] = {
   {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 31},
     {"R_gibbs", (DL_FUNC) &R_gibbs, 36},
   {"R_snp_blup",   (DL_FUNC) &R_snp_blup,  25},
+  {"R_lanczos_g",  (DL_FUNC) &R_lanczos_g,  3},
 {"R_versao",     (DL_FUNC) &R_versao,     0},
   {"R_threads",    (DL_FUNC) &R_threads,    2},
   {"R_pegs",       (DL_FUNC) &R_pegs,      10},

@@ -124,10 +124,23 @@ apy_inverse <- function(m, core, lambda = 0.01) {
 #' accuracy still growing up to 99%, which makes `variance = 0.99` the conservative
 #' choice in small populations.
 #'
-#' The eigenvalues come from the smaller of the two Gram matrices of the centered
-#' genotypes (animals x animals or markers x markers), so the cost is cubic in
-#' `min(n_animals, n_markers)`, paid once per call. Choose the core once, keep the result
-#' and pass it to every fit, rather than `"auto"` in each of them.
+#' With `method = "exact"` the eigenvalues come from the smaller of the two Gram
+#' matrices of the centered genotypes (animals x animals or markers x markers), so the
+#' cost is cubic in `min(n_animals, n_markers)`: about half a minute at 3000 with R's
+#' reference LAPACK, 12 minutes at 10 000, and at the 30 000 x 40 000 of a routine
+#' evaluation a 7 GB matrix before the decomposition starts. `method = "lanczos"`
+#' never forms it: stochastic Lanczos quadrature (Ubaru, Chen & Saad, 2017) runs `steps`
+#' Lanczos steps on G from each of `probes` random sign vectors, using only products with
+#' the genotype matrix (two passes per step, all probes at once, on [br_threads()]
+#' threads), and the Gauss nodes and weights of the tridiagonals estimate the spectral
+#' measure of G, where the count is read at the point its mass reaches `variance`. The
+#' count is an estimate, and its standard error across probes is reported. Measured
+#' against the exact count on 3060 animals and 4000 markers, 2019 exact at 98% and 2019 to
+#' 2028 over four runs of 20 to 40 probes; on 10 000 x 10 000, 5953 exact and 5973 to 5979
+#' over three seeds, 46 s against 697 s (`validation/apy_core_lanczos.R`). The estimate
+#' tends to sit a little above the exact count, the conservative side for a core. `"auto"` takes the exact route up to
+#' `min(n_animals, n_markers) = 4000` and Lanczos above. Choose the core once, keep the
+#' result and pass it to every fit, rather than `"auto"` in each of them.
 #'
 #' @param genotypes list with `ids` and `m` (animals x markers, 0/1/2 coded); NA is
 #'   imputed with the marker mean and monomorphic markers are left out, as in
@@ -141,13 +154,21 @@ apy_inverse <- function(m, core, lambda = 0.01) {
 #'   al. 2016 found a small gain from sires and cows over a random core). The rest of the
 #'   core is drawn from the other genotyped animals. If `include` is longer than the
 #'   size, the core is `include` and a warning says so, never a silent truncation
-#' @param seed seed of the random draw; the global random stream is restored afterwards,
-#'   so a later `gibbs()` chain or simulation is not affected
+#' @param seed seed of the random draw (and of the Lanczos probes); the global random
+#'   stream is restored afterwards, so a later `gibbs()` chain or simulation is not
+#'   affected
+#' @param method `"exact"` (eigenvalues of the smaller Gram matrix), `"lanczos"`
+#'   (stochastic Lanczos quadrature, no Gram matrix) or `"auto"` (exact up to
+#'   `min(n_animals, n_markers) = 4000`)
+#' @param probes,steps random sign vectors and Lanczos steps of the `"lanczos"` route;
+#'   the cost is `2 x steps` passes over the genotype matrix with `probes` columns
 #' @return character vector with the ids of the core animals, in genotype order, of class
 #'   `breeding_apy_core`, with attributes `size`, `variance` (the target),
 #'   `variance_explained` (the fraction the chosen size reaches), `eig` (the counts at
 #'   90, 95, 98 and 99 percent, the preGSf90 table), `eigenvalues` (of G, decreasing),
-#'   `n_genotyped`, `n_markers`, `seed` and `cost_ratio`, the flops of one sparse
+#'   `n_genotyped`, `n_markers`, `seed`, `method`, and for `"lanczos"` `count_se` (the
+#'   standard error of the count at `variance` across probes), `probes` and `steps`
+#'   (`eigenvalues` is then NULL), and `cost_ratio`, the flops of one sparse
 #'   factorization of the APY block relative to the exact dense one,
 #'   `(nj (nc + 1)^2 + (nc + 1)^3 / 3) / (n^3 / 3)` with `nc` core and `nj` non-core
 #'   animals
@@ -164,6 +185,9 @@ apy_inverse <- function(m, core, lambda = 0.01) {
 #'   Masuda, Y. et al. (2016). Journal of Dairy Science 99:1968-1974.
 #'
 #'   Cesarani, A. et al. (2023). Animal 17:100766.
+#'
+#'   Ubaru, S., Chen, J. & Saad, Y. (2017). Fast estimation of tr(f(A)) via stochastic
+#'   Lanczos quadrature. SIAM Journal on Matrix Analysis and Applications 38:1075-1099.
 #' @examples
 #' set.seed(2)
 #' m <- matrix(rbinom(60 * 400, 2, 0.4), 60, 400)
@@ -171,7 +195,9 @@ apy_inverse <- function(m, core, lambda = 0.01) {
 #' nucleo
 #' @export
 apy_core_select <- function(genotypes, variance = 0.98, size = NULL, include = NULL,
-                            seed = 1L) {
+                            seed = 1L, method = c("auto", "exact", "lanczos"),
+                            probes = 30L, steps = 100L) {
+  method <- match.arg(method)
   g <- valida_genotipos(genotypes)
   n <- length(g$gid)
   if (n < 3L) stop("the APY needs at least 3 genotyped animals")
@@ -180,20 +206,43 @@ apy_core_select <- function(genotypes, variance = 0.98, size = NULL, include = N
   p <- colMeans(g$gm, na.rm = TRUE) / 2
   ok <- is.finite(p) & p > 0 & p < 1
   if (!any(ok)) stop("every marker is monomorphic: there is no G to decompose")
-  z <- g$gm[, ok, drop = FALSE]
-  for (j in seq_len(ncol(z))) {
-    z[is.na(z[, j]), j] <- 2 * p[ok][j]
-    z[, j] <- z[, j] - 2 * p[ok][j]
+  if (method == "auto") method <- if (min(n, sum(ok)) <= 4000L) "exact" else "lanczos"
+
+  # sorteio sem mexer na corrente aleatoria de quem chamou
+  tinha <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  if (tinha) velha <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
+  on.exit(if (tinha) assign(".Random.seed", velha, envir = globalenv())
+          else rm(".Random.seed", envir = globalenv()))
+  set.seed(seed)
+
+  autov <- NULL
+  se <- NULL
+  if (method == "exact") {
+    z <- g$gm[, ok, drop = FALSE]
+    for (j in seq_len(ncol(z))) {
+      z[is.na(z[, j]), j] <- 2 * p[ok][j]
+      z[, j] <- z[, j] - 2 * p[ok][j]
+    }
+    # os autovalores nao nulos de ZZ' e Z'Z sao os mesmos; decompoe o menor dos dois, e o
+    # traco dele e o traco de G (vezes a escala) sem outra passada pela Z. A escala 2 sum pq
+    # cancela na fracao; so entra nos autovalores devolvidos.
+    gram <- if (n <= ncol(z)) tcrossprod(z) else crossprod(z)
+    total <- sum(diag(gram))
+    autov <- pmax(eigen(gram, symmetric = TRUE, only.values = TRUE)$values, 0)
+    rm(gram, z)
+    fracao <- cumsum(autov) / total
+    conta <- function(v) which(fracao >= v - 1e-12)[1L]
+    explica <- function(k) fracao[min(k, length(fracao))]
+  } else {
+    if (!is.numeric(probes) || probes < 2 || !is.numeric(steps) || steps < 2)
+      stop("probes and steps must be at least 2")
+    dim <- min(n, ncol(g$gm))
+    sondas <- matrix(sample(c(-1, 1), dim * as.integer(probes), TRUE), dim)
+    ml <- medida_lanczos(.Call(R_lanczos_g, g$gm, sondas, as.integer(steps)))
+    conta <- function(v) max(1L, round(ml$conta(v)))
+    explica <- ml$explica
+    se <- ml$se
   }
-  # os autovalores nao nulos de ZZ' e Z'Z sao os mesmos; decompoe o menor dos dois, e o
-  # traco dele e o traco de G (vezes a escala) sem outra passada pela Z. A escala 2 sum pq
-  # cancela na fracao; so entra nos autovalores devolvidos.
-  gram <- if (n <= ncol(z)) tcrossprod(z) else crossprod(z)
-  total <- sum(diag(gram))
-  autov <- pmax(eigen(gram, symmetric = TRUE, only.values = TRUE)$values, 0)
-  rm(gram)
-  fracao <- cumsum(autov) / total
-  conta <- function(v) which(fracao >= v - 1e-12)[1L]
   k <- if (is.null(size)) conta(variance) else as.integer(size)
   if (length(k) != 1L || is.na(k) || k < 2L) stop("the APY core needs at least 2 animals")
   k <- min(k, n)
@@ -209,12 +258,6 @@ apy_core_select <- function(genotypes, variance = 0.98, size = NULL, include = N
     k <- length(inc)
   }
 
-  # sorteio sem mexer na corrente aleatoria de quem chamou
-  tinha <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
-  if (tinha) velha <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
-  on.exit(if (tinha) assign(".Random.seed", velha, envir = globalenv())
-          else rm(".Random.seed", envir = globalenv()))
-  set.seed(seed)
   resto <- setdiff(seq_len(n), inc)
   escolhidos <- sort(c(inc, resto[sample.int(length(resto), k - length(inc))]))
 
@@ -228,11 +271,60 @@ apy_core_select <- function(genotypes, variance = 0.98, size = NULL, include = N
                     k, n, 100 * custo), call. = FALSE)
 
   structure(g$gid[escolhidos], class = "breeding_apy_core", size = k, variance = variance,
-            variance_explained = fracao[min(k, length(fracao))],
+            variance_explained = explica(k),
             eig = c(`90%` = conta(0.90), `95%` = conta(0.95), `98%` = conta(0.98),
                     `99%` = conta(0.99)),
-            eigenvalues = autov / (2 * sum(p[ok] * (1 - p[ok]))),
-            n_genotyped = n, n_markers = sum(ok), seed = seed, cost_ratio = custo)
+            eigenvalues = if (!is.null(autov)) autov / (2 * sum(p[ok] * (1 - p[ok]))),
+            n_genotyped = n, n_markers = sum(ok), seed = seed, method = method,
+            count_se = if (!is.null(se)) se(variance),
+            probes = if (method == "lanczos") as.integer(probes),
+            steps = if (method == "lanczos") as.integer(steps), cost_ratio = custo)
+}
+
+# A medida espectral estimada pela quadratura de Lanczos: cada sonda b da os nos theta (os
+# autovalores da tridiagonal dela) com pesos dim tau / nv, tau o quadrado da primeira
+# componente de cada autovetor. conta(v) le quantos autovalores levam a massa a v, com
+# interpolacao dentro do no que atravessa v; explica(k) e a inversa; se(v) o erro padrao
+# da contagem entre as sondas, no mesmo ponto de corte. A massa total e a estimativa de
+# Hutchinson do traco (sum_b v_b' G v_b), a mesma medida do numerador: a fracao fica em
+# [0, 1] por construcao.
+medida_lanczos <- function(r) {
+  nv <- ncol(r$alpha)
+  nos <- lapply(seq_len(nv), function(b) {
+    k <- r$steps[b]
+    tri <- diag(r$alpha[seq_len(k), b], k)
+    if (k > 1) {
+      fora <- cbind(2:k, 1:(k - 1))
+      tri[fora] <- r$beta[seq_len(k - 1), b]
+      tri[fora[, 2:1, drop = FALSE]] <- r$beta[seq_len(k - 1), b]
+    }
+    e <- eigen(tri, symmetric = TRUE)
+    data.frame(theta = pmax(e$values, 0), w = r$dim / nv * e$vectors[1, ]^2, sonda = b)
+  })
+  a <- do.call(rbind, nos)
+  a <- a[order(a$theta, decreasing = TRUE), ]
+  massa <- cumsum(a$w * a$theta) / sum(a$w * a$theta)
+  cum <- cumsum(a$w)
+  corte <- function(v) which(massa >= v - 1e-12)[1L]
+  list(
+    conta = function(v) {
+      i <- corte(v)
+      f0 <- if (i > 1) massa[i - 1] else 0
+      c0 <- if (i > 1) cum[i - 1] else 0
+      c0 + a$w[i] * (v - f0) / (massa[i] - f0)
+    },
+    explica = function(k) {
+      i <- which(cum >= k)[1L]
+      if (is.na(i)) return(1)
+      f0 <- if (i > 1) massa[i - 1] else 0
+      c0 <- if (i > 1) cum[i - 1] else 0
+      f0 + (massa[i] - f0) * (k - c0) / a$w[i]
+    },
+    se = function(v) {
+      lim <- a$theta[corte(v)]
+      cb <- vapply(nos, function(x) nv * sum(x$w[x$theta >= lim]), numeric(1))
+      stats::sd(cb) / sqrt(nv)
+    })
 }
 
 #' @export
@@ -243,6 +335,9 @@ print.breeding_apy_core <- function(x, ...) {
       " markers, seed ", a$seed, ")\n", sep = "")
   cat("eigenvalues of G for 90/95/98/99% of its trace:",
       paste(a$eig, collapse = " / "), "\n")
+  if (identical(a$method, "lanczos"))
+    cat(sprintf("estimated by stochastic Lanczos quadrature (%d probes x %d steps), SE of the count %.1f\n",
+                a$probes, a$steps, a$count_se))
   cat(sprintf("one factorization with this core costs %.1f%% of the exact one\n",
               100 * a$cost_ratio))
   invisible(x)

@@ -127,6 +127,9 @@ A pedigree whose third column is the MATERNAL GRANDSIRE (the usual file of a sir
 is declared with `sire_mgs(ped)` and then passed as `pedigree =` to any fitter. Read as a
 dam, the grandsire would weigh 1/2 instead of 1/4 and nothing downstream could tell; a
 third column named `mgs`, `mgsire` or `maternal_grandsire` is refused until declared.
+A file with dams for some animals and only grandsires for others is
+`sire_mgs(ped, dam = "dam", mgs = "mgs")`: the dam rules where the dam is known, the
+grandsire path elsewhere; a grandsire that contradicts the dam's sire is an error.
 
 ## The order of a real evaluation
 
@@ -169,6 +172,7 @@ Genotypes are an argument, not a different program. `genotypes = list(ids=, m=)`
 model(y ~ cg + animal(id), d, ped, genotypes = gen)                  # exact G*
 model(y ~ cg + animal(id), d, ped, genotypes = gen, blend = 0.05)    # A22 weight
 core <- apy_core_select(gen)       # eigenvalues of G for 98% of its trace; choose ONCE
+                                   # (above 4000 animals/markers: Lanczos estimate + SE)
 model(y ~ cg + animal(id), d, ped, genotypes = gen, apy_core = core) # APY
 model(y ~ cg + animal(id), d, ped, genotypes = gen, apy_core = "auto") # same rule, inline
 model(y ~ cg + animal(id), d, ped, genotypes = gen, vecchia_k = 100) # per-animal sets

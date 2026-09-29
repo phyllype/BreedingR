@@ -23,9 +23,27 @@ eh_coluna_mgs <- function(nome)
     grepl("^(mgs|mgs_?id|mgsire|mat(ernal)?_?grand_?sire|avo_?materno)$", nome,
           ignore.case = TRUE)
 
+# os codigos de pai desconhecido do motor
+desconhecido <- function(v) is.na(v) | v %in% c("0", "", "NA")
+
 colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
   pega <- function(k) { v <- as.character(ped[[k]]); v[is.na(v)] <- "0"; v }
   mgs <- inherits(ped, "br_ped_mgs")
+  if (mgs) {
+    # declarado: o segundo progenitor e o avo materno; no pedigree MISTO e a mae quando ela
+    # e conhecida e o avo quando nao, com a flag por linha (a regra do avo so onde falta a mae)
+    k <- pega("mgs")
+    if ("dam" %in% names(ped)) {
+      d <- pega("dam")
+      pelo_avo <- desconhecido(d)
+      p2 <- ifelse(pelo_avo, k, d)
+    } else {
+      pelo_avo <- rep(TRUE, length(k))
+      p2 <- k
+    }
+    attr(p2, "mgs") <- pelo_avo
+    return(list(id = pega("id"), sire = pega("sire"), dam = p2, mgs = TRUE))
+  }
   if (!mgs) {
     nome <- if (is.character(dam)) dam else names(ped)[dam]
     if (eh_coluna_mgs(nome))
@@ -56,11 +74,23 @@ colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
 #' metafounders, with a `maternal()` term (the dam is not in it), with [partial_a()] or
 #' with [dominance_matrix()]; each of those is refused.
 #'
-#' @param ped data.frame with animal, sire and maternal grandsire
+#' With `dam =` the pedigree is MIXED, the file of a population where the dams of some
+#' animals are recorded and only the maternal grandsire of others: a row with a known dam
+#' takes the ordinary sire-dam rules, and only a row without one takes the grandsire path.
+#' The rules are per row, so the two kinds mix in one A^-1 without approximation beyond
+#' the unknown granddams of the grandsire rows. When a row has both, the grandsire column
+#' must agree with the sire of that dam: a disagreement is an error listing the rows,
+#' and a dam whose own sire is unknown receives it from the column (the same fact written
+#' twice), with a message saying how many were filled.
+#'
+#' @param ped data.frame with animal, sire and maternal grandsire (and the dam, for a
+#'   mixed pedigree)
 #' @param id the animal column
 #' @param sire the sire column
 #' @param mgs the maternal-grandsire column
-#' @return a data.frame with columns `id`, `sire` and `mgs`, of class `br_ped_mgs`
+#' @param dam NULL, or the dam column of a mixed pedigree
+#' @return a data.frame with columns `id`, `sire` and `mgs` (and `dam` before `mgs` in a
+#'   mixed pedigree), of class `br_ped_mgs`
 #' @references Henderson, C.R. (1975). Journal of Dairy Science 58:1917-1921; (1976)
 #'   59:1585-1588.
 #'
@@ -71,19 +101,50 @@ colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
 #'                      mgs = c("0", "0", "s2"))
 #' pedigree(sire_mgs(touros))
 #' @export
-sire_mgs <- function(ped, id = 1L, sire = 2L, mgs = 3L) {
+sire_mgs <- function(ped, id = 1L, sire = 2L, mgs = 3L, dam = NULL) {
   if (!is.data.frame(ped)) stop("expected a data.frame")
   pega <- function(k) as.character(ped[[k]])
   out <- data.frame(id = pega(id), sire = pega(sire), mgs = pega(mgs),
                     stringsAsFactors = FALSE)
+  if (!is.null(dam)) out <- pedigree_misto(out, pega(dam))
   class(out) <- c("br_ped_mgs", "data.frame")
   out
+}
+
+# O pedigree misto: onde a mae e conhecida ela manda, e o avo da mesma linha so confere o pai
+# dela. Discordancia e erro; a mae sem pai conhecido recebe o avo (o mesmo fato escrito duas
+# vezes), desde que todas as filhas dela digam o mesmo.
+pedigree_misto <- function(out, dam) {
+  com_mae <- !desconhecido(dam)
+  ambos <- com_mae & !desconhecido(out$mgs)
+  linha_mae <- match(dam, out$id)
+  pai_mae <- out$sire[linha_mae]
+  briga <- ambos & !is.na(linha_mae) & !desconhecido(pai_mae) & pai_mae != out$mgs
+  if (any(briga))
+    stop(sum(briga), " row(s) with a maternal grandsire that is not the sire of their dam, ",
+         "e.g. ", paste(sprintf("%s (dam %s, her sire %s, mgs %s)", out$id[briga],
+                                dam[briga], pai_mae[briga], out$mgs[briga])[1:min(3, sum(briga))],
+                        collapse = "; "), call. = FALSE)
+  enche <- ambos & !is.na(linha_mae) & desconhecido(pai_mae)
+  if (any(enche)) {
+    por_mae <- tapply(out$mgs[enche], dam[enche], function(v) unique(v))
+    varios <- names(por_mae)[lengths(por_mae) > 1]
+    if (length(varios))
+      stop("dam(s) with daughters naming different maternal grandsires, e.g. ",
+           paste(utils::head(varios, 3), collapse = ", "), call. = FALSE)
+    out$sire[match(names(por_mae), out$id)] <- unlist(por_mae)
+    message(length(por_mae), " dam(s) with an unknown sire received it from the ",
+            "maternal-grandsire column of their offspring")
+  }
+  data.frame(id = out$id, sire = out$sire, dam = ifelse(com_mae, dam, "0"),
+             mgs = ifelse(com_mae, "0", out$mgs), stringsAsFactors = FALSE)
 }
 
 #' @export
 `[.br_ped_mgs` <- function(x, ...) {
   r <- NextMethod()
-  if (is.data.frame(r) && identical(names(r), c("id", "sire", "mgs")))
+  if (is.data.frame(r) && (identical(names(r), c("id", "sire", "mgs")) ||
+                           identical(names(r), c("id", "sire", "dam", "mgs"))))
     class(r) <- c("br_ped_mgs", "data.frame")
   r
 }
@@ -180,9 +241,12 @@ pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L,
         if (is.null(gamma)) numeric(0) else as.double(gamma))
   out <- data.frame(id = r$id, sire = r$sire, dam = r$dam, F = r$F,
                     stringsAsFactors = FALSE)
-  if (cp$mgs) names(out)[3] <- "mgs"
+  misto <- cp$mgs && "dam" %in% names(ped)
+  if (cp$mgs) names(out)[3] <- if (misto) "dam_or_mgs" else "mgs"
+  # no misto, qual caminho cada linha tomou (a flag segue o id, nao a posicao)
+  if (misto) out$via_mgs <- attr(cp$dam, "mgs")[match(out$id, cp$id)] & !is.na(out$dam_or_mgs)
   class(out) <- c("br_pedigree", "data.frame")
-  attr(out, "type") <- if (cp$mgs) "sire_mgs" else "sire_dam"
+  attr(out, "type") <- if (misto) "mixed" else if (cp$mgs) "sire_mgs" else "sire_dam"
   out
 }
 
@@ -191,6 +255,7 @@ print.br_pedigree <- function(x, ...) {
   n <- nrow(x)
   fund <- sum(is.na(x[[2]]) & is.na(x[[3]]))
   cat(if (identical(attr(x, "type"), "sire_mgs")) "Sire / maternal-grandsire pedigree"
+      else if (identical(attr(x, "type"), "mixed")) "Mixed sire / dam and maternal-grandsire pedigree"
       else "Pedigree", " with ", n, " animals, ", fund, " founder(s)\n", sep = "")
   cat("Mean F ", format(mean(x$F), digits = 5),
       ", maximum ", format(max(x$F), digits = 5),

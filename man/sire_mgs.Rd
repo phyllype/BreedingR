@@ -4,19 +4,23 @@
 \alias{sire_mgs}
 \title{Declare a pedigree of sires and maternal grandsires}
 \usage{
-sire_mgs(ped, id = 1L, sire = 2L, mgs = 3L)
+sire_mgs(ped, id = 1L, sire = 2L, mgs = 3L, dam = NULL)
 }
 \arguments{
-\item{ped}{data.frame with animal, sire and maternal grandsire}
+\item{ped}{data.frame with animal, sire and maternal grandsire (and the dam, for a
+mixed pedigree)}
 
 \item{id}{the animal column}
 
 \item{sire}{the sire column}
 
 \item{mgs}{the maternal-grandsire column}
+
+\item{dam}{NULL, or the dam column of a mixed pedigree}
 }
 \value{
-a data.frame with columns \code{id}, \code{sire} and \code{mgs}, of class \code{br_ped_mgs}
+a data.frame with columns \code{id}, \code{sire} and \code{mgs} (and \code{dam} before \code{mgs} in a
+mixed pedigree), of class \code{br_ped_mgs}
 }
 \description{
 Marks a pedigree whose third column is the MATERNAL GRANDSIRE of each animal, the
@@ -35,6 +39,15 @@ granddams is ignored, the assumption every program that offers the format makes
 (ASReml \code{!MGS}, DMU method 3). A declared grandsire pedigree does not combine with
 metafounders, with a \code{maternal()} term (the dam is not in it), with \code{\link[=partial_a]{partial_a()}} or
 with \code{\link[=dominance_matrix]{dominance_matrix()}}; each of those is refused.
+
+With \verb{dam =} the pedigree is MIXED, the file of a population where the dams of some
+animals are recorded and only the maternal grandsire of others: a row with a known dam
+takes the ordinary sire-dam rules, and only a row without one takes the grandsire path.
+The rules are per row, so the two kinds mix in one A^-1 without approximation beyond
+the unknown granddams of the grandsire rows. When a row has both, the grandsire column
+must agree with the sire of that dam: a disagreement is an error listing the rows,
+and a dam whose own sire is unknown receives it from the column (the same fact written
+twice), with a message saying how many were filled.
 }
 \examples{
 touros <- data.frame(id = c("s1", "s2", "s3"), sire = c("0", "0", "s1"),

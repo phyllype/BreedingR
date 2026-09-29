@@ -9,7 +9,10 @@ apy_core_select(
   variance = 0.98,
   size = NULL,
   include = NULL,
-  seed = 1L
+  seed = 1L,
+  method = c("auto", "exact", "lanczos"),
+  probes = 30L,
+  steps = 100L
 )
 }
 \arguments{
@@ -29,15 +32,25 @@ al. 2016 found a small gain from sires and cows over a random core). The rest of
 core is drawn from the other genotyped animals. If \code{include} is longer than the
 size, the core is \code{include} and a warning says so, never a silent truncation}
 
-\item{seed}{seed of the random draw; the global random stream is restored afterwards,
-so a later \code{gibbs()} chain or simulation is not affected}
+\item{seed}{seed of the random draw (and of the Lanczos probes); the global random
+stream is restored afterwards, so a later \code{gibbs()} chain or simulation is not
+affected}
+
+\item{method}{\code{"exact"} (eigenvalues of the smaller Gram matrix), \code{"lanczos"}
+(stochastic Lanczos quadrature, no Gram matrix) or \code{"auto"} (exact up to
+\code{min(n_animals, n_markers) = 4000})}
+
+\item{probes, steps}{random sign vectors and Lanczos steps of the \code{"lanczos"} route;
+the cost is \verb{2 x steps} passes over the genotype matrix with \code{probes} columns}
 }
 \value{
 character vector with the ids of the core animals, in genotype order, of class
 \code{breeding_apy_core}, with attributes \code{size}, \code{variance} (the target),
 \code{variance_explained} (the fraction the chosen size reaches), \code{eig} (the counts at
 90, 95, 98 and 99 percent, the preGSf90 table), \code{eigenvalues} (of G, decreasing),
-\code{n_genotyped}, \code{n_markers}, \code{seed} and \code{cost_ratio}, the flops of one sparse
+\code{n_genotyped}, \code{n_markers}, \code{seed}, \code{method}, and for \code{"lanczos"} \code{count_se} (the
+standard error of the count at \code{variance} across probes), \code{probes} and \code{steps}
+(\code{eigenvalues} is then NULL), and \code{cost_ratio}, the flops of one sparse
 factorization of the APY block relative to the exact dense one,
 \code{(nj (nc + 1)^2 + (nc + 1)^3 / 3) / (n^3 / 3)} with \code{nc} core and \code{nj} non-core
 animals
@@ -63,10 +76,23 @@ above 0.99 with 99\%; Cesarani et al. (2023), with a few thousand genotyped, fou
 accuracy still growing up to 99\%, which makes \code{variance = 0.99} the conservative
 choice in small populations.
 
-The eigenvalues come from the smaller of the two Gram matrices of the centered
-genotypes (animals x animals or markers x markers), so the cost is cubic in
-\code{min(n_animals, n_markers)}, paid once per call. Choose the core once, keep the result
-and pass it to every fit, rather than \code{"auto"} in each of them.
+With \code{method = "exact"} the eigenvalues come from the smaller of the two Gram
+matrices of the centered genotypes (animals x animals or markers x markers), so the
+cost is cubic in \code{min(n_animals, n_markers)}: about half a minute at 3000 with R's
+reference LAPACK, 12 minutes at 10 000, and at the 30 000 x 40 000 of a routine
+evaluation a 7 GB matrix before the decomposition starts. \code{method = "lanczos"}
+never forms it: stochastic Lanczos quadrature (Ubaru, Chen & Saad, 2017) runs \code{steps}
+Lanczos steps on G from each of \code{probes} random sign vectors, using only products with
+the genotype matrix (two passes per step, all probes at once, on \code{\link[=br_threads]{br_threads()}}
+threads), and the Gauss nodes and weights of the tridiagonals estimate the spectral
+measure of G, where the count is read at the point its mass reaches \code{variance}. The
+count is an estimate, and its standard error across probes is reported. Measured
+against the exact count on 3060 animals and 4000 markers, 2019 exact at 98\% and 2019 to
+2028 over four runs of 20 to 40 probes; on 10 000 x 10 000, 5953 exact and 5973 to 5979
+over three seeds, 46 s against 697 s (\code{validation/apy_core_lanczos.R}). The estimate
+tends to sit a little above the exact count, the conservative side for a core. \code{"auto"} takes the exact route up to
+\code{min(n_animals, n_markers) = 4000} and Lanczos above. Choose the core once, keep the
+result and pass it to every fit, rather than \code{"auto"} in each of them.
 }
 \examples{
 set.seed(2)
@@ -88,4 +114,7 @@ Bradford, H.L. et al. (2017). Journal of Animal Breeding and Genetics 134:545-55
 Masuda, Y. et al. (2016). Journal of Dairy Science 99:1968-1974.
 
 Cesarani, A. et al. (2023). Animal 17:100766.
+
+Ubaru, S., Chen, J. & Saad, Y. (2017). Fast estimation of tr(f(A)) via stochastic
+Lanczos quadrature. SIAM Journal on Matrix Analysis and Applications 38:1075-1099.
 }

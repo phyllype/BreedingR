@@ -2,6 +2,22 @@
 
 ## New
 
+* `apy_core_select(method = "lanczos")`: the count of eigenvalues that explain 98% of G by
+  stochastic Lanczos quadrature (Ubaru, Chen & Saad, 2017), from products with the genotype
+  matrix only, never the Gram matrix nor its eigendecomposition; the count comes with its
+  standard error across probes. On 10 000 animals and 10 000 markers (`validation/apy_core_lanczos.R`) the exact count at 98% was 5953 and the estimate 5973 to 5979 over three seeds (standard error about 71), in 46 s against 697 s for the exact eigendecomposition; the estimate sat 0.3 to 0.5% above the exact count, the conservative side for a core. `"auto"` keeps the exact route up to
+  4000 animals or markers and takes Lanczos above.
+* `simulate_breeding()` preallocates: it grew the haplotype matrices by `rbind` once per
+  animal, O(n^2 m) copying, and 10 000 animals with 10 000 markers did not finish in hours;
+  they take 26 s now, with the same population for the same seed.
+* `sire_mgs(ped, dam = "dam")`: the MIXED pedigree, dams where they are recorded
+  and maternal grandsires where they are not. A row with a known dam takes the
+  sire-dam rules and only a row without one the grandsire path; the rules are per
+  row, so both kinds share one A^-1. A grandsire that disagrees with the sire of
+  the dam in the same row is an error, and a dam whose sire is unknown receives it
+  from the grandsire column of her offspring, with a message. `pedigree()` reports
+  the type `"mixed"` and which path each row took (`via_mgs`).
+* `validation/sire_mgs_recovery.R`: the sire and maternal-grandsire model at scale. Twenty replicates of 1300 bulls over five generations and 36 000 daughter records: var(sire) 0.0762 (SE 0.0011) against the true 0.075, and the same files read as sire / dam give 0.0964, 29% too high, the error the declaration exists to prevent.
 * `snp_blup()` takes any relationship structure `model()` takes. The markers
   enter every relationship group and every component of it, as `H^-1` does on
   the `genotypes=` path: direct-maternal in one group, a reaction norm, direct

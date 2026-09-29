@@ -123,48 +123,51 @@ simulate_breeding <- function(n_founders = 40, n_generations = 3,
   set.seed(seed)
   va <- h2
   s2e <- 1 - h2
-  ids <- sprintf("F%03d", seq_len(n_founders))
-  sire <- rep("0", n_founders)
-  dam <- rep("0", n_founders)
-  tbv <- stats::rnorm(n_founders, 0, sqrt(va))
-  hap <- NULL
-  freq <- NULL
+  # tudo pre-alocado: a versao que crescia as matrizes de haplotipos com rbind a cada filho
+  # copiava O(n^2 m) (10 000 animais x 10 000 marcadores nao terminava em horas). Os
+  # sorteios sao os mesmos, na mesma ordem: a mesma semente da a mesma populacao.
+  n <- n_founders + n_generations * offspring_per_generation
+  ids <- character(n)
+  ids[seq_len(n_founders)] <- sprintf("F%03d", seq_len(n_founders))
+  sire <- rep("0", n)
+  dam <- rep("0", n)
+  tbv <- numeric(n)
+  tbv[seq_len(n_founders)] <- stats::rnorm(n_founders, 0, sqrt(va))
   if (n_markers > 0) {
     freq <- stats::runif(n_markers, 0.1, 0.9)
-    hap <- list(a1 = matrix(stats::rbinom(n_founders * n_markers, 1, rep(freq, each = n_founders)),
-                            n_founders, n_markers),
-                a2 = matrix(stats::rbinom(n_founders * n_markers, 1, rep(freq, each = n_founders)),
-                            n_founders, n_markers))
+    a1 <- a2 <- matrix(0L, n, n_markers)
+    a1[seq_len(n_founders), ] <- stats::rbinom(n_founders * n_markers, 1,
+                                               rep(freq, each = n_founders))
+    a2[seq_len(n_founders), ] <- stats::rbinom(n_founders * n_markers, 1,
+                                               rep(freq, each = n_founders))
   }
-  f_coef <- rep(0, n_founders)
+  # aproximacao: F das novas geracoes ~ 0 em populacao grande
+  f_coef <- numeric(n)
+  i <- n_founders
   for (g in seq_len(n_generations)) {
-    base <- length(ids)
+    base <- i
     for (k in seq_len(offspring_per_generation)) {
       pa <- sample(seq_len(base), 1)
       ma <- sample(seq_len(base), 1)
       if (ma == pa) ma <- if (pa > 1) pa - 1 else pa + 1
-      novo <- sprintf("G%d_%03d", g, k)
-      ids <- c(ids, novo)
-      sire <- c(sire, ids[pa])
-      dam <- c(dam, ids[ma])
+      i <- i + 1
+      ids[i] <- sprintf("G%d_%03d", g, k)
+      sire[i] <- ids[pa]
+      dam[i] <- ids[ma]
       dmen <- 0.5 - 0.25 * (f_coef[pa] + f_coef[ma])
-      tbv <- c(tbv, 0.5 * tbv[pa] + 0.5 * tbv[ma] + stats::rnorm(1, 0, sqrt(dmen * va)))
-      f_coef <- c(f_coef, 0)   # aproximacao: F das novas geracoes ~ 0 em populacao grande
+      tbv[i] <- 0.5 * tbv[pa] + 0.5 * tbv[ma] + stats::rnorm(1, 0, sqrt(dmen * va))
       if (n_markers > 0) {
-        her <- function(h) ifelse(stats::runif(n_markers) < 0.5, h$a1[pa, ], h$a2[pa, ])
-        her2 <- function(h) ifelse(stats::runif(n_markers) < 0.5, h$a1[ma, ], h$a2[ma, ])
-        hap$a1 <- rbind(hap$a1, her(hap))
-        hap$a2 <- rbind(hap$a2, her2(hap))
+        a1[i, ] <- ifelse(stats::runif(n_markers) < 0.5, a1[pa, ], a2[pa, ])
+        a2[i, ] <- ifelse(stats::runif(n_markers) < 0.5, a1[ma, ], a2[ma, ])
       }
     }
   }
-  n <- length(ids)
   d <- data.frame(id = ids,
                   cg = sample(sprintf("g%d", 1:3), n, TRUE),
                   y = 10 + tbv + stats::rnorm(n, 0, sqrt(s2e)),
                   stringsAsFactors = FALSE)
   gen <- NULL
-  if (n_markers > 0) gen <- list(ids = ids, m = hap$a1 + hap$a2)
+  if (n_markers > 0) gen <- list(ids = ids, m = a1 + a2)
   list(pedigree = data.frame(id = ids, sire = sire, dam = dam, stringsAsFactors = FALSE),
        data = d, tbv = stats::setNames(tbv, ids), genotypes = gen)
 }

@@ -4,6 +4,11 @@
 # minimo, a corrente aleatoria de quem chama fica intacta, e "auto" dentro do ajuste e
 # IDENTICO a passar o nucleo explicito. O quanto a APY com esse nucleo se afasta do exato
 # e pergunta de RECUPERACAO, medida em escala fora da suite, nao aqui.
+#
+# A rota "lanczos" (quadratura de Lanczos estocastica, sem matriz de Gram) e uma ESTIMATIVA:
+# o portao dela e a contagem exata do mesmo G a poucos por cento e a poucos erros padrao,
+# pelos dois lados (animais < marcadores e o contrario), com a tridiagonal conferida contra
+# o proprio G, e o resultado igual bit a bit com 1 e 4 threads.
 
 # populacao de dimensao baixa: cada animal e um mosaico de poucos haplotipos fundadores
 # em blocos longos, o que concentra a variancia de G em poucos autovalores
@@ -106,4 +111,55 @@ test_that("model(apy_core = 'auto') e o mesmo ajuste que o nucleo explicito", {
   expect_equal(eval_internal(y ~ cg + animal(id), data, ped, theta = auto$theta,
                              genotypes = geno, apy_core = nuc)$neg2logl,
                auto$neg2logl, tolerance = 1e-6)
+})
+
+# populacao com estrutura de familia: a contagem dos 98% fica bem abaixo de n e de m
+geno_familias <- function(n, m, semente) {
+  s <- simulate_breeding(n_founders = 30, n_generations = 4,
+                         offspring_per_generation = round((n - 30) / 4), h2 = 0.3,
+                         n_markers = m, seed = semente)
+  s$genotypes
+}
+
+test_that("apy_core_select(method = 'lanczos'): a contagem exata a poucos por cento, pelos dois lados", {
+  for (cfg in list(c(630, 1500), c(830, 400))) {
+    geno <- geno_familias(cfg[1], cfg[2], 7)
+    ex <- suppressWarnings(apy_core_select(geno, method = "exact"))
+    la <- suppressWarnings(apy_core_select(geno, method = "lanczos", probes = 30, steps = 80))
+    expect_identical(attr(la, "method"), "lanczos")
+    expect_null(attr(la, "eigenvalues"))
+    k_ex <- attr(ex, "size"); k_la <- attr(la, "size")
+    expect_lt(abs(k_la - k_ex) / k_ex, 0.04)
+    expect_lt(abs(k_la - k_ex), 4 * attr(la, "count_se") + 2)
+    expect_true(all(abs(attr(la, "eig") - attr(ex, "eig")) / attr(ex, "eig") < 0.05))
+    expect_equal(attr(la, "variance_explained"), 0.98, tolerance = 0.005)
+  }
+})
+
+test_that("a tridiagonal de Lanczos: primeiro passo e o quociente de Rayleigh da sonda em G", {
+  geno <- geno_familias(230, 300, 9)
+  set.seed(4)
+  v <- matrix(sample(c(-1, 1), 230 * 3, TRUE), 230)
+  r <- .Call(BreedingR:::R_lanczos_g, geno$m + 0, v, 5L)
+  G <- g_matrix(geno)
+  q <- sweep(v, 2, sqrt(colSums(v^2)), "/")
+  expect_equal(r$alpha[1, ], colSums(q * (G %*% q)), tolerance = 1e-10)
+  expect_equal(r$trace, sum(diag(G)), tolerance = 1e-10)
+  expect_equal(r$dim, 230)
+})
+
+test_that("a rota lanczos: mesma semente, mesmo nucleo; 1 e 4 threads, o mesmo resultado", {
+  geno <- geno_familias(430, 800, 11)
+  antes <- br_threads()
+  on.exit(br_threads(antes$threads, lapack = antes$lapack))
+  br_threads(1)
+  a <- suppressWarnings(apy_core_select(geno, method = "lanczos", probes = 10, steps = 40))
+  br_threads(4)
+  b <- suppressWarnings(apy_core_select(geno, method = "lanczos", probes = 10, steps = 40))
+  expect_identical(a, b)
+  set.seed(99); x <- runif(1)
+  set.seed(99)
+  invisible(suppressWarnings(apy_core_select(geno, method = "lanczos", probes = 10, steps = 40)))
+  expect_identical(runif(1), x)
+  expect_identical(attr(suppressWarnings(apy_core_select(geno)), "method"), "exact")
 })

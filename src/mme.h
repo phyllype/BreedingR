@@ -104,7 +104,8 @@ bool cholesky_empacotada(std::vector<double>& v, std::size_t n, int nth);
 // quem chama espelha. Ladrilhos 64 x 64 com dono unico e soma em ordem fixa.
 void produto_ladrilhos(const double* x, std::size_t ldx, const double* y, std::size_t ldy,
                        std::size_t K, std::size_t m, std::size_t n, double* c,
-                       std::size_t ldc, bool simetrico, int nth);
+                       std::size_t ldc, bool simetrico, int nth,
+                       bool x_por_linha = false);
 
 // Cache da fatoracao simbolica para os lacos de ajuste: o PADRAO de C nao depende de
 // theta (a montagem empurra sempre os mesmos slots, zeros explicitos inclusive), entao
@@ -315,6 +316,15 @@ struct RelatorioG {
   std::vector<std::size_t> linha_ped;
 };
 Densa vanraden_g(Densa&, RelatorioG&, bool meio = false);
+// Lanczos em bloco sobre G = ZZ'/k (ou Z'Z/k, o lado menor), para a quadratura de Lanczos
+// estocastica do espectro: as sondas (dim x nv, por linhas) vem do R.
+struct LanczosG {
+  Densa alfa, beta;                  // passos x nv
+  std::vector<std::size_t> passos;   // passos de cada sonda (para antes no subespaco invariante)
+  double traco = 0.0;                // tr(G), exato
+  std::size_t dim = 0;
+};
+LanczosG lanczos_g(Densa& m, const Densa& sondas, std::size_t passos, RelatorioG& rel);
 Densa a22_inversa(const Csc&, const std::vector<std::size_t>&);
 Csc a22_inversa_esparsa(const Csc&, const std::vector<std::size_t>&);
 Densa ajusta_g_para_a22(const Densa&, const Densa&, double);
