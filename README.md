@@ -389,6 +389,15 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | h_inverse() | the single-step formula rebuilt in R, exact and with APY; `kernel(K = H)` == `genotypes=` at the same theta |
 | threshold, estimated components | the EM fixed point against the minimum of the Laplace -2logL found without the EM step; 80 sires with 50 daughters each, binary, planted 0.15: mean 0.148 over 10 replicates |
 | Gibbs, probit and kernel() | with the components held, the posterior mean tracks the threshold-model mode (probit) and the `model()` BLUP (kernel); `K = I` == `random(id)`, the same chain |
+| Gibbs, the whole chain | with flat priors the posterior of the components is the REML likelihood (Harville, 1974): four chains match a 2-D quadrature of the -2logL at z = 0.15 and 0.08 (`validation/gibbs_harville.R`); `rhat()` near 1 on iid chains, above 1.01 on shifted or rescaled ones; serial and parallel chains identical |
+| threads | the tiled tail, the dense inverses, the products and the selected inverse against `chol()`, `solve()` and the formulas; the same bits with 1 and 4 threads, and the whole suite passes at both |
+| metafounders with genotypes | H(Gamma) rebuilt from the dense A(Gamma) and G05 at 1e-8; `kernel(K = H)` == `genotypes=`; `snp_blup()` == `model()` at the same theta; 20 simulated replicates of two bases reduce the trend bias from -0.141 to -0.081 (`validation/hgamma_recovery.R`) |
+| `estimate_gamma()` | one pseudo-EM step is the metafounder block of H(Gamma) built densely; GLS shows its published bias; `"ml"` against the identity A(gamma) = (1 - gamma/2) A + gamma 11' and the maximum of the dense likelihood |
+| A22 by Colleau, the sparse Schur | H^-1 against the formula with A22 from the dense A, with inbreeding and with a sire-MGS pedigree; `a22_inverse()` against `solve()`; the APY route with core = everyone gives the exact H^-1 to 1e-12 |
+| `pegs()` | at fixed variances the exact multivariate ridge, a dense `mk x mk` solve; the structures are identities where they must be; recovery with 2000 animals x 2000 markers x 3 traits; the Julia reference gives the same numbers on the same data |
+| `sire(sire, mgs =)` | -2logL and BLUP against the dense GLS with the incidence built by hand |
+| `indirect(dilution =)` in the siblings | the bivariate with no between-trait covariance == the sum of the univariate `model()` fits with the same d; AR(1) at rho = 0 == `model()`; the Gibbs chain with fixed components == the diluted BLUP |
+| `survival_split()` | the subject and change tables reproduce hand-built elementary records exactly, with the same fit; `S(t \| e) S(e) = S(t)` |
 
 The tests in `tests/testthat` run these comparisons on every build, so a change that
 breaks one of the identities cannot pass quietly. `simulate_breeding()` is what they are
