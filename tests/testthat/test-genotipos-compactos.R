@@ -89,3 +89,29 @@ test_that("read_blupf90_snp: a matriz raw que o escritor pos, e o subconjunto de
   writeLines(c("a 012", "b 01"), f)
   expect_error(read_blupf90_snp(f), "the first had")
 })
+
+test_that("pegs(): os tres tipos dao o mesmo ajuste, e o ausente e a media do marcador", {
+  set.seed(8)
+  n <- 150; m <- 120
+  X <- matrix(stats::rbinom(n * m, 2, 0.4), n, m) + 0
+  y1 <- as.vector(X %*% stats::rnorm(m, 0, 0.1)) + stats::rnorm(n)
+  y2 <- 0.5 * y1 + stats::rnorm(n)
+  ids <- sprintf("p%03d", seq_len(n))
+  d <- data.frame(id = ids, y1 = y1, y2 = y2, stringsAsFactors = FALSE)
+  Xna <- X
+  Xna[sample(length(Xna), 300)] <- NA
+  ajusta <- function(mm) {
+    set.seed(1)
+    pegs(d, c("y1", "y2"), "id", list(ids = ids, m = mm), maxiter = 200L)
+  }
+  f <- lapply(tres_tipos(Xna), ajusta)
+  expect_identical(f$integer, f$double)
+  expect_identical(f$raw, f$double)
+  expect_equal(f$double$n_imputed, 300)
+  # a imputacao no C++ e a media do marcador: o GEBV e a matriz imputada pela media vezes os
+  # efeitos
+  imp <- Xna
+  na <- which(is.na(imp), arr.ind = TRUE)
+  imp[na] <- colMeans(Xna, na.rm = TRUE)[na[, 2]]
+  expect_equal(unname(f$double$gebv), unname(imp %*% f$double$marker_effects), tolerance = 1e-10)
+})

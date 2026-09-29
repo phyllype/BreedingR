@@ -11,6 +11,13 @@
   bit for bit. A single step with an APY core of 2000 on 12 000 genotyped animals and 20 000
   markers, median of 3: 52.2 s and 6.56 GB at the peak before, 29.8 s and 3.37 GB with the
   same double matrix, 27.8 s and 1.83 GB with a raw one.
+* `pegs()` reads the genotypes where they are too: it held three double copies (the matrix
+  imputed in R, the copy into the engine and a column-major one inside it), and now reads each
+  marker from the R object at each update, straight from memory when the matrix is double and
+  the marker complete. Same results for the three types; with 3000 animals, 5000 markers and 3
+  traits, 100 passes take 5.8 s with a double matrix as before and 7.5 s with a raw one (median
+  of 3), the price of converting each marker at every pass for an eighth of the memory. A
+  marker with no observed genotype is now an error instead of a column of NaN.
 * `read_blupf90_snp()`: the SNP_FILE of the BLUPF90 programs into a raw matrix, in two
   passes over the file so nothing else is held; `ids =` keeps a subset. `read_plink()` takes
   `storage = "integer"` or `"raw"`.

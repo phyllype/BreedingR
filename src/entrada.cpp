@@ -1742,7 +1742,8 @@ SEXP R_le_snp_blupf90(SEXP arq, SEXP quais) {
 SEXP R_pegs(SEXP y, SEXP x, SEXP maxit, SEXP tol, SEXP defl, SEXP atualiza, SEXP vb0,
             SEXP ve0, SEXP estrutura, SEXP nfat) {
   GUARDA(
-    br::Densa yd = densa_do_R(y), xd = densa_do_R(x);
+    br::Densa yd = densa_do_R(y);
+    const br::Genotipos xd = genotipos_do_R(x, (std::size_t) Rf_nrows(x));
     br::Densa vb;
     std::vector<double> ve;
     const bool tem_vb = XLENGTH(vb0) > 0, tem_ve = XLENGTH(ve0) > 0;
@@ -1753,10 +1754,10 @@ SEXP R_pegs(SEXP y, SEXP x, SEXP maxit, SEXP tol, SEXP defl, SEXP atualiza, SEXP
                                    tem_vb ? &vb : nullptr, tem_ve ? &ve : nullptr,
                                    Rf_asInteger(estrutura), (std::size_t) Rf_asInteger(nfat));
     const char* campos[] = {"mu", "marker_effects", "gebv", "h2", "Vb", "Ve", "bend",
-                            "iters", "converged"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 9));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 9));
-    for (int q = 0; q < 9; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "iters", "converged", "n_imputed"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 10));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 10));
+    for (int q = 0; q < 10; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     SEXP mu = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) r.mu.size()));
     std::copy(r.mu.begin(), r.mu.end(), REAL(mu));
     SEXP h2 = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) r.h2.size()));
@@ -1772,6 +1773,7 @@ SEXP R_pegs(SEXP y, SEXP x, SEXP maxit, SEXP tol, SEXP defl, SEXP atualiza, SEXP
     SET_VECTOR_ELT(out, 6, Rf_ScalarReal(r.deflate));
     SET_VECTOR_ELT(out, 7, Rf_ScalarInteger((int) r.iters));
     SET_VECTOR_ELT(out, 8, Rf_ScalarLogical(r.convergiu));
+    SET_VECTOR_ELT(out, 9, Rf_ScalarReal((double) r.n_imputados));
     Rf_setAttrib(out, R_NamesSymbol, nms);
     UNPROTECT(5);
     return out;

@@ -112,17 +112,38 @@ void estrutura_pegs(Densa& vb, int tipo, std::size_t nfat) {
   throw Erro("cov_structure must be unstructured, hcs or xfa");
 }
 
-ResultadoPegs pegs(const Densa& y_in, const Densa& x_in, std::size_t maxit, double tol,
+ResultadoPegs pegs(const Densa& y_in, const Genotipos& gt, std::size_t maxit, double tol,
                    double deflate_min, bool atualiza_vc, const Densa* vb0,
                    const std::vector<double>* ve0, int estrutura, std::size_t nfat) {
-  const std::size_t n = y_in.nlin, k = y_in.ncol, p = x_in.ncol;
-  if (x_in.nlin != n) throw Erro("genotype rows and phenotype rows with different counts");
+  const std::size_t n = y_in.nlin, k = y_in.ncol, p = gt.m;
+  if (gt.n != n) throw Erro("genotype rows and phenotype rows with different counts");
   if (k < 1) throw Erro("pegs needs at least one trait");
   ResultadoPegs R;
-  // X coluna-major (o marcador j contiguo): x[j * n + i]
-  std::vector<double> x(n * p);
-  for (std::size_t j = 0; j < p; j++)
-    for (std::size_t i = 0; i < n; i++) x[j * n + i] = x_in.at(i, j);
+  // X lida do objeto do R, sem copia: o marcador j e a coluna j, o ausente na media dela. Com
+  // a matriz double e o marcador sem ausente, o ponteiro vai direto para a memoria do R.
+  std::vector<double> media(p, 0.0);
+  std::vector<char> inteira(p, 0);
+  {
+    std::vector<double> col(n);
+    for (std::size_t j = 0; j < p; j++) {
+      gt.coluna(j, col.data());
+      double soma = 0.0;
+      std::size_t c = 0;
+      for (std::size_t i = 0; i < n; i++)
+        if (std::isfinite(col[i])) { soma += col[i]; c++; }
+      if (c == 0) throw Erro("a marker has no observed genotype");
+      media[j] = soma / static_cast<double>(c);
+      inteira[j] = c == n;
+      R.n_imputados += n - c;
+    }
+  }
+  std::vector<double> xbuf(n);
+  auto coluna_x = [&](std::size_t j) -> const double* {
+    if (gt.d && inteira[j]) return gt.d + j * n;
+    gt.coluna(j, xbuf.data());
+    for (double& v : xbuf) if (!std::isfinite(v)) v = media[j];
+    return xbuf.data();
+  };
   // Z (1 observado, 0 ausente), y centrado e mascarado, coluna-major por caracter
   std::vector<double> z(n * k, 0.0), y(n * k, 0.0), nv(k, 0.0), mu(k, 0.0);
   for (std::size_t t = 0; t < k; t++) {
@@ -137,15 +158,16 @@ ResultadoPegs pegs(const Densa& y_in, const Densa& x_in, std::size_t maxit, doub
   }
   // somas de quadrados dos marcadores dentro dos observados de cada caracter, e tr(X'M X)
   std::vector<double> xx(p * k), trxsx(k, 0.0), msx(k, 0.0);
-  for (std::size_t j = 0; j < p; j++)
+  for (std::size_t j = 0; j < p; j++) {
+    const double* xj = coluna_x(j);
     for (std::size_t t = 0; t < k; t++) {
       double s2 = 0.0, s1 = 0.0;
-      const double* xj = &x[j * n];
       const double* zt = &z[t * n];
       for (std::size_t i = 0; i < n; i++) { s2 += xj[i] * xj[i] * zt[i]; s1 += xj[i] * zt[i]; }
       xx[j * k + t] = s2;
       msx[t] += s2 / nv[t] - (s1 / nv[t]) * (s1 / nv[t]);
     }
+  }
   for (std::size_t t = 0; t < k; t++) {
     trxsx[t] = nv[t] * msx[t];
     if (!(trxsx[t] > 0.0)) throw Erro("a trait has no marker variation among its records");
@@ -163,12 +185,14 @@ ResultadoPegs pegs(const Densa& y_in, const Densa& x_in, std::size_t maxit, doub
   Densa ig = inv_pd(vb);
   // X'y (p x k)
   std::vector<double> til(p * k, 0.0);
-  for (std::size_t j = 0; j < p; j++)
+  for (std::size_t j = 0; j < p; j++) {
+    const double* xj = coluna_x(j);
     for (std::size_t t = 0; t < k; t++) {
       double s = 0.0;
-      for (std::size_t i = 0; i < n; i++) s += x[j * n + i] * y[t * n + i];
+      for (std::size_t i = 0; i < n; i++) s += xj[i] * y[t * n + i];
       til[j * k + t] = s;
     }
+  }
   std::vector<double> b(p * k, 0.0), e = y;
   std::vector<std::size_t> ordem(p);
   for (std::size_t j = 0; j < p; j++) ordem[j] = j;
@@ -189,7 +213,7 @@ ResultadoPegs pegs(const Densa& y_in, const Densa& x_in, std::size_t maxit, doub
     double sumsq = 0.0;
     for (std::size_t jj = 0; jj < p; jj++) {
       const std::size_t J = ordem[jj];
-      const double* xj = &x[J * n];
+      const double* xj = coluna_x(J);
       for (std::size_t t = 0; t < k; t++) b0[t] = b[J * k + t];
       for (std::size_t r = 0; r < k; r++)
         for (std::size_t c = 0; c < k; c++) lhs[r * k + c] = ig.at(r, c);
@@ -260,7 +284,7 @@ ResultadoPegs pegs(const Densa& y_in, const Densa& x_in, std::size_t maxit, doub
     for (std::size_t j = 0; j < p; j++) {
       const double bj = b[j * k + t];
       if (bj == 0.0) continue;
-      const double* xj = &x[j * n];
+      const double* xj = coluna_x(j);
       for (std::size_t i = 0; i < n; i++) R.gebv.at(i, t) += xj[i] * bj;
     }
   R.h2.resize(k);

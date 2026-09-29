@@ -393,10 +393,10 @@ struct ResultadoPegs {
   std::vector<double> mu, h2, ve;
   Densa b, gebv, vb;
   double deflate = 1.0;
-  std::size_t iters = 0;
+  std::size_t iters = 0, n_imputados = 0;
   bool convergiu = false;
 };
-ResultadoPegs pegs(const Densa& y, const Densa& x, std::size_t maxit, double tol,
+ResultadoPegs pegs(const Densa& y, const Genotipos& x, std::size_t maxit, double tol,
                    double deflate_min, bool atualiza_vc, const Densa* vb0,
                    const std::vector<double>* ve0, int estrutura, std::size_t nfat);
 void estrutura_pegs(Densa& vb, int tipo, std::size_t nfat);

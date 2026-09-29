@@ -84,15 +84,6 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
     Y[em[!is.na(em)], ] <- as.matrix(data[!is.na(em), traits, drop = FALSE])
     dropped <- sum(rowSums(!is.na(as.matrix(data[is.na(em), traits, drop = FALSE]))) > 0)
   }
-  X <- genotipos_numericos(g$gm)
-  storage.mode(X) <- "double"
-  n_imp <- 0L
-  if (anyNA(X)) {
-    cm <- colMeans(X, na.rm = TRUE)
-    na <- which(is.na(X), arr.ind = TRUE)
-    X[na] <- cm[na[, 2]]
-    n_imp <- nrow(na)
-  }
   k <- ncol(Y)
   tipo <- match(cov_structure, c("unstructured", "hcs", "xfa")) - 1L
   if (!estimate && is.null(start)) stop("estimate = FALSE needs start = list(Vb =, Ve =)")
@@ -100,11 +91,13 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
   ve0 <- if (is.null(start$Ve)) numeric(0) else as.double(start$Ve)
   if (length(vb0) && !all(dim(vb0) == k)) stop("start$Vb must be ", k, " x ", k)
   if (length(ve0) && length(ve0) != k) stop("start$Ve must have ", k, " values")
-  r <- .Call(R_pegs, Y, X, as.integer(maxiter), as.double(tol), as.double(deflate_min),
+  # a matriz vai como esta (double, integer ou raw); o ausente e imputado pela media do
+  # marcador no C++, sem copia
+  r <- .Call(R_pegs, Y, g$gm, as.integer(maxiter), as.double(tol), as.double(deflate_min),
              isTRUE(estimate), vb0, ve0, tipo, as.integer(n_factors))
   tn <- colnames(Y)
   names(r$mu) <- names(r$h2) <- names(r$Ve) <- tn
-  dimnames(r$marker_effects) <- list(colnames(X), tn)
+  dimnames(r$marker_effects) <- list(colnames(g$gm), tn)
   dimnames(r$gebv) <- list(g$gid, tn)
   dimnames(r$Vb) <- list(tn, tn)
   r$Gcor <- stats::cov2cor(r$Vb)
@@ -114,7 +107,6 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
   r$cov_structure <- cov_structure
   r$n_records <- colSums(!is.na(Y))
   r$dropped <- dropped
-  r$n_imputed <- n_imp
   structure(r, class = "breeding_pegs")
 }
 
