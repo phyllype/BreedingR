@@ -362,3 +362,69 @@ legendre <- function(x, order = 1L, limits = NULL) {
   colnames(P) <- paste0("phi", 0:order)
   P
 }
+
+#' Inverse of the single-step relationship matrix H
+#'
+#' `H^-1 = A^-1 + [0 0; 0 G*^-1 - A22^-1]` (Aguilar et al. 2010; Christensen and Lund
+#' 2010), built by the same code the Gaussian fitters use: G of VanRaden (2008) with the
+#' allele frequencies of the genotyped, brought to the scale of A22 by the affine
+#' adjustment and blended with it (`G* = (1 - w) G_adj + w A22`), and inverted exactly, by
+#' the APY (`apy_core =`, `"auto"` included) or by the Vecchia recursion (`vecchia_k =`).
+#' This is the door for the fitters written in R, [model_threshold()] and
+#' [model_survival()], which call it when given `genotypes =`; the result also enters
+#' anywhere `k_inverse =` is taken.
+#'
+#' @param pedigree data.frame animal, sire, dam (or a [sire_mgs()] pedigree)
+#' @param genotypes list with `ids` and `m` (0/1/2, NA imputed by the marker mean)
+#' @param blend weight of A22 in G*, the usual 0.05
+#' @param apy_core ids of the APY core, `"auto"`, or the result of [apy_core_select()]
+#' @param vecchia_k neighbours per animal in the Vecchia inverse of G*
+#' @param metafounders,gamma refused together with genotypes, as in the fitters
+#' @return triplets of the lower triangle, `list(i, j, x, n, id)` as [a_inverse()]
+#'   returns, plus `h_prior` and `h_prior_row` (the diagonal of G* of each genotyped
+#'   animal and its row, which [accuracy()] uses as the prior), `n_imputed`,
+#'   `n_monomorphic` and `apy` (the core used, when there is one)
+#' @references Aguilar, I., Misztal, I., Johnson, D.L., Legarra, A., Tsuruta, S. &
+#'   Lawlor, T.J. (2010). Journal of Dairy Science 93:743-752.
+#'
+#'   Christensen, O.F. & Lund, M.S. (2010). Genetics Selection Evolution 42:2.
+#' @export
+h_inverse <- function(pedigree, genotypes, blend = 0.05, apy_core = NULL,
+                      vecchia_k = NULL, metafounders = NULL, gamma = NULL) {
+  if (!is.data.frame(pedigree)) stop("expected a pedigree data.frame")
+  recusa_mf_genomico(metafounders, TRUE)
+  g <- valida_genotipos(genotypes)
+  if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
+  nuc <- nucleo_apy(apy_core, genotypes)
+  if (length(nuc) && !is.null(vecchia_k))
+    stop("apy_core and vecchia_k are two approximations of the same inverse: declare one")
+  cp <- colunas_pedigree(pedigree)
+  r <- .Call(R_h_inversa, cp$id, cp$sire, cp$dam, character(0), numeric(0),
+             g$gid, g$gm, as.double(blend), as.character(nuc),
+             if (is.null(vecchia_k)) 0L else as.integer(vecchia_k))
+  r$apy <- attr(nuc, "registro")
+  r
+}
+
+# genotypes= nos motores em R: a H^-1 entra pelo mesmo k_inverse, e a priori de G* vai para
+# o ajuste, para accuracy() dividir o genotipado pelo que ele tem
+hinv_para_motor <- function(pedigree, genotypes, blend, apy_core, vecchia_k, k_inverse) {
+  if (is.null(genotypes)) return(NULL)
+  if (!is.null(k_inverse))
+    stop("give genotypes= (the single step is built here) or k_inverse=, not both")
+  if (is.null(pedigree)) stop("genotypes without a pedigree: H^-1 needs A^-1")
+  h_inverse(pedigree, genotypes, blend, apy_core, vecchia_k)
+}
+
+anota_hinv <- function(fit, h) {
+  if (is.null(h)) return(fit)
+  fit$h_prior <- h$h_prior
+  fit$h_prior_row <- h$h_prior_row
+  fit$apy <- h$apy
+  fit$message <- paste0(fit$message, "; single-step: ", length(h$h_prior), " genotyped, ",
+                        h$n_imputed, " missing value(s) imputed by the mean, ",
+                        h$n_monomorphic, " monomorphic marker(s) left out of G",
+                        if (!is.null(h$apy)) paste0(", G* inverted by APY with a core of ",
+                                                    h$apy$size) else "")
+  fit
+}

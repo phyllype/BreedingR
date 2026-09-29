@@ -93,6 +93,8 @@
 #'   `sqrt(sum(delta^2) / sum(sol^2))`, same convention as the other fitters
 #' @param verbose print one line per scoring iteration with the relative step (the
 #'   convergence criterion itself)
+#' @param genotypes,blend,apy_core,vecchia_k single step, as in [model()]: the
+#'   relationship term gets the `H^-1` of [h_inverse()] instead of `A^-1`
 #' @param estimate ordinal mode only: estimate the variances by Laplace + EM, with
 #'   `start` as the starting point, instead of taking them as given
 #' @param maxiter_em maximum number of EM steps when `estimate = TRUE`
@@ -147,7 +149,10 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
                             k_inverse = NULL, missing_code = NULL,
                             thresholds_start = NULL, maxiter = 50L, tol = 1e-8,
                             verbose = interactive(), estimate = FALSE,
-                            maxiter_em = 200L, tol_em = 1e-6) {
+                            maxiter_em = 200L, tol_em = 1e-6, genotypes = NULL,
+                            blend = 0.05, apy_core = NULL, vecchia_k = NULL) {
+  hinv <- hinv_para_motor(pedigree, genotypes, blend, apy_core, vecchia_k, k_inverse)
+  if (!is.null(hinv)) k_inverse <- hinv
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side: score ~ herd + sire(sire)")
   lhs <- formula[[2]]
@@ -194,8 +199,9 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
     if (isTRUE(estimate))
       stop("estimate = TRUE is for the ordinal mode: the joint mode takes G and R as ",
            "given (the residual covariance with the liability is not estimated here)")
-    return(ajusta_limiar_conjunto(formula, traits, terms, aleat, data, pedigree, k_inverse,
-                                  start, missing_code, maxiter, tol, verbose))
+    return(anota_hinv(ajusta_limiar_conjunto(formula, traits, terms, aleat, data, pedigree,
+                                             k_inverse, start, missing_code, maxiter, tol,
+                                             verbose), hinv))
   }
   ajusta <- function(s2, warm = NULL)
     ajusta_limiar_ordinal(formula, traits, terms, aleat, data, pedigree, k_inverse,
@@ -204,9 +210,9 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
   if (!isTRUE(estimate)) {
     fit <- ajusta(start)
     attr(fit, "estado") <- NULL
-    return(fit)
+    return(anota_hinv(fit, hinv))
   }
-  estima_limiar(ajusta, as.double(start), maxiter_em, tol_em, verbose)
+  anota_hinv(estima_limiar(ajusta, as.double(start), maxiter_em, tol_em, verbose), hinv)
 }
 
 # O laco da estimacao: ajusta na variancia corrente (partida quente), passo EM, repete. No

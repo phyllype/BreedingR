@@ -108,6 +108,8 @@
 #'   `sqrt(sum(delta^2) / sum(sol^2))`, same convention as the other fitters
 #' @param verbose print one line per Newton iteration, and one per variance
 #'   evaluation when `sigma2` is being estimated
+#' @param genotypes,blend,apy_core,vecchia_k single step, as in [model()]: the frailty
+#'   of a relationship term gets the `H^-1` of [h_inverse()] instead of `A^-1`
 #' @param entry column with the start of each elementary record (`0` for the first
 #'   piece of a subject observed from time zero); NULL means every row starts at 0
 #' @param subject column with the subject of each elementary record; required with
@@ -154,8 +156,11 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
                            rho = NULL, lambda = NULL, sigma2 = NULL,
                            k_inverse = NULL, maxiter = 200L, tol = 1e-8,
                            verbose = interactive(), entry = NULL, subject = NULL,
-                           gaps = c("error", "allow")) {
+                           gaps = c("error", "allow"), genotypes = NULL, blend = 0.05,
+                           apy_core = NULL, vecchia_k = NULL) {
   gaps <- match.arg(gaps)
+  hinv <- hinv_para_motor(pedigree, genotypes, blend, apy_core, vecchia_k, k_inverse)
+  if (!is.null(hinv)) k_inverse <- hinv
   t0 <- proc.time()[["elapsed"]]
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with the time on the left: lpl ~ herd + animal(id)")
@@ -416,7 +421,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
            "errors are conditional on rho, lambda and sigma2"))
 
   nome_theta <- paste0("var(", z$nome, ")")
-  structure(list(
+  fit_s <- structure(list(
     trait = trait,
     rho = rho_est, lambda = lambda_est,
     rho_given = !is.null(rho), lambda_given = !est_lam, sigma2_given = !estimou_s2,
@@ -442,6 +447,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
                   random = list(list(nome = z$nome, column = z$column, ids = z$ids))),
     seconds = proc.time()[["elapsed"]] - t0
   ), class = "breeding_fit_surv")
+  anota_hinv(fit_s, hinv)
 }
 
 # ------------------------------------------------------------------ methods

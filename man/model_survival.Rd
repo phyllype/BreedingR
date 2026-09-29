@@ -18,7 +18,11 @@ model_survival(
   verbose = interactive(),
   entry = NULL,
   subject = NULL,
-  gaps = c("error", "allow")
+  gaps = c("error", "allow"),
+  genotypes = NULL,
+  blend = 0.05,
+  apy_core = NULL,
+  vecchia_k = NULL
 )
 }
 \arguments{
@@ -73,6 +77,9 @@ piece of a subject observed from time zero); NULL means every row starts at 0}
 
 \item{gaps}{\code{"error"} (default) refuses a gap between two pieces of a subject;
 \code{"allow"} accepts it as time out of observation, in which no risk is counted}
+
+\item{genotypes, blend, apy_core, vecchia_k}{single step, as in \code{\link[=model]{model()}}: the frailty
+of a relationship term gets the \code{H^-1} of \code{\link[=h_inverse]{h_inverse()}} instead of \code{A^-1}}
 }
 \value{
 an object of class \code{breeding_fit_surv}: \code{rho}, \code{lambda} (with

@@ -17,7 +17,11 @@ model_threshold(
   verbose = interactive(),
   estimate = FALSE,
   maxiter_em = 200L,
-  tol_em = 1e-06
+  tol_em = 1e-06,
+  genotypes = NULL,
+  blend = 0.05,
+  apy_core = NULL,
+  vecchia_k = NULL
 )
 }
 \arguments{
@@ -65,6 +69,9 @@ convergence criterion itself)}
 \item{maxiter_em}{maximum number of EM steps when \code{estimate = TRUE}}
 
 \item{tol_em}{RELATIVE tolerance on the variances between two EM steps}
+
+\item{genotypes, blend, apy_core, vecchia_k}{single step, as in \code{\link[=model]{model()}}: the
+relationship term gets the \code{H^-1} of \code{\link[=h_inverse]{h_inverse()}} instead of \code{A^-1}}
 }
 \value{
 an object of class \code{breeding_fit_thr}. Ordinal mode: \code{thresholds} (with

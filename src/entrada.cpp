@@ -111,6 +111,84 @@ extern "C" {
 //
 // A ordem importa e por isso ela sai: o A^-1 e os efeitos genéticos vêm nessa ordem, e
 // juntar de volta pela posicao original seria trocar animal em silencio.
+// a priori de H dos genotipados e a linha do pedigree de cada um (1-based), para accuracy().
+// Sem PROTECT proprio: o valor vai direto para SET_VECTOR_ELT de uma lista ja protegida.
+static SEXP sexp_priori_h(const std::vector<double>& v) {
+  SEXP x = Rf_allocVector(REALSXP, (R_xlen_t) v.size());
+  for (std::size_t q = 0; q < v.size(); q++) REAL(x)[q] = v[q];
+  return x;
+}
+static SEXP sexp_linha_h(const std::vector<std::size_t>& v) {
+  SEXP x = Rf_allocVector(INTSXP, (R_xlen_t) v.size());
+  for (std::size_t q = 0; q < v.size(); q++) INTEGER(x)[q] = (int) v[q] + 1;
+  return x;
+}
+
+// H^-1 do passo unico como triplos, para os motores em R (limiar, sobrevivencia) e para quem
+// quiser a matriz: o MESMO nucleo dos ajustadores em C++ (h_inversa em genomica.cpp), entao
+// G*, a mistura, a APY e a Vecchia sao as mesmas.
+SEXP R_h_inversa(SEXP id, SEXP pai, SEXP mae, SEXP mfx, SEXP gmx, SEXP gid, SEXP gm,
+                 SEXP mistura, SEXP anucleo, SEXP vk) {
+  GUARDA(
+    auto i = textos(id, "id");
+    auto p = textos(pai, "sire");
+    auto m = textos(mae, "dam");
+    br::Pedigree ped = br::constroi_pedigree(i, p, m, textos(mfx, "metafounders"),
+        std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(mae));
+    std::vector<double> f = br::endogamia(ped);
+    br::Csc ainv = br::a_inversa(ped, f);
+    auto gids = textos(gid, "genotypes");
+    SEXP dim = Rf_getAttrib(gm, R_DimSymbol);
+    if (TYPEOF(gm) != REALSXP || dim == R_NilValue || XLENGTH(dim) != 2)
+      Rf_error("the genotype matrix must be numeric");
+    const int nl = INTEGER(dim)[0], nm2 = INTEGER(dim)[1];
+    if ((std::size_t) nl != gids.size())
+      Rf_error("%d identifiers for %d genotype rows", (int) gids.size(), nl);
+    br::Densa mg((std::size_t) nl, (std::size_t) nm2);
+    for (int j2 = 0; j2 < nm2; j2++)
+      for (int i2 = 0; i2 < nl; i2++)
+        mg.at((std::size_t) i2, (std::size_t) j2) = REAL(gm)[(R_xlen_t) j2 * nl + i2];
+    std::vector<std::string> nuc;
+    if (XLENGTH(anucleo) > 0) nuc = textos(anucleo, "APY core");
+    const std::size_t kv = (std::size_t) std::max(0, Rf_asInteger(vk));
+    br::RelatorioG rel;
+    br::Csc a = br::h_inversa(ped, ainv, gids, mg, Rf_asReal(mistura), nuc, kv, rel);
+
+    const R_xlen_t nz = static_cast<R_xlen_t>(a.nnz());
+    SEXP li = PROTECT(Rf_allocVector(INTSXP, nz));
+    SEXP cj = PROTECT(Rf_allocVector(INTSXP, nz));
+    SEXP vv = PROTECT(Rf_allocVector(REALSXP, nz));
+    R_xlen_t k = 0;
+    for (std::size_t c = 0; c < a.ncol; c++)
+      for (std::size_t t = a.colptr[c]; t < a.colptr[c + 1]; t++, k++) {
+        INTEGER(li)[k] = static_cast<int>(a.linha[t]) + 1;
+        INTEGER(cj)[k] = static_cast<int>(c) + 1;
+        REAL(vv)[k] = a.valor[t];
+      }
+    SEXP ids = PROTECT(Rf_allocVector(STRSXP, static_cast<R_xlen_t>(ped.ids.size())));
+    for (std::size_t t = 0; t < ped.ids.size(); t++)
+      SET_STRING_ELT(ids, static_cast<R_xlen_t>(t), Rf_mkChar(ped.ids[t].c_str()));
+
+    const char* campos[] = {"i", "j", "x", "n", "id", "h_prior", "h_prior_row",
+                            "n_imputed", "n_monomorphic"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 9));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 9));
+    for (int q = 0; q < 9; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    SET_VECTOR_ELT(out, 0, li);
+    SET_VECTOR_ELT(out, 1, cj);
+    SET_VECTOR_ELT(out, 2, vv);
+    SET_VECTOR_ELT(out, 3, Rf_ScalarInteger(static_cast<int>(a.ncol)));
+    SET_VECTOR_ELT(out, 4, ids);
+    SET_VECTOR_ELT(out, 5, sexp_priori_h(rel.diag_gstar));
+    SET_VECTOR_ELT(out, 6, sexp_linha_h(rel.linha_ped));
+    SET_VECTOR_ELT(out, 7, Rf_ScalarInteger(static_cast<int>(rel.n_imputados)));
+    SET_VECTOR_ELT(out, 8, Rf_ScalarInteger(static_cast<int>(rel.n_monomorficos)));
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(6);
+    return out;
+  )
+}
+
 SEXP R_pedigree(SEXP id, SEXP pai, SEXP mae, SEXP mfx, SEXP gmx) {
   GUARDA(
     auto i = textos(id, "id");
@@ -449,19 +527,6 @@ extern "C++" {
 
 // fit$dense_block = c(dense = k, columns = n): o k do custo k^3 de cada fatoracao. O objeto
 // e protegido e desprotegido aqui dentro e devolvido para ser gravado na lista na hora.
-// a priori de H dos genotipados e a linha do pedigree de cada um (1-based), para accuracy().
-// Sem PROTECT proprio: o valor vai direto para SET_VECTOR_ELT de uma lista ja protegida.
-static SEXP sexp_priori_h(const std::vector<double>& v) {
-  SEXP x = Rf_allocVector(REALSXP, (R_xlen_t) v.size());
-  for (std::size_t q = 0; q < v.size(); q++) REAL(x)[q] = v[q];
-  return x;
-}
-static SEXP sexp_linha_h(const std::vector<std::size_t>& v) {
-  SEXP x = Rf_allocVector(INTSXP, (R_xlen_t) v.size());
-  for (std::size_t q = 0; q < v.size(); q++) INTEGER(x)[q] = (int) v[q] + 1;
-  return x;
-}
-
 static SEXP sexp_bloco_denso(std::size_t k, std::size_t n) {
   SEXP db = PROTECT(Rf_allocVector(INTSXP, 2));
   INTEGER(db)[0] = (int) k;
@@ -1412,6 +1477,7 @@ SEXP R_versao(void) { return Rf_mkString("0.4.0.9000"); }
 static const R_CallMethodDef metodos[] = {
   {"R_pedigree",   (DL_FUNC) &R_pedigree,   5},
   {"R_a_inversa",  (DL_FUNC) &R_a_inversa,  5},
+  {"R_h_inversa",  (DL_FUNC) &R_h_inversa, 10},
   {"R_inv_pd",       (DL_FUNC) &R_inv_pd,       1},
   {"R_chol_esparsa", (DL_FUNC) &R_chol_esparsa, 5},
   {"R_inv_seletiva", (DL_FUNC) &R_inv_seletiva, 5},
