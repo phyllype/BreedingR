@@ -140,6 +140,7 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
              isTRUE(verbose),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
+
              monta_kernels(terms, environment(formula)),
              if (is.null(start)) numeric(0) else as.double(start))
   r$seconds <- proc.time()[["elapsed"]] - t0
@@ -203,6 +204,7 @@ eval_internal_ar1 <- function(formula, data, pedigree = NULL, subject, time, the
         as.double(theta), isTRUE(with_dense),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
+
              monta_kernels(terms, environment(formula)))
 }
 
@@ -218,7 +220,7 @@ print.breeding_fit_ar1 <- function(x, ...) {
       x$n_columns, " column(s) in the equations\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  print(tabela_componentes(x$theta, x$se), digits = 6)
+  mostra_componentes(tabela_componentes(x$theta, x$se))
   mostra_fixos(x$b, x$dropped_x)
   invisible(x)
 }

@@ -84,6 +84,17 @@ h2 <- function(fit, group = NULL, trait = NULL) {
     stop("this fit has a reaction norm, and there the heritability is a function of the ",
          "gradient and not one number: use h2_curve()")
   if (is.null(group)) group <- names(fit$ebv)[1]
+  # um grupo NOMEADO com mais de um termo (direto e indireto, direto e materno) nao tem
+  # var(<grupo>): a variancia e de cada termo. O h2 e do PRIMEIRO termo do grupo, que e o
+  # efeito direto na convencao de toda formula do pacote (animal() antes do outro termo).
+  # Antes disto h2() procurava var(g) e morria num ajuste direto + indireto.
+  sufixo <- if (inherits(fit, "breeding_fit_mt")) "@" else ")"
+  if (!any(startsWith(names(fit$theta), paste0("var(", group, sufixo)))) {
+    termos <- tryCatch(decompoe_formula(fit$formula[[3]]), error = function(e) NULL)
+    no_grupo <- if (is.null(termos)) list() else
+      Filter(function(t) identical(t$group, group) && t$estrutura != 0L, termos)
+    if (length(no_grupo)) group <- no_grupo[[1]]$nome
+  }
   if (inherits(fit, "breeding_fit_mt")) {
     tr <- if (is.null(trait)) fit$traits else trait
     out <- vapply(tr, function(t) {

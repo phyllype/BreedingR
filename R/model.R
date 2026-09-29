@@ -535,19 +535,59 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
         vapply(terms, function(t) t$dilution, numeric(1)))
 }
 
-#' @export
-# The component table every print method shows: estimate, SE, and the SHARE of the
-# summed variance components (cov/rho rows get NA there — a share of a covariance
-# means nothing). The share column is what turns the print into a first reading:
-# h2 is the share of var(animal) when the model is the animal model.
+# A TABELA DE COMPONENTES, a mesma em todo print e summary.
+#
+# share: a fracao da variancia fenotipica DAQUELE caracter, com as covariancias dentro do
+# denominador. Antes o denominador era so a soma das variancias, e num direto-materno isso e
+# exatamente o numero de herdabilidade que sai quando se tira a covariancia, que e errado: o
+# sigma_am pertence a variancia fenotipica (Willham 1972). E o mesmo denominador do h2(),
+# entao a linha de var(animal) num modelo animal com materno E o h2. Uma covariancia ENTRE
+# caracteres nao pertence a variancia de caracter nenhum e fica sem share; numa norma de
+# reacao nao ha variancia fenotipica fora de um ponto do gradiente, e o share fica vazio.
+#
+# correlation: para cada covariancia, cov / sqrt(var_i var_j). Antes a linha da covariancia
+# saia com o share vazio e nada mais, e a correlacao, que e o numero que se le dela, tinha de
+# ser feita na mao.
 tabela_componentes <- function(theta, se) {
-  eh_var <- grepl("^var\\(", names(theta))
-  soma <- sum(theta[eh_var])
-  share <- ifelse(eh_var, unname(theta) / soma, NA_real_)
-  data.frame(component = names(theta), estimate = unname(theta),
-             std_error = unname(se), share = round(share, 4), row.names = NULL)
+  nm <- names(theta)
+  est <- unname(theta)
+  membros <- lapply(nm, function(s) strsplit(sub("^(var|cov)\\((.*)\\)$", "\\2", s), ",", fixed = TRUE)[[1]])
+  traco <- function(m) if (grepl("@", m, fixed = TRUE)) sub(".*@", "", m) else ""
+  tr <- vapply(membros, function(m) {
+    t <- unique(vapply(m, traco, ""))
+    if (length(t) == 1L) t else NA_character_
+  }, "")
+  share <- rep(NA_real_, length(est))
+  if (!any(grepl("\\[\\d+\\]", nm)))
+    for (t in unique(stats::na.omit(tr))) {
+      k <- which(tr == t)
+      share[k] <- est[k] / sum(est[k])
+    }
+  vars <- stats::setNames(est[startsWith(nm, "var(")], vapply(membros[startsWith(nm, "var(")], `[`, "", 1))
+  corr <- vapply(seq_along(nm), function(i) {
+    if (!startsWith(nm[i], "cov(")) return(NA_real_)
+    v <- vars[membros[[i]]]
+    if (length(v) != 2L || anyNA(v) || any(v <= 0)) return(NA_real_)
+    est[i] / sqrt(prod(v))
+  }, 0)
+  data.frame(component = nm, estimate = est, std_error = unname(se),
+             share = round(share, 4), correlation = round(corr, 4), row.names = NULL)
 }
 
+# imprime a tabela com as celulas vazias em branco, e nao "NA": share vazio numa
+# covariancia e correlacao vazia numa variancia nao sao dado faltante, sao nao aplicavel
+mostra_componentes <- function(tb) {
+  out <- tb
+  out$estimate <- format(tb$estimate, digits = 6)
+  out$std_error <- ifelse(is.finite(tb$std_error), format(tb$std_error, digits = 6), "NaN")
+  out$share <- ifelse(is.na(tb$share), "", format(tb$share, nsmall = 4))
+  out$correlation <- ifelse(is.na(tb$correlation), "", format(tb$correlation, nsmall = 4))
+  print(out, right = TRUE, row.names = FALSE)
+  invisible(tb)
+}
+
+
+#' @export
 print.breeding_fit <- function(x, ...) {
   cat("AI-REML fit of '", x$trait, "'\n", sep = "")
   cat("  ", if (x$converged) "converged" else "DID NOT CONVERGE",
@@ -562,7 +602,7 @@ print.breeding_fit <- function(x, ...) {
         paste(x$dropped_x, collapse = ", "), "\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  print(tabela_componentes(x$theta, x$se), digits = 6)
+  mostra_componentes(tabela_componentes(x$theta, x$se))
   mostra_fixos(x$b, x$dropped_x)
   invisible(x)
 }
@@ -637,7 +677,7 @@ print.summary.breeding_fit <- function(x, ...) {
   if (!is.null(x$neg2logl)) cat("  -2logL ", format(x$neg2logl, digits = 10), "\n", sep = "")
   if (!is.null(x$n_censored)) cat("  ", x$n_censored, " right-censored\n", sep = "")
   cat("\n")
-  print(x$components, digits = 6)
+  mostra_componentes(x$components)
   if (!is.null(x$thresholds)) {
     cat("\nthresholds (liability scale):\n")
     print(rbind(estimate = x$thresholds, std_error = x$se_thresholds), digits = 4)
@@ -646,12 +686,12 @@ print.summary.breeding_fit <- function(x, ...) {
     cat("\nrho ", format(x$rho, digits = 4), ",  lambda ", format(x$lambda, digits = 4),
         "\n", sep = "")
   if (!is.null(x$fixed)) mostra_fixos(x$fixed, x$dropped_x)
-  cat("\nThe 'share' column is each VARIANCE over the sum of the variances, and it is NOT a\n",
-      "heritability: the covariance components are outside that denominator. h2() divides by\n",
-      "the phenotypic variance, covariances included, and refuses the cases where the ratio\n",
-      "is not a number. No standard error travels with either: it needs the delta method over\n",
-      "the covariance between components, and making it up would be worse than giving none.\n",
-      sep = "")
+  cat("\nshare: each component over the phenotypic variance of its trait, covariances\n",
+      "included, the same denominator as h2(); in an animal model the var(animal) row is h2.\n",
+      "A covariance BETWEEN traits belongs to no trait's variance and has no share.\n",
+      "correlation: each covariance over the square root of the two variances it links.\n",
+      "No standard error travels with either: it needs the delta method over the covariance\n",
+      "between components, and making it up would be worse than giving none.\n", sep = "")
   invisible(x)
 }
 

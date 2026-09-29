@@ -77,3 +77,24 @@ test_that("h2() RECUSA onde a razao nao e um numero", {
              maxiter = 6L, verbose = FALSE)
   expect_error(h2(f), "h2_curve")
 })
+
+test_that("a covariancia aparece: share com o mesmo denominador do h2(), e a correlacao", {
+  # A linha da covariancia saia com o share vazio e nada mais. E o share das variancias
+  # dividia so pela soma das variancias, que num direto-materno e o h2 SEM a covariancia,
+  # que e errado (Willham 1972). Agora o share divide pela variancia fenotipica do caracter
+  # com as covariancias dentro, igual ao h2(), e cada covariancia traz a correlacao.
+  z <- fix(n = 500)
+  z$d$pen <- sprintf("p%03d", rep(seq_len(125), each = 4))
+  f <- model(y ~ animal(id, group = "g") + indirect(id, pen = "pen", group = "g"),
+             z$d, z$ped, maxiter = 30L, verbose = FALSE)
+  tb <- summary(f)$components
+  expect_true("correlation" %in% names(tb))
+  th <- f$theta
+  k <- tb$component == "cov(indirect,animal)"
+  expect_equal(tb$correlation[k],
+               round(th[["cov(indirect,animal)"]] / sqrt(th[["var(animal)"]] * th[["var(indirect)"]]), 4))
+  expect_false(is.na(tb$share[k]))                       # a covariancia TEM share
+  expect_equal(sum(tb$share), 1, tolerance = 1e-3)       # e tudo soma um
+  expect_equal(tb$share[tb$component == "var(animal)"], round(h2(f), 4))
+  expect_output(print(f), "correlation")
+})

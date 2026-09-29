@@ -398,7 +398,7 @@ print.breeding_fit_surv <- function(x, ...) {
       ",  Laplace marginal ", format(x$marginal_loglik, digits = 8), "\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  print(tabela_componentes(x$theta, x$se), digits = 6)
+  mostra_componentes(tabela_componentes(x$theta, x$se))
   if (!x$sigma2_given) cat("  (frailty variance by Laplace, se from the profile curvature)\n")
   mostra_fixos(x$b, x$dropped_x,
                nota = if (x$lambda_given)

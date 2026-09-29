@@ -672,7 +672,7 @@ print.breeding_fit_thr <- function(x, ...) {
     print(rbind(estimate = x$thresholds, std_error = x$se_thresholds), digits = 4)
   }
   cat("\n")
-  print(tabela_componentes(x$theta, x$se), digits = 6)
+  mostra_componentes(tabela_componentes(x$theta, x$se))
   mostra_fixos(x$b, x$dropped_x,
                nota = if (identical(x$type, "joint"))
                  "the first class factor carries the intercept; later factors zero their first level"
