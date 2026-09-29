@@ -41,6 +41,11 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   }
 
   d.tempo = tab.numerico(col_tempo);
+  // TEMPO NAO FINITO = registro sem posicao na serie. Antes a linha entrava, o comparador do
+  // std::sort recebia NaN (comportamento indefinido) e o ajuste terminava em "theta inicial
+  // inadmissivel". Agora sai, e a mensagem conta quantas.
+  for (std::size_t i = 0; i < d.nlin; i++)
+    if (d.usa[i] && !std::isfinite(d.tempo[i])) { d.usa[i] = 0; d.n_sem_tempo++; }
   std::vector<std::string> suj = tab.rotulos(col_sujeito);
 
   const bool precisa_ped = [&]{
@@ -98,6 +103,28 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   Densa xfull(d.nlin, cols.size());
   for (std::size_t j = 0; j < cols.size(); j++)
     for (std::size_t i = 0; i < d.nlin; i++) xfull.at(i, j) = cols[j].second[i];
+  // AS LINHAS SEM PAR CAEM ANTES DO POSTO DE X, como em model() (mme.cpp). Antes caiam
+  // depois: um CG cujos animais nao estao no pedigree ficava com coluna em X, o posto nao
+  // a via como dependente, e a coluna chegava vazia na montagem. model() derrubava o nivel
+  // e ajustava; model_ar1() devolvia "did NOT converge" com decremento 0,46 e model_mt()
+  // "SINGULAR", dois diagnosticos que apontavam para o lugar errado.
+  for (std::size_t k = 0; k < m.termos.size(); k++) {
+    if (!m.termos[k].aleatorio()) continue;
+    // niveis: do pedigree quando ha parentesco, DA K quando declarada. Todo nivel da
+    // estrutura ganha equacao, com ou sem registro, exatamente como em model().
+    const std::vector<std::string>* nf = nullptr;
+    if (m.termos[k].estrutura == Estrutura::Parentesco) nf = &niveis_ped;
+    else if (m.termos[k].estrutura == Estrutura::Declarada) nf = &(*kernels)[k].ids;
+    d.aleatorios.push_back(monta_termo(m, k, tab, nf));
+  }
+  {
+    std::vector<DesenhoTermo*> pa;
+    for (DesenhoTermo& a : d.aleatorios) pa.push_back(&a);
+    casa_niveis_nulos(m, pa, kern_nulos, tab, d.nlin);
+  }
+  for (const DesenhoTermo& a : d.aleatorios)
+    for (std::size_t i = 0; i < d.nlin; i++)
+      if (!a.casou[i]) d.usa[i] = 0;
   // POSTO DE X SOBRE AS LINHAS QUE ENTRAM, nao sobre a tabela inteira. E o mesmo conserto
   // que o univariado ja tem (mme.cpp, mesma marca). Um nivel fixo cujos registros TODOS
   // sairam continua com coluna nao-nula na tabela, entao um posto medido sobre tudo o
@@ -120,23 +147,6 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
     for (std::size_t i = 0; i < d.nlin; i++) d.x.at(i, jj) = xfull.at(i, fica[jj]);
   }
   for (std::size_t j : sai) d.saiu_x.push_back(cols[j].first);
-  for (std::size_t k = 0; k < m.termos.size(); k++) {
-    if (!m.termos[k].aleatorio()) continue;
-    // niveis: do pedigree quando ha parentesco, DA K quando declarada. Todo nivel da
-    // estrutura ganha equacao, com ou sem registro, exatamente como em model().
-    const std::vector<std::string>* nf = nullptr;
-    if (m.termos[k].estrutura == Estrutura::Parentesco) nf = &niveis_ped;
-    else if (m.termos[k].estrutura == Estrutura::Declarada) nf = &(*kernels)[k].ids;
-    d.aleatorios.push_back(monta_termo(m, k, tab, nf));
-  }
-  {
-    std::vector<DesenhoTermo*> pa;
-    for (DesenhoTermo& a : d.aleatorios) pa.push_back(&a);
-    casa_niveis_nulos(m, pa, kern_nulos, tab, d.nlin);
-  }
-  for (const DesenhoTermo& a : d.aleatorios)
-    for (std::size_t i = 0; i < d.nlin; i++)
-      if (!a.casou[i]) d.usa[i] = 0;
 
   // sujeitos: registros usaveis agrupados e ordenados pelo tempo
   {
@@ -345,7 +355,7 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
   CacheSimbolica cs;
   AvaliacaoAR cur = avalia_ar1(d, theta, &cs);
   if (cs.pronto) { R.bloco_denso = bloco_denso_simbolico(cs.sb); R.colunas_fator = cs.sb.n; }
-  if (!cur.ok) { R.mensagem = "o theta inicial e INADMISSIVEL"; return R; }
+  if (!cur.ok) { R.mensagem = "the starting theta is INADMISSIBLE: some covariance matrix is not positive-definite, or rho is outside (-1, 1)"; return R; }
 
   // O PASSO anda em log-Cholesky por bloco, como o univariado e o multicaracter. Aqui o
   // residuo e o bloco R0 de t x t e o rho anda em atanh, o que troca a parede |rho| = 1
@@ -505,7 +515,7 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
         lambda = 1e-2;
         parado = 0;
         if (verboso)
-          Rprintf("      resgate EM: -2logL %.6f (o passo AI tinha travado)\n", cur.neg2logl);
+          Rprintf("      EM rescue: -2logL %.6f (the AI step had stalled)\n", cur.neg2logl);
         continue;
       }
       const PassoZ Pc = pecas(cur);
@@ -542,6 +552,9 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
   // multicaracter comum nao faz isso: la o registro fica e e ajustado contra a submatriz de
   // R0 do padrao dele. A diferenca tem de aparecer, senao o unico sinal e um n_used menor
   // que nrow(data).
+  if (d.n_sem_tempo > 0)
+    R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
+        std::to_string(d.n_sem_tempo) + " record(s) left out for a missing or non-finite time";
   if (d.n_incompletos > 0) {
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
         std::to_string(d.n_incompletos) + " record(s) dropped ENTIRELY for having at "
@@ -565,16 +578,36 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
     }
   } catch (const Erro&) {}
 
-  if (!R.convergiu && R.mensagem.empty()) {
+  // o mesmo veredicto do model() (aireml.cpp): esgotado o maxiter com o decremento de
+  // Newton ja abaixo da tolerancia, o que se tem e uma crista plana, e nao um ajuste
+  // que pede mais iteracoes. Aqui ele ainda dizia "Raise maxiter".
+  if (!R.convergiu && R.iters >= maxiter && R.decremento < tol_dec) {
+    R.convergiu = true;
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.3g", R.reldelta);
+    R.mensagem = std::string(R.mensagem.empty() ? "" : R.mensagem + "; ") +
+        "converged by the Newton decrement while the components were still moving "
+        "(relDelta " + buf + "): the likelihood is flat along some direction, so the "
+        "values along it are about equally supported. Read the standard errors and the "
+        "correlation between the components before trusting any one of them";
+  }
+
+  // o diagnostico de nao convergencia sai sempre que nenhum outro motivo de falha foi
+  // escrito, e vai NA FRENTE das notas informativas (exclusao por lista, fronteira, tempo
+  // ausente). Antes so saia com a mensagem vazia, e qualquer nota o escondia.
+  if (!R.convergiu && R.mensagem.find("did NOT converge") == std::string::npos &&
+      R.mensagem.find("INADMISSIBLE") == std::string::npos &&
+      R.mensagem.find("SINGULAR at the starting") == std::string::npos) {
     char buf[128];
     std::snprintf(buf, sizeof(buf), " (relDelta %.3g, Newton decrement %.3g against the "
                   "2e-4 tolerance)", R.reldelta, R.decremento);
     R.mensagem = "stopped at " + std::to_string(maxiter) + " iteration(s) without a "
-        "certified optimum" + buf + ": this model asks for more iterations. Raise maxiter=";
+        "certified optimum" + buf + ": this model asks for more iterations. Raise maxiter=" +
+        (R.mensagem.empty() ? std::string() : "; " + R.mensagem);
   }
   if (cur.fora_do_padrao > 0)
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
-        std::to_string(cur.fora_do_padrao) + " leitura(s) fora do padrao do fator";
+        std::to_string(cur.fora_do_padrao) + " value(s) read outside the sparsity pattern of the factor: the result is NOT reliable";
 
   R.theta = theta;
   R.neg2logl = cur.neg2logl;
@@ -582,7 +615,7 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
   R.pev = cur.pev;
   R.fora_do_padrao = cur.fora_do_padrao;
   if (cur.ok) {
-    const std::string av = aviso_informacao(cur.ai, nomes_theta_ar1(d));
+    const std::string av = aviso_informacao(cur.ai, nomes_theta_ar1(d), &R.se);
     if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
   }
   return R;

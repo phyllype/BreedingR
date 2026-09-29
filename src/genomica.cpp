@@ -406,13 +406,13 @@ static Densa vecchia_de(const Densa& g, std::size_t k) {
 // O nucleo, comum aos tres desenhos: tudo o que a genomica toca sao os grupos do modelo
 // e os K^-1 com seus log-determinantes — uni, multi e AR(1) carregam exatamente esses
 // campos, entao o passo unico e UM caminho, nao tres.
-static RelatorioG aplica_genomica_em(const Modelo& modelo, std::vector<Csc>& kinv,
-                                     std::vector<double>& kinv_logdet, const Pedigree& ped,
-                                     const std::vector<std::string>& geno_ids, Densa& m,
-                                     double mistura,
-                                     const std::vector<std::string>& nucleo_apy,
-                                     std::size_t vecchia_k) {
-  RelatorioG rel;
+// A H^-1 do passo unico, de um pedigree e seus genotipos: A^-1 + [0 0; 0 G*^-1 - A22^-1],
+// com G* a G de VanRaden trazida a escala de A22 e misturada, invertida exata, pela APY ou
+// por Vecchia. E o nucleo que os ajustadores usam (aplica_genomica_em) e o que h_inverse()
+// exporta, para que os motores em R (limiar, sobrevivencia) tenham o MESMO passo unico.
+Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::string>& geno_ids,
+              Densa& m, double mistura, const std::vector<std::string>& nucleo_apy,
+              std::size_t vecchia_k, RelatorioG& rel) {
   std::vector<std::size_t> idx;
   idx.reserve(geno_ids.size());
   {
@@ -431,14 +431,8 @@ static RelatorioG aplica_genomica_em(const Modelo& modelo, std::vector<Csc>& kin
     }
   }
 
-  // o A^-1 ja esta no desenho (primeiro grupo com parentesco)
-  const Csc* ainv = nullptr;
-  for (std::size_t g = 0; g < modelo.grupos.size(); g++)
-    if (modelo.grupos[g].estrutura == Estrutura::Parentesco) { ainv = &kinv[g]; break; }
-  if (!ainv) throw Erro("there is no relationship group to receive the genomics");
-
   Densa g = vanraden_g(m, rel);
-  Densa a22i = a22_inversa(*ainv, idx);
+  Densa a22i = a22_inversa(ainv, idx);
   Densa a22 = inv_pd(a22i);
   Densa gstar = ajusta_g_para_a22(g, a22, mistura);
   // a priori de cada genotipado, guardada AQUI porque este e o unico ponto em que G*
@@ -471,7 +465,23 @@ static RelatorioG aplica_genomica_em(const Modelo& modelo, std::vector<Csc>& kin
     }
     gstar_inv = apy_de(gstar, nc_idx);
   }
-  Csc hinv = constroi_hinv(*ainv, idx, gstar_inv, a22i);
+  return constroi_hinv(ainv, idx, gstar_inv, a22i);
+}
+
+static RelatorioG aplica_genomica_em(const Modelo& modelo, std::vector<Csc>& kinv,
+                                     std::vector<double>& kinv_logdet, const Pedigree& ped,
+                                     const std::vector<std::string>& geno_ids, Densa& m,
+                                     double mistura,
+                                     const std::vector<std::string>& nucleo_apy,
+                                     std::size_t vecchia_k) {
+  RelatorioG rel;
+  // o A^-1 ja esta no desenho (primeiro grupo com parentesco)
+  const Csc* ainv = nullptr;
+  for (std::size_t g = 0; g < modelo.grupos.size(); g++)
+    if (modelo.grupos[g].estrutura == Estrutura::Parentesco) { ainv = &kinv[g]; break; }
+  if (!ainv) throw Erro("there is no relationship group to receive the genomics");
+
+  Csc hinv = h_inversa(ped, *ainv, geno_ids, m, mistura, nucleo_apy, vecchia_k, rel);
 
   // log|H^-1| pela fatoracao esparsa
   std::vector<std::size_t> perm = grau_minimo(hinv);

@@ -7,7 +7,8 @@
 accuracy(fit, pedigree, group = NULL, trait = NULL)
 }
 \arguments{
-\item{fit}{result of model(), model_mt(), model_ar1() or model_threshold()
+\item{fit}{result of model(), model_mt(), model_ar1(), model_threshold() or
+model_survival() (log-hazard scale, from the Laplace PEV of the frailty)
 (ordinal mode; the joint threshold fit carries no PEV, a declared limit)}
 
 \item{pedigree}{the same data.frame used in the fit}

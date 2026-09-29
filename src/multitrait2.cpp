@@ -156,6 +156,28 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
   Densa xfull(d.nlin, cols.size());
   for (std::size_t j = 0; j < cols.size(); j++)
     for (std::size_t i = 0; i < d.nlin; i++) xfull.at(i, j) = cols[j].second[i];
+  // AS LINHAS SEM PAR CAEM ANTES DO POSTO DE X, como em model() (mme.cpp). Antes caiam
+  // depois: um CG cujos animais nao estao no pedigree ficava com coluna em X, o posto nao
+  // a via como dependente, e a coluna chegava vazia na montagem. model() derrubava o nivel
+  // e ajustava; model_ar1() devolvia "did NOT converge" com decremento 0,46 e model_mt()
+  // "SINGULAR", dois diagnosticos que apontavam para o lugar errado.
+  for (std::size_t k = 0; k < m.termos.size(); k++) {
+    if (!m.termos[k].aleatorio()) continue;
+    // niveis: do pedigree quando ha parentesco, DA K quando declarada. Todo nivel da
+    // estrutura ganha equacao, com ou sem registro, exatamente como em model().
+    const std::vector<std::string>* nf = nullptr;
+    if (m.termos[k].estrutura == Estrutura::Parentesco) nf = &niveis_ped;
+    else if (m.termos[k].estrutura == Estrutura::Declarada) nf = &(*kernels)[k].ids;
+    d.aleatorios.push_back(monta_termo(m, k, tab, nf));
+  }
+  {
+    std::vector<DesenhoTermo*> pa;
+    for (DesenhoTermo& a : d.aleatorios) pa.push_back(&a);
+    casa_niveis_nulos(m, pa, kern_nulos, tab, d.nlin);
+  }
+  for (const DesenhoTermo& a : d.aleatorios)
+    for (std::size_t i = 0; i < d.nlin; i++)
+      if (!a.casou[i]) d.usa[i] = 0;
   // POSTO DE X SOBRE AS LINHAS QUE ENTRAM, nao sobre a tabela inteira. E o mesmo conserto
   // que o univariado ja tem (mme.cpp, mesma marca). Um nivel fixo cujos registros TODOS
   // sairam continua com coluna nao-nula na tabela, entao um posto medido sobre tudo o
@@ -225,23 +247,6 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
   }
   if (d.n_fixa == 0) throw Erro("no estimable fixed effect for any trait");
 
-  for (std::size_t k = 0; k < m.termos.size(); k++) {
-    if (!m.termos[k].aleatorio()) continue;
-    // niveis: do pedigree quando ha parentesco, DA K quando declarada. Todo nivel da
-    // estrutura ganha equacao, com ou sem registro, exatamente como em model().
-    const std::vector<std::string>* nf = nullptr;
-    if (m.termos[k].estrutura == Estrutura::Parentesco) nf = &niveis_ped;
-    else if (m.termos[k].estrutura == Estrutura::Declarada) nf = &(*kernels)[k].ids;
-    d.aleatorios.push_back(monta_termo(m, k, tab, nf));
-  }
-  {
-    std::vector<DesenhoTermo*> pa;
-    for (DesenhoTermo& a : d.aleatorios) pa.push_back(&a);
-    casa_niveis_nulos(m, pa, kern_nulos, tab, d.nlin);
-  }
-  for (const DesenhoTermo& a : d.aleatorios)
-    for (std::size_t i = 0; i < d.nlin; i++)
-      if (!a.casou[i]) d.usa[i] = 0;
   if (d.n_usadas() == 0) throw Erro("no row enters the analysis");
 
   expande_layout_mt(m, d.t);
@@ -317,9 +322,9 @@ AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::s
   if (cs.pronto) { R.bloco_denso = bloco_denso_simbolico(cs.sb); R.colunas_fator = cs.sb.n; }
   if (!cur.ok) {
     R.mensagem = cur.motivo == 2
-      ? "a matriz de coeficientes e SINGULAR no theta inicial: o desenho nao identifica "
-        "algum efeito, e mexer em start= nao resolve"
-      : "o theta inicial e INADMISSIVEL: alguma covariancia nao e positiva-definida";
+      ? "the coefficient matrix is SINGULAR at the starting theta: the design does not identify "
+        "some effect, and changing start= does not help"
+      : "the starting theta is INADMISSIBLE: some covariance matrix is not positive-definite";
     return R;
   }
 
@@ -507,7 +512,7 @@ AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::s
         lambda = 1e-2;
         parado = 0;
         if (verboso)
-          Rprintf("      resgate EM: -2logL %.6f (o passo AI tinha travado)\n", cur.neg2logl);
+          Rprintf("      EM rescue: -2logL %.6f (the AI step had stalled)\n", cur.neg2logl);
         continue;
       }
       const PassoZ Pc = pecas(cur);
@@ -558,16 +563,36 @@ AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::s
     }
   } catch (const Erro&) {}
 
-  if (!R.convergiu && R.mensagem.empty()) {
+  // o mesmo veredicto do model() (aireml.cpp): esgotado o maxiter com o decremento de
+  // Newton ja abaixo da tolerancia, o que se tem e uma crista plana, e nao um ajuste
+  // que pede mais iteracoes. Aqui ele ainda dizia "Raise maxiter".
+  if (!R.convergiu && R.iters >= maxiter && R.decremento < tol_dec) {
+    R.convergiu = true;
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.3g", R.reldelta);
+    R.mensagem = std::string(R.mensagem.empty() ? "" : R.mensagem + "; ") +
+        "converged by the Newton decrement while the components were still moving "
+        "(relDelta " + buf + "): the likelihood is flat along some direction, so the "
+        "values along it are about equally supported. Read the standard errors and the "
+        "correlation between the components before trusting any one of them";
+  }
+
+  // o diagnostico de nao convergencia sai sempre que nenhum outro motivo de falha foi
+  // escrito, e vai NA FRENTE das notas informativas (exclusao por lista, fronteira, tempo
+  // ausente). Antes so saia com a mensagem vazia, e qualquer nota o escondia.
+  if (!R.convergiu && R.mensagem.find("did NOT converge") == std::string::npos &&
+      R.mensagem.find("INADMISSIBLE") == std::string::npos &&
+      R.mensagem.find("SINGULAR at the starting") == std::string::npos) {
     char buf[128];
     std::snprintf(buf, sizeof(buf), " (relDelta %.3g, Newton decrement %.3g against the "
                   "2e-4 tolerance)", R.reldelta, R.decremento);
     R.mensagem = "stopped at " + std::to_string(maxiter) + " iteration(s) without a "
-        "certified optimum" + buf + ": this model asks for more iterations. Raise maxiter=";
+        "certified optimum" + buf + ": this model asks for more iterations. Raise maxiter=" +
+        (R.mensagem.empty() ? std::string() : "; " + R.mensagem);
   }
   if (cur.fora_do_padrao > 0)
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
-        std::to_string(cur.fora_do_padrao) + " leitura(s) fora do padrao do fator";
+        std::to_string(cur.fora_do_padrao) + " value(s) read outside the sparsity pattern of the factor: the result is NOT reliable";
 
   R.theta = theta;
   R.neg2logl = cur.neg2logl;
@@ -575,7 +600,7 @@ AjusteMT ajusta_mt(const DesenhoMT& d, const std::vector<double>* theta0, std::s
   R.pev = cur.pev;
   R.fora_do_padrao = cur.fora_do_padrao;
   if (cur.ok) {
-    const std::string av = aviso_informacao(cur.ai, nomes_theta_mt(d.modelo, d.alvos));
+    const std::string av = aviso_informacao(cur.ai, nomes_theta_mt(d.modelo, d.alvos), &R.se);
     if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
   }
   return R;

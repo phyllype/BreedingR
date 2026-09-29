@@ -14,7 +14,10 @@ model_threshold(
   thresholds_start = NULL,
   maxiter = 50L,
   tol = 1e-08,
-  verbose = interactive()
+  verbose = interactive(),
+  estimate = FALSE,
+  maxiter_em = 200L,
+  tol_em = 1e-06
 )
 }
 \arguments{
@@ -55,6 +58,13 @@ normal quantiles of the cumulative category proportions, as the book does (p.267
 
 \item{verbose}{print one line per scoring iteration with the relative step (the
 convergence criterion itself)}
+
+\item{estimate}{ordinal mode only: estimate the variances by Laplace + EM, with
+\code{start} as the starting point, instead of taking them as given}
+
+\item{maxiter_em}{maximum number of EM steps when \code{estimate = TRUE}}
+
+\item{tol_em}{RELATIVE tolerance on the variances between two EM steps}
 }
 \value{
 an object of class \code{breeding_fit_thr}. Ordinal mode: \code{thresholds} (with
@@ -65,8 +75,9 @@ an object of class \code{breeding_fit_thr}. Ordinal mode: \code{thresholds} (wit
 \code{\link[=predict]{predict()}} on the fit returns the per-category probabilities, the number the
 book actually delivers (p.272-273). Joint mode: \code{b} and \code{ebv} come named
 \code{...|trait}; \code{nu} holds the corrected liability solutions, \code{b_regression} the
-residual regression, and \code{G}, \code{R}, \code{Gc} the matrices used; \code{pev} and
-\code{predict()} are not available there (a declared limit).
+residual regression, and \code{G}, \code{R}, \code{Gc} the matrices used; \code{pev} comes from the
+generalized inverse, for u1 and for the ranking value u2 = nu + b1 u1, and
+\code{\link[=predict]{predict()}} gives the probability of Eqn 15.25.
 }
 \description{
 The trait is a set of m ordered categories (binary is the m = 2 case). The model
@@ -89,12 +100,21 @@ otherwise. To compare against a table that zeroes some other level, compare
 CONTRASTS, or pass the column as a factor with the reference level first.
 }
 
-THE COMPONENTS ARE GIVEN, NOT ESTIMATED. \verb{start=} is mandatory: one variance per
-random term, on the liability scale. That is how the book uses the model (both
-examples of chapter 15 fix the components), and it is a declared limit of this
-fitter: REML estimation on the liability scale needs a marginal likelihood this
-package does not compute. Estimate the components on a related Gaussian trait, take
-them from literature, or convert an observed-scale h2 with \code{\link[=h2_liability]{h2_liability()}}.
+THE COMPONENTS ARE GIVEN BY DEFAULT, as the book uses the model (both examples of
+chapter 15 fix them): \verb{start=} is one variance per random term, on the liability
+scale. With \code{estimate = TRUE} (ordinal mode) \code{start} is the starting point and the
+components are ESTIMATED by approximate marginal maximum likelihood: the locations
+(thresholds, fixed and random effects) are integrated by the Laplace approximation
+around the mode, and the variances are updated by the EM-type step of Foulley, Im,
+Gianola and Hoeschele (1987), \verb{s2 = (u' K^-1 u + tr(K^-1 C^uu)) / q}, with \code{C^uu} the
+block of the inverse of the scoring system at the mode. \code{neg2logl} is the Laplace
+-2 log likelihood (in both modes of \code{estimate}), comparable between fits of the same
+data and fixed effects; the standard errors come from its numerical Hessian in the
+log of the variances. Read the estimate knowing its known bias: with a binary trait
+and few records per level of the random effect the Laplace approximation
+UNDERESTIMATES the variance (Tempelman 1998); many daughters per sire is where it is
+reliable, and Gibbs sampling with data augmentation (THRGIBBS1F90) is the unbiased
+alternative.
 
 JOINT QUANTITATIVE + BINARY ANALYSIS (Foulley et al. 1983; section 15.3 of the
 book). With \code{cbind(quant, bin)} on the left-hand side the fit is the joint one: a
@@ -141,4 +161,9 @@ data on binary and quantitative variates with an application to calving
 difficulty, birth weight and pelvic opening. Genet. Sel. Evol. 15, 401-424.
 Mrode, R.A. & Pocrnic, I. (2023) Linear Models for the Prediction of the Genetic
 Merit of Animals, 4th ed., chapter 15.
+Foulley, J.L., Im, S., Gianola, D. & Hoeschele, I. (1987) Empirical Bayes
+estimation of parameters for n polygenic binary traits. Genet. Sel. Evol. 19,
+197-224.
+Tempelman, R.J. (1998) Generalized linear mixed models in dairy cattle breeding.
+J. Dairy Sci. 81, 1428-1444.
 }

@@ -237,14 +237,38 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
   std::vector<std::uint32_t> marca(n, 0), no_lp(n, 0);
   std::uint32_t selo = 0, selo_lp = 0;
 
+  // no ADIADO (linha densa, ver abaixo) sai do grafo e nao so da fila: fica vivo para ser
+  // posto no fim da ordem, mas nao conta em grau, nao entra em L_p e nao segura absorcao.
+  // Medido na APY (3.000 animais, 1.500 genotipados, nucleo de 414): com o nucleo adiado mas
+  // ainda nas listas, cada jovem eliminado criava um elemento com os 414 dentro, e todo
+  // viz() e toda checagem de absorcao varriam os 414 de novo. Foram 1,3e10 passos de viz()
+  // e 5e9 de absorcao contra 7e7 no caminho exato, 17 s por ordenacao em vez de 0,3 s. E o
+  // nucleo contado no grau e nos vivos arrastava 341 jovens para o bloco denso junto com
+  // ele (752 colunas densas em vez de nucleo + 1). O AMD tira a linha densa do grafo
+  // (Amestoy, Davis e Duff, 1996); aqui ela so saia da fila.
+  std::vector<char> adiado(n, 0);
+  std::size_t n_adiados = 0;
+  auto ativo = [&](std::uint32_t j) { return vivo[j] && !adiado[j]; };
+
+  // a lista de um elemento so perde membros (quem morre ou e adiado nao volta), entao ela
+  // e compactada ao ser lida: cada entrada morta custa uma leitura so, e nao uma a cada
+  // viz() e a cada checagem de absorcao que passar por ela
+  auto compacta = [&](std::uint32_t e) {
+    auto& l = le[e];
+    l.erase(std::remove_if(l.begin(), l.end(), [&](std::uint32_t x) { return !ativo(x); }),
+            l.end());
+  };
+
   // vizinhanca de uma variavel viva: vizinhos-variavel mais os membros de cada elemento
   auto viz = [&](std::size_t i) {
     selo++;
     std::vector<std::uint32_t> out;
     marca[i] = selo;
-    for (std::uint32_t j : av[i]) if (vivo[j] && marca[j] != selo) { marca[j] = selo; out.push_back(j); }
-    for (std::uint32_t e : ev[i])
-      for (std::uint32_t j : le[e]) if (vivo[j] && marca[j] != selo) { marca[j] = selo; out.push_back(j); }
+    for (std::uint32_t j : av[i]) if (ativo(j) && marca[j] != selo) { marca[j] = selo; out.push_back(j); }
+    for (std::uint32_t e : ev[i]) {
+      compacta(e);
+      for (std::uint32_t j : le[e]) if (marca[j] != selo) { marca[j] = selo; out.push_back(j); }
+    }
     return out;
   };
 
@@ -281,16 +305,59 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
   // abrange quase todos os vivos. Um no com grau 600 entre 1.200 vivos e denso e util; o
   // mesmo grau 600 entre 700 vivos e um clique e nao ha ordem que o salve.
   const double fracao = 0.8;
-  std::vector<char> adiado(n, 0);
   auto denso_demais = [&](std::size_t d, std::size_t vivos) {
     return vivos > 64 && static_cast<double>(d) > fracao * static_cast<double>(vivos);
   };
 
-  std::vector<std::vector<std::uint32_t>> baldes(n + 1);
-  for (std::size_t i = 0; i < n; i++) {
-    if (denso_demais(grau[i], n)) { adiado[i] = 1; continue; }
-    baldes[std::min(grau[i], n)].push_back(static_cast<std::uint32_t>(i));
+  // NA PARTIDA, o corte relativo aos vivos chega tarde quando so parte dos animais e
+  // genotipada. Medido na APY com 1.500 genotipados em 3.000: o nucleo (grau ~1.500, metade
+  // dos vivos) so passava de 0,8 no passo 1.019, e ate la cada jovem eliminado atualizava
+  // os 414 do nucleo, 2,7 s de ordenacao contra 0,13 s no caminho exato. O 10*sqrt(n) do
+  // AMD pega o nucleo, mas sozinho tambem pega o JOVEM quando o nucleo e grande (o grau
+  // dele e o tamanho do nucleo; ver acima). Os dois cortes juntos separam os dois casos:
+  // o nucleo tem o grau do topo do grafo (liga-se a todo genotipado), o jovem tem o
+  // tamanho do nucleo, e nos dois regimes medidos (nucleo 414 de 1.500, nucleo 2.533 de
+  // 5.924) o jovem fica abaixo de 0,8 do topo. Num grafo esparso comum o corte absoluto
+  // do AMD nunca e atingido e nada muda.
+  //
+  // O TOPO E O PERCENTIL 99 DO GRAU, e nao o maximo. Medido nas MME do mesmo caso: o
+  // intercepto liga todo animal com registro (grau 2.700), virava o maximo, e 0,8 dele
+  // passava do grau do nucleo; a ordenacao das MME ficava nos 2,5 s. Um punhado de
+  // equacoes de efeito fixo nao pode definir o que e denso para os animais.
+  std::size_t grau_topo = 0;
+  {
+    std::vector<std::size_t> g2(grau);
+    const std::size_t pos = n - 1 - std::min(n - 1, n / 100);
+    std::nth_element(g2.begin(), g2.begin() + pos, g2.end());
+    grau_topo = g2[pos];
   }
+  const double corte_abs = std::max(16.0, 10.0 * std::sqrt(static_cast<double>(n)));
+  auto denso_na_partida = [&](std::size_t d) {
+    return static_cast<double>(d) > corte_abs &&
+           static_cast<double>(d) > fracao * static_cast<double>(grau_topo);
+  };
+
+  // A REGRA DE PARTIDA SO VALE QUANDO O CONJUNTO DENSO E PEQUENO. Tirar a linha densa do
+  // grafo e o que o AMD faz, e e inocuo quando elas sao poucas: na APY o nucleo e 14% dos
+  // nos e se liga a todo jovem, entao ignora-lo nao muda a ordem dos jovens. No passo unico
+  // EXATO o clique genotipado e metade do grafo, e sem ele o grau minimo ordena os nao
+  // genotipados sem saber quantos vizinhos genotipados cada um tem: medido, o ajuste exato
+  // ficou ~1,5x mais lento por iteracao. Uma tentativa de devolver essa informacao contando
+  // os vizinhos adiados na chave piorou a APY (bloco denso 1.012 -> 1.211) sem consertar o
+  // exato, e foi descartada. Acima de 25% o conjunto fica com o corte relativo aos vivos,
+  // que ja pega o clique quando os nao genotipados saem.
+  {
+    std::size_t na_partida = 0;
+    for (std::size_t i = 0; i < n; i++) if (denso_na_partida(grau[i])) na_partida++;
+    const bool vale_partida = na_partida <= n / 4;
+    for (std::size_t i = 0; i < n; i++)
+      if (denso_demais(grau[i], n) || (vale_partida && denso_na_partida(grau[i]))) {
+        adiado[i] = 1; n_adiados++;
+      }
+  }
+  std::vector<std::vector<std::uint32_t>> baldes(n + 1);
+  for (std::size_t i = 0; i < n; i++)
+    if (!adiado[i]) baldes[std::min(grau[i], n)].push_back(static_cast<std::uint32_t>(i));
   std::size_t lo = 0;
 
   // GRAU PREGUICOSO PARA OS HUBS. Medido no multicaracter com pedigree real de estrutura
@@ -318,7 +385,7 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
   auto limpa = [&](std::size_t i) {
     auto& a_i = av[i];
     a_i.erase(std::remove_if(a_i.begin(), a_i.end(),
-                             [&](std::uint32_t x) { return !vivo[x]; }), a_i.end());
+                             [&](std::uint32_t x) { return !ativo(x); }), a_i.end());
     auto& e_i = ev[i];
     std::sort(e_i.begin(), e_i.end());
     e_i.erase(std::unique(e_i.begin(), e_i.end()), e_i.end());
@@ -338,7 +405,7 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
         sujo[cand] = 0;
         const std::size_t d = viz(cand).size();
         grau[cand] = d;
-        if (denso_demais(d, n - ordem.size())) { adiado[cand] = 1; continue; }
+        if (denso_demais(d, n - ordem.size() - n_adiados)) { adiado[cand] = 1; n_adiados++; continue; }
         const std::size_t b = std::min(d, n);
         if (b != lo) {
           baldes[b].push_back(cand);
@@ -375,8 +442,9 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
       // Pular isto e seguro por um invariante: av[i] e ev[i] so sao LIDOS por viz(i), e
       // viz(i) nunca roda para um no adiado, porque ele nao entra em balde (nao vira pivo) e
       // o laco de baixo o desvia. Manter a adjacencia de quem nunca mais sera consultado e
-      // trabalho jogado fora. O que NAO pode ganhar guarda e o laco de selo acima: a
-      // absorcao le no_lp[x] para x em le[e], e esses x incluem nos adiados.
+      // trabalho jogado fora. A absorcao le no_lp[x] para x em le[e], e um le[e] antigo
+      // ainda pode trazer um no adiado depois dele; por isso ela filtra por ativo(), e
+      // o no adiado nao segura a morte de elemento nenhum.
       if (adiado[i]) continue;
       if (lp.size() <= lp_pequeno && (sujo[i] || av[i].size() + ev[i].size() > lista_grande)) {
         // hub: so registra o elemento novo; limpeza e grau ficam para quando ele sair do
@@ -388,14 +456,15 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
       if (sujo[i]) { limpa(i); sujo[i] = 0; }
       auto& a_i = av[i];
       a_i.erase(std::remove_if(a_i.begin(), a_i.end(),
-                               [&](std::uint32_t x) { return x == p || !vivo[x]; }), a_i.end());
+                               [&](std::uint32_t x) { return x == p || !ativo(x); }), a_i.end());
       auto& e_i = ev[i];
       e_i.erase(std::remove(e_i.begin(), e_i.end(), static_cast<std::uint32_t>(p)), e_i.end());
       e_i.push_back(static_cast<std::uint32_t>(p));
       // absorcao: um elemento cujos membros vivos ja estao dentro de L_p esta morto
       e_i.erase(std::remove_if(e_i.begin(), e_i.end(), [&](std::uint32_t e) {
         if (e == p) return false;
-        for (std::uint32_t x : le[e]) if (vivo[x] && no_lp[x] != selo_lp) return false;
+        compacta(e);
+        for (std::uint32_t x : le[e]) if (no_lp[x] != selo_lp) return false;
         return true;
       }), e_i.end());
     }
@@ -407,7 +476,7 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
       // um no VIRA clique durante a eliminacao: o grau dele nao cresce, o numero de vivos e
       // que encolhe ate a razao passar do corte. E assim que o nucleo da APY e pego, depois
       // que os jovens ja sairam, e nao antes deles
-      if (denso_demais(d, n - ordem.size())) { adiado[i] = 1; continue; }
+      if (denso_demais(d, n - ordem.size() - n_adiados)) { adiado[i] = 1; n_adiados++; continue; }
       const std::size_t b = std::min(d, n);
       baldes[b].push_back(iu);
       if (b < lo) lo = b;

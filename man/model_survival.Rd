@@ -15,7 +15,10 @@ model_survival(
   k_inverse = NULL,
   maxiter = 200L,
   tol = 1e-08,
-  verbose = interactive()
+  verbose = interactive(),
+  entry = NULL,
+  subject = NULL,
+  gaps = c("error", "allow")
 )
 }
 \arguments{
@@ -61,6 +64,15 @@ with the ids as \code{dimnames}}
 
 \item{verbose}{print one line per Newton iteration, and one per variance
 evaluation when \code{sigma2} is being estimated}
+
+\item{entry}{column with the start of each elementary record (\code{0} for the first
+piece of a subject observed from time zero); NULL means every row starts at 0}
+
+\item{subject}{column with the subject of each elementary record; required with
+\code{entry}. The frailty level must be the same in every piece of a subject}
+
+\item{gaps}{\code{"error"} (default) refuses a gap between two pieces of a subject;
+\code{"allow"} accepts it as time out of observation, in which no risk is counted}
 }
 \value{
 an object of class \code{breeding_fit_surv}: \code{rho}, \code{lambda} (with
@@ -89,8 +101,20 @@ says nothing; a censored time says "at least this much". Treating a censored rec
 as complete biases the evaluation against the animals still alive -- the best ones --
 and dropping it throws away exactly the selection candidates. The \verb{censor=}
 indicator is therefore mandatory: 1 for a complete (uncensored) record, 0 for a
-censored one. Left- or interval-censoring and time-dependent covariates are outside
-this fitter (a declared limit; the book points to the Survival Kit for them).
+censored one. Left- and interval-censoring are outside this fitter.
+
+TIME-DEPENDENT COVARIATES enter as ELEMENTARY RECORDS, the device of the Survival Kit
+(Ducrocq and Solkner): a covariate that changes during a life is constant by pieces,
+and each piece is one row \verb{(entry, stop]} of the same \code{subject}, with its own values
+of the covariates and \code{censor = 1} only on the last piece when the subject failed.
+The cumulative hazard of a piece is \code{Lambda0(stop) - Lambda0(entry)}, so a subject
+split into pieces with constant covariates has exactly the likelihood of the unsplit
+record. Build the pieces from the moment each covariate changes, and never freeze a
+covariate that is only known later: an indicator of "ever had the disease" set from
+the start gives the survivors the exposure for time in which they could not yet have
+had it (immortal time), and it can reverse the sign of the effect. A first \code{entry}
+above zero is left truncation, and the message says that with a frailty the
+conditional likelihood it uses is naive (van den Berg and Drepper 2016).
 
 WHAT IS ESTIMATED AND HOW. The fixed effects and the log-frailties always. The
 Weibull \code{rho} joins the Newton system as one more coordinate unless it is given.

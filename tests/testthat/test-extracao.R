@@ -78,11 +78,12 @@ test_that("h2() RECUSA onde a razao nao e um numero", {
   expect_error(h2(f), "h2_curve")
 })
 
-test_that("a covariancia aparece: share com o mesmo denominador do h2(), e a correlacao", {
-  # A linha da covariancia saia com o share vazio e nada mais. E o share das variancias
-  # dividia so pela soma das variancias, que num direto-materno e o h2 SEM a covariancia,
-  # que e errado (Willham 1972). Agora o share divide pela variancia fenotipica do caracter
-  # com as covariancias dentro, igual ao h2(), e cada covariancia traz a correlacao.
+test_that("a covariancia aparece com a correlacao; com indirect() o share fica em branco", {
+  # A linha da covariancia saia com o share vazio e nada mais; agora traz a correlacao. O
+  # share deste ajuste, que tem indirect(), fica EM BRANCO: a variancia fenotipica de um
+  # registro depende do tamanho da baia (Bijma et al. 2007), e somar os componentes com
+  # coeficiente 1, como este teste travava antes, dava um numero que nao e h2 de nada.
+  # h2(fit, n =) e t2() fazem a conta (portoes em test-h2-denominador.R).
   z <- fix(n = 500)
   z$d$pen <- sprintf("p%03d", rep(seq_len(125), each = 4))
   f <- model(y ~ animal(id, group = "g") + indirect(id, pen = "pen", group = "g"),
@@ -93,8 +94,10 @@ test_that("a covariancia aparece: share com o mesmo denominador do h2(), e a cor
   k <- tb$component == "cov(indirect,animal)"
   expect_equal(tb$correlation[k],
                round(th[["cov(indirect,animal)"]] / sqrt(th[["var(animal)"]] * th[["var(indirect)"]]), 4))
-  expect_false(is.na(tb$share[k]))                       # a covariancia TEM share
-  expect_equal(sum(tb$share), 1, tolerance = 1e-3)       # e tudo soma um
-  expect_equal(tb$share[tb$component == "var(animal)"], round(h2(f), 4))
+  expect_true(all(is.na(tb$share)))
   expect_output(print(f), "correlation")
+  expect_output(print(f), "t2(fit, n = )", fixed = TRUE)
+  expect_equal(h2(f, n = 4), th[["var(animal)"]] /
+                 (th[["var(animal)"]] + 3 * th[["var(indirect)"]] + th[["var(residual)"]]),
+               tolerance = 1e-12)
 })

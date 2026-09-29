@@ -119,7 +119,7 @@ nomes, e sem o fator `s2e` do univariado, porque as MME dos espelhos ja sao abso
 
 | # | origem | restricao | estado |
 |---|---|---|---|
-| 9 | `src/mme.cpp:433` | `kernel()` so na rota `model()` (mesma familia de 1 e 2) | ABERTO |
+| 9 | `src/mme.cpp:433` | `kernel()` so na rota `model()` (mesma familia de 1 e 2) | **FEITO** 2026-09-29: gibbs() com kernel(), fixed= e prior= |
 | 10 | roteiro de desenvolvimento | nao ha como FIXAR o componente de um `kernel` em 1 | **FEITO** 2026-09-04 |
 
 ## Limiar e sobrevivencia
@@ -143,7 +143,7 @@ nomes, e sem o fator `s2e` do univariado, porque as MME dos espelhos ja sao abso
 |---|---|---|---|
 | 16 | `R/model.R:575` | `accuracy()` le F do PEDIGREE mesmo em passo unico | **FEITO** 2026-09-04 |
 | 17 | `R/indirect.R:41` | `indirect_residual()` trata so heterogeneidade de VARIANCIA | **FEITO** 2026-09-04: `associative_matrix()` da a estrutura exata |
-| 18 | `R/pedigree.R:1-33` | pedigree pai/avo-materno aceito em silencio | **DECLARADO com razao MEDIDA**: dois detectores testados e reprovados |
+| 18 | `R/pedigree.R:1-33` | pedigree pai/avo-materno aceito em silencio | **FEITO** 2026-09-29: modo declarado (sire_mgs(), type = "sire_mgs") + guarda exata por nome |
 | 19 | `R/nonadditive.R` | D densa, sem inversa de Hoeschele & VanRaden, so epistasia A x A | **PARCIAL** 2026-09-04: A x D, D x D e ordens superiores feitos; a D densa e a inversa de Hoeschele & VanRaden seguem abertas |
 
 ## Fora da lista, pedido a parte

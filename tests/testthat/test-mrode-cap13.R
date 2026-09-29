@@ -240,10 +240,11 @@ test_that("kernel() refuses what it cannot honor, out loud", {
   expect_true(any(grepl("kernel", names(fmt$theta))))
   expect_true(all(is.finite(fmt$theta)))
   expect_equal(length(ebv(fmt, "kernel", trait = "ww")), nrow(D))
-  # o Gibbs continua sem kernel(), e a recusa agora diz QUAIS rotas o carregam: a
-  # mensagem antiga listava so model() e eval_internal(), o que deixou de ser verdade
-  # quando os dois espelhos passaram a carregar a K declarada
-  expect_error(gibbs(ww ~ pen + kernel(id, K = D), data = dados_c13,
-                     n_iter = 10L, burnin = 2L, verbose = FALSE),
-               "not the Gibbs sampler")
+  # o Gibbs passou a carregar a K declarada (restricao #9): a mesma formula amostra, e
+  # o componente do kernel aparece nas amostras
+  set.seed(1)
+  gk <- gibbs(ww ~ pen + kernel(id, K = D), data = dados_c13,
+              n_iter = 20L, burnin = 2L, thin = 1L, verbose = FALSE)
+  expect_true(any(grepl("kernel", colnames(gk$samples))))
+  expect_true(all(is.finite(gk$samples)))
 })

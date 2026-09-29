@@ -47,7 +47,8 @@ namespace br {
 //
 // O corte e o do certificado: autovalor abaixo de 1e-8 do maior e direcao sem curvatura. Os
 // componentes com peso >= 0.2 no autovetor dessa direcao sao os que o dado nao separa.
-std::string aviso_informacao(const Densa& ai, const std::vector<std::string>& nomes) {
+std::string aviso_informacao(const Densa& ai, const std::vector<std::string>& nomes,
+                             std::vector<double>* se) {
   const std::size_t n = ai.nlin;
   if (n == 0 || nomes.size() != n) return "";
   for (std::size_t i = 0; i < n; i++)
@@ -65,7 +66,13 @@ std::string aviso_informacao(const Densa& ai, const std::vector<std::string>& no
     if (ev[k] > corte) continue;
     std::string lista;
     for (std::size_t i = 0; i < n; i++)
-      if (std::fabs(u.at(i, k)) >= 0.2) lista += (lista.empty() ? "" : ", ") + nomes[i];
+      if (std::fabs(u.at(i, k)) >= 0.2) {
+        lista += (lista.empty() ? "" : ", ") + nomes[i];
+        // a mensagem diz NaN e o EP tem de ser NaN: invertida numericamente, uma AI
+        // singular devolve NaN ou um numero enorme conforme o arredondamento (medido:
+        // 6,8e5 depois de uma troca de ordenacao que nao mudou nada no ajuste)
+        if (se && se->size() == n) (*se)[i] = std::nan("");
+      }
     if (!lista.empty()) grupos += (grupos.empty() ? "" : "; and ") + lista;
   }
   if (grupos.empty()) return "";
@@ -770,7 +777,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   for (std::size_t k = 0; k < d.modelo.ntheta; k++)
     if (d.modelo.preso(k)) theta[k] = d.modelo.theta_fixo[k];
   if (theta.size() != d.modelo.ntheta) {
-    R.mensagem = "theta inicial com tamanho errado";
+    R.mensagem = "start= has the wrong number of components for this model";
     return R;
   }
 
@@ -794,7 +801,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
               std::pow((double) R.bloco_denso, 3.0) / 3.0);
   }
   if (!cur.ok) {
-    R.mensagem = "o theta inicial e INADMISSIVEL: alguma covariancia nao e positiva-definida";
+    R.mensagem = "the starting theta is INADMISSIBLE: some covariance matrix is not positive-definite";
     return R;
   }
 
@@ -826,7 +833,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   double lambda = 1e-3;
   std::vector<double> z;
   if (!z_de_theta(d.modelo, theta, z)) {
-    R.mensagem = "o theta inicial e INADMISSIVEL: alguma covariancia nao e positiva-definida";
+    R.mensagem = "the starting theta is INADMISSIBLE: some covariance matrix is not positive-definite";
     return R;
   }
 
@@ -1200,7 +1207,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   if (cur.fora_do_padrao > 0)
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
         std::to_string(cur.fora_do_padrao) +
-        " leitura(s) fora do padrao do fator: o resultado NAO e de confianca";
+        " value(s) read outside the sparsity pattern of the factor: the result is NOT reliable";
 
   R.theta = theta;
   R.neg2logl = cur.neg2logl;
@@ -1234,7 +1241,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     }
   }
   if (cur.ok) {
-    const std::string av = aviso_informacao(cur.ai, d.modelo.nomes_theta());
+    const std::string av = aviso_informacao(cur.ai, d.modelo.nomes_theta(), &R.se);
     if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
   }
   return R;

@@ -20,8 +20,12 @@ a data.frame with \code{x}, the point on the gradient, \code{va}, the additive v
 and \code{h2}, the heritability at that point.
 }
 \description{
-h2(x) = phi(x)' C phi(x) / (phi(x)' C phi(x) + other variances + residual), with C the
-covariance of the reaction-norm group and phi(x) the Legendre basis evaluated at x.
+h2(x) = phi(x)' C phi(x) / V_P(x), with C the covariance of the reaction-norm group and
+phi(x) the Legendre basis evaluated at x. The phenotypic variance V_P(x) is evaluated at x
+too: every other random regression on the same basis (the permanent environment of a
+test-day model) enters as phi(x)' P phi(x), each scalar term with its variance, and the
+residual. A covariance between two scalar terms enters with coefficient 1, as in \code{\link[=h2]{h2()}}.
+Every random regression of the fit is evaluated on the Legendre basis with these limits.
 }
 \details{
 The LIMITS must be the same ones used to generate the basis in the fit: the scale is part

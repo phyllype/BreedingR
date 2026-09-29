@@ -53,6 +53,7 @@
 #' pa$K[["A:B"]]["5", "5"]
 #' @export
 partial_a <- function(ped, breed) {
+  recusa_mgs(ped, "partial_a()")
   p <- pedigree(ped)
   n <- nrow(p)
   s <- p$sire

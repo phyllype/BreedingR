@@ -46,10 +46,9 @@ in the \verb{genotypes=} path}
 
 \item{gamma}{as in \code{\link[=model]{model()}}}
 
-\item{verbose}{print the fit as it walks: one line per AI iteration with the
--2logL and the relative step (the convergence criterion itself), so a long fit
-is a progress report instead of silence. Defaults to interactive() — live in a
-session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
+\item{verbose}{print the solve as it walks, the relative residual of every PCG
+iteration, so a long solve is a progress report instead of silence. Defaults to
+interactive(), live in a session and quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 }
 \value{
 list with \code{b} (fixed-effect solutions, named \code{term=level}; the parametrization

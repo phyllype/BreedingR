@@ -32,6 +32,7 @@
 #' dominance_matrix(ped)["3", "4"]   # full sibs: 0.25
 #' @export
 dominance_matrix <- function(ped) {
+  recusa_mgs(ped, "dominance_matrix()")
   p <- pedigree(ped)
   n <- nrow(p)
   s <- p$sire

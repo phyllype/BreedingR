@@ -1,38 +1,114 @@
-# WHY THERE IS NO PEDIGREE-FORMAT CHECK HERE, AND WHAT THAT COSTS.
+# A PEDIGREE OF SIRES AND MATERNAL GRANDSIRES IS DECLARED, NEVER GUESSED.
 #
 # A pedigree whose THIRD column holds the MATERNAL GRANDSIRE (Mrode and Pocrnic, 2023,
-# secs. 3.6 and 3.7) reads in here as a pedigree of animal, sire and dam, and nothing downstream can
-# notice: the A^-1 that comes out is still symmetric and positive definite and every solver
-# accepts it. What changes is the weight of the grandsire path, 0.5 where the MGS rules ask
-# for 0.25. Measured on the book's own example of sec. 3.7: the A that comes out differs
-# from the printed one by up to 0.25 and the third bull gets F = 0.25 instead of 0.125.
+# secs. 3.6 and 3.7) read as animal, sire and dam gives an A^-1 that is still symmetric and
+# positive definite, and every solver accepts it: only the weight of the grandsire path is
+# wrong, 0.5 where it should be 0.25 (measured on the book's sec. 3.7 example: A off by up
+# to 0.25, F of the third bull 0.25 instead of 0.125).
 #
-# The obvious detector is the one thing sires and dams never share: an individual cited on
-# both sides. It was written, wired in, and MEASURED, and it does not separate. Over 150
-# random configurations the share of distinct dams that also appear as sires runs 0.05 to
-# 0.82 for simulate_breeding() and 0.67 to 1.00 (1.00 in 132 of 150) for hand-written
-# pedigrees that draw both parents from one pool. The MGS format sits at 0.97 to 1.00. The
-# two distributions overlap at the top, so no threshold tells them apart, and on the
-# package's own suite the warning fired 262 times across 18 files without a single true
-# positive. A warning nobody can afford to read is worse than none.
+# Two statistical detectors were written and MEASURED, and neither separates: the share of
+# dams that also appear as sires runs 0.67 to 1.00 for pedigrees that draw both parents
+# from one pool and 0.97 to 1.00 for MGS files (262 false alarms across the suite), and
+# the col3/col2 ratio of offspring per parent sits on the MGS range for simulate_breeding()
+# itself. Without sex, the third column of a one-pool pedigree cannot be told from a
+# column of grandsires. That matches practice: ASReml (!MGS), BLUPF90 (add_sire), DMU
+# (methods 3/4) and WOMBAT (SIREMODEL) all make the user DECLARE the format.
 #
-# A SECOND detector was tried and measured, 2026-09-04, and it fails for the same reason.
-# The idea: in an MGS file the third column is made of bulls, so offspring per DISTINCT
-# entry should look like the sire column's, while a real dam has few offspring and a real
-# sire many. The statistic is that ratio, col3 over col2. It separates beautifully when
-# dams come from their own pool (true pedigrees 0.026 to 0.864, MGS 1.00 to 1.02, no
-# overlap over 120 configurations) and then collapses on the population that matters:
-# simulate_breeding() itself runs 0.875 to 1.208 with a median of 0.979, sitting exactly on
-# the MGS range. Any pedigree that draws both parents from one pool looks like an MGS file
-# to this statistic, just as it did to the shared-individual one.
-#
-# Two independent signatures, both dead on the same rock: without knowing SEX, the third
-# column of a pedigree that reuses one pool of parents is not distinguishable from a column
-# of grandsires. So the risk is DOCUMENTED, on the pedigree() page, and not guessed at. If
-# a sex column ever enters the pedigree interface, the check belongs right here.
+# So the format is declared, with sire_mgs() or pedigree(type = "sire_mgs"), and the flag
+# travels as the "mgs" attribute of the dam vector to every fitter. What is guessed is
+# nothing; what is checked is exact: a third column NAMED like a grandsire column (mgs,
+# mgsire, maternal_grandsire, avo_materno...) is refused unless declared.
+eh_coluna_mgs <- function(nome)
+  length(nome) == 1L && !is.na(nome) &&
+    grepl("^(mgs|mgs_?id|mgsire|mat(ernal)?_?grand_?sire|avo_?materno)$", nome,
+          ignore.case = TRUE)
+
 colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
   pega <- function(k) { v <- as.character(ped[[k]]); v[is.na(v)] <- "0"; v }
-  list(id = pega(id), sire = pega(sire), dam = pega(dam))
+  mgs <- inherits(ped, "br_ped_mgs")
+  if (!mgs) {
+    nome <- if (is.character(dam)) dam else names(ped)[dam]
+    if (eh_coluna_mgs(nome))
+      stop("the third pedigree column is named '", nome, "', which reads as a MATERNAL ",
+           "GRANDSIRE: declare it with sire_mgs(ped) or pedigree(type = \"sire_mgs\"), or ",
+           "rename the column if it really holds the dam", call. = FALSE)
+  }
+  d <- pega(dam)
+  if (mgs) attr(d, "mgs") <- rep(TRUE, length(d))
+  list(id = pega(id), sire = pega(sire), dam = d, mgs = mgs)
+}
+
+#' Declare a pedigree of sires and maternal grandsires
+#'
+#' Marks a pedigree whose third column is the MATERNAL GRANDSIRE of each animal, the
+#' format of a sire model (Mrode and Pocrnic 2023, secs. 3.6 and 3.7; Henderson 1975,
+#' 1976). The breeding value is then `u_i = u_s / 2 + u_k / 4 + m_i` with the maternal
+#' granddam unknown: the grandsire path weighs 1/4 instead of 1/2, the Mendelian variance
+#' is `11/16 - F_s/4 - F_k/16` (`3/4 - F_s/4` with the sire alone, `15/16 - F_k/16` with
+#' the grandsire alone), and the inverse gets `(1, -1/2, -1/4)` in the rules of Henderson.
+#' The declaration travels with the data: pass the result as `pedigree =` to any fitter,
+#' or to [pedigree()], [a_inverse()] and [a22_inverse()], and every one of them uses the
+#' grandsire rules. Subsetting with `[` keeps the declaration.
+#'
+#' The inbreeding this gives is not the true inbreeding: every relationship through the
+#' granddams is ignored, the assumption every program that offers the format makes
+#' (ASReml `!MGS`, DMU method 3). A declared grandsire pedigree does not combine with
+#' metafounders, with a `maternal()` term (the dam is not in it), with [partial_a()] or
+#' with [dominance_matrix()]; each of those is refused.
+#'
+#' @param ped data.frame with animal, sire and maternal grandsire
+#' @param id the animal column
+#' @param sire the sire column
+#' @param mgs the maternal-grandsire column
+#' @return a data.frame with columns `id`, `sire` and `mgs`, of class `br_ped_mgs`
+#' @references Henderson, C.R. (1975). Journal of Dairy Science 58:1917-1921; (1976)
+#'   59:1585-1588.
+#'
+#'   Quaas, R.L., Everett, R.W. & McClintock, A.E. (1979). Journal of Dairy Science
+#'   62:1648-1654.
+#' @examples
+#' touros <- data.frame(id = c("s1", "s2", "s3"), sire = c("0", "0", "s1"),
+#'                      mgs = c("0", "0", "s2"))
+#' pedigree(sire_mgs(touros))
+#' @export
+sire_mgs <- function(ped, id = 1L, sire = 2L, mgs = 3L) {
+  if (!is.data.frame(ped)) stop("expected a data.frame")
+  pega <- function(k) as.character(ped[[k]])
+  out <- data.frame(id = pega(id), sire = pega(sire), mgs = pega(mgs),
+                    stringsAsFactors = FALSE)
+  class(out) <- c("br_ped_mgs", "data.frame")
+  out
+}
+
+#' @export
+`[.br_ped_mgs` <- function(x, ...) {
+  r <- NextMethod()
+  if (is.data.frame(r) && identical(names(r), c("id", "sire", "mgs")))
+    class(r) <- c("br_ped_mgs", "data.frame")
+  r
+}
+
+# O ajuste lembra se o pedigree era pai/avo materno, e o que reconstroi o pedigree depois
+# (accuracy) recusa o outro formato em vez de recalcular F na base errada
+confere_tipo_pedigree <- function(fit, ped) {
+  era <- isTRUE(fit$ped_mgs)
+  if (era != inherits(ped, "br_ped_mgs"))
+    stop("the fit was built on a ", if (era) "sire / maternal-grandsire" else "sire / dam",
+         " pedigree and this one is ", if (era) "sire / dam" else "sire / maternal-grandsire",
+         ": pass the same pedigree the fit used", call. = FALSE)
+}
+
+recusa_mgs <- function(ped, oque) {
+  if (inherits(ped, "br_ped_mgs"))
+    stop(oque, " does not take a sire / maternal-grandsire pedigree: it needs the dams",
+         call. = FALSE)
+}
+
+recusa_materno_mgs <- function(terms, ped) {
+  if (inherits(ped, "br_ped_mgs") &&
+      any(vapply(terms, function(t) identical(t$marcador, "maternal"), logical(1))))
+    stop("a maternal() term needs the dams, and a sire / maternal-grandsire pedigree ",
+         "does not have them", call. = FALSE)
 }
 
 #' Sort a pedigree and compute inbreeding
@@ -47,19 +123,21 @@ colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
 #' unknown would change the offspring's Mendelian variance and the relationships of all the
 #' descendants.
 #'
-#' THE THIRD COLUMN IS THE DAM, never the maternal grandsire. There is no sire and maternal
-#' grandsire mode here (Mrode and Pocrnic, secs. 3.6 and 3.7): a pedigree in that format is
-#' read as animal, sire and dam, and the grandsire's path then enters with weight 0.5 where
-#' the MGS rules ask for 0.25. Nothing downstream can catch it — the A^-1 that comes out is
-#' still symmetric and positive definite. On the book's own example in sec. 3.7 the A that
-#' comes out differs from the right one by up to 0.25, and the third bull gets F = 0.25
-#' instead of 0.125. THERE IS NO CHECK THAT CATCHES THIS, and none is coming: the obvious
-#' signal, an individual cited as a sire and as a dam, was built and measured and it does
-#' not separate an MGS pedigree from any pedigree that draws both parents from one pool
-#' (both sit at a share of 1.00). Getting the format right is on the caller.
+#' THE THIRD COLUMN IS THE DAM unless the pedigree is DECLARED as sires and maternal
+#' grandsires, with `type = "sire_mgs"` or [sire_mgs()] (Mrode and Pocrnic, secs. 3.6 and
+#' 3.7). Read as a dam, a grandsire enters with weight 0.5 where the grandsire rules ask
+#' for 0.25, and nothing downstream can catch it: the A^-1 is still symmetric and positive
+#' definite (on the book's example of sec. 3.7 the A is off by up to 0.25 and the third
+#' bull gets F = 0.25 instead of 0.125). No statistic separates the two formats without
+#' sex, which is why every reference program asks for a declaration; a third column NAMED
+#' like a grandsire column (mgs, mgsire, maternal_grandsire) is refused unless declared.
 #'
 #' @param ped data.frame with animal, sire and dam. An unknown sire or dam enters as "0" or NA.
-#' @return data.frame with id, sire, dam (1-based indices, NA if unknown) and F
+#' @param type `"sire_dam"` (default) or `"sire_mgs"`, the third column read as the
+#'   maternal grandsire; the same as passing [sire_mgs()]`(ped)`
+#' @return data.frame with id, sire, dam (1-based indices, NA if unknown) and F; with a
+#'   grandsire pedigree the third column is named `mgs`, and the attribute `type` says
+#'   which it is
 #' @param ped data.frame with animal, sire and dam
 #' @param id the animal column (position or name)
 #' @param sire the sire column
@@ -88,23 +166,32 @@ colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
 #'   Ancestral relationships using metafounders. Genetics 200:455-468.
 #' @export
 pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L,
-                     metafounders = NULL, gamma = NULL) {
+                     metafounders = NULL, gamma = NULL,
+                     type = c("sire_dam", "sire_mgs")) {
   if (!is.data.frame(ped)) stop("expected a data.frame")
+  type <- match.arg(type)
+  if (type == "sire_mgs" && !inherits(ped, "br_ped_mgs")) {
+    ped <- sire_mgs(ped, id, sire, dam)
+    id <- 1L; sire <- 2L; dam <- 3L
+  }
   cp <- colunas_pedigree(ped, id, sire, dam)
   r <- .Call(R_pedigree, cp$id, cp$sire, cp$dam,
         if (is.null(metafounders)) character(0) else as.character(metafounders),
         if (is.null(gamma)) numeric(0) else as.double(gamma))
   out <- data.frame(id = r$id, sire = r$sire, dam = r$dam, F = r$F,
                     stringsAsFactors = FALSE)
+  if (cp$mgs) names(out)[3] <- "mgs"
   class(out) <- c("br_pedigree", "data.frame")
+  attr(out, "type") <- if (cp$mgs) "sire_mgs" else "sire_dam"
   out
 }
 
 #' @export
 print.br_pedigree <- function(x, ...) {
   n <- nrow(x)
-  fund <- sum(is.na(x$sire) & is.na(x$dam))
-  cat("Pedigree with ", n, " animals, ", fund, " founder(s)\n", sep = "")
+  fund <- sum(is.na(x[[2]]) & is.na(x[[3]]))
+  cat(if (identical(attr(x, "type"), "sire_mgs")) "Sire / maternal-grandsire pedigree"
+      else "Pedigree", " with ", n, " animals, ", fund, " founder(s)\n", sep = "")
   cat("Mean F ", format(mean(x$F), digits = 5),
       ", maximum ", format(max(x$F), digits = 5),
       ", ", sum(x$F > 1e-9), " animal(s) with F > 0\n", sep = "")

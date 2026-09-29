@@ -86,7 +86,10 @@ se_function <- function(fit, f, h = 1e-6) {
 #' @export
 profile_theta <- function(formula, data, pedigree = NULL, k, grid = NULL, fit = NULL,
                           maxit = 500L, tol = 1e-10, ...) {
-  if (is.null(fit)) fit <- model(formula, data, pedigree, ...)
+  extras <- list(...)
+  if (identical(extras$apy_core, "auto"))
+    extras$apy_core <- suppressWarnings(apy_core_select(extras$genotypes))
+  if (is.null(fit)) fit <- do.call(model, c(list(formula, data, pedigree), extras))
   th <- fit$theta
   ki <- if (is.character(k)) match(k, names(th)) else as.integer(k)
   if (is.na(ki) || ki < 1 || ki > length(th)) stop("no component '", k, "' in this fit")
@@ -105,7 +108,8 @@ profile_theta <- function(formula, data, pedigree = NULL, k, grid = NULL, fit = 
     tf <- numeric(length(th))
     tf[ki] <- valor_k
     tf[livre] <- desempacota(par)
-    r <- try(eval_internal(formula, data, pedigree, theta = tf, with_dense = FALSE, ...),
+    r <- try(do.call(eval_internal, c(list(formula, data, pedigree, theta = tf,
+                                           with_dense = FALSE), extras)),
              silent = TRUE)
     if (inherits(r, "try-error") || !is.finite(r$neg2logl)) 1e12 else r$neg2logl
   }

@@ -151,3 +151,20 @@ test_that("Mrode 10.2: h2_curve() evaluates the genetic variance with the fit's 
   ph140 <- as.vector(legendre(140, order = 2, limits = c(4, 310)))
   expect_equal(drop(t(ph106) %*% mrode_10_G() %*% ph140), 3.0219, tolerance = 1e-3)
 })
+
+test_that("Mrode 10.2: h2_curve() evaluates the permanent-environment regression at x too", {
+  # O denominador somava cru o que nao era do grupo: com o pe tambem em regressao na mesma
+  # base, a curva saia com a razao entre 0,63 e 1,04 do valor certo. Aqui o certo e feito a
+  # mao, com as G e P publicadas (p.166) e s2e = 3.710: phi'G phi / (phi'G phi + phi'P phi + s2e)
+  m <- fixture_mrode_10()
+  cv <- h2_curve(mrode_10_rr_fit(m), limits = c(4, 310), points = 307L)
+  G <- mrode_10_G(); P <- mrode_10_P()
+  for (dim in c(4, 38, 106, 208, 310)) {
+    ph <- as.vector(legendre(dim, order = 2, limits = c(4, 310)))
+    va <- drop(t(ph) %*% G %*% ph)
+    esperado <- va / (va + drop(t(ph) %*% P %*% ph) + 3.710)
+    expect_equal(cv$h2[which.min(abs(cv$x - dim))], esperado, tolerance = 1e-3)
+  }
+  # e o valor que a CHECKLIST mediu como certo em DIM 106
+  expect_equal(cv$h2[which.min(abs(cv$x - 106))], 0.2195, tolerance = 1e-3)
+})

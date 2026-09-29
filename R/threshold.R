@@ -35,12 +35,21 @@
 #'   otherwise. To compare against a table that zeroes some other level, compare
 #'   CONTRASTS, or pass the column as a factor with the reference level first.
 #'
-#' THE COMPONENTS ARE GIVEN, NOT ESTIMATED. `start=` is mandatory: one variance per
-#' random term, on the liability scale. That is how the book uses the model (both
-#' examples of chapter 15 fix the components), and it is a declared limit of this
-#' fitter: REML estimation on the liability scale needs a marginal likelihood this
-#' package does not compute. Estimate the components on a related Gaussian trait, take
-#' them from literature, or convert an observed-scale h2 with [h2_liability()].
+#' THE COMPONENTS ARE GIVEN BY DEFAULT, as the book uses the model (both examples of
+#' chapter 15 fix them): `start=` is one variance per random term, on the liability
+#' scale. With `estimate = TRUE` (ordinal mode) `start` is the starting point and the
+#' components are ESTIMATED by approximate marginal maximum likelihood: the locations
+#' (thresholds, fixed and random effects) are integrated by the Laplace approximation
+#' around the mode, and the variances are updated by the EM-type step of Foulley, Im,
+#' Gianola and Hoeschele (1987), `s2 = (u' K^-1 u + tr(K^-1 C^uu)) / q`, with `C^uu` the
+#' block of the inverse of the scoring system at the mode. `neg2logl` is the Laplace
+#' -2 log likelihood (in both modes of `estimate`), comparable between fits of the same
+#' data and fixed effects; the standard errors come from its numerical Hessian in the
+#' log of the variances. Read the estimate knowing its known bias: with a binary trait
+#' and few records per level of the random effect the Laplace approximation
+#' UNDERESTIMATES the variance (Tempelman 1998); many daughters per sire is where it is
+#' reliable, and Gibbs sampling with data augmentation (THRGIBBS1F90) is the unbiased
+#' alternative.
 #'
 #' JOINT QUANTITATIVE + BINARY ANALYSIS (Foulley et al. 1983; section 15.3 of the
 #' book). With `cbind(quant, bin)` on the left-hand side the fit is the joint one: a
@@ -84,6 +93,10 @@
 #'   `sqrt(sum(delta^2) / sum(sol^2))`, same convention as the other fitters
 #' @param verbose print one line per scoring iteration with the relative step (the
 #'   convergence criterion itself)
+#' @param estimate ordinal mode only: estimate the variances by Laplace + EM, with
+#'   `start` as the starting point, instead of taking them as given
+#' @param maxiter_em maximum number of EM steps when `estimate = TRUE`
+#' @param tol_em RELATIVE tolerance on the variances between two EM steps
 #' @return an object of class `breeding_fit_thr`. Ordinal mode: `thresholds` (with
 #'   `se_thresholds` from the generalized inverse, the book's p.271 column), `theta`
 #'   (the GIVEN components plus `var(residual) = 1`), `b` and `se_b` (named
@@ -92,8 +105,9 @@
 #'   [predict()] on the fit returns the per-category probabilities, the number the
 #'   book actually delivers (p.272-273). Joint mode: `b` and `ebv` come named
 #'   `...|trait`; `nu` holds the corrected liability solutions, `b_regression` the
-#'   residual regression, and `G`, `R`, `Gc` the matrices used; `pev` and
-#'   `predict()` are not available there (a declared limit).
+#'   residual regression, and `G`, `R`, `Gc` the matrices used; `pev` comes from the
+#'   generalized inverse, for u1 and for the ranking value u2 = nu + b1 u1, and
+#'   [predict()] gives the probability of Eqn 15.25.
 #' @references Gianola, D. & Foulley, J.L. (1983) Sire evaluation for ordered
 #'   categorical data with a threshold model. Genet. Sel. Evol. 15, 201-224.
 #'   Foulley, J.L., Gianola, D. & Thompson, R. (1983) Prediction of genetic merit from
@@ -101,6 +115,11 @@
 #'   difficulty, birth weight and pelvic opening. Genet. Sel. Evol. 15, 401-424.
 #'   Mrode, R.A. & Pocrnic, I. (2023) Linear Models for the Prediction of the Genetic
 #'   Merit of Animals, 4th ed., chapter 15.
+#'   Foulley, J.L., Im, S., Gianola, D. & Hoeschele, I. (1987) Empirical Bayes
+#'   estimation of parameters for n polygenic binary traits. Genet. Sel. Evol. 19,
+#'   197-224.
+#'   Tempelman, R.J. (1998) Generalized linear mixed models in dairy cattle breeding.
+#'   J. Dairy Sci. 81, 1428-1444.
 #' @examples
 #' # Example 15.1 of Mrode & Pocrnic: calving ease in three categories, sire model,
 #' # var(sire) = 1/19 (h2 = 0.20 on the liability scale)
@@ -127,15 +146,16 @@
 model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
                             k_inverse = NULL, missing_code = NULL,
                             thresholds_start = NULL, maxiter = 50L, tol = 1e-8,
-                            verbose = interactive()) {
+                            verbose = interactive(), estimate = FALSE,
+                            maxiter_em = 200L, tol_em = 1e-6) {
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side: score ~ herd + sire(sire)")
   lhs <- formula[[2]]
   conjunto <- is.call(lhs) && identical(as.character(lhs[[1]]), "cbind")
   if (is.null(start))
-    stop("the threshold model takes the components as GIVEN, not estimated: pass ",
-         "start = one variance per random term (liability scale; the residual is ",
-         "fixed at 1), or start = list(G =, R =) in the joint mode")
+    stop("start= is required: one variance per random term (liability scale; the ",
+         "residual is fixed at 1), given or, with estimate = TRUE, the starting point; ",
+         "start = list(G =, R =) in the joint mode")
 
   terms <- decompoe_formula(formula[[3]])
   if (!length(terms)) stop("the formula declares no effect")
@@ -170,12 +190,72 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
   falta <- setdiff(used, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
 
-  if (conjunto)
-    ajusta_limiar_conjunto(formula, traits, terms, aleat, data, pedigree, k_inverse,
-                           start, missing_code, maxiter, tol, verbose)
-  else
+  if (conjunto) {
+    if (isTRUE(estimate))
+      stop("estimate = TRUE is for the ordinal mode: the joint mode takes G and R as ",
+           "given (the residual covariance with the liability is not estimated here)")
+    return(ajusta_limiar_conjunto(formula, traits, terms, aleat, data, pedigree, k_inverse,
+                                  start, missing_code, maxiter, tol, verbose))
+  }
+  ajusta <- function(s2, warm = NULL)
     ajusta_limiar_ordinal(formula, traits, terms, aleat, data, pedigree, k_inverse,
-                          start, missing_code, thresholds_start, maxiter, tol, verbose)
+                          s2, missing_code, thresholds_start, maxiter, tol,
+                          verbose && !isTRUE(estimate), warm)
+  if (!isTRUE(estimate)) {
+    fit <- ajusta(start)
+    attr(fit, "estado") <- NULL
+    return(fit)
+  }
+  estima_limiar(ajusta, as.double(start), maxiter_em, tol_em, verbose)
+}
+
+# O laco da estimacao: ajusta na variancia corrente (partida quente), passo EM, repete. No
+# fim, erro-padrao pela Hessiana numerica do -2logL de Laplace em log s2 (Var = 2 H^-1).
+estima_limiar <- function(ajusta, s2, maxiter_em, tol_em, verbose) {
+  t0 <- proc.time()[["elapsed"]]
+  fit <- ajusta(s2); est <- attr(fit, "estado")
+  it <- 0L; crit <- Inf
+  while (crit > tol_em && it < maxiter_em) {
+    it <- it + 1L
+    novo <- em_limiar(est)
+    if (any(!is.finite(novo)) || any(novo <= 0))
+      stop("the EM step left the admissible region at step ", it)
+    crit <- sqrt(sum((novo - s2)^2) / sum(novo^2))
+    s2 <- novo
+    fit <- ajusta(s2, list(tvec = est$tvec, b = est$b, us = est$us))
+    est <- attr(fit, "estado")
+    if (isTRUE(verbose))
+      cat(sprintf("EM %3d  -2logL(Laplace) %.6f  relDelta %.3e  %s\n", it, fit$neg2logl,
+                  crit, paste(sprintf("%.5g", s2), collapse = " ")))
+  }
+  f <- function(x) ajusta(exp(x), list(tvec = est$tvec, b = est$b, us = est$us))$neg2logl
+  k <- length(s2); x0 <- log(s2); h <- 0.01
+  H <- matrix(NA_real_, k, k)
+  f0 <- fit$neg2logl
+  for (i in seq_len(k)) {
+    ei <- replace(numeric(k), i, h)
+    H[i, i] <- (f(x0 + ei) - 2 * f0 + f(x0 - ei)) / h^2
+    if (i > 1) for (j in seq_len(i - 1)) {
+      ej <- replace(numeric(k), j, h)
+      H[i, j] <- H[j, i] <- (f(x0 + ei + ej) - f(x0 + ei - ej) - f(x0 - ei + ej) +
+                               f(x0 - ei - ej)) / (4 * h^2)
+    }
+  }
+  vlog <- tryCatch(diag(2 * solve(H)), error = function(e) rep(NA_real_, k))
+  se <- ifelse(is.finite(vlog) & vlog > 0, s2 * sqrt(vlog), NA_real_)
+  fit$se[seq_len(k)] <- se
+  fit$converged <- fit$converged && crit <= tol_em
+  fit$iters_em <- it
+  fit$reldelta_em <- crit
+  fit$message <- paste0(
+    "components ESTIMATED by approximate marginal ML (Laplace + EM, Foulley et al. 1987; ",
+    "residual fixed at 1), ", it, " EM step(s), relDelta ", format(crit, digits = 3),
+    if (crit > tol_em) " -- DID NOT CONVERGE, raise maxiter_em=" else "",
+    ". The Laplace approximation underestimates variances of binary traits with few ",
+    "records per level (Tempelman 1998)")
+  fit$seconds <- proc.time()[["elapsed"]] - t0
+  attr(fit, "estado") <- NULL
+  fit
 }
 
 # ------------------------------------------------------------------ shared pieces
@@ -346,7 +426,7 @@ pecas_gf <- function(a, tvec, codes, m) {
 
 ajusta_limiar_ordinal <- function(formula, trait, terms, aleat, data, pedigree,
                                   k_inverse, start, missing_code, thresholds_start,
-                                  maxiter, tol, verbose) {
+                                  maxiter, tol, verbose, warm = NULL) {
   y <- data[[trait]]
   keep <- !is.na(y)
   if (!is.null(missing_code)) keep <- keep & !(as.character(y) == as.character(missing_code))
@@ -386,6 +466,9 @@ ajusta_limiar_ordinal <- function(formula, trait, terms, aleat, data, pedigree,
          "record has no estimable threshold -- merge or recode it")
   b <- numeric(p)
   us <- lapply(zs, function(z) numeric(z$q))
+  # partida quente: a estimacao dos componentes resolve o sistema muitas vezes com
+  # variancias vizinhas, e recomecar do zero a cada vez so gasta iteracoes
+  if (!is.null(warm)) { tvec <- warm$tvec; b <- warm$b; us <- warm$us }
 
   it <- 0L; crit <- Inf; monta <- NULL
   while (crit > tol && it < maxiter) {
@@ -472,7 +555,9 @@ ajusta_limiar_ordinal <- function(formula, trait, terms, aleat, data, pedigree,
     stats::setNames(se_tudo[offs[s] + seq_len(zs[[s]]$q)]^2, zs[[s]]$ids)),
     vapply(zs, function(z) z$nome, character(1)))
 
-  structure(list(
+  lap <- laplace_limiar(monta, zs, us, start, tvec, b, X, codes, m)
+
+  out <- structure(list(
     trait = trait, categories = categorias, counts = contagem,
     thresholds = stats::setNames(tvec, paste0("t", seq_len(nt))),
     se_thresholds = stats::setNames(se_tudo[seq_len(nt)], paste0("t", seq_len(nt))),
@@ -483,7 +568,7 @@ ajusta_limiar_ordinal <- function(formula, trait, terms, aleat, data, pedigree,
     dropped_x = fx$dropped,
     ebv = ebv_, pev = pev_,
     converged = crit <= tol, iters = it, reldelta = crit,
-    n_used = n, n_columns = N,
+    n_used = n, n_columns = N, neg2logl = lap$neg2logl,
     message = "components GIVEN via start= (liability scale, residual fixed at 1), not estimated",
     metafounders = NULL, gamma = NULL,
     formula = formula, type = "ordinal",
@@ -492,13 +577,53 @@ ajusta_limiar_ordinal <- function(formula, trait, terms, aleat, data, pedigree,
                     list(nome = z$nome, column = z$column, ids = z$ids))),
     seconds = NA_real_
   ), class = "breeding_fit_thr")
+  attr(out, "estado") <- list(monta = monta, zs = zs, us = us, offs = offs, N = N,
+                              tvec = tvec, b = b, quad = lap$quad)
+  out
+}
+
+# -2logL de Laplace do modelo de limiar, a verossimilhanca marginal com TODAS as
+# localizacoes (limiares, fixos, aleatorios) integradas pela aproximacao de Laplace em
+# torno da moda, com a informacao de Fisher do sistema de scoring no lugar da Hessiana:
+#   -2 sum log P(y | a) + sum_s [u_s' K_s^-1 u_s / s2_s + q_s log s2_s - log|K_s^-1|] + log|C|
+# (a menos de constante). E o que se compara entre ajustes nos MESMOS dados e efeitos fixos,
+# como o -2logL do REML.
+laplace_limiar <- function(monta, zs, us, s2, tvec, b, X, codes, m) {
+  a <- (if (length(b)) drop(X %*% b) else numeric(length(codes))) +
+    Reduce(`+`, Map(function(z, u) u[z$idx], zs, us), accumulate = FALSE)
+  P <- pecas_gf(a, tvec, codes, m)$P
+  loglik <- sum(log(P[cbind(seq_along(codes), codes)]))
+  quad <- vapply(seq_along(zs), function(s)
+    sum(us[[s]] * tri_matvec(zs[[s]]$pi, zs[[s]]$pj, zs[[s]]$px, us[[s]])), numeric(1))
+  ld_k <- vapply(zs, function(z)
+    sparse_chol(list(i = z$pi, j = z$pj, x = z$px, n = z$q))$logdet, numeric(1))
+  ld_c <- tryCatch(sparse_chol(monta)$logdet, error = function(e) NA_real_)
+  qs <- vapply(zs, function(z) z$q, integer(1))
+  list(neg2logl = -2 * loglik + sum(quad / s2 + qs * log(s2) - ld_k) + ld_c, quad = quad)
+}
+
+# Uma iteracao EM da maxima verossimilhanca marginal aproximada (Foulley, Im, Gianola e
+# Hoeschele 1987; Foulley, Gianola e Im 1990): s2_s <- (u_s' K_s^-1 u_s + tr(K_s^-1 C^ss)) / q_s,
+# com C^ss o bloco do termo s da inversa do sistema de scoring na moda. O traco so precisa
+# de C^ss nas posicoes de K_s^-1, que estao no padrao do fator: a inversa SELETIVA basta.
+em_limiar <- function(est) {
+  si <- selected_inverse(est$monta)
+  chave <- function(i, j) (pmax(i, j) - 1) * est$N + pmin(i, j)
+  ks <- chave(si$i, si$j)
+  vapply(seq_along(est$zs), function(s) {
+    z <- est$zs[[s]]; o <- est$offs[s]
+    cij <- si$x[match(chave(o + z$pi, o + z$pj), ks)]
+    if (anyNA(cij)) stop("an entry of K^-1 fell outside the pattern of the factor")
+    tr <- sum(ifelse(z$pi == z$pj, 1, 2) * z$px * cij)
+    (est$quad[s] + tr) / z$q
+  }, numeric(1))
 }
 
 # ------------------------------------------------------------------ joint mode
 
 ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree,
                                    k_inverse, start, missing_code, maxiter, tol,
-                                   verbose) {
+                                   verbose, sistema = FALSE) {
   if (length(traits) != 2L)
     stop("the joint analysis takes exactly TWO traits: cbind(quantitative, binary)")
   if (length(aleat) != 1L || aleat[[1]]$estrutura != 2L)
@@ -588,8 +713,8 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
              drop(crossprod(X, qvec)),
              soma_por_nivel(qvec, z$idx, q) -
                Gci[2, 2] * tri_matvec(z$pi, z$pj, z$px, nu))
-    sol <- tryCatch(sparse_solve(list(i = unlist(ti), j = unlist(tj),
-                                      x = unlist(tx), n = N), rhs),
+    monta <- list(i = unlist(ti), j = unlist(tj), x = unlist(tx), n = N)
+    sol <- tryCatch(sparse_solve(monta, rhs),
                     error = function(e)
       stop("the joint system is not solvable at iteration ", it, " (",
            conditionMessage(e), ")", call. = FALSE))
@@ -611,6 +736,21 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
   }
 
   u2 <- nu + breg * u1                                # the book's ranking value, p.281
+  # PEV pela inversa seletiva do sistema final, a mesma leitura do modo ordinal (p.271).
+  # u2 = nu + b u1 e uma combinacao, entao a PEV dele pede o bloco cruzado (nu_l, u1_l),
+  # que esta no padrao do fator (o acoplamento genetico e A^-1 cheia, diagonal incluida):
+  # PEV(u2) = C^(nu,nu) + b^2 C^(u1,u1) + 2 b C^(nu,u1).
+  pev_u1 <- pev_u2 <- rep(NA_real_, q)
+  si <- tryCatch(selected_inverse(monta), error = function(e) NULL)
+  if (!is.null(si)) {
+    chave <- function(i, j) (pmax(i, j) - 1) * N + pmin(i, j)
+    ks <- chave(si$i, si$j)
+    pega <- function(i, j) si$x[match(chave(i, j), ks)]
+    l <- seq_len(q)
+    c11 <- pega(o2 + l, o2 + l); c22 <- pega(o4 + l, o4 + l); c21 <- pega(o4 + l, o2 + l)
+    pev_u1 <- c11
+    pev_u2 <- c22 + breg^2 * c11 + 2 * breg * c21
+  }
   nomes_theta <- c(paste0("var(", z$nome, "@", traits[1], ")"),
                    paste0("cov(", z$nome, "@", traits[2], ",", z$nome, "@", traits[1], ")"),
                    paste0("var(", z$nome, "@", traits[2], ")"),
@@ -620,7 +760,7 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
   theta <- stats::setNames(c(G[1, 1], G[1, 2], G[2, 2], R[1, 1], R[1, 2], R[2, 2]),
                            nomes_theta)
 
-  structure(list(
+  out_conj <- structure(list(
     traits = traits, trait = paste(traits, collapse = ", "),
     theta = theta,
     se = stats::setNames(rep(NA_real_, 6L), nomes_theta),
@@ -630,8 +770,13 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
     ebv = stats::setNames(list(c(stats::setNames(u1, paste0(z$ids, "|", traits[1])),
                                  stats::setNames(u2, paste0(z$ids, "|", traits[2])))),
                           z$nome),
-    pev = stats::setNames(list(NULL), z$nome),
+    pev = stats::setNames(list(c(stats::setNames(pev_u1, paste0(z$ids, "|", traits[1])),
+                                 stats::setNames(pev_u2, paste0(z$ids, "|", traits[2])))),
+                          z$nome),
     nu = stats::setNames(nu, z$ids),
+    mean_quantitative = mean(y1), binary_levels = vals2,
+    design = list(fixed = fx$info,
+                  random = list(list(nome = z$nome, column = z$column, ids = z$ids))),
     b_regression = breg, G = G, R = R, Gc = Gc,
     converged = crit <= tol, iters = it, reldelta = crit,
     n_used = n, n_columns = N,
@@ -642,6 +787,9 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
     formula = formula, type = "joint",
     seconds = NA_real_
   ), class = "breeding_fit_thr")
+  # o sistema final so para o portao que confere a PEV contra a inversa densa
+  if (sistema) attr(out_conj, "sistema") <- list(monta = monta, o2 = o2, o4 = o4, q = q)
+  out_conj
 }
 
 # ------------------------------------------------------------------ methods
@@ -692,23 +840,29 @@ coef.breeding_fit_thr <- function(object, effects = c("components", "fixed"), ..
 #' `a = x'b + z'u` at that row's levels. A level dropped from the design (a reference
 #' level, or a dropped dependent column) contributes zero; a level absent from the
 #' fit's data is an error, not a silent zero.
-#' @param object result of [model_threshold()] (ordinal mode; the joint fit does not
-#'   have a predict method -- the book's Eqn 15.25 needs a covariate point, compute it
-#'   from `coef()`, `fit$nu` and `fit$b_regression`)
-#' @param newdata data.frame with the fixed and random columns of the formula
+#' In the joint fit (Foulley et al. 1983) the binary liability is conditional on the
+#' quantitative trait, and the probability is the book's Eqn 15.25:
+#' `P(y2 = 1 | x, y1) = F(x't + nu + b1 (y1 - mean(y1)))`, with `b1` the residual
+#' regression and the mean of the quantitative trait in the fit; `newdata` then needs the
+#' quantitative trait column too.
+#' @param object result of [model_threshold()]
+#' @param newdata data.frame with the fixed and random columns of the formula (and, for
+#'   the joint fit, the quantitative trait)
 #' @param type `"probability"` (default) for the n x m matrix of category
-#'   probabilities, `"liability"` for the linear predictor
+#'   probabilities (joint fit: the probability of the larger binary value),
+#'   `"liability"` for the linear predictor, and for the joint fit `"quantitative"` for
+#'   the expected quantitative trait `x'b + u1`
 #' @param ... unused, kept for the generic
 #' @return a matrix with one row per row of `newdata` and the categories as columns,
-#'   or the numeric liability vector
+#'   or a numeric vector
 #' @export
 predict.breeding_fit_thr <- function(object, newdata,
-                                     type = c("probability", "liability"), ...) {
+                                     type = c("probability", "liability", "quantitative"),
+                                     ...) {
   type <- match.arg(type)
-  if (!identical(object$type, "ordinal"))
-    stop("predict is available for the ordinal fit; for the joint fit compute the ",
-         "book's Eqn 15.25 from coef(fit), fit$nu and fit$b_regression")
   if (!is.data.frame(newdata)) stop("newdata must be a data.frame")
+  if (identical(object$type, "joint")) return(prediz_conjunto(object, newdata, type))
+  if (type == "quantitative") stop("type = \"quantitative\" is for the joint fit")
   n <- nrow(newdata)
   a <- numeric(n)
   for (info in object$design$fixed) {
@@ -746,6 +900,50 @@ predict.breeding_fit_thr <- function(object, newdata,
   P <- pecas_gf(a, unname(object$thresholds), rep(1L, n), m)$P
   colnames(P) <- as.character(object$categories)
   P
+}
+
+# Eqn 15.25 do livro para o ajuste conjunto: a parte fixa de cada traco pelos nomes
+# term=level|traco, a aleatoria pelo u1 e pelo nu do nivel
+prediz_conjunto <- function(object, newdata, type) {
+  n <- nrow(newdata)
+  parte_fixa <- function(tr) {
+    a <- numeric(n)
+    for (info in object$design$fixed) {
+      if (!info$column %in% names(newdata)) stop("no column '", info$column, "' in newdata")
+      col <- newdata[[info$column]]
+      if (info$covariavel) {
+        nm <- paste0(info$nome, "|", tr)
+        a <- a + as.double(col) * (if (nm %in% names(object$b)) object$b[[nm]] else 0)
+      } else {
+        valores <- as.character(col)
+        fora <- setdiff(unique(valores), info$niveis)
+        if (length(fora))
+          stop("level(s) of '", info$column, "' not seen in the fit: ",
+               paste(fora, collapse = ", "))
+        nomes <- paste0(info$nome, "=", valores, "|", tr)
+        tem <- nomes %in% names(object$b)
+        a[tem] <- a[tem] + object$b[nomes[tem]]
+      }
+    }
+    a
+  }
+  info <- object$design$random[[1]]
+  if (!info$column %in% names(newdata)) stop("no column '", info$column, "' in newdata")
+  ids <- as.character(newdata[[info$column]])
+  if (anyNA(match(ids, info$ids)))
+    stop("level(s) of '", info$column, "' unknown to the fit: ",
+         paste(unique(ids[is.na(match(ids, info$ids))]), collapse = ", "))
+  e <- object$ebv[[info$nome]]
+  if (type == "quantitative")
+    return(unname(parte_fixa(object$traits[1]) + e[paste0(ids, "|", object$traits[1])]))
+  q1 <- object$traits[1]
+  if (!q1 %in% names(newdata))
+    stop("the joint probability is conditional on the quantitative trait: newdata needs ",
+         "a column '", q1, "' (Eqn 15.25)")
+  lia <- unname(parte_fixa(object$traits[2]) + object$nu[ids] +
+                  object$b_regression * (as.double(newdata[[q1]]) - object$mean_quantitative))
+  if (type == "liability") return(lia)
+  stats::setNames(stats::pnorm(lia), NULL)
 }
 
 # ------------------------------------------------------------------ the two scales

@@ -264,7 +264,7 @@ test_that("model_threshold() refuses what it cannot do, in words", {
   d <- dado_15_1()
   expect_error(model_threshold(score ~ herd + sire(sire), data = d,
                                pedigree = ped_15_1),
-               "GIVEN, not estimated")
+               "start= is required")
   expect_error(model_threshold(score ~ herd, data = d, pedigree = ped_15_1,
                                start = 1),
                "no random term")
@@ -291,4 +291,45 @@ test_that("model_threshold() refuses what it cannot do, in words", {
   expect_error(model_threshold(cbind(bw, cd) ~ origin + sire(sire), data = dj,
                                k_inverse = ainv_smgs(), start = c(1, 1)),
                "start = list\\(G =, R =\\)")
+})
+
+test_that("Mrode Example 15.2: predict() gives the p.281 probabilities, and PEV of u1 and u2", {
+  fit <- model_threshold(cbind(bw, cd) ~ origin + season + sex + sire(sire),
+                         data = dado_15_2(), k_inverse = ainv_smgs(),
+                         start = list(G = G_15_2, R = R_15_2), verbose = FALSE)
+  # Eqn 15.25 averaged over the eight fixed cells, now through predict(): the birth
+  # weight at each cell is its fixed-effect expectation, as the book does
+  bPN <- fit$b[paste0(c("origin=1", "origin=2", "season=1", "sex=1"), "|bw")]
+  celas <- expand.grid(origin = c("1", "2"), season = c("1", "2"), sex = c("1", "2"),
+                       stringsAsFactors = FALSE)
+  xt <- cbind(celas$origin == "1", celas$origin == "2", celas$season == "1",
+              celas$sex == "1")
+  celas$bw <- drop(xt %*% bPN)
+  prob <- vapply(as.character(1:6), function(j)
+    mean(predict(fit, cbind(celas, sire = j))), numeric(1))
+  expect_equal(unname(round(prob, 3)), c(0.167, 0.188, 0.169, 0.189, 0.183, 0.187))
+  expect_equal(predict(fit, cbind(celas[1, ], sire = "1"), type = "quantitative"),
+               unname(celas$bw[1] + ebv(fit, trait = "bw")[1]))
+  expect_error(predict(fit, cbind(celas[, 1:3], sire = "1")), "conditional on the quantitative")
+
+  # PEV against the dense inverse of the SAME final system
+  terms <- decompoe_formula((cbind(bw, cd) ~ origin + season + sex + sire(sire))[[3]])
+  aleat <- Filter(function(tm) tm$estrutura != 0L, terms)
+  f2 <- ajusta_limiar_conjunto(cbind(bw, cd) ~ origin + season + sex + sire(sire),
+                               c("bw", "cd"), terms, aleat, dado_15_2(), NULL, ainv_smgs(),
+                               list(G = G_15_2, R = R_15_2), NULL, 50L, 1e-8, FALSE,
+                               sistema = TRUE)
+  S <- attr(f2, "sistema")
+  M <- matrix(0, S$monta$n, S$monta$n)
+  for (k in seq_along(S$monta$x)) {
+    M[S$monta$i[k], S$monta$j[k]] <- M[S$monta$i[k], S$monta$j[k]] + S$monta$x[k]
+  }
+  M <- M + t(M) - diag(diag(M))
+  Ci <- solve(M)
+  l <- seq_len(S$q)
+  c11 <- diag(Ci)[S$o2 + l]; c22 <- diag(Ci)[S$o4 + l]
+  c21 <- Ci[cbind(S$o4 + l, S$o2 + l)]
+  expect_equal(unname(fit$pev$sire[paste0(1:6, "|bw")]), c11, tolerance = 1e-8)
+  expect_equal(unname(fit$pev$sire[paste0(1:6, "|cd")]),
+               c22 + fit$b_regression^2 * c11 + 2 * fit$b_regression * c21, tolerance = 1e-8)
 })

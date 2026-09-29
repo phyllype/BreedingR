@@ -20,7 +20,7 @@
 #' @param genotypes list with `ids` and `m` (0/1/2 matrix) for single-step; NA is imputed
 #'   by the mean, as in [model()]
 #' @param blend weight of A22 in the G blend (0.05 by default)
-#' @param apy_core ids of the APY core; NULL uses the exact inverse of G
+#' @param apy_core ids of the APY core, or `"auto"` as in [model()]; NULL uses the exact inverse of G
 #' @param vecchia_k neighbors per animal in the Vecchia inverse of G*: each genotyped
 #'   animal conditions on its k strongest previous relationships instead of a global
 #'   core (the generalization of APY; Henderson's A^-1 is the pedigree case, with the
@@ -37,15 +37,15 @@
 #'   `message` and how to raise it
 #' @param tol relative tolerance on the components, sqrt(sum delta^2 / sum theta^2);
 #'   see the BLUPF90 scale note in [model()]. The Newton decrement g' AI^-1 g is
-#'   computed at the final point and reported in `newton_dec` (components at a
-#'   covariance boundary excluded, since this walker cannot follow a singular
-#'   boundary), but unlike [model()] it does not gate `converged` here: this fitter
-#'   steps in raw theta and can jam whole against a boundary, so a decrement above
-#'   2e-4 becomes a WARNING in `message` instead — read it before trusting a fit
-#'   near a boundary. The hard certificate lives in the univariate fitter
+#'   computed at the final point and reported in `newton_dec` (components resting at a
+#'   covariance boundary excluded), and, as in [model()], `converged` requires it under
+#'   2e-4: the step walks in log-Cholesky coordinates, so it cannot jam against a
+#'   boundary. At `maxiter` with the decrement already under the tolerance the fit is
+#'   declared converged and `message` says the likelihood is flat along some direction
 #' @param verbose print the fit as it walks: one line per AI iteration with the
-#'   -2logL and the relative step (the convergence criterion itself), so a long fit
-#'   is a progress report instead of silence. Defaults to interactive() — live in a
+#'   -2logL and the relative step, so a long fit is a progress report instead of
+#'   silence. The relative step is half of the convergence criterion; the Newton
+#'   decrement, reported in `newton_dec`, is the other half. Defaults to interactive() — live in a
 #'   session, quiet in scripts and checks. Every fitter also honors Ctrl+C now
 #' @param metafounders labels of unknown-parent groups; a parent with one of these
 #'   labels needs no line of its own (any OTHER cited-without-line parent is still a
@@ -68,6 +68,7 @@
 #'   fixed-effect solutions `b` come named `term=level|trait`, one entry per column of X
 #'   and per trait. The parametrization note of [model()] applies: dropped columns are
 #'   in `dropped_x` and only contrasts compare against a reference-level convention.
+#'   `dense_block`, `h_prior` and `h_prior_row` are as in [model()].
 #' @export
 model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                        apy_core = NULL, vecchia_k = NULL, missing_code = NULL,
@@ -82,7 +83,9 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   if (length(traits) < 2L) stop("cbind() with only one column; for one, use model()")
 
   terms <- decompoe_formula(formula[[3]])
+  recusa_materno_mgs(terms, pedigree)
   recusa_dilution(terms, "model_mt()")
+  recusa_kfixo(terms, "model_mt()")
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
   if (precisa_ped && is.null(pedigree))
     stop("there is a term with a relationship structure and no pedigree was given")
@@ -106,6 +109,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   }
   recusa_mf_genomico(metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
+  nuc <- nucleo_apy(apy_core, genotypes)
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_ajustar_mt,
@@ -122,7 +126,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
              if (is.null(missing_code)) 0.0 else as.double(missing_code), !is.null(missing_code),
              as.integer(maxiter), as.double(tol),
              g$gid, g$gm, as.double(blend),
-             if (is.null(apy_core)) character(0) else as.character(apy_core),
+             nuc,
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
              isTRUE(verbose),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
@@ -131,6 +135,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
              monta_kernels(terms, environment(formula)),
              if (is.null(start)) numeric(0) else as.double(start))
   r$seconds <- proc.time()[["elapsed"]] - t0
+  r <- anota_nucleo(r, nuc)
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
   # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a
   # parent with no line of its own, which is a declared error outside this mode, and even
@@ -138,6 +143,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   r$metafounders <- metafounders
   r$gamma <- gamma
   r$formula <- formula
+  r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$traits <- traits
   structure(r, class = "breeding_fit_mt")
 }
@@ -158,6 +164,7 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
   lhs <- formula[[2]]
   traits <- vapply(as.list(lhs)[-1], deparse, character(1))
   terms <- decompoe_formula(formula[[3]])
+  recusa_materno_mgs(terms, pedigree)
   recusa_dilution(terms, "eval_internal_mt()")
   used_columns <- unique(c(traits, vapply(terms, function(t) t$column, character(1)),
                              unlist(lapply(terms, function(t) t$nested)),
@@ -229,7 +236,7 @@ print.breeding_fit_mt <- function(x, ...) {
       " column(s) in the equations\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  mostra_componentes(tabela_componentes(x$theta, x$se))
+  mostra_componentes(tabela_componentes(x$theta, x$se, indireto = tem_indireto(x)))
   mostra_fixos(x$b, x$dropped_x)
   invisible(x)
 }

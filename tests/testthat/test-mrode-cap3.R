@@ -165,21 +165,14 @@ test_that("Mrode Table 3.2: one metafounder with gamma = 0.2 reproduces the book
   expect_equal(Ai[1, 1], 1 / 0.2 + 2 / (1 - 0.5 * 0.2), tolerance = 1e-9)
 })
 
-# --- SECTION 3.7: THE SIRE AND MATERNAL GRANDSIRE FORMAT, WHICH THIS PACKAGE DOES NOT HAVE
+# --- SECTION 3.7: THE SIRE AND MATERNAL GRANDSIRE FORMAT, DECLARED
 #
 # Sections 3.6 and 3.7 give the MGS model its own rules: a_ii = 1 + 0.25 a_sk and
-# a_ij = 0.5 a_sj + 0.25 a_kj, with k the maternal grandsire. There is no MGS mode here,
-# which is a defensible choice. What follows from it is not: read as animal, sire and dam,
-# the grandsire's path enters at 0.5 where the rules ask for 0.25, and the A^-1 that comes
-# out is still symmetric and positive definite, so nothing downstream can notice.
-#
-# THIS GATE DOCUMENTS AN OPEN DEFECT. It does not test a fix, because there is none: a
-# detector on the one thing sires and dams never share, an individual cited on both sides,
-# was written and measured and does not separate the MGS format from any pedigree that
-# draws both parents from a single pool. Both sit at a share of 1.00. What the gate does is
-# PIN the size of the damage against the book's printed A, so the cost of feeding the wrong
-# format is a number in the suite and not a hunch, and so that the day an MGS mode or a sex
-# column arrives, this is what has to move.
+# a_ij = 0.5 a_sj + 0.25 a_kj, with k the maternal grandsire. The format is DECLARED
+# (sire_mgs() or pedigree(type = "sire_mgs")), as every reference program asks, because no
+# statistic separates it from a one-pool sire/dam pedigree (the gate below). Read as a dam,
+# the grandsire's path enters at 0.5 and the A^-1 is still positive definite, so the
+# damage of the undeclared reading stays pinned here as a number.
 
 # Section 3.7, recoded: bull 1 has no parents, bull 2 has sire 1, bull 3 has sire 2 and
 # maternal grandsire 1
@@ -190,31 +183,33 @@ A_mgs <- matrix(c(1.0, 0.5,   0.5,
                   0.5, 1.0,   0.625,
                   0.5, 0.625, 1.125), 3, 3, byrow = TRUE)
 
-test_that("OPEN: a maternal-grandsire pedigree is accepted in silence, and A is off by 0.25", {
-  # accepted without a word: no error, no warning, no message
-  expect_silent(pedigree(ped_mgs))
-  expect_silent(a_inverse(ped_mgs))
+test_that("sire_mgs(): the A of sec. 3.7 exactly, and F = 0.125 for the third bull", {
+  ai <- a_inverse(sire_mgs(ped_mgs))
+  A <- solve(denso(ai))[order(ai$id), order(ai$id)]
+  expect_lt(max(abs(A - A_mgs)), 1e-10)
+  p <- pedigree(ped_mgs, type = "sire_mgs")
+  expect_equal(p$F[p$id == "3"], 0.125, tolerance = 1e-12)
+  expect_identical(names(p)[3], "mgs")
+  expect_identical(attr(p, "type"), "sire_mgs")
+})
 
-  ai <- a_inverse(ped_mgs)
+test_that("a third column NAMED like a grandsire column is refused unless declared", {
+  expect_error(pedigree(ped_mgs), "MATERNAL GRANDSIRE")
+  expect_error(a_inverse(ped_mgs), "MATERNAL GRANDSIRE")
+})
+
+test_that("the undeclared reading (column renamed dam): A off by 0.25, and nothing notices", {
+  como_mae <- stats::setNames(ped_mgs, c("id", "sire", "dam"))
+  expect_silent(pedigree(como_mae))
+  ai <- a_inverse(como_mae)
   saida <- solve(denso(ai))[order(ai$id), order(ai$id)]
-  # what comes out is exactly the sire/dam reading of those three columns
-  expect_lt(max(abs(saida - tabular_a(pedigree(ped_mgs)))), 1e-10)
-
-  # and here is what that costs against the book's printed A of Section 3.7
+  expect_lt(max(abs(saida - tabular_a(pedigree(como_mae)))), 1e-10)
   expect_equal(max(abs(A_mgs - saida)), 0.25, tolerance = 1e-10)
-  expect_equal(saida[3, 1], 0.75, tolerance = 1e-10)     # the book prints 0.5
-  expect_equal(saida[3, 2], 0.75, tolerance = 1e-10)     # the book prints 0.625
-  expect_equal(saida[3, 3], 1.25, tolerance = 1e-10)     # the book prints 1.125
-  expect_equal(pedigree(ped_mgs)$F[3], 0.25, tolerance = 1e-10)
-  expect_equal(A_mgs[3, 3] - 1, 0.125, tolerance = 1e-10)  # what the MGS rule would give
-
-  # the trap: the result is still a perfectly well-behaved relationship matrix, so no
-  # solver, no Cholesky and no positive-definiteness check will ever raise a hand
-  expect_lt(max(abs(denso(ai) %*% saida - diag(3))), 1e-10)
+  expect_equal(pedigree(como_mae)$F[3], 0.25, tolerance = 1e-10)
   expect_true(all(eigen(saida, symmetric = TRUE, only.values = TRUE)$values > 0))
 })
 
-test_that("OPEN: the sire-and-dam overlap does not separate the MGS format from anything", {
+test_that("the sire-and-dam overlap does not separate the MGS format from anything", {
   # the measurement that closed the detection route. The share of distinct dams that also
   # appear as sires: 1.00 for the MGS format, and 1.00 again for a pedigree that simply
   # drew both parents from one pool, which is what every sexless simulation does.

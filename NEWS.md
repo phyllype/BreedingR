@@ -6,62 +6,154 @@
   `acc`, sorted by breeding value. It is what an evaluation is for, and until now
   the caller assembled it by hand, joining the vector from `ebv()` to the vector
   from `accuracy()` by name.
-* `h2(fit)`: heritability with the denominator stated. It is the phenotypic
-  variance, covariances included, because in a direct-maternal model
-  sigma_am belongs in it (Willham, 1972) and dropping it inflates the ratio. In a
-  multi-trait fit it returns one per trait, each divided by the components of that
-  trait alone. It REFUSES a reaction norm, where the heritability is a function of
-  the gradient and not a number, and points at `h2_curve()`.
-* `summary()` for `model_mt()`, `model_ar1()`, `model_threshold()` and
-  `model_survival()`.
+* `h2(fit)`: heritability over the phenotypic variance of the trait, variances
+  AND covariances, never a correlation parameter such as the `rho(residual)` of
+  `model_ar1()`. In a direct-maternal model the covariance belongs in the
+  denominator with coefficient 1 (Willham, 1972), the coefficient of the
+  `OPTION se_covar_function` example in the BLUPF90 documentation. In a
+  multi-trait fit it returns one per trait. With an `indirect()` term the
+  phenotypic variance of a record depends on its group size, and
+  `h2(fit, n = , r = )` uses the one of Bijma, Muir and Van Arendonk (2007), with
+  the dilution of Bijma (2010). It refuses a reaction norm and points at
+  `h2_curve()`.
+* `t2(fit, n, r)`: total heritable variance, T2 and the direct heritability of an
+  indirect-effect model, with delta-method standard errors.
+* `apy_core_select()` and `apy_core = "auto"`: the APY core size is the number of
+  eigenvalues of G that explain 98% of its trace (Pocrnic et al., 2016), the
+  animals are drawn at random with a recorded seed, `size =` and `include =` (for
+  proven sires) override the draw, and the object reports the cost of one
+  factorization with that core against the exact one. The fit keeps the core it
+  used in `fit$apy`.
+* `sire_mgs()` and `pedigree(type = "sire_mgs")`: a pedigree of sires and
+  maternal grandsires, declared, never guessed. The grandsire path weighs 1/4 and
+  the Mendelian variance is `11/16 - F_s/4 - F_k/16` (Henderson, 1975, 1976);
+  the declaration reaches every fitter and the single step. A third column named
+  like a grandsire column (`mgs`, `mgsire`, `maternal_grandsire`) is refused
+  unless declared.
+* `gibbs()` takes `kernel()` and `kernel(fixed =)`, and a `prior =`: `"jeffreys"`
+  (the default and the previous behaviour, `1/s2`), `"flat"`, `"uniform_sd"`, or
+  a proper `c(df =, scale =)` as in `OPTION prior` of the BLUPF90 Gibbs programs.
+* `gibbs(family = "probit")`: the threshold model for a binary trait by data
+  augmentation (Albert and Chib, 1993; Sorensen et al., 1995), with the residual
+  variance fixed at 1. It is the unbiased route to the components of a binary
+  trait, and it carries everything the Gaussian chain carries: `kernel()`,
+  `indirect()`, genotypes and APY.
+* `model_threshold(estimate = TRUE)`: the variances of the ordinal threshold
+  model by approximate marginal maximum likelihood, Laplace plus the EM step of
+  Foulley, Im, Gianola and Hoeschele (1987), with a Laplace `neg2logl` in both
+  modes and standard errors from its numerical Hessian. Measured on 80 sires with
+  50 daughters each, binary, planted variance 0.15: mean 0.148 over 10 replicates.
+  The known downward bias with few records per level is in the documentation.
+* The joint quantitative + binary threshold fit returns `pev` for u1 and for the
+  ranking value u2 = nu + b u1, and `predict()` gives the probability of
+  Eqn 15.25 of Mrode and Pocrnic, conditional on the quantitative trait.
+* `model_survival(entry =, subject =)`: time-dependent covariates as elementary
+  records `(entry, stop]`, the device of the Survival Kit, with the intervals
+  checked (no overlap, the event only on the last piece, the frailty constant in
+  the subject, gaps refused unless `gaps = "allow"`). Left truncation is accepted
+  and flagged: with a frailty its conditional likelihood is naive.
+* `summary()` for `model_mt()`, `model_ar1()`, `model_threshold()`,
+  `model_survival()`, `gibbs()` (posterior quantiles and the heritability sampled
+  draw by draw), `snp_blup()` and `indirect_residual()`.
+* A singular average-information matrix is reported by `model()`, `model_mt()`
+  and `model_ar1()`, naming the components the data do not separate. Their
+  standard errors are NaN and the reported point depends on `start =`; only
+  combinations of them are estimable.
+* `fit$dense_block = c(dense = k, columns = n)` in `model()`, `model_mt()`,
+  `model_ar1()` and `gibbs()`: the size of the dense corner of the factor, the k
+  of the k^3 each factorization pays. `model()` prints it with `verbose = TRUE`.
+* In a single step, `accuracy()` divides a genotyped animal by its diagonal of G*
+  also in `model_mt()` and `model_ar1()`, which carried `1 + F` until now.
+  `accuracy()` also takes `model_survival()`, on the log-hazard scale.
+* The component table of `print()` and `summary()` has a `correlation` column for
+  each covariance, and a `share` column that divides each variance or covariance
+  by the phenotypic variance of its trait.
 
 ## Fixed
 
-* The rank of X is now measured PER TRAIT in a multi-trait fit, so a design where a
-  fixed level only occurs for one trait fits instead of dying. It was measured over
-  the rows USED, and a row counts as used when ANY trait was observed in it; with a
-  contemporary group nested in the trait, X has rank 8 of 8 over the used rows and
-  rank 4 of 8 inside each trait. Since the equations are built per trait, the
-  coefficient matrix was born singular and `avalia_mt()` failed through the same
-  return a non positive-definite covariance uses, so the fit reported an
-  inadmissible starting theta about a theta that was positive-definite on both
-  blocks. The unit that drops is now the PAIR (column, trait), reported in
-  `dropped_x` as `CG=5|y1`. Emptiness alone was not enough: after the empty pairs
-  go, what remains for a trait can still be collinear, so the same
-  `posto_completo()` runs once per trait over the rows where that trait was
-  observed. Gated three ways: the sparse and the dense V routes agree to 7.5e-12 on
-  the design that could not be fitted before, the components land where the separate
-  single-trait fits land, and a design with nothing to drop keeps the layout it had,
-  because the numbering is unchanged when every pair survives.
-* `AvaliacaoMT` carries why it failed. The two returns of `avalia_mt()` are a
-  covariance that is not positive-definite, where the theta is the cause, and a
-  singular coefficient matrix, where the design is; they were indistinguishable to
-  the caller, which wrote the theta message for both.
-* `summary()` existed for one of the five fit classes. On the other four it fell
-  through to `summary.default`, which treated the fit as an atomic vector and
-  returned a `summaryDefault table`: output with the shape of a result, no error,
-  nothing to tell the caller it was meaningless.
-* `summary()` and `print()` divided by different denominators on the same fit. The
-  print used the sum of the variances, the summary the sum of everything, so a fit
-  with a covariance component gave two different ratios depending on which one you
-  looked at. Both now come from `tabela_componentes()`, and the column is `share`,
-  which is not a heritability and says so.
+* The multi-trait `model_ar1()` returned `ebv` and `pev` shifted by
+  `x.ncol * (t - 1)` positions: its first entries were fixed-effect solutions and
+  the last levels were lost (0.68 off against the dense mixed-model equations).
+  Present in 0.4.0: multi-trait AR(1) breeding values from earlier builds must be
+  refitted.
+* Two terms in one covariance group across several traits returned components
+  under another component's NAME in `model_mt()` and `model_ar1()`: what printed
+  as `var(indirect@y)` was `var(animal@y2)`, so `rg()`, `accuracy()`, `h2()` and
+  `start =` by name read the wrong number. The bivariate with between-trait
+  covariances at zero now equals the sum of the univariates to 1.7e-10 (it was
+  43.9 apart). Present in 0.4.0.
+* The `share` column and `h2()` added `rho(residual)` of `model_ar1()` to the
+  denominator (0.174 where 0.237 is right, measured) and gave it a share of 1.00
+  in the multi-trait AR(1), where `h2()` failed. A fit with `indirect()` divided
+  by the plain sum of its components, which is not the phenotypic variance of a
+  record with pen mates: its share column is now blank and says why. A survival
+  fit printed a share of 1.00 for its only component.
+* `h2_curve()` summed the components of the other groups raw. With the permanent
+  environment also a random regression on the same basis, the curve of Example
+  10.2 of Mrode and Pocrnic was off by a ratio of 0.63 to 1.04 along the
+  lactation, so its shape was wrong. Every random regression is now evaluated at
+  the point of the gradient.
+* `model_mt()` and `model_ar1()` measured the rank of X before dropping the rows
+  whose levels have no line in the pedigree, as `model()` does not: a contemporary
+  group made only of such animals reached the equations as an empty column, and
+  the fit said "did NOT converge" or "SINGULAR" about the wrong thing.
+* A missing time in `model_ar1()` reached a sort with NaN. The record now leaves
+  the series and the message counts it.
+* `kernel(fixed =)` was ignored in silence by `model_mt()` and `model_ar1()`,
+  which returned the estimated variance; both now refuse it.
+* `indirect(dilution = d)` diluted only the genetic side: `indirect_residual()`
+  and `associative_matrix()` kept the undiluted residual. Both now follow
+  `var(e_i) = s2_ED + (n - 1)^(1 - 2d) s2_ES`; `associative_matrix()` gains
+  `dilution =`, and `d = 0` is unchanged.
+* On a flat ridge with the Newton decrement already under tolerance, `model()`,
+  `model_mt()` and `model_ar1()` returned `converged = FALSE` at `maxiter`. The
+  verdict at the end of the budget now follows the certificate, and the message
+  says the likelihood is flat along some direction. In the two mirrors the
+  "stopped at maxiter" diagnostic was also hidden by any informational note.
+* The rank of X is measured PER TRAIT in a multi-trait fit, so a design where a
+  fixed level only occurs for one trait fits instead of dying. The unit that
+  drops is the pair (column, trait), reported in `dropped_x` as `CG=5|y1`; after
+  the empty pairs go, what remains for a trait is checked for collinearity too.
+  Gated three ways: the sparse and the dense V routes agree to 7.5e-12 on the
+  design that could not be fitted before, the components land where the separate
+  single-trait fits land, and a design with nothing to drop keeps its layout. The
+  multi-trait evaluation also says whether it failed on the covariance or on the
+  design, which used to share one message.
+* `summary()` existed for one of the seven fit classes; on the others it fell
+  through to `summary.default`, which returned a table with the shape of a result
+  and no meaning. `summary()` and `print()` also divided by different
+  denominators on the same fit; both now come from one table.
+* The C++ engine printed some messages in Portuguese (the starting theta, the EM
+  rescue, the factor pattern); they are in English now.
+
+## Performance
+
+* Minimum degree ordering: a node set aside as dense now leaves the graph, and
+  not only the queue, and at the start a node is dense when its degree passes
+  both `10 sqrt(n)` (the AMD rule) and 0.8 of the 99th percentile of the degrees.
+  On a single step with an APY core of 414 in 1500 genotyped animals the ordering
+  took 17 s and made the APY fit twice as slow as the exact one.
+  Measured, median of 3, on 3000 animals with 1500 genotyped and an APY core
+  of 414: one APY evaluation 39.9 to 7.5 s, the whole APY fit 43.7 to 17.5 s,
+  the exact fit unchanged (27.0 and 26.1 s), the same -2logL to 12 digits. The
+  start rule applies only when the dense set is at most a quarter of the graph:
+  applied to the genotyped clique of an exact single step (half the graph) it
+  hid from the ordering how many genotyped neighbours each other animal has, and
+  the exact fit was about 1.3x slower per iteration.
+* The degree of a hub is updated lazily: the ordering was 98 percent of a
+  multi-trait evaluation; 16 000 animals 2.59 to 0.28 s, 8 000 0.77 to 0.14 s,
+  with the same fill and -2logL (median of 3).
 * The ordering by minimum degree cost k^3 on a clique rather than scaling with the
-  nonzeros, which on a single-step fit with an APY core is the whole genotyped
-  block. Found on real data: ten minutes inside the ordering, before the first
-  AI-REML iteration. A node whose degree passes 80 percent of what is still alive
-  leaves the degree game and goes to the end of the order. Measured, median of 3,
-  on `sparse_chol` over an H^-1 with an APY core: 0.64 to 0.06 s at core 600,
-  3.80 to 0.23 s at core 1000, 7.51 to 0.68 s at core 1400, with the same
-  `dense_block` and the same `nnz(L)` to the number. Ordering never changes a
-  result, only speed and fill: it is similarity by permutation.
+  nonzeros; a node whose degree passes 80 percent of what is still alive goes to
+  the end of the order. Measured, median of 3, on `sparse_chol` over an H^-1 with
+  an APY core: 0.64 to 0.06 s at core 600, 3.80 to 0.23 s at core 1000, 7.51 to
+  0.68 s at core 1400, with the same `dense_block` and the same `nnz(L)`.
+  Ordering never changes a result, only speed and fill.
 
 ## Version
 
-* The version now carries a development suffix. `v0.4.0` is a tag, and what comes
-  after it is not `0.4.0`: the previous round let the DESCRIPTION say `0.3.0` for
-  51 commits, and whoever installed from the tag and whoever installed from main
-  got different packages with no way to tell them apart.
+* The version carries a development suffix. `v0.4.0` is a tag, and what comes
+  after it is not `0.4.0`.
 
 # BreedingR 0.4.0
 

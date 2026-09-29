@@ -66,7 +66,9 @@ with the marker mean, never converted to zero}
 
 \item{apy_core}{ids of the genotyped animals that form the APY core; with it the inverse
 of G* is the APY approximation (cost in the size of the core, not cubic in the
-genotyped) and the result message SAYS it is an approximation and with which core}
+genotyped) and the result message SAYS it is an approximation and with which core
+(its size is part of the result). \code{"auto"} chooses the core with \code{\link[=apy_core_select]{apy_core_select()}}:
+as many animals as eigenvalues of G explaining 98\% of its trace, drawn at random}
 
 \item{vecchia_k}{neighbors per animal in the Vecchia inverse of G*: each genotyped
 animal conditions on its k strongest previous relationships instead of a global
@@ -117,8 +119,9 @@ whose rows are identical. What is still refused is an INDEFINITE gamma, a negati
 eigenvalue, which does not generate a covariance matrix at all}
 
 \item{verbose}{print the fit as it walks: one line per AI iteration with the
--2logL and the relative step (the convergence criterion itself), so a long fit
-is a progress report instead of silence. Defaults to interactive() — live in a
+-2logL and the relative step, so a long fit is a progress report instead of
+silence. The relative step is half of the convergence criterion; the Newton
+decrement, reported in \code{newton_dec}, is the other half. Defaults to interactive() — live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 
 \item{weights}{a column of \code{data}, or a numeric vector: a record of weight w has
@@ -138,8 +141,9 @@ equations: \code{n_used} counts them and \code{used} says WHICH, which is what a
 that has to sum on the same base as the likelihood needs. \code{dense_block} is
 \code{c(dense = k, columns = n)}: the last \code{k} of the \code{n} columns of the Cholesky factor
 are completely full, and each factorization costs about \code{k^3 / 3} there. In a single
-step without \verb{apy_core =}, \code{k} is the number of genotyped animals; with it, the core
-size plus one. The object holds
+step without \verb{apy_core =}, \code{k} is at least the number of genotyped animals; with it,
+at least the core size plus one. The fill of the pedigree itself can add to it, and
+in a small herd it dominates. The object holds
 the components \code{theta} with their \code{se},
 the fixed-effect solutions \code{b} (named \code{term=level}, in the order the columns of X
 entered), \code{ebv} and \code{pev} per covariance group, \code{score}, \code{vcov}, the convergence

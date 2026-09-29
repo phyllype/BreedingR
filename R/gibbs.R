@@ -5,10 +5,11 @@
 #
 # One BLOCK draw for all locations per iteration (the full Gaussian via the same sparse
 # Cholesky the REML uses, symbolic analysis cached), then conjugate draws for each
-# covariance group and the residual. Reference priors, stated precisely:
+# covariance group and the residual. The default reference priors, stated precisely:
 # p(s2e) proportional to 1/s2e, and p(C_g) proportional to |C_g|^-(dim+1)/2, which make
 # the full conditionals s2e | e = e'e / chisq(n) and C_g | u = InvWishart(nl, U'K^-1 U).
-# The chain uses R's own RNG, so set.seed() governs it.
+# prior = chooses another one (see the roxygen). The chain uses R's own RNG, so set.seed()
+# governs it.
 
 #' Gibbs sampler for a single-trait mixed model
 #'
@@ -30,16 +31,47 @@
 #' @param thin keep one sample every `thin` iterations
 #' @param theta_fixed fix the variance components at this vector and sample only the
 #'   locations (the mode the gates use: the sample mean must reproduce the BLUP and the
-#'   sample variance the PEV)
+#'   sample variance the PEV). A [kernel()] term with `fixed =` holds that one component
+#'   and samples the others
+#' @param prior prior of the variance components, the same for every covariance group and
+#'   the residual. `"jeffreys"` (the default) is `p(s2) ~ 1/s2`, and `|C|^-(d+1)/2` for a
+#'   `d x d` group: the full conditional is `(u'K^-1 u) / chisq(nl)`. It is improper, and
+#'   so, in principle, is the posterior of every random effect whose likelihood stays
+#'   positive at a variance of zero (Hobert and Casella 1996); with a well identified
+#'   component the spurious mass near zero is negligible, with a weak one it is not.
+#'   `"flat"` is uniform on the variance (`chisq(nl - 2)`; for a group, uniform on `C`,
+#'   `InvWishart(nl - d - 1)`). `"uniform_sd"` is uniform on the standard deviation
+#'   (`chisq(nl - 1)`), the choice Gelman (2006) recommends for a variance with few
+#'   levels; scalar groups only. `c(df = nu0, scale = S0)` is the proper scaled inverse
+#'   chi-square of the BLUPF90 Gibbs programs (`OPTION prior`), `(u'K^-1 u + nu0 S0) /
+#'   chisq(nl + nu0)`, and `InvWishart(nl + nu0, U'K^-1 U + nu0 S0 I)` for a group: `S0`
+#'   is the prior guess of a variance, `nu0` its degree of belief. A ridge of `1e-10`
+#'   times the mean diagonal of the scale matrix keeps the draw off an exactly singular
+#'   matrix at the start of the chain; it scales with `K`, so the chain is equivariant
+#'   in the scale of a declared covariance
+#' @param family `"gaussian"` (default) or `"probit"`, the threshold model for a binary
+#'   trait by data augmentation (Albert and Chib 1993; Sorensen, Andersen, Gianola and
+#'   Korsgaard 1995): each record gets a liability drawn from a normal truncated at 0 on
+#'   the side of its category, the residual variance is FIXED at 1 (it sets the scale of
+#'   the liability), and the implicit intercept stands for the threshold. The larger of
+#'   the two values of the trait is the upper category. Everything else is the chain of
+#'   the Gaussian case: `kernel()`, `indirect()`, genotypes, APY and `prior =`. This is
+#'   the unbiased alternative to the Laplace estimate of [model_threshold()]
+#' @references Hobert, J.P. & Casella, G. (1996). The effect of improper priors on Gibbs
+#'   sampling in hierarchical linear mixed models. Journal of the American Statistical
+#'   Association 91:1461-1473.
+#'
+#'   Gelman, A. (2006). Prior distributions for variance parameters in hierarchical
+#'   models. Bayesian Analysis 1:515-534.
 #' @return samples matrix (kept iterations x parameters), posterior `mean` and `sd`,
 #'   effective sample sizes, Geweke z, and the posterior mean/sd of every random effect
 #'   (`ebv`, `ebv_sd`), and of every fixed effect (`b`, `b_sd`, named `term=level` as in
 #'   [model()], whose parametrization note applies: dropped columns are in `dropped_x`
-#'   and only contrasts compare against a reference-level convention)
-#' @param verbose print the fit as it walks: one line per AI iteration with the
-#'   -2logL and the relative step (the convergence criterion itself), so a long fit
-#'   is a progress report instead of silence. Defaults to interactive() — live in a
-#'   session, quiet in scripts and checks. Every fitter also honors Ctrl+C now
+#'   and only contrasts compare against a reference-level convention), and
+#'   `dense_block` as in [model()]
+#' @param verbose print the chain as it runs, the iteration count every so often, so a
+#'   long chain is a progress report instead of silence. Defaults to interactive(),
+#'   live in a session and quiet in scripts and checks. Every fitter also honors Ctrl+C now
 #' @param metafounders labels of unknown-parent groups; a parent with one of these
 #'   labels needs no line of its own (any OTHER cited-without-line parent is still a
 #'   declared error). Metafounders enter as virtual base rows of A(Gamma) after
@@ -66,12 +98,19 @@
 gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                   apy_core = NULL, missing_code = NULL, vecchia_k = NULL,
                   n_iter = 20000L, burnin = 2000L, thin = 10L, theta_fixed = NULL,
-                  metafounders = NULL, gamma = NULL, verbose = interactive()) {
+                  metafounders = NULL, gamma = NULL, prior = "jeffreys",
+                  family = c("gaussian", "probit"), verbose = interactive()) {
+  family <- match.arg(family)
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side")
   trait <- deparse(formula[[2]])
   terms <- decompoe_formula(formula[[3]])
+  recusa_materno_mgs(terms, pedigree)
   recusa_dilution(terms, "gibbs()")
+  kfixo <- vapply(terms, function(t) if (is.null(t$kfixo)) NA_real_ else t$kfixo, numeric(1))
+  if (!is.null(theta_fixed) && any(is.finite(kfixo)))
+    stop("theta_fixed already fixes every component; drop it or drop kernel(fixed =)")
+  pr <- priori_gibbs(prior)
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
   if (precisa_ped && is.null(pedigree))
     stop("there is a term with relationship and no pedigree was given")
@@ -85,12 +124,28 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   lst <- lapply(data[used_columns], function(col) {
     if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
   })
+  niveis_binarios <- NULL
+  if (family == "probit") {
+    # a caracteristica vira 0/1: o MAIOR dos dois valores e o 1 (a categoria de cima da
+    # liability, como no modo conjunto do limiar)
+    v <- lst[[trait]]
+    obs <- !is.na(v)
+    if (!is.null(missing_code)) obs <- obs & as.character(v) != as.character(missing_code)
+    niveis_binarios <- sort(unique(v[obs]))
+    if (length(niveis_binarios) != 2L)
+      stop("family = \"probit\" is for a binary trait: '", trait, "' has ",
+           length(niveis_binarios), " distinct value(s)")
+    novo <- rep(NA_real_, length(v))
+    novo[obs] <- as.double(v[obs] == niveis_binarios[2])
+    lst[[trait]] <- novo
+  }
   ped_id <- ped_sire <- ped_dam <- character(0)
   if (!is.null(pedigree)) {
     cp <- colunas_pedigree(pedigree)
     ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
   }
   g <- valida_genotipos(genotypes)
+  nuc <- nucleo_apy(apy_core, genotypes)
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_gibbs,
@@ -107,16 +162,29 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              if (is.null(missing_code)) 0.0 else as.double(missing_code),
              !is.null(missing_code),
              g$gid, g$gm, as.double(blend),
-             if (is.null(apy_core)) character(0) else as.character(apy_core),
+             nuc,
              as.integer(n_iter), as.integer(burnin), as.integer(thin),
              !is.null(theta_fixed),
              if (is.null(theta_fixed)) numeric(0) else as.double(theta_fixed),
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
              isTRUE(verbose),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
-             if (is.null(gamma)) numeric(0) else as.double(gamma))
+             if (is.null(gamma)) numeric(0) else as.double(gamma),
+             monta_kernels(terms, environment(formula)), kfixo,
+             pr$tipo, pr$df, pr$scale, as.integer(family == "probit"))
   colnames(r$samples) <- r$names
+  r$prior <- prior
+  r$family <- family
+  if (family == "probit") {
+    r$binary_levels <- niveis_binarios
+    r$message <- paste0(r$message, if (nzchar(r$message)) "; " else "",
+                        "probit: liabilities drawn from truncated normals (Albert and Chib ",
+                        "1993), residual variance FIXED at 1, the threshold at 0 and the ",
+                        "implicit intercept in its place; '", niveis_binarios[2], "' is the ",
+                        "upper category")
+  }
   r$seconds <- proc.time()[["elapsed"]] - t0
+  r <- anota_nucleo(r, nuc)
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
   # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a
   # parent with no line of its own, which is a declared error outside this mode, and even
@@ -128,6 +196,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   r$ess <- apply(r$samples, 2, ess)
   r$geweke <- apply(r$samples, 2, geweke_z)
   r$formula <- formula
+  r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
   structure(r, class = "breeding_gibbs")
 }
@@ -194,4 +263,21 @@ print.breeding_gibbs <- function(x, ...) {
                      row.names = NULL), digits = 6)
   }
   invisible(x)
+}
+
+# prior = vira (tipo, df, scale) para o C++: 0 Jeffreys, 1 plana na variancia, 2 uniforme
+# no desvio-padrao, 3 qui-quadrado inversa escalada propria (OPTION prior do gibbsf90)
+priori_gibbs <- function(prior) {
+  if (is.character(prior) && length(prior) == 1L) {
+    tipo <- match(prior, c("jeffreys", "flat", "uniform_sd")) - 1L
+    if (is.na(tipo))
+      stop("prior must be \"jeffreys\", \"flat\", \"uniform_sd\" or c(df = , scale = )")
+    return(list(tipo = tipo, df = 0, scale = 0))
+  }
+  if (is.numeric(prior) && length(prior) == 2L && all(c("df", "scale") %in% names(prior))) {
+    if (!(prior[["df"]] > 0) || !(prior[["scale"]] > 0) || any(!is.finite(prior)))
+      stop("a proper prior needs df > 0 and scale > 0")
+    return(list(tipo = 3L, df = as.double(prior[["df"]]), scale = as.double(prior[["scale"]])))
+  }
+  stop("prior must be \"jeffreys\", \"flat\", \"uniform_sd\" or c(df = , scale = )")
 }

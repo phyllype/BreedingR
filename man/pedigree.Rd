@@ -4,7 +4,15 @@
 \alias{pedigree}
 \title{Sort a pedigree and compute inbreeding}
 \usage{
-pedigree(ped, id = 1L, sire = 2L, dam = 3L, metafounders = NULL, gamma = NULL)
+pedigree(
+  ped,
+  id = 1L,
+  sire = 2L,
+  dam = 3L,
+  metafounders = NULL,
+  gamma = NULL,
+  type = c("sire_dam", "sire_mgs")
+)
 }
 \arguments{
 \item{ped}{data.frame with animal, sire and dam}
@@ -33,9 +41,14 @@ unknown-parent-group limit, where the pseudo-inverse reproduces the A-inverse of
 unknown parent groups exactly, and two metafounders standing for one population,
 whose rows are identical. What is still refused is an INDEFINITE gamma, a negative
 eigenvalue, which does not generate a covariance matrix at all}
+
+\item{type}{\code{"sire_dam"} (default) or \code{"sire_mgs"}, the third column read as the
+maternal grandsire; the same as passing \code{\link[=sire_mgs]{sire_mgs()}}\code{(ped)}}
 }
 \value{
-data.frame with id, sire, dam (1-based indices, NA if unknown) and F
+data.frame with id, sire, dam (1-based indices, NA if unknown) and F; with a
+grandsire pedigree the third column is named \code{mgs}, and the attribute \code{type} says
+which it is
 }
 \description{
 Returns the pedigree in TOPOLOGICAL ORDER, with sire and dam before the offspring, and the
@@ -49,16 +62,14 @@ A cited parent that has no line of its own is an ERROR, not an unknown. Treating
 unknown would change the offspring's Mendelian variance and the relationships of all the
 descendants.
 
-THE THIRD COLUMN IS THE DAM, never the maternal grandsire. There is no sire and maternal
-grandsire mode here (Mrode and Pocrnic, secs. 3.6 and 3.7): a pedigree in that format is
-read as animal, sire and dam, and the grandsire's path then enters with weight 0.5 where
-the MGS rules ask for 0.25. Nothing downstream can catch it — the A^-1 that comes out is
-still symmetric and positive definite. On the book's own example in sec. 3.7 the A that
-comes out differs from the right one by up to 0.25, and the third bull gets F = 0.25
-instead of 0.125. THERE IS NO CHECK THAT CATCHES THIS, and none is coming: the obvious
-signal, an individual cited as a sire and as a dam, was built and measured and it does
-not separate an MGS pedigree from any pedigree that draws both parents from one pool
-(both sit at a share of 1.00). Getting the format right is on the caller.
+THE THIRD COLUMN IS THE DAM unless the pedigree is DECLARED as sires and maternal
+grandsires, with \code{type = "sire_mgs"} or \code{\link[=sire_mgs]{sire_mgs()}} (Mrode and Pocrnic, secs. 3.6 and
+3.7). Read as a dam, a grandsire enters with weight 0.5 where the grandsire rules ask
+for 0.25, and nothing downstream can catch it: the A^-1 is still symmetric and positive
+definite (on the book's example of sec. 3.7 the A is off by up to 0.25 and the third
+bull gets F = 0.25 instead of 0.125). No statistic separates the two formats without
+sex, which is why every reference program asks for a declaration; a third column NAMED
+like a grandsire column (mgs, mgsire, maternal_grandsire) is refused unless declared.
 }
 \references{
 Meuwissen, T.H.E. & Luo, Z. (1992). Computing inbreeding coefficients

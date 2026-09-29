@@ -19,6 +19,8 @@ gibbs(
   theta_fixed = NULL,
   metafounders = NULL,
   gamma = NULL,
+  prior = "jeffreys",
+  family = c("gaussian", "probit"),
   verbose = interactive()
 )
 }
@@ -52,7 +54,8 @@ with \code{apy_core}}
 
 \item{theta_fixed}{fix the variance components at this vector and sample only the
 locations (the mode the gates use: the sample mean must reproduce the BLUP and the
-sample variance the PEV)}
+sample variance the PEV). A \code{\link[=kernel]{kernel()}} term with \verb{fixed =} holds that one component
+and samples the others}
 
 \item{metafounders}{labels of unknown-parent groups; a parent with one of these
 labels needs no line of its own (any OTHER cited-without-line parent is still a
@@ -73,22 +76,54 @@ unknown parent groups exactly, and two metafounders standing for one population,
 whose rows are identical. What is still refused is an INDEFINITE gamma, a negative
 eigenvalue, which does not generate a covariance matrix at all}
 
-\item{verbose}{print the fit as it walks: one line per AI iteration with the
--2logL and the relative step (the convergence criterion itself), so a long fit
-is a progress report instead of silence. Defaults to interactive() — live in a
-session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
+\item{prior}{prior of the variance components, the same for every covariance group and
+the residual. \code{"jeffreys"} (the default) is \code{p(s2) ~ 1/s2}, and \verb{|C|^-(d+1)/2} for a
+\verb{d x d} group: the full conditional is \verb{(u'K^-1 u) / chisq(nl)}. It is improper, and
+so, in principle, is the posterior of every random effect whose likelihood stays
+positive at a variance of zero (Hobert and Casella 1996); with a well identified
+component the spurious mass near zero is negligible, with a weak one it is not.
+\code{"flat"} is uniform on the variance (\code{chisq(nl - 2)}; for a group, uniform on \code{C},
+\code{InvWishart(nl - d - 1)}). \code{"uniform_sd"} is uniform on the standard deviation
+(\code{chisq(nl - 1)}), the choice Gelman (2006) recommends for a variance with few
+levels; scalar groups only. \code{c(df = nu0, scale = S0)} is the proper scaled inverse
+chi-square of the BLUPF90 Gibbs programs (\verb{OPTION prior}), \verb{(u'K^-1 u + nu0 S0) / chisq(nl + nu0)}, and \verb{InvWishart(nl + nu0, U'K^-1 U + nu0 S0 I)} for a group: \code{S0}
+is the prior guess of a variance, \code{nu0} its degree of belief. A ridge of \code{1e-10}
+times the mean diagonal of the scale matrix keeps the draw off an exactly singular
+matrix at the start of the chain; it scales with \code{K}, so the chain is equivariant
+in the scale of a declared covariance}
+
+\item{family}{\code{"gaussian"} (default) or \code{"probit"}, the threshold model for a binary
+trait by data augmentation (Albert and Chib 1993; Sorensen, Andersen, Gianola and
+Korsgaard 1995): each record gets a liability drawn from a normal truncated at 0 on
+the side of its category, the residual variance is FIXED at 1 (it sets the scale of
+the liability), and the implicit intercept stands for the threshold. The larger of
+the two values of the trait is the upper category. Everything else is the chain of
+the Gaussian case: \code{kernel()}, \code{indirect()}, genotypes, APY and \verb{prior =}. This is
+the unbiased alternative to the Laplace estimate of \code{\link[=model_threshold]{model_threshold()}}}
+
+\item{verbose}{print the chain as it runs, the iteration count every so often, so a
+long chain is a progress report instead of silence. Defaults to interactive(),
+live in a session and quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 }
 \value{
 samples matrix (kept iterations x parameters), posterior \code{mean} and \code{sd},
 effective sample sizes, Geweke z, and the posterior mean/sd of every random effect
 (\code{ebv}, \code{ebv_sd}), and of every fixed effect (\code{b}, \code{b_sd}, named \code{term=level} as in
 \code{\link[=model]{model()}}, whose parametrization note applies: dropped columns are in \code{dropped_x}
-and only contrasts compare against a reference-level convention)
+and only contrasts compare against a reference-level convention), and
+\code{dense_block} as in \code{\link[=model]{model()}}
 }
 \description{
 Gibbs sampler for a single-trait mixed model
 }
 \references{
+Hobert, J.P. & Casella, G. (1996). The effect of improper priors on Gibbs
+sampling in hierarchical linear mixed models. Journal of the American Statistical
+Association 91:1461-1473.
+
+Gelman, A. (2006). Prior distributions for variance parameters in hierarchical
+models. Bayesian Analysis 1:515-534.
+
 Geman, S. & Geman, D. (1984). Stochastic relaxation, Gibbs
 distributions, and the Bayesian restoration of images. IEEE TPAMI 6:721-741.
 

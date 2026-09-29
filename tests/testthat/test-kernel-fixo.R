@@ -97,3 +97,17 @@ test_that("the declared errors are declared", {
                        kernel(id, K = z$Ve, fixed = 1, group = "g"), z$d, z$ped,
                      verbose = FALSE))
 })
+
+test_that("model_mt() e model_ar1() RECUSAM kernel(fixed =) em vez de ignorar", {
+  # antes: model_mt(... kernel(id, K, fixed = 0.123)) devolvia a variancia ESTIMADA, sem
+  # erro nem aviso, porque o fixed= nao descia ao motor multicaracter nem ao AR(1)
+  z <- celula()
+  z$d$y2 <- z$d$y + rnorm(nrow(z$d))
+  expect_error(model_mt(cbind(y, y2) ~ mu + animal(id) + kernel(id, K = z$Ve, fixed = 1),
+                        z$d, z$ped, maxiter = 2L, verbose = FALSE),
+               "does not carry kernel(fixed", fixed = TRUE)
+  z$d$t <- 1
+  expect_error(model_ar1(y ~ mu + animal(id) + kernel(id, K = z$Ve, fixed = 1), z$d, z$ped,
+                         subject = "id", time = "t", maxiter = 2L, verbose = FALSE),
+               "does not carry kernel(fixed", fixed = TRUE)
+})

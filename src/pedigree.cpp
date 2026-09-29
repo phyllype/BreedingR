@@ -27,7 +27,15 @@ Pedigree constroi_pedigree(const std::vector<std::string>& id0,
                            const std::vector<std::string>& pa0,
                            const std::vector<std::string>& ma0,
                            const std::vector<std::string>& mf,
-                           const std::vector<double>& gama) {
+                           const std::vector<double>& gama,
+                           const std::vector<char>& mgs0) {
+  if (!mgs0.empty() && mgs0.size() != id0.size())
+    throw Erro("the maternal-grandsire flags must have one entry per pedigree row");
+  if (!mf.empty() && !mgs0.empty())
+    for (char c : mgs0)
+      if (c) throw Erro("a sire / maternal-grandsire pedigree does not take metafounders: "
+                        "no reference program combines the two, and the grandsire path of "
+                        "Henderson (1975) assumes an unknown, unrelated maternal granddam");
   // Gamma chega de duas formas: comprimento q (a DIAGONAL, compatibilidade) ou q*q (a
   // matriz CHEIA, por linhas). O caso diagonal e so um atalho de escrita: ele e expandido
   // aqui e daqui para baixo existe um caminho unico.
@@ -142,9 +150,15 @@ Pedigree constroi_pedigree(const std::vector<std::string>& id0,
   out.gama.assign(n, 0.0);
   out.col_mf.assign(n, -1);
   out.n_mf = q;
+  bool tem_mgs = false;
+  for (char c : mgs0) if (c) { tem_mgs = true; break; }
+  if (tem_mgs) out.mgs.assign(n, 0);
   for (std::size_t k = 0; k < ordem.size(); k++) {
     const std::size_t v = ordem[k];
     out.ids[k] = id[v];
+    // a flag vai com a LINHA: v e o indice de entrada (metafundadores na frente, que nao
+    // existem aqui quando ha flag), entao a linha original do usuario e v - q
+    if (tem_mgs && v >= q && mgs0[v - q]) out.mgs[k] = 1;
     out.pai[k] = p[v] >= 0 ? static_cast<std::int64_t>(novo[p[v]]) : -1;
     out.mae[k] = m[v] >= 0 ? static_cast<std::int64_t>(novo[m[v]]) : -1;
     auto it = gmap.find(id[v]);
@@ -237,6 +251,26 @@ Pedigree constroi_pedigree(const std::vector<std::string>& id0,
   return out;
 }
 
+// Variancia mendeliana, UMA definicao para a endogamia e a A^-1 (antes a formula vivia
+// duplicada nas duas e podia divergir). Pai/mae: 1/2 - (F_s + F_d)/4, 3/4 - F/4 com um so,
+// 1 sem nenhum. Pai/avo materno (Henderson 1975, 1976): u_i = u_s/2 + u_k/4 + m_i com a avo
+// desconhecida, logo 11/16 - F_s/4 - F_k/16, 3/4 - F_s/4 so com o pai, 15/16 - F_k/16 so
+// com o avo, 1 sem nenhum.
+double variancia_mendeliana(const Pedigree& p, const std::vector<double>& f, std::size_t i) {
+  const std::int64_t s = p.pai[i], t = p.mae[i];
+  const bool g = !p.mgs.empty() && p.mgs[i];
+  if (g) {
+    if (s >= 0 && t >= 0) return 11.0 / 16.0 - 0.25 * f[s] - f[t] / 16.0;
+    if (s >= 0) return 0.75 - 0.25 * f[s];
+    if (t >= 0) return 15.0 / 16.0 - f[t] / 16.0;
+    return 1.0;
+  }
+  if (s >= 0 && t >= 0) return 0.5 - 0.25 * (f[s] + f[t]);
+  if (s >= 0) return 0.75 - 0.25 * f[s];
+  if (t >= 0) return 0.75 - 0.25 * f[t];
+  return 1.0;
+}
+
 // Endogamia por Meuwissen e Luo (1992).
 //
 // Para cada animal com os dois pais conhecidos, sobe o ramo dos ancestrais comuns em vez de
@@ -248,13 +282,7 @@ std::vector<double> endogamia(const Pedigree& p) {
   std::vector<double> d(n, 0.0);
 
   // variancia mendeliana de cada animal, ja com a endogamia dos pais
-  auto mendel = [&](std::size_t i) {
-    const std::int64_t s = p.pai[i], t = p.mae[i];
-    if (s >= 0 && t >= 0) return 0.5 - 0.25 * (f[s] + f[t]);
-    if (s >= 0) return 0.75 - 0.25 * f[s];
-    if (t >= 0) return 0.75 - 0.25 * f[t];
-    return 1.0;
-  };
+  auto mendel = [&](std::size_t i) { return variancia_mendeliana(p, f, i); };
 
   std::priority_queue<std::size_t> fila;   // maior indice primeiro: o pedigree esta ordenado
   std::vector<char> na_fila(n, 0);
@@ -303,7 +331,8 @@ std::vector<double> endogamia(const Pedigree& p) {
         if (!na_fila[sj]) { fila.push(static_cast<std::size_t>(sj)); na_fila[sj] = 1; }
       }
       if (tj >= 0) {
-        l[tj] += 0.5 * lj;
+        // o caminho do avo materno pesa 1/4: u_j = u_s/2 + u_k/4 + m_j
+        l[tj] += ((!p.mgs.empty() && p.mgs[j]) ? 0.25 : 0.5) * lj;
         if (!na_fila[tj]) { fila.push(static_cast<std::size_t>(tj)); na_fila[tj] = 1; }
       }
     }
@@ -384,11 +413,7 @@ Csc a_inversa(const Pedigree& p, const std::vector<double>& f) {
     // duplicaria a diagonal dele
     if (!p.eh_mf.empty() && p.eh_mf[i]) continue;
     const std::int64_t s = p.pai[i], t = p.mae[i];
-    double di;
-    if (s >= 0 && t >= 0) di = 0.5  - 0.25 * (f[s] + f[t]);
-    else if (s >= 0)           di = 0.75 - 0.25 * f[s];
-    else if (t >= 0)           di = 0.75 - 0.25 * f[t];
-    else                       di = 1.0;
+    const double di = variancia_mendeliana(p, f, i);
     if (!(di > 0.0))
       throw Erro("non-positive Mendelian variance at '" + p.ids[i] +
                  "'; the pedigree has impossible inbreeding");
@@ -401,7 +426,9 @@ Csc a_inversa(const Pedigree& p, const std::vector<double>& f) {
     };
     junta(i, 1.0);
     if (s >= 0) junta(static_cast<std::size_t>(s), -0.5);
-    if (t >= 0) junta(static_cast<std::size_t>(t), -0.5);
+    // (1, -1/2, -1/4) no pedigree pai/avo materno; a fusao por indice acima ja cobre o
+    // touro acasalado com a propria filha (pai == avo materno, coeficiente -3/4)
+    if (t >= 0) junta(static_cast<std::size_t>(t), (!p.mgs.empty() && p.mgs[i]) ? -0.25 : -0.5);
 
     for (std::size_t x = 0; x < vi.size(); x++)
       for (std::size_t y = 0; y <= x; y++) {

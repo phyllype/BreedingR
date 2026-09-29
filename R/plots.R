@@ -2,8 +2,12 @@
 
 #' Heritability along the gradient, for a reaction-norm fit
 #'
-#' h2(x) = phi(x)' C phi(x) / (phi(x)' C phi(x) + other variances + residual), with C the
-#' covariance of the reaction-norm group and phi(x) the Legendre basis evaluated at x.
+#' h2(x) = phi(x)' C phi(x) / V_P(x), with C the covariance of the reaction-norm group and
+#' phi(x) the Legendre basis evaluated at x. The phenotypic variance V_P(x) is evaluated at x
+#' too: every other random regression on the same basis (the permanent environment of a
+#' test-day model) enters as phi(x)' P phi(x), each scalar term with its variance, and the
+#' residual. A covariance between two scalar terms enters with coefficient 1, as in [h2()].
+#' Every random regression of the fit is evaluated on the Legendre basis with these limits.
 #'
 #' The LIMITS must be the same ones used to generate the basis in the fit: the scale is part
 #' of the model. That is why they are a mandatory argument, with no default: a silent default
@@ -37,18 +41,38 @@ h2_curve <- function(fit, group = NULL, limits, points = 101L) {
       C[i, j] <- C[j, i] <- v
     }
   }
-  # 'outras' = everything that is not a parameter of THIS group: residual and the variances of
-  # other groups (pe, litter...). The first version subtracted the full triangle of C from the
-  # sum of theta and discounted the covariance TWICE — theta stores it only once. The gate that
-  # redoes the computation by hand at the midpoint caught it immediately; selection by NAME
-  # depends on no counting at all.
-  do_grupo <- grepl(paste0("^(var|cov)\\(", group, "\\["), nomes)
-  outras <- sum(th[!do_grupo])
-
+  # O DENOMINADOR TAMBEM E AVALIADO EM x. A versao anterior somava cru tudo o que nao era
+  # do grupo, e isso so vale quando os outros termos sao escalares. No modelo de dia de
+  # controle o pe tambem e regressao na mesma base, e as variancias dele entram como
+  # phi(x)' P phi(x): somadas cruas, com as covariancias de peso 1 em vez de 2 phi_i phi_j,
+  # a curva do Exemplo 10.2 do Mrode & Pocrnic saia com a razao entre 0,63 no meio e 1,04 nas
+  # pontas, ou seja com a FORMA errada. Cada linha var/cov entra pela base dos seus membros:
+  # phi_k(x) para um coeficiente [k], 1 para um termo escalar. Covariancia entre coeficientes
+  # do MESMO termo pesa 2 (o mesmo animal); entre termos diferentes pesa 1, que e o
+  # coeficiente de Willham (1972) usado por h2(). rho(residual) nao e variancia e fica fora.
   x <- seq(limits[1], limits[2], length.out = points)
-  phi <- legendre(x, order = dim_g - 1L, limits = limits)
-  va_x <- rowSums((phi %*% C) * phi)
-  data.frame(x = x, va = va_x, h2 = va_x / (va_x + outras))
+  e_comp <- grepl("^(var|cov)\\(", nomes)
+  membros <- lapply(nomes, function(s)
+    strsplit(sub("^(var|cov)\\((.*)\\)$", "\\2", s), ",", fixed = TRUE)[[1]])
+  indice <- function(m) if (grepl("\\[\\d+\\]$", m)) as.integer(sub(".*\\[(\\d+)\\]$", "\\1", m)) else NA_integer_
+  ordem_max <- max(dim_g - 1L, unlist(lapply(membros[e_comp], function(ms)
+    vapply(ms, indice, integer(1)))), na.rm = TRUE)
+  phi <- legendre(x, order = ordem_max, limits = limits)
+  base_de <- function(m) { k <- indice(m); if (is.na(k)) rep(1, length(x)) else phi[, k + 1L] }
+  termo_de <- function(m) sub("\\[\\d+\\]$", "", m)
+  vp_x <- numeric(length(x))
+  for (k in which(e_comp)) {
+    ms <- membros[[k]]
+    if (startsWith(nomes[k], "var(")) {
+      vp_x <- vp_x + th[[k]] * base_de(ms[1])^2
+    } else {
+      peso <- if (identical(termo_de(ms[1]), termo_de(ms[2])) && !is.na(indice(ms[1]))) 2 else 1
+      vp_x <- vp_x + peso * th[[k]] * base_de(ms[1]) * base_de(ms[2])
+    }
+  }
+  phi_g <- phi[, seq_len(dim_g), drop = FALSE]
+  va_x <- rowSums((phi_g %*% C) * phi_g)
+  data.frame(x = x, va = va_x, h2 = va_x / vp_x)
 }
 
 #' @export

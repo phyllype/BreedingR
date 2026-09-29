@@ -11,7 +11,10 @@ solutions(fit, pedigree = NULL, group = NULL, trait = NULL)
 \code{model_survival()} or \code{snp_blup()}}
 
 \item{pedigree}{the SAME pedigree the fit was built on. Optional: without it the
-accuracy column is absent, because accuracy needs the inbreeding of each animal.}
+accuracy column is absent, because accuracy needs the inbreeding of each animal.
+A \code{\link[=snp_blup]{snp_blup()}} fit has no PEV (it solves by conjugate gradients) and takes no
+\code{pedigree}; for \code{\link[=model_survival]{model_survival()}} the accuracy is on the log-hazard scale, from
+the Laplace PEV of the frailty}
 
 \item{group}{covariance group; the first one by default}
 

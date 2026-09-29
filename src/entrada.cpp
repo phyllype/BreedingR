@@ -86,6 +86,25 @@ static std::vector<std::string> textos(SEXP v, const char* quem) {
   return out;
 }
 
+// A flag de pedigree pai / avo materno viaja como ATRIBUTO "mgs" do vetor de maes, posto
+// por colunas_pedigree() no R. Assim os onze pontos que constroem o pedigree a recebem sem
+// mudar assinatura nenhuma, e um vetor sem o atributo e o pedigree pai/mae de sempre.
+static std::vector<char> mgs_de(SEXP mae) {
+  SEXP a = Rf_getAttrib(mae, Rf_install("mgs"));
+  std::vector<char> out;
+  if (a == R_NilValue) return out;
+  const R_xlen_t n = XLENGTH(a);
+  if (n != XLENGTH(mae)) Rf_error("the 'mgs' flags do not match the dam column in length");
+  if (TYPEOF(a) != LGLSXP) Rf_error("the 'mgs' flags must be logical");
+  out.resize((std::size_t) n);
+  for (R_xlen_t k = 0; k < n; k++) {
+    const int v = LOGICAL(a)[k];
+    out[(std::size_t) k] = (v == 1) ? 1 : 0;
+  }
+  return out;
+}
+
+
 extern "C" {
 
 // Devolve o pedigree em ORDEM TOPOLOGICA, com a endogamia de cada animal.
@@ -97,7 +116,7 @@ SEXP R_pedigree(SEXP id, SEXP pai, SEXP mae, SEXP mfx, SEXP gmx) {
     auto i = textos(id, "id");
     auto p = textos(pai, "sire");
     auto m = textos(mae, "dam");
-    br::Pedigree ped = br::constroi_pedigree(i, p, m, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
+    br::Pedigree ped = br::constroi_pedigree(i, p, m, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(mae));
     std::vector<double> f = br::endogamia(ped);
 
     const R_xlen_t n = static_cast<R_xlen_t>(ped.ids.size());
@@ -132,7 +151,7 @@ SEXP R_a_inversa(SEXP id, SEXP pai, SEXP mae, SEXP mfx, SEXP gmx) {
     auto i = textos(id, "id");
     auto p = textos(pai, "sire");
     auto m = textos(mae, "dam");
-    br::Pedigree ped = br::constroi_pedigree(i, p, m, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
+    br::Pedigree ped = br::constroi_pedigree(i, p, m, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(mae));
     std::vector<double> f = br::endogamia(ped);
     br::Csc a = br::a_inversa(ped, f);
 
@@ -430,6 +449,19 @@ extern "C++" {
 
 // fit$dense_block = c(dense = k, columns = n): o k do custo k^3 de cada fatoracao. O objeto
 // e protegido e desprotegido aqui dentro e devolvido para ser gravado na lista na hora.
+// a priori de H dos genotipados e a linha do pedigree de cada um (1-based), para accuracy().
+// Sem PROTECT proprio: o valor vai direto para SET_VECTOR_ELT de uma lista ja protegida.
+static SEXP sexp_priori_h(const std::vector<double>& v) {
+  SEXP x = Rf_allocVector(REALSXP, (R_xlen_t) v.size());
+  for (std::size_t q = 0; q < v.size(); q++) REAL(x)[q] = v[q];
+  return x;
+}
+static SEXP sexp_linha_h(const std::vector<std::size_t>& v) {
+  SEXP x = Rf_allocVector(INTSXP, (R_xlen_t) v.size());
+  for (std::size_t q = 0; q < v.size(); q++) INTEGER(x)[q] = (int) v[q] + 1;
+  return x;
+}
+
 static SEXP sexp_bloco_denso(std::size_t k, std::size_t n) {
   SEXP db = PROTECT(Rf_allocVector(INTSXP, 2));
   INTEGER(db)[0] = (int) k;
@@ -497,7 +529,7 @@ SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
       auto i = textos(pid, "id");
       auto p = textos(ppai, "sire");
       auto ma = textos(pmae, "dam");
-      ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
+      ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(pmae));
       pp = &ped;
     }
     std::vector<double> pw;
@@ -563,7 +595,7 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
       auto i = textos(pid, "id");
       auto p = textos(ppai, "sire");
       auto ma = textos(pmae, "dam");
-      ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
+      ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(pmae));
       pp = &ped;
     }
     std::vector<double> pw;
@@ -722,7 +754,7 @@ SEXP R_a22_inversa(SEXP pid, SEXP ppai, SEXP pmae, SEXP geno) {
     auto i = textos(pid, "id");
     auto p = textos(ppai, "sire");
     auto ma = textos(pmae, "dam");
-    br::Pedigree ped = br::constroi_pedigree(i, p, ma);
+    br::Pedigree ped = br::constroi_pedigree(i, p, ma, {}, {}, mgs_de(pmae));
     std::vector<double> f = br::endogamia(ped);
     br::Csc ainv = br::a_inversa(ped, f);
     std::vector<std::size_t> idx;
@@ -761,7 +793,7 @@ SEXP R_avaliar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
       auto i = textos(pid, "id");
       auto p2 = textos(ppai, "sire");
       auto ma = textos(pmae, "dam");
-      ped = br::constroi_pedigree(i, p2, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
+      ped = br::constroi_pedigree(i, p2, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(pmae));
       pp = &ped;
     }
     std::vector<std::string> alv = textos(alvos, "traits");
@@ -814,14 +846,19 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
       auto i = textos(pid, "id");
       auto p2 = textos(ppai, "sire");
       auto ma = textos(pmae, "dam");
-      ped = br::constroi_pedigree(i, p2, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
+      ped = br::constroi_pedigree(i, p2, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(pmae));
       pp = &ped;
     }
     std::vector<std::string> alv = textos(alvos, "traits");
     std::vector<br::KernelDecl> kd = kernels_do_R(kern);
     br::DesenhoMT d = br::monta_desenho_mt(m, alv, t, pp, &kd);
 
-    std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
+    // a priori do genotipado para accuracy(): diag(G*), e nao 1 + F (so o model() a
+    // exportava, e o multicaracter seguia com o F do pedigree no passo unico)
+    std::vector<double> diag_h_geno;
+    std::vector<std::size_t> linha_h_geno;
+    std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk,
+                                           &diag_h_geno, &linha_h_geno);
 
     std::vector<double> th0(REAL(start), REAL(start) + XLENGTH(start));
     if (!th0.empty() && th0.size() != d.modelo.ntheta)
@@ -915,10 +952,13 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
 
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
                             "message", "n_used", "n_columns", "ebv", "pev", "b",
-                            "dropped_x", "newton_dec", "dense_block"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 15));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 15));
-    for (int q = 0; q < 15; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "dropped_x", "newton_dec", "dense_block", "h_prior",
+                            "h_prior_row"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 17));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 17));
+    for (int q = 0; q < 17; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    SET_VECTOR_ELT(out, 15, sexp_priori_h(diag_h_geno));
+    SET_VECTOR_ELT(out, 16, sexp_linha_h(linha_h_geno));
     SET_VECTOR_ELT(out, 14, sexp_bloco_denso(r.bloco_denso, r.colunas_fator));
     SET_VECTOR_ELT(out, 0, theta);
     SET_VECTOR_ELT(out, 1, se);
@@ -959,7 +999,7 @@ SEXP R_avaliar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
       auto i = textos(pid, "id");
       auto p2 = textos(ppai, "sire");
       auto ma = textos(pmae, "dam");
-      ped = br::constroi_pedigree(i, p2, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
+      ped = br::constroi_pedigree(i, p2, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(pmae));
       pp = &ped;
     }
     std::vector<std::string> alv = textos(alvo, "traits");
@@ -1009,7 +1049,7 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
       auto i = textos(pid, "id");
       auto p2 = textos(ppai, "sire");
       auto ma = textos(pmae, "dam");
-      ped = br::constroi_pedigree(i, p2, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
+      ped = br::constroi_pedigree(i, p2, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(pmae));
       pp = &ped;
     }
     std::vector<std::string> alv = textos(alvo, "traits");
@@ -1018,7 +1058,10 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
                                             CHAR(STRING_ELT(sujeito, 0)),
                                             CHAR(STRING_ELT(tempo, 0)), &kd);
 
-    std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
+    std::vector<double> diag_h_geno;
+    std::vector<std::size_t> linha_h_geno;
+    std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk,
+                                           &diag_h_geno, &linha_h_geno);
 
     std::vector<double> th0(REAL(start), REAL(start) + XLENGTH(start));
     if (!th0.empty() && th0.size() != d.modelo.ntheta)
@@ -1045,7 +1088,11 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     SEXP pev = PROTECT(Rf_allocVector(VECSXP, (R_xlen_t) d.modelo.grupos.size()));
     SEXP ebv_nomes = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.modelo.grupos.size()));
     {
-      std::size_t off = d.x.ncol;
+      // O BLOCO DOS GRUPOS COMECA EM x.ncol * t, como em ar1.cpp (M.n_fixo). Com x.ncol so,
+      // o cbind() devolvia EBV e PEV deslocados de x.ncol * (t - 1) posicoes: os primeiros
+      // valores eram solucoes FIXAS e os ultimos niveis se perdiam (medido contra a MME
+      // densa: 0,68 de diferenca maxima). So estava certo com t = 1.
+      std::size_t off = d.x.ncol * d.t;
       for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
         const std::size_t larg = d.largura(g);
         SEXP v = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) larg));
@@ -1106,10 +1153,13 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
 
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
                             "message", "n_used", "n_columns", "n_subjects", "ebv", "pev",
-                            "b", "dropped_x", "newton_dec", "dense_block"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 16));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 16));
-    for (int q = 0; q < 16; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "b", "dropped_x", "newton_dec", "dense_block", "h_prior",
+                            "h_prior_row"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 18));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 18));
+    for (int q = 0; q < 18; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    SET_VECTOR_ELT(out, 16, sexp_priori_h(diag_h_geno));
+    SET_VECTOR_ELT(out, 17, sexp_linha_h(linha_h_geno));
     SET_VECTOR_ELT(out, 15, sexp_bloco_denso(r.bloco_denso, r.colunas_fator));
     SET_VECTOR_ELT(out, 0, theta);
     SET_VECTOR_ELT(out, 1, se);
@@ -1136,9 +1186,13 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
              SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
              SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP gid, SEXP gm, SEXP mistura,
              SEXP anucleo, SEXP n_iter, SEXP burnin, SEXP thin, SEXP loc_fixa,
-             SEXP theta_fixo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx) {
+             SEXP theta_fixo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern,
+             SEXP tfix, SEXP ptipo, SEXP pdf, SEXP pesc, SEXP fam) {
   GUARDA(
-    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente);
+    // kernel() e kernel(fixed =) chegam como no model(): o amostrador ja era generico em
+    // K^-1 (o bloco de localizacao e a InvWishart leem d.kinv[g]); faltava so o transporte
+    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente,
+                               usa_ausente, R_NilValue, tfix);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
     const br::Pedigree* pp = nullptr;
@@ -1146,11 +1200,17 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
       auto i = textos(pid, "id");
       auto p = textos(ppai, "sire");
       auto ma = textos(pmae, "dam");
-      ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
+      ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(pmae));
       pp = &ped;
     }
-    br::Desenho d = br::monta_desenho(m, t, pp);
+    std::vector<br::KernelDecl> kd = kernels_do_R(kern);
+    br::Desenho d = br::monta_desenho(m, t, pp, nullptr, kd.empty() ? nullptr : &kd);
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
+
+    br::PrioriGibbs priori;
+    priori.tipo = Rf_asInteger(ptipo);
+    priori.gl0 = Rf_asReal(pdf);
+    priori.escala = Rf_asReal(pesc);
 
     std::vector<double> thf;
     const std::vector<double>* pthf = nullptr;
@@ -1165,7 +1225,8 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
                                  (std::size_t) Rf_asInteger(burnin),
                                  (std::size_t) Rf_asInteger(thin),
                                  Rf_asLogical(loc_fixa) == TRUE, pthf,
-                                 Rf_asLogical(verb) == TRUE);
+                                 Rf_asLogical(verb) == TRUE, priori,
+                                 Rf_asInteger(fam) == 1);
     if (!nota.empty()) S.mensagem = S.mensagem.empty() ? nota : nota + "; " + S.mensagem;
 
     std::vector<std::string> nomes_th = m.nomes_theta();
@@ -1258,7 +1319,7 @@ SEXP R_snp_blup(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP t
     auto p = textos(ppai, "sire");
     auto ma = textos(pmae, "dam");
     br::Pedigree ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"),
-        std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)));
+        std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(pmae));
     br::Desenho d = br::monta_desenho(m, t, &ped);
 
     std::vector<double> th(REAL(theta), REAL(theta) + XLENGTH(theta));
@@ -1362,7 +1423,7 @@ static const R_CallMethodDef metodos[] = {
   {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  28},
   {"R_avaliar_ar1",  (DL_FUNC) &R_avaliar_ar1, 23},
   {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 30},
-    {"R_gibbs", (DL_FUNC) &R_gibbs, 29},
+    {"R_gibbs", (DL_FUNC) &R_gibbs, 35},
   {"R_snp_blup",   (DL_FUNC) &R_snp_blup,  25},
 {"R_versao",     (DL_FUNC) &R_versao,     0},
   {NULL, NULL, 0}

@@ -37,7 +37,7 @@ by the mean, as in \code{\link[=model]{model()}}}
 
 \item{blend}{weight of A22 in the G blend (0.05 by default)}
 
-\item{apy_core}{ids of the APY core; NULL uses the exact inverse of G}
+\item{apy_core}{ids of the APY core, or \code{"auto"} as in \code{\link[=model]{model()}}; NULL uses the exact inverse of G}
 
 \item{vecchia_k}{neighbors per animal in the Vecchia inverse of G*: each genotyped
 animal conditions on its k strongest previous relationships instead of a global
@@ -59,12 +59,11 @@ same model with \code{K} and with \code{c * K} starts at equivalent points.}
 
 \item{tol}{relative tolerance on the components, sqrt(sum delta^2 / sum theta^2);
 see the BLUPF90 scale note in \code{\link[=model]{model()}}. The Newton decrement g' AI^-1 g is
-computed at the final point and reported in \code{newton_dec} (components at a
-covariance boundary excluded, since this walker cannot follow a singular
-boundary), but unlike \code{\link[=model]{model()}} it does not gate \code{converged} here: this fitter
-steps in raw theta and can jam whole against a boundary, so a decrement above
-2e-4 becomes a WARNING in \code{message} instead — read it before trusting a fit
-near a boundary. The hard certificate lives in the univariate fitter}
+computed at the final point and reported in \code{newton_dec} (components resting at a
+covariance boundary excluded), and, as in \code{\link[=model]{model()}}, \code{converged} requires it under
+2e-4: the step walks in log-Cholesky coordinates, so it cannot jam against a
+boundary. At \code{maxiter} with the decrement already under the tolerance the fit is
+declared converged and \code{message} says the likelihood is flat along some direction}
 
 \item{metafounders}{labels of unknown-parent groups; a parent with one of these
 labels needs no line of its own (any OTHER cited-without-line parent is still a
@@ -86,8 +85,9 @@ whose rows are identical. What is still refused is an INDEFINITE gamma, a negati
 eigenvalue, which does not generate a covariance matrix at all}
 
 \item{verbose}{print the fit as it walks: one line per AI iteration with the
--2logL and the relative step (the convergence criterion itself), so a long fit
-is a progress report instead of silence. Defaults to interactive() — live in a
+-2logL and the relative step, so a long fit is a progress report instead of
+silence. The relative step is half of the convergence criterion; the Newton
+decrement, reported in \code{newton_dec}, is the other half. Defaults to interactive() — live in a
 session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 }
 \value{
@@ -95,6 +95,7 @@ an object of class \code{breeding_fit_mt}; besides the fields of \code{\link[=mo
 fixed-effect solutions \code{b} come named \code{term=level|trait}, one entry per column of X
 and per trait. The parametrization note of \code{\link[=model]{model()}} applies: dropped columns are
 in \code{dropped_x} and only contrasts compare against a reference-level convention.
+\code{dense_block}, \code{h_prior} and \code{h_prior_row} are as in \code{\link[=model]{model()}}.
 }
 \description{
 Fits a multi-trait mixed model by AI-REML

@@ -29,10 +29,9 @@
 #' @param missing_code missing-value code for the trait
 #' @param tol relative residual of the conjugate gradients at which to stop
 #' @param maxiter maximum conjugate-gradient iterations
-#' @param verbose print the fit as it walks: one line per AI iteration with the
-#'   -2logL and the relative step (the convergence criterion itself), so a long fit
-#'   is a progress report instead of silence. Defaults to interactive() — live in a
-#'   session, quiet in scripts and checks. Every fitter also honors Ctrl+C now
+#' @param verbose print the solve as it walks, the relative residual of every PCG
+#'   iteration, so a long solve is a progress report instead of silence. Defaults to
+#'   interactive(), live in a session and quiet in scripts and checks. Every fitter also honors Ctrl+C now
 #' @param metafounders as in [model()]
 #' @param gamma as in [model()]
 #' @return list with `b` (fixed-effect solutions, named `term=level`; the parametrization

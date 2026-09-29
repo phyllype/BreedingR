@@ -41,8 +41,20 @@
 #' as complete biases the evaluation against the animals still alive -- the best ones --
 #' and dropping it throws away exactly the selection candidates. The `censor=`
 #' indicator is therefore mandatory: 1 for a complete (uncensored) record, 0 for a
-#' censored one. Left- or interval-censoring and time-dependent covariates are outside
-#' this fitter (a declared limit; the book points to the Survival Kit for them).
+#' censored one. Left- and interval-censoring are outside this fitter.
+#'
+#' TIME-DEPENDENT COVARIATES enter as ELEMENTARY RECORDS, the device of the Survival Kit
+#' (Ducrocq and Solkner): a covariate that changes during a life is constant by pieces,
+#' and each piece is one row `(entry, stop]` of the same `subject`, with its own values
+#' of the covariates and `censor = 1` only on the last piece when the subject failed.
+#' The cumulative hazard of a piece is `Lambda0(stop) - Lambda0(entry)`, so a subject
+#' split into pieces with constant covariates has exactly the likelihood of the unsplit
+#' record. Build the pieces from the moment each covariate changes, and never freeze a
+#' covariate that is only known later: an indicator of "ever had the disease" set from
+#' the start gives the survivors the exposure for time in which they could not yet have
+#' had it (immortal time), and it can reverse the sign of the effect. A first `entry`
+#' above zero is left truncation, and the message says that with a frailty the
+#' conditional likelihood it uses is naive (van den Berg and Drepper 2016).
 #'
 #' WHAT IS ESTIMATED AND HOW. The fixed effects and the log-frailties always. The
 #' Weibull `rho` joins the Newton system as one more coordinate unless it is given.
@@ -96,6 +108,12 @@
 #'   `sqrt(sum(delta^2) / sum(sol^2))`, same convention as the other fitters
 #' @param verbose print one line per Newton iteration, and one per variance
 #'   evaluation when `sigma2` is being estimated
+#' @param entry column with the start of each elementary record (`0` for the first
+#'   piece of a subject observed from time zero); NULL means every row starts at 0
+#' @param subject column with the subject of each elementary record; required with
+#'   `entry`. The frailty level must be the same in every piece of a subject
+#' @param gaps `"error"` (default) refuses a gap between two pieces of a subject;
+#'   `"allow"` accepts it as time out of observation, in which no risk is counted
 #' @return an object of class `breeding_fit_surv`: `rho`, `lambda` (with
 #'   `se_log_rho` when `rho` was estimated), `theta` (the frailty variance, with an
 #'   `se` from the curvature of the Laplace profile when it was estimated), `b` and
@@ -135,7 +153,9 @@
 model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
                            rho = NULL, lambda = NULL, sigma2 = NULL,
                            k_inverse = NULL, maxiter = 200L, tol = 1e-8,
-                           verbose = interactive()) {
+                           verbose = interactive(), entry = NULL, subject = NULL,
+                           gaps = c("error", "allow")) {
+  gaps <- match.arg(gaps)
   t0 <- proc.time()[["elapsed"]]
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with the time on the left: lpl ~ herd + animal(id)")
@@ -193,14 +213,32 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
     stop("the censoring indicator takes 1 (complete) or 0 (right-censored), ",
          "nothing else")
 
-  keep <- !is.na(tv) & !is.na(qv)
+  # REGISTROS ELEMENTARES (entry, stop]: a covariavel dependente do tempo e constante
+  # por trechos, e cada trecho e uma linha (Ducrocq e Solkner; o PREPARE do Survival Kit).
+  # Sem entry= cada linha e um sujeito que entra em 0, o comportamento de antes.
+  ev <- if (is.null(entry)) rep(0, nrow(data)) else {
+    if (!is.character(entry) || length(entry) != 1L || !entry %in% names(data))
+      stop("entry must name the column of the start of each elementary record")
+    as.double(data[[entry]])
+  }
+  if (!is.null(entry) && is.null(subject))
+    stop("with entry= the records are pieces of a subject's history: give subject= ",
+         "too, the column that says whose piece each row is")
+  sv <- if (is.null(subject)) as.character(seq_len(nrow(data))) else {
+    if (!is.character(subject) || length(subject) != 1L || !subject %in% names(data))
+      stop("subject must name the column that identifies each subject")
+    as.character(data[[subject]])
+  }
+
+  keep <- !is.na(tv) & !is.na(qv) & !is.na(ev) & !is.na(sv)
   n_dropped <- sum(!keep)
   if (!any(keep)) stop("no record with an observed time and indicator")
-  tv <- tv[keep]; qv <- qv[keep]
+  tv <- tv[keep]; qv <- qv[keep]; ev <- ev[keep]; sv <- sv[keep]
   if (any(!is.finite(tv)) || any(tv <= 0))
     stop("the survival time must be strictly positive and finite: log(t) enters ",
          "the Weibull likelihood. A zero time is a failure at birth -- give it a ",
          "small positive value on the scale of the data.")
+  intervalos <- valida_intervalos(ev, tv, qv, sv, gaps)
 
   for (par in c("rho", "lambda", "sigma2")) {
     v <- get(par)
@@ -213,12 +251,31 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   est_lam <- is.null(lambda)
   if (est_lam) X <- cbind(intercept = 1, X)
   z <- monta_z_limiar(aleat, data, pedigree, k_inverse, keep)[[1]]
+  # a fragilidade e do SUJEITO: um nivel que muda dentro dele seria uma fragilidade
+  # dependente do tempo, que este modelo nao tem
+  muda <- tapply(z$idx, sv, function(v) length(unique(v)) > 1L)
+  if (any(muda))
+    stop(sum(muda), " subject(s) change the level of the frailty term '", z$column,
+         "' between elementary records (", paste(utils::head(names(muda)[muda], 3),
+         collapse = ", "), "): the frailty belongs to the subject")
 
   n <- length(tv); p <- ncol(X)
   # s absorbs a GIVEN lambda into the timescale: (lambda t)^rho = exp(rho * s).
   # With lambda estimated, s = log(t) and the intercept carries rho * log(lambda).
   s <- log(tv) + if (est_lam) 0 else log(lambda)
   logt <- log(tv)
+  # o inicio de cada registro na mesma escala; entrada 0 contribui E1 = 0
+  tem_e1 <- ev > 0
+  s1 <- ifelse(tem_e1, log(pmax(ev, .Machine$double.xmin)) + if (est_lam) 0 else log(lambda), 0)
+  # A = Lambda0(stop) - Lambda0(entry), com B = dA/dr e Cc = d2A/dr2 em r = log rho;
+  # sem entrada tudo colapsa em E2, rho s E2 e (rho s)^2 E2 + rho s E2, o codigo de antes
+  pecas_a <- function(rh) {
+    e2 <- exp(rh * s)
+    e1 <- ifelse(tem_e1, exp(rh * s1), 0)
+    rs2 <- rh * s; rs1 <- ifelse(tem_e1, rh * s1, 0)
+    list(A = e2 - e1, B = rs2 * e2 - rs1 * e1,
+         Cc = rs2^2 * e2 + rs2 * e2 - rs1^2 * e1 - rs1 * e1, rs2 = rs2)
+  }
   logdet_ainv <- sparse_chol(list(i = z$pi, j = z$pj, x = z$px, n = z$q))$logdet
 
   # ---- the inner Newton, shared by the given-variance and the Laplace paths.
@@ -233,7 +290,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
       rh <- exp(r)
       eta <- (if (p) drop(X %*% u[seq_len(p)]) else numeric(n)) + u[p + z$idx]
       a <- u[p + seq_len(z$q)]
-      sum(qv * (r + rh * s - logt + eta) - exp(rh * s + eta)) -
+      sum(qv * (r + rh * s - logt + eta) - exp(eta) * pecas_a(rh)$A) -
         z$q / 2 * log(s2) - sum(a * tri_matvec(z$pi, z$pj, z$px, a)) / (2 * s2)
     }
     L0 <- lpen(u, r)
@@ -243,7 +300,8 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
       rh <- exp(r)
       eta <- (if (p) drop(X %*% u[seq_len(p)]) else numeric(n)) + u[p + z$idx]
       a <- u[p + seq_len(z$q)]
-      mu <- exp(rh * s + eta)
+      pa <- pecas_a(rh)
+      mu <- exp(eta) * pa$A
       gu <- c(if (p) drop(crossprod(X, qv - mu)) else numeric(0),
               soma_por_nivel(qv - mu, z$idx, z$q) -
                 tri_matvec(z$pi, z$pj, z$px, a) / s2)
@@ -270,11 +328,11 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
              call. = FALSE))
       dr <- 0
       if (is.null(rho)) {
-        rs <- rh * s
-        gr <- sum(qv * (1 + rs) - mu * rs)
-        hur <- c(if (p) drop(crossprod(X, mu * rs)) else numeric(0),
-                 soma_por_nivel(mu * rs, z$idx, z$q))
-        crr <- sum(mu * rs^2 + mu * rs - qv * rs)
+        eB <- exp(eta) * pa$B
+        gr <- sum(qv * (1 + pa$rs2)) - sum(eB)
+        hur <- c(if (p) drop(crossprod(X, eB)) else numeric(0),
+                 soma_por_nivel(eB, z$idx, z$q))
+        crr <- sum(exp(eta) * pa$Cc) - sum(qv * pa$rs2)
         yv <- sparse_solve(C, hur)
         den <- crr - sum(hur * yv)
         if (den > 1e-10) {
@@ -301,7 +359,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
     # Laplace: integrate the frailty at its conditional mode; profile the rest
     rh <- exp(r)
     eta <- (if (p) drop(X %*% u[seq_len(p)]) else numeric(n)) + u[p + z$idx]
-    mu <- exp(rh * s + eta)
+    mu <- exp(eta) * pecas_a(rh)$A
     Ha <- list(i = c(seq_len(z$q), z$pi), j = c(seq_len(z$q), z$pj),
                x = c(soma_por_nivel(mu, z$idx, z$q), z$px / s2), n = z$q)
     lmarg <- L0 - 0.5 * sparse_chol(Ha)$logdet + z$q / 2 * log(2 * pi) +
@@ -346,6 +404,14 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
       "the frailty variance went to the lower boundary: these data carry no signal for a frailty term",
     if (f$preso)
       "stopped where no damped Newton step improves the joint log-likelihood",
+    if (intervalos$n_truncados > 0)
+      paste0(intervalos$n_truncados, " subject(s) enter after time 0 (left truncation): ",
+             "their likelihood is CONDITIONAL on surviving to entry, and with a frailty ",
+             "that conditioning is naive, because the survivors at entry are a selected ",
+             "sample of the frailty (van den Berg and Drepper 2016)"),
+    if (intervalos$n_lacunas > 0)
+      paste0(intervalos$n_lacunas, " gap(s) between the elementary records of a subject ",
+             "(gaps = \"allow\"): no risk is counted inside them"),
     paste0("solutions are log relative risks (exp gives the RRS); PEV and standard ",
            "errors are conditional on rho, lambda and sigma2"))
 
@@ -365,7 +431,8 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
     pev = stats::setNames(list(stats::setNames(se_tudo[p + seq_len(z$q)]^2, z$ids)),
                           z$nome),
     converged = f$converged, iters = f$it, reldelta = f$crit,
-    n_used = n, n_censored = sum(qv == 0), n_dropped = n_dropped,
+    n_used = n, n_censored = intervalos$n_censurados, n_dropped = n_dropped,
+    n_subjects = intervalos$n_sujeitos,
     n_columns = p + z$q,
     loglik_joint = f$loglik, marginal_loglik = f$lmarg,
     message = paste(mensagens, collapse = "; "),
@@ -398,7 +465,9 @@ print.breeding_fit_surv <- function(x, ...) {
       ",  Laplace marginal ", format(x$marginal_loglik, digits = 8), "\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  mostra_componentes(tabela_componentes(x$theta, x$se))
+  mostra_componentes(tabela_componentes(x$theta, x$se, sem_share = paste0(
+    "share left blank: the frailty model has no residual variance, so there is ",
+    "no phenotypic variance to divide by on this scale")))
   if (!x$sigma2_given) cat("  (frailty variance by Laplace, se from the profile curvature)\n")
   mostra_fixos(x$b, x$dropped_x,
                nota = if (x$lambda_given)
@@ -481,4 +550,38 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
   # given it enters here through (lambda t)^rho
   base <- if (object$lambda_given) (object$lambda * time)^object$rho else time^object$rho
   exp(-base * exp(d))
+}
+
+# Os registros elementares de cada sujeito: (entry, stop] com 0 <= entry < stop, sem
+# sobreposicao, evento no maximo uma vez e so no ULTIMO trecho (um tempo de resposta por
+# sujeito, como no Survival Kit). Lacuna entre trechos e erro, salvo gaps = "allow"
+# (processo de contagem: nenhum risco e contado dentro dela). Devolve as contagens.
+valida_intervalos <- function(ev, tv, qv, sv, gaps) {
+  if (any(!is.finite(ev)) || any(ev < 0))
+    stop("entry must be finite and >= 0")
+  if (any(ev >= tv))
+    stop(sum(ev >= tv), " elementary record(s) with entry >= stop: each piece is (entry, stop]")
+  o <- order(sv, ev)
+  s_o <- sv[o]; e_o <- ev[o]; t_o <- tv[o]; q_o <- qv[o]
+  mesmo <- c(FALSE, s_o[-1] == s_o[-length(s_o)])
+  if (any(mesmo)) {
+    ant <- which(mesmo) - 1L; cur <- which(mesmo)
+    sobre <- e_o[cur] < t_o[ant] - 1e-12
+    if (any(sobre))
+      stop(sum(sobre), " overlap(s) between elementary records of a subject (",
+           paste(utils::head(unique(s_o[cur][sobre]), 3), collapse = ", "), ")")
+    if (any(q_o[ant] == 1))
+      stop("an event can only close the LAST elementary record of a subject; subject(s) ",
+           paste(utils::head(unique(s_o[ant][q_o[ant] == 1]), 3), collapse = ", "),
+           " have an event followed by more records")
+    lac <- e_o[cur] > t_o[ant] + 1e-12
+    if (any(lac) && gaps == "error")
+      stop(sum(lac), " gap(s) between elementary records of a subject (",
+           paste(utils::head(unique(s_o[cur][lac]), 3), collapse = ", "), "): pass ",
+           "gaps = \"allow\" if the subject was really out of observation there")
+  } else lac <- logical(0)
+  primeiro <- !mesmo
+  ultimo <- c(!mesmo[-1], TRUE)
+  list(n_sujeitos = sum(primeiro), n_truncados = sum(e_o[primeiro] > 0),
+       n_lacunas = sum(lac), n_censurados = sum(q_o[ultimo] == 0))
 }

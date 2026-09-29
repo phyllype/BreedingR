@@ -66,6 +66,8 @@ ARGS_MARCADOR <- local({
 #' @param apy_core ids of the genotyped animals that form the APY core; with it the inverse
 #'   of G* is the APY approximation (cost in the size of the core, not cubic in the
 #'   genotyped) and the result message SAYS it is an approximation and with which core
+#'   (its size is part of the result). `"auto"` chooses the core with [apy_core_select()]:
+#'   as many animals as eigenvalues of G explaining 98% of its trace, drawn at random
 #' @param vecchia_k neighbors per animal in the Vecchia inverse of G*: each genotyped
 #'   animal conditions on its k strongest previous relationships instead of a global
 #'   core (the generalization of APY; Henderson's A^-1 is the pedigree case, with the
@@ -98,8 +100,9 @@ ARGS_MARCADOR <- local({
 #'   different sizes, or estimates that carry their own precision — a two-step analysis,
 #'   a de-regressed proof
 #' @param verbose print the fit as it walks: one line per AI iteration with the
-#'   -2logL and the relative step (the convergence criterion itself), so a long fit
-#'   is a progress report instead of silence. Defaults to interactive() — live in a
+#'   -2logL and the relative step, so a long fit is a progress report instead of
+#'   silence. The relative step is half of the convergence criterion; the Newton
+#'   decrement, reported in `newton_dec`, is the other half. Defaults to interactive() — live in a
 #'   session, quiet in scripts and checks. Every fitter also honors Ctrl+C now
 #' @param metafounders labels of unknown-parent groups; a parent with one of these
 #'   labels needs no line of its own (any OTHER cited-without-line parent is still a
@@ -124,8 +127,9 @@ ARGS_MARCADOR <- local({
 #'   that has to sum on the same base as the likelihood needs. `dense_block` is
 #'   `c(dense = k, columns = n)`: the last `k` of the `n` columns of the Cholesky factor
 #'   are completely full, and each factorization costs about `k^3 / 3` there. In a single
-#'   step without `apy_core =`, `k` is the number of genotyped animals; with it, the core
-#'   size plus one. The object holds
+#'   step without `apy_core =`, `k` is at least the number of genotyped animals; with it,
+#'   at least the core size plus one. The fill of the pedigree itself can add to it, and
+#'   in a small herd it dominates. The object holds
 #'   the components `theta` with their `se`,
 #'   the fixed-effect solutions `b` (named `term=level`, in the order the columns of X
 #'   entered), `ebv` and `pev` per covariance group, `score`, `vcov`, the convergence
@@ -163,6 +167,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   if (length(formula) != 3L) stop("the formula needs a left-hand side: peso ~ ...")
   trait <- deparse(formula[[2]])
   terms <- decompoe_formula(formula[[3]])
+  recusa_materno_mgs(terms, pedigree)
   if (!length(terms)) stop("the formula declares no effect")
 
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
@@ -191,6 +196,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
 
   recusa_mf_genomico(metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
+  nuc <- nucleo_apy(apy_core, genotypes)
   w <- valida_pesos(weights, data)
   kern <- monta_kernels(terms, environment(formula))
 
@@ -209,7 +215,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              if (is.null(missing_code)) 0.0 else as.double(missing_code), !is.null(missing_code),
              as.integer(maxiter), as.double(tol), as.integer(n_em),
              g$gid, g$gm, as.double(blend),
-             if (is.null(apy_core)) character(0) else as.character(apy_core),
+             nuc,
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
              isTRUE(verbose),
              if (is.null(metafounders)) character(0) else as.character(metafounders),
@@ -218,6 +224,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              vapply(terms, function(t) t$dilution, numeric(1)),
              vapply(terms, function(t) t$kfixo, numeric(1)))
   r$seconds <- proc.time()[["elapsed"]] - t0
+  r <- anota_nucleo(r, nuc)
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
   # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a
   # parent with no line of its own, which is a declared error outside this mode, and even
@@ -225,6 +232,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   r$metafounders <- metafounders
   r$gamma <- gamma
   r$formula <- formula
+  r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
   structure(r, class = "breeding_fit")
 }
@@ -255,6 +263,15 @@ recusa_mf_genomico <- function(metafounders, tem_genotipos) {
          "unknown-parent groups, until the metafounder-aware G lands",
          call. = FALSE)
   invisible(NULL)
+}
+
+# eval_internal() e chamado muitas vezes seguidas (profile_theta, um otimizador externo):
+# o "auto" refaria a decomposicao de G em cada chamada. Quem avalia passa o nucleo pronto.
+recusa_auto <- function(apy_core) {
+  if (identical(apy_core, "auto"))
+    stop("apy_core = \"auto\" is not accepted here: choose the core once with ",
+         "apy_core_select() and pass it, so every evaluation uses the same core", call. = FALSE)
+  apy_core
 }
 
 valida_genotipos <- function(genotypes) {
@@ -462,7 +479,8 @@ interpreta_termo <- function(e) {
                       pe = , random = 1L, kernel = 3L, cov = 0L)
   list(nome = nome, column = column, estrutura = estrutura,
        covariavel = marc == "cov", group = group, nested = nested, base = base,
-       social = marc == "indirect", dilution = dilution, kexpr = kexpr, kfixo = kfixo)
+       social = marc == "indirect", dilution = dilution, kexpr = kexpr, kfixo = kfixo,
+       marcador = marc)
 }
 
 # dilution= only travels down the .Call of model() and eval_internal(). The fitters that
@@ -472,6 +490,18 @@ recusa_dilution <- function(terms, quem) {
   d <- vapply(terms, function(t) t$dilution, numeric(1))
   if (any(d > 0))
     stop(quem, " does not carry dilution= yet: drop it, or fit with model()")
+}
+
+# kernel(fixed =) PRENDE a variancia do termo, e so o motor univariado sabe tirar uma
+# coordenada do passo AI. O multicaracter e o AR(1) liam o termo, ignoravam o fixed= e
+# devolviam a variancia ESTIMADA sem erro nem aviso (medido: fixed = 0.123 voltava 0.461).
+# Ate eles carregarem o grampo, a recusa e alta.
+recusa_kfixo <- function(terms, quem) {
+  k <- vapply(terms, function(t) if (is.null(t$kfixo)) NA_real_ else t$kfixo, numeric(1))
+  if (any(is.finite(k)))
+    stop(quem, " does not carry kernel(fixed =) yet: the fixed variance would be ",
+         "estimated instead. Fit with model(), or drop fixed = and read the estimate",
+         call. = FALSE)
 }
 
 #' Evaluate -2logL, score and AI at a given theta, by both routes
@@ -500,6 +530,7 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
                           vecchia_k = NULL) {
   trait <- deparse(formula[[2]])
   terms <- decompoe_formula(formula[[3]])
+  recusa_materno_mgs(terms, pedigree)
   used_columns <- unique(c(trait, vapply(terms, function(t) t$column, character(1)),
                              unlist(lapply(terms, function(t) t$nested)),
                              unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
@@ -529,7 +560,7 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
              if (is.null(gamma)) numeric(0) else as.double(gamma),
              valida_pesos(weights, data),
         valida_genotipos(genotypes)$gid, valida_genotipos(genotypes)$gm, as.double(blend),
-        if (is.null(apy_core)) character(0) else as.character(apy_core),
+        nucleo_apy(recusa_auto(apy_core), genotypes),
         if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
         monta_kernels(terms, environment(formula)),
         vapply(terms, function(t) t$dilution, numeric(1)))
@@ -548,7 +579,18 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
 # correlation: para cada covariancia, cov / sqrt(var_i var_j). Antes a linha da covariancia
 # saia com o share vazio e nada mais, e a correlacao, que e o numero que se le dela, tinha de
 # ser feita na mao.
-tabela_componentes <- function(theta, se) {
+#
+# So var() e cov() entram no share. O rho(residual) do model_ar1() nao e variancia: somado
+# ao denominador ele puxava o h2 para baixo (erro que cresce quando as variancias sao
+# pequenas, como nos comportamentos horarios), e no AR(1) multicaracter ficava sozinho num
+# "traco" vazio com share 1,00. Com indirect() o share fica em branco: a variancia
+# fenotipica de um registro depende do tamanho do grupo (Bijma et al. 2007), e a tabela nao
+# o conhece; h2(fit, n =) e t2() fazem a conta. Na sobrevivencia tambem: o modelo de
+# fragilidade nao tem variancia residual, e a unica linha saia com share 1,00.
+tabela_componentes <- function(theta, se, indireto = FALSE, sem_share = NULL) {
+  if (indireto)
+    sem_share <- paste0("share left blank: with indirect() the phenotypic variance ",
+                        "depends on the group size; use h2(fit, n = ) or t2(fit, n = )")
   nm <- names(theta)
   est <- unname(theta)
   membros <- lapply(nm, function(s) strsplit(sub("^(var|cov)\\((.*)\\)$", "\\2", s), ",", fixed = TRUE)[[1]])
@@ -557,8 +599,9 @@ tabela_componentes <- function(theta, se) {
     t <- unique(vapply(m, traco, ""))
     if (length(t) == 1L) t else NA_character_
   }, "")
+  tr[!grepl("^(var|cov)\\(", nm)] <- NA_character_
   share <- rep(NA_real_, length(est))
-  if (!any(grepl("\\[\\d+\\]", nm)))
+  if (is.null(sem_share) && !any(grepl("\\[\\d+\\]", nm)))
     for (t in unique(stats::na.omit(tr))) {
       k <- which(tr == t)
       share[k] <- est[k] / sum(est[k])
@@ -570,9 +613,14 @@ tabela_componentes <- function(theta, se) {
     if (length(v) != 2L || anyNA(v) || any(v <= 0)) return(NA_real_)
     est[i] / sqrt(prod(v))
   }, 0)
-  data.frame(component = nm, estimate = est, std_error = unname(se),
-             share = round(share, 4), correlation = round(corr, 4), row.names = NULL)
+  tb <- data.frame(component = nm, estimate = est, std_error = unname(se),
+                   share = round(share, 4), correlation = round(corr, 4), row.names = NULL)
+  attr(tb, "nota") <- sem_share
+  tb
 }
+
+tem_indireto <- function(fit)
+  any(vapply(termos_do_ajuste(fit), function(t) isTRUE(t$social), logical(1)))
 
 # imprime a tabela com as celulas vazias em branco, e nao "NA": share vazio numa
 # covariancia e correlacao vazia numa variancia nao sao dado faltante, sao nao aplicavel
@@ -583,6 +631,7 @@ mostra_componentes <- function(tb) {
   out$share <- ifelse(is.na(tb$share), "", format(tb$share, nsmall = 4))
   out$correlation <- ifelse(is.na(tb$correlation), "", format(tb$correlation, nsmall = 4))
   print(out, right = TRUE, row.names = FALSE)
+  if (!is.null(attr(tb, "nota"))) cat("  ", attr(tb, "nota"), "\n", sep = "")
   invisible(tb)
 }
 
@@ -602,7 +651,7 @@ print.breeding_fit <- function(x, ...) {
         paste(x$dropped_x, collapse = ", "), "\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  mostra_componentes(tabela_componentes(x$theta, x$se))
+  mostra_componentes(tabela_componentes(x$theta, x$se, indireto = tem_indireto(x)))
   mostra_fixos(x$b, x$dropped_x)
   invisible(x)
 }
@@ -686,12 +735,17 @@ print.summary.breeding_fit <- function(x, ...) {
     cat("\nrho ", format(x$rho, digits = 4), ",  lambda ", format(x$lambda, digits = 4),
         "\n", sep = "")
   if (!is.null(x$fixed)) mostra_fixos(x$fixed, x$dropped_x)
-  cat("\nshare: each component over the phenotypic variance of its trait, covariances\n",
-      "included, the same denominator as h2(); in an animal model the var(animal) row is h2.\n",
-      "A covariance BETWEEN traits belongs to no trait's variance and has no share.\n",
+  if (!is.null(x$indirect_residual))
+    cat("\nresidual by pen size: k ", format(x$indirect_residual[["k"]], digits = 4),
+        ",  s2_ED ", format(x$indirect_residual[["s2_ED"]], digits = 4),
+        ",  s2_ES ", format(x$indirect_residual[["s2_ES"]], digits = 4), "\n", sep = "")
+  cat("\nshare: each variance or covariance over the phenotypic variance of its trait,\n",
+      "covariances included, the same denominator as h2(); in an animal model the\n",
+      "var(animal) row is h2. A covariance BETWEEN traits, a correlation parameter such as\n",
+      "rho(residual), and every row of a model with indirect() have no share.\n",
       "correlation: each covariance over the square root of the two variances it links.\n",
-      "No standard error travels with either: it needs the delta method over the covariance\n",
-      "between components, and making it up would be worse than giving none.\n", sep = "")
+      "For a standard error of either, se_function(fit, function(th) ...) applies the\n",
+      "delta method over 2 AI^-1; near a boundary use profile_theta().\n", sep = "")
   invisible(x)
 }
 
@@ -715,7 +769,8 @@ print.summary.breeding_fit <- function(x, ...) {
 #' what moves is the individual, and with it the ranking of genotyped animals by accuracy.
 #' The fit carries the genomic prior when it has one, so this is used automatically and no
 #' longer has to be read with a caveat.
-#' @param fit result of model(), model_mt(), model_ar1() or model_threshold()
+#' @param fit result of model(), model_mt(), model_ar1(), model_threshold() or
+#'   model_survival() (log-hazard scale, from the Laplace PEV of the frailty)
 #'   (ordinal mode; the joint threshold fit carries no PEV, a declared limit)
 #' @param pedigree the same data.frame used in the fit
 #' @param group covariance group; the first one if omitted
@@ -728,9 +783,13 @@ print.summary.breeding_fit <- function(x, ...) {
 #'   Merit of Animals, 4th ed. CABI, ch. 3.
 #' @export
 accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
+  if (inherits(fit, "breeding_snp_blup"))
+    stop("snp_blup() solves by conjugate gradients and carries no PEV, so there is no ",
+         "accuracy to report; fit with model(genotypes = ) for the accuracy")
   if (!inherits(fit, c("breeding_fit", "breeding_fit_mt", "breeding_fit_ar1",
-                       "breeding_fit_thr")))
-    stop("expected the result of model(), model_mt(), model_ar1() or model_threshold()")
+                       "breeding_fit_thr", "breeding_fit_surv")))
+    stop("expected the result of model(), model_mt(), model_ar1(), model_threshold() or ",
+         "model_survival()")
   if (is.null(group)) group <- names(fit$ebv)[1]
   pv <- fit$pev[[group]]
   if (is.null(pv)) stop("there is no PEV for group '", group, "'")
@@ -749,6 +808,7 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
   # line of their own, so rebuilding the pedigree without them dies on a declared error;
   # and even if the label had a line, gamma = 0 would return F on the wrong base and
   # understate the accuracy of every descendant.
+  confere_tipo_pedigree(fit, pedigree)
   p <- pedigree(pedigree, metafounders = fit$metafounders, gamma = fit$gamma)
   # A PRIORI DE CADA ANIMAL. For a pedigree animal it is (1 + F). For a GENOTYPED animal
   # in a single-step fit it is the diagonal of H, which in that block is the diagonal of

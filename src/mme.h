@@ -57,11 +57,20 @@ struct Pedigree {
   // INTEIRA, nao so o triangulo.
   std::vector<double> gama_chol;   // n_mf x n_mf, por linhas
   std::vector<double> gama_inv;    // Gamma^-1 (pseudo-inversa se singular), por linhas
+  // PEDIGREE PAI / AVO MATERNO (Henderson 1975, 1976; Mrode e Pocrnic, secs. 3.6-3.7). Com
+  // mgs[i] = 1 a SEGUNDA coluna da linha i (mae) e o avo materno: o caminho dele pesa 1/4 e
+  // nao 1/2, e a variancia mendeliana e 11/16 - F_s/4 - F_k/16. A flag e POR LINHA e segue
+  // a ordenacao topologica junto com a linha (o mesmo cuidado do col_mf: uma flag fora do
+  // lugar da uma A^-1 simetrica, positiva-definida e errada). Vazio = tudo pai/mae.
+  std::vector<char> mgs;
 };
 Pedigree constroi_pedigree(const std::vector<std::string>&, const std::vector<std::string>&,
                            const std::vector<std::string>&,
                            const std::vector<std::string>& = {},
-                           const std::vector<double>& = {});
+                           const std::vector<double>& = {},
+                           const std::vector<char>& = {});
+// variancia mendeliana da linha i com os F dos pais ja conhecidos (pai/mae ou pai/MGS)
+double variancia_mendeliana(const Pedigree&, const std::vector<double>& f, std::size_t i);
 std::vector<double> endogamia(const Pedigree&);
 // estado das ESTIMATIVAS no verbose, compartilhado pelos tres ajustadores iterativos
 void imprime_theta(const std::vector<double>&, const std::vector<std::string>&,
@@ -107,7 +116,8 @@ std::size_t bloco_denso_final(const Csc&);
 // sao completamente cheias. E o k do custo k^3 de cada fatoracao.
 std::size_t bloco_denso_simbolico(const Simbolica&);
 // aviso de matriz de informacao singular, com os componentes que o dado nao separa
-std::string aviso_informacao(const Densa& ai, const std::vector<std::string>& nomes);
+std::string aviso_informacao(const Densa& ai, const std::vector<std::string>& nomes,
+                             std::vector<double>* se = nullptr);
 SelInv inversa_seletiva(const Csc&, std::size_t);
 
 // Uma matriz de covariancia DECLARADA pelo usuario (kernel(id, K=)): os ids que nomeiam
@@ -279,6 +289,9 @@ Densa ajusta_g_para_a22(const Densa&, const Densa&, double);
 Csc constroi_hinv(const Csc&, const std::vector<std::size_t>&, const Densa&, const Densa&);
 
 // Substitui o K^-1 dos grupos com parentesco pelo H^-1 do passo unico.
+Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::string>& geno_ids,
+              Densa& m, double mistura, const std::vector<std::string>& nucleo_apy,
+              std::size_t vecchia_k, RelatorioG& rel);
 RelatorioG aplica_genomica(Desenho&, const Pedigree&, const std::vector<std::string>&,
                            Densa&, double, const std::vector<std::string>&,
                            std::size_t = 0);
@@ -311,8 +324,16 @@ struct GibbsSaida {
   std::vector<double> media_loc, var_loc;
   std::string mensagem;
 };
+// priori das variancias, a mesma em todo grupo e no residuo: 0 Jeffreys (1/s2, o padrao),
+// 1 plana na variancia, 2 uniforme no desvio-padrao (so grupo escalar), 3 qui-quadrado
+// inversa escalada propria com df e escala (OPTION prior do gibbsf90)
+struct PrioriGibbs {
+  int tipo = 0;
+  double gl0 = 0.0, escala = 0.0;   // gl0: graus de liberdade (df colide com macro do Rmath)
+};
 GibbsSaida gibbs(const Desenho&, std::size_t n_iter, std::size_t burnin, std::size_t thin,
-                 bool loc_fixa, const std::vector<double>* theta_fixo, bool verboso = false);
+                 bool loc_fixa, const std::vector<double>* theta_fixo, bool verboso = false,
+                 const PrioriGibbs& priori = PrioriGibbs(), bool probit = false);
 Ajuste ajusta(const Desenho&, const std::vector<double>*, std::size_t, std::size_t, double,
               bool = false);
 
@@ -442,6 +463,7 @@ struct DesenhoAR {
   // E exclusao por lista, e exclusao por lista tem de ser DITA: sem isso o unico sinal e um
   // n_used menor que nrow(data), que ninguem confere.
   std::size_t n_incompletos = 0;
+  std::size_t n_sem_tempo = 0;     // registros sem tempo finito, fora da serie
   // Esqueleto pre-computado no desenho (nada disto depende de theta): as linhas de W ja
   // em colunas globais COM a caracteristica, e as colunas distintas de cada sujeito.
   std::vector<std::vector<EntAR>> lw;

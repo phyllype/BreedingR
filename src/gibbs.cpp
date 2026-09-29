@@ -9,9 +9,12 @@
 // iteracao, simbolica em cache. Single-site misturaria pior e jogaria fora a maquinaria
 // ja validada; o bloco unico faz da media amostral o proprio BLUP, que e o gate.
 //
-// Condicionais conjugadas com prior PLANO (documentado; nu0 = 0, S0 = 0):
+// Condicionais conjugadas. A priori PADRAO e a de referencia de Jeffreys, p(s2) ~ 1/s2 e
+// p(C) ~ |C|^-(d+1)/2 (antes este cabecalho dizia "prior PLANO", que e outra coisa: a plana
+// na variancia da chisq(nl - 2)):
 //   C_g | u  ~ InvWishart(nl_g, U' K^-1 U)          (Bartlett para a Wishart)
 //   s2e | e  ~ e'e / chisq(n)
+// As outras (PrioriGibbs) so mudam os graus de liberdade e somam nu0 S0 a escala.
 //
 // ## RNG
 //
@@ -84,15 +87,77 @@ static Densa rinvwishart(double nu, const Densa& S) {
   return inv_pd(W);
 }
 
-GibbsSaida gibbs(const Desenho& d, std::size_t n_iter, std::size_t burnin,
-                 std::size_t thin, bool loc_fixa, const std::vector<double>* theta_fixo,
-                 bool verboso) {
-  GibbsSaida S;
-  const std::size_t ntheta = d.modelo.ntheta;
+// graus de liberdade e acrescimo de escala da condicional de um bloco dim x dim com nl
+// niveis (ou do residuo, dim = 1 e nl = n registros), pela priori escolhida
+static double gl_priori(const PrioriGibbs& pr, std::size_t nl, std::size_t dim) {
+  const double n = static_cast<double>(nl), d = static_cast<double>(dim);
+  switch (pr.tipo) {
+    case 1: return n - d - 1.0;
+    case 2: return n - 1.0;
+    case 3: return n + pr.gl0;
+    default: return n;
+  }
+}
 
-  // partida identica a do REML: var(y) repartida
+// Normal padrao truncada, pela inversa da CDF em escala LOG (Rf_pnorm5/Rf_qnorm5 com
+// log_p): z > a quando acima, z <= a quando abaixo. Em escala linear a cauda longe (a = 9)
+// da u * Phi(-9) ~ 1e-19 * u e o quantil sai infinito; em log nao.
+static double normal_truncada(double a, bool acima) {
+  const double lu = std::log(Rf_runif(0.0, 1.0));
+  if (acima) return Rf_qnorm5(lu + Rf_pnorm5(a, 0.0, 1.0, 0, 1), 0.0, 1.0, 0, 1);
+  return Rf_qnorm5(lu + Rf_pnorm5(a, 0.0, 1.0, 1, 1), 0.0, 1.0, 1, 1);
+}
+
+GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
+                 std::size_t thin, bool loc_fixa, const std::vector<double>* theta_fixo,
+                 bool verboso, const PrioriGibbs& priori, bool probit) {
+  GibbsSaida S;
+  // PROBIT (Albert e Chib 1993; no melhoramento, Sorensen, Andersen, Gianola e Korsgaard
+  // 1995): uma liability l_i ~ N(w_i' loc, 1) truncada em (0, inf) quando y = 1 e em
+  // (-inf, 0] quando y = 0 entra no lugar de y, e o resto da cadeia e a gaussiana de
+  // sempre com a variancia residual FIXA em 1, que da a escala da liability. O limiar fica
+  // em 0 e o intercepto implicito do desenho faz o papel dele. O desenho e copiado uma
+  // vez so no probit, porque o y dele e reescrito a cada iteracao.
+  Desenho d_probit;
+  std::vector<char> y01;
+  if (probit) {
+    d_probit = d_in;
+    y01.assign(d_in.nlin, 0);
+    for (std::size_t r = 0; r < d_in.nlin; r++) {
+      if (!d_in.usa[r]) continue;
+      if (d_in.y[r] != 0.0 && d_in.y[r] != 1.0)
+        throw Erro("family = \"probit\" takes a 0/1 trait");
+      y01[r] = d_in.y[r] == 1.0;
+      d_probit.y[r] = y01[r] ? 0.5 : -0.5;
+    }
+  }
+  const Desenho& d = probit ? d_probit : d_in;
+  const std::size_t ntheta = d.modelo.ntheta;
+  // partida: var(y) repartida, como no REML; num grupo de K DECLARADA a parte dele e
+  // dividida pela media geometrica dos autovalores de K (a mesma conta dos espelhos,
+  // multitrait2.cpp), o que torna a cadeia EQUIVARIANTE: com cK a partida cai por c.
   std::vector<double> theta = partida(d);
+  for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
+    const Grupo& gr = d.modelo.grupos[g];
+    if (gr.estrutura != Estrutura::Declarada || g >= d.kinv.size() || d.kinv[g].ncol == 0)
+      continue;
+    const double gm = std::exp(-d.kinv_logdet[g] / static_cast<double>(d.kinv[g].ncol));
+    if (std::isfinite(gm) && gm > 0.0)
+      for (std::size_t i = 0; i < gr.dim; i++) theta[gr.theta_idx(i, i)] /= gm;
+  }
+  if (probit) theta[d.modelo.offset_residual] = 1.0;
   if (theta_fixo) theta = *theta_fixo;
+  if (probit && theta[d.modelo.offset_residual] != 1.0)
+    throw Erro("with family = \"probit\" the residual variance is 1 by definition: "
+               "theta_fixed must end with 1");
+  // kernel(fixed = v): o componente preso comeca no valor pedido e nao e amostrado
+  for (std::size_t k = 0; k < ntheta; k++)
+    if (d.modelo.preso(k)) theta[k] = d.modelo.theta_fixo[k];
+  if (priori.tipo == 2)
+    for (const Grupo& gr : d.modelo.grupos)
+      if (gr.dim > 1)
+        throw Erro("prior = \"uniform_sd\" is for scalar variances; a covariance group "
+                   "of dimension > 1 needs \"jeffreys\", \"flat\" or c(df = , scale = )");
 
   GetRNGstate();
   CacheSimbolica cs;
@@ -177,9 +242,17 @@ GibbsSaida gibbs(const Desenho& d, std::size_t n_iter, std::size_t burnin,
         ee += e * e;
         nreg++;
       }
+      // probit: a liability nova, condicional as localizacoes, e o y da proxima rodada
+      if (probit)
+        for (std::size_t r = 0; r < d.nlin; r++)
+          if (d.usa[r]) d_probit.y[r] = wl[r] + normal_truncada(-wl[r], y01[r] != 0);
     }
-    if (!loc_fixa)
-      theta[d.modelo.offset_residual] = ee / Rf_rchisq(static_cast<double>(nreg));
+    if (!loc_fixa && !probit) {
+      const double gl = gl_priori(priori, nreg, 1);
+      if (!(gl > 0.0)) throw Erro("too few records for this prior on the residual");
+      theta[d.modelo.offset_residual] =
+          (ee + (priori.tipo == 3 ? priori.gl0 * priori.escala : 0.0)) / Rf_rchisq(gl);
+    }
 
     // ---- 3. grupos: C_g ~ InvWishart(nl, U' K^-1 U)   (prior plano)
     if (!loc_fixa) {
@@ -188,6 +261,10 @@ GibbsSaida gibbs(const Desenho& d, std::size_t n_iter, std::size_t burnin,
         const std::size_t dim = gr.dim;
         const std::size_t nl = nl_g[g];
         const std::size_t off = M.offset_grupo[g];
+        // grupo preso por kernel(fixed =): escalar por construcao (entrada.cpp recusa o resto)
+        if (d.modelo.preso(gr.offset)) continue;
+        if (gr.estrutura == Estrutura::Declarada && d.kinv[g].ncol != nl)
+          throw Erro("a declared K with a number of rows other than the levels of its term");
         Densa Su(dim, dim);
         std::vector<std::vector<double>> ku(dim);
         for (std::size_t b = 0; b < dim; b++) {
@@ -213,9 +290,21 @@ GibbsSaida gibbs(const Desenho& d, std::size_t n_iter, std::size_t burnin,
             Su.at(a, b) = s;
             Su.at(b, a) = s;
           }
-        // estabiliza contra Su singular no comeco da cadeia
-        for (std::size_t a = 0; a < dim; a++) Su.at(a, a) += 1e-10;
-        Densa cg = rinvwishart(static_cast<double>(nl), Su);
+        // priori propria: soma nu0 S0 na diagonal da escala
+        if (priori.tipo == 3)
+          for (std::size_t a = 0; a < dim; a++) Su.at(a, a) += priori.gl0 * priori.escala;
+        // estabiliza contra Su singular no comeco da cadeia. RELATIVO a escala de Su: um
+        // 1e-10 absoluto era um piso escondido na priori, e nao escalava com K, entao a
+        // cadeia com cK nao era a cadeia com K reescalada
+        double tr = 0.0;
+        for (std::size_t a = 0; a < dim; a++) tr += Su.at(a, a);
+        const double eps = 1e-10 * (tr > 0.0 ? tr / static_cast<double>(dim) : 1.0);
+        for (std::size_t a = 0; a < dim; a++) Su.at(a, a) += eps;
+        const double gl = gl_priori(priori, nl, dim);
+        if (!(gl > static_cast<double>(dim) - 1.0))
+          throw Erro("too few levels in a covariance group for this prior: the inverse "
+                     "Wishart needs more degrees of freedom than the dimension minus one");
+        Densa cg = rinvwishart(gl, Su);
         for (std::size_t j = 0; j < dim; j++)
           for (std::size_t i = j; i < dim; i++)
             theta[gr.offset + vech_idx(i, j, dim)] = cg.at(i, j);

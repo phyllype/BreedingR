@@ -4,7 +4,7 @@
 \alias{h2}
 \title{Heritability from the estimated components}
 \usage{
-h2(fit, group = NULL, trait = NULL)
+h2(fit, group = NULL, trait = NULL, n = NULL, r = 0)
 }
 \arguments{
 \item{fit}{result of \code{model()}, \code{model_mt()} or \code{model_ar1()}}
@@ -12,31 +12,59 @@ h2(fit, group = NULL, trait = NULL)
 \item{group}{covariance group; the first one by default}
 
 \item{trait}{for a multi-trait fit, which trait; all of them by default}
+
+\item{n}{group size, required when the model has an \code{\link[=indirect]{indirect()}} term and ignored
+otherwise; a vector gives one value per size}
+
+\item{r}{average additive relationship between group mates, used with \code{n}}
 }
 \value{
-a single number, or one per trait in the multi-trait case, named by trait
+a single number, or one per trait in the multi-trait case, named by trait;
+with a vector \code{n}, one per size
 }
 \description{
-h2 = var(group) / sum of ALL components, covariances included. The denominator is worth
-stating because it is where this kind of function usually goes quietly wrong: in a
+h2 = var(group) / phenotypic variance, where the phenotypic variance is the sum of the
+variance AND covariance components of the trait. The denominator is worth stating
+because it is where this kind of function usually goes quietly wrong: in a
 direct-maternal model the phenotypic variance is
 sigma2_a + sigma2_m + sigma_am + sigma2_e (Willham 1972), so the covariance BELONGS in
-it, and dropping it inflates the ratio.
+it, and dropping it inflates the ratio. The coefficient 1 on sigma_am is the one in
+the worked example of \verb{OPTION se_covar_function} in the BLUPF90 documentation; part
+of the literature writes 2 sigma_am, which is the variance of the sum a + m of the SAME
+animal and not the phenotypic variance of a record. Parameters that are not
+(co)variances, such as the \code{rho(residual)} of \code{\link[=model_ar1]{model_ar1()}}, stay out of the
+denominator.
 }
 \details{
+With an \code{\link[=indirect]{indirect()}} term the phenotypic variance depends on the group size: each
+record carries the indirect effects of its \code{n - 1} group mates. The denominator is then
+the one of Bijma, Muir and Van Arendonk (2007),
+\verb{sigma2_AD + c_V [1 + (n - 2) r] sigma2_AS + 2 r c_D sigma_ADS} plus the other
+components, with \code{r} the average relationship between group mates and, under the
+dilution \code{d} of the term (Bijma 2010), \code{c_D = (n - 1)^(1 - d)} and
+\verb{c_V = (n - 1)^(1 - 2d)}. That is why \code{n} is required there. \code{\link[=t2]{t2()}} gives the total
+heritable variance of the same model.
+
 Two cases are refused instead of answered. With a reaction norm the heritability is a
 function of the gradient and not a number, so this sends the caller to \code{\link[=h2_curve]{h2_curve()}}. On
 the observed scale of a threshold trait the ratio is not the liability heritability
 either; \code{\link[=h2_observed]{h2_observed()}} and \code{\link[=h2_liability]{h2_liability()}} convert between the two.
 
-No standard error travels with the number. It needs the delta method over the
-covariance between components, and inventing it would be worse than not giving it.
+No standard error travels with the number here; \code{\link[=se_function]{se_function()}} gives it by the delta
+method, and \code{\link[=t2]{t2()}} returns it for the indirect-effect model.
 }
 \references{
 Willham, R.L. (1972). The role of maternal effects in animal breeding:
 III. Biometrical aspects of maternal effects in animals. Journal of Animal Science
 35:1288-1293.
+
+Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
+quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
+
+Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
+genetic effects and group size. Genetics 186:1013-1028.
 }
 \seealso{
-\code{\link[=h2_curve]{h2_curve()}} for a reaction norm, \code{\link[=rg]{rg()}} for the genetic correlation
+\code{\link[=h2_curve]{h2_curve()}} for a reaction norm, \code{\link[=rg]{rg()}} for the genetic correlation, \code{\link[=t2]{t2()}}
+for the indirect-effect model
 }
