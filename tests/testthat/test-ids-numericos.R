@@ -223,7 +223,10 @@ test_that("numeros distintos tem rotulos distintos, e nao animais fundidos", {
                      "0.3333333333333333", "1e+20", "-2.5"))
   v <- c(0.1 + 0.2, 0.3, 1 / 7, 2 / 3, 1e-300, 123456789.123, pi * 1e10)
   r <- BreedingR:::rotulo_motor(v)
-  expect_identical(as.numeric(r), v)
+  # O motor confere a volta com o strtod do C, que e exato. O as.numeric() do R usa o leitor
+  # proprio do R, que nao arredonda certo 16-17 digitos onde o long double tem 64 bits (arm64
+  # do macOS): la a volta pelo R erra 1 ulp, entao aqui a tolerancia e de poucos ulps.
+  expect_equal(as.numeric(r), v, tolerance = 4 * .Machine$double.eps)
   expect_false(anyDuplicated(r) > 0)
   # iguais de verdade dao o mesmo rotulo
   expect_identical(BreedingR:::rotulo_motor(c(1.5, 1.5, -0, 0)), c("1.5", "1.5", "0", "0"))
