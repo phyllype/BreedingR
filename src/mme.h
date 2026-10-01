@@ -223,6 +223,17 @@ void reduz_kernels(const Modelo& m, const std::vector<KernelDecl>*& kernels,
 void casa_niveis_nulos(const Modelo& m, const std::vector<DesenhoTermo*>& aleatorios,
                        const std::vector<std::unordered_set<std::string> >& kern_nulos,
                        const Tabela& t, std::size_t nlin);
+// os termos aleatorios dos tres montadores, com os niveis de cada grupo: o pedigree, os ids
+// da K declarada (ja reduzida), ou a uniao dos rotulos num grupo sem estrutura de varios
+// termos. Recusa grupo cujos termos nao indexam o mesmo conjunto de niveis.
+std::vector<DesenhoTermo> monta_aleatorios(const Modelo& m, const Tabela& t,
+                                           const std::vector<std::string>& niveis_ped,
+                                           const std::vector<KernelDecl>* kernels);
+// Antes de ESTIMAR: recusa o grupo sem estrutura em que um par de termos nao tem nenhum nivel
+// com registro (linha usada) nos dois, porque a covariancia do par nao entra na
+// verossimilhanca. Os ajustadores a chamam so quando os componentes andam.
+void confere_covariancias_iid(const Modelo& m, const std::vector<DesenhoTermo>& aleatorios,
+                              const std::vector<char>& usa);
 void kinv_declarada(const Modelo&, const Grupo&, const std::vector<KernelDecl>*,
                     std::vector<Csc>&, std::vector<double>&);
 Montado monta_mme(const Desenho&, const std::vector<double>&, CacheSimbolica* = nullptr);

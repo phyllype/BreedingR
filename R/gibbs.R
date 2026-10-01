@@ -113,7 +113,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side")
   trait <- deparse(formula[[2]])
-  terms <- decompoe_formula(formula[[3]])
+  terms <- decompoe_formula(formula[[3]], environment(formula))
   recusa_materno_mgs(terms, pedigree)
   kfixo <- vapply(terms, function(t) if (is.null(t$kfixo)) NA_real_ else t$kfixo, numeric(1))
   if (!is.null(theta_fixed) && any(is.finite(kfixo)))
@@ -161,6 +161,11 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     stop("chains must be a positive integer")
   if (length(cores) != 1L || is.na(cores) || cores < 1L)
     stop("cores must be a positive integer")
+  # o K= e avaliado AQUI, no processo de quem chamou, e nao dentro da cadeia: com cores > 1
+  # a cadeia roda num trabalhador PSOCK, e uma formula escrita no ambiente global chega la
+  # apontando para o global DO TRABALHADOR, onde o K nao existe (medido: "object 'Kp' not
+  # found" com chains = 2, cores = 2). Avaliado uma vez, tambem nao se refaz por cadeia.
+  kern <- monta_kernels(terms, environment(formula))
   t0 <- proc.time()[["elapsed"]]
   # uma cadeia: com semente propria quando ha varias (sorteada do gerador de quem chama,
   # entao set.seed() governa tudo e a ordem de execucao nao muda nada)
@@ -186,9 +191,9 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              if (is.null(theta_fixed)) numeric(0) else as.double(theta_fixed),
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
              isTRUE(verbose),
-             if (is.null(metafounders)) character(0) else as.character(metafounders),
+             rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
-             monta_kernels(terms, environment(formula)), kfixo,
+             kern, kfixo,
              pr$tipo, pr$df, pr$scale, as.integer(family == "probit"),
              vapply(terms, function(t) t$dilution, numeric(1)))
   }
@@ -228,7 +233,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     names(r$rhat) <- r$names
   }
   r$chains <- chains
-  r$formula <- formula
+  r$formula <- formula_resolvida(formula, terms)
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
   structure(r, class = "breeding_gibbs")

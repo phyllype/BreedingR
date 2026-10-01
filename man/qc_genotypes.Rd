@@ -7,7 +7,9 @@
 qc_genotypes(m, min_call_rate = 0.9, min_maf = 0.01, hwe_p = NULL)
 }
 \arguments{
-\item{m}{dosage matrix 0/1/2/NA (animals in rows)}
+\item{m}{dosage matrix 0/1/2/NA (animals in rows). Double, integer and raw storage give
+the same filtering and counts; in a raw matrix, as \code{\link[=read_blupf90_snp]{read_blupf90_snp()}} returns it, 5
+is the missing code}
 
 \item{min_call_rate}{keep markers with at least this fraction of non-missing calls}
 
@@ -16,8 +18,9 @@ qc_genotypes(m, min_call_rate = 0.9, min_maf = 0.01, hwe_p = NULL)
 \item{hwe_p}{if not NULL, drop markers whose HWE chi-square p-value falls below it}
 }
 \value{
-list with \code{m} (filtered matrix), and the counts \code{n_call}, \code{n_maf}, \code{n_hwe}
-removed by each filter (applied in that order)
+list with \code{m} (filtered matrix, in the storage it came in: a raw matrix stays
+raw, with 5 as missing), and the counts \code{n_call}, \code{n_maf}, \code{n_hwe} removed by each
+filter (applied in that order)
 }
 \description{
 Filters markers by call rate, minor allele frequency and (optionally) a Hardy-Weinberg

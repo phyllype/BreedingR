@@ -7,7 +7,9 @@
 fst(m, groups)
 }
 \arguments{
-\item{m}{0/1/2 matrix, animals in rows, markers in columns; NA allowed}
+\item{m}{0/1/2 matrix, animals in rows, markers in columns; NA allowed. Double, integer
+and raw storage give the same result; in a raw matrix, as \code{\link[=read_blupf90_snp]{read_blupf90_snp()}}
+returns it, 5 is the missing code}
 
 \item{groups}{vector with each animal's group (line, population, generation...)}
 }

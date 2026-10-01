@@ -251,3 +251,47 @@ test_that("direct and indirect in one group: the pen mates' markers enter too", 
               K0 = matrix(c(0.4, -0.05, -0.05, 0.1), 2))), th[4], 0.2)
   confere_grupos(f, ref, c("animal", "indirect"))
 })
+
+test_that("an iid group of two terms through snp_blup(): row order and the pedigree BLUP", {
+  # O grupo iid de dois termos indexa a UNIAO dos rotulos das duas colunas, pareada pelo
+  # nome (test-grupo-iid-niveis.R), e a ssSNPBLUP passa pelo mesmo montador. Medido no motor
+  # anterior a essa correcao, com estes dados e estes componentes: as linhas permutadas
+  # moviam os EBV do grupo em ate 1.28 (desvio padrao 0.31) e os do animal em ate 0.137, e
+  # o grupo tinha 24 coeficientes nomeados pelos rotulos do primeiro termo. Agora a ordem das
+  # linhas nao muda nada, e com rpg -> 1 a ssSNPBLUP cai no BLUP de pedigree do model() com
+  # os mesmos componentes, grupo iid inclusive.
+  s <- simulate_breeding(n_founders = 25, n_generations = 2, offspring_per_generation = 40,
+                         h2 = 0.4, n_markers = 60, seed = 11)
+  d <- s$data
+  set.seed(3)
+  d$a <- sprintf("u%02d", sample(8, nrow(d), TRUE))
+  d$b <- sprintf("u%02d", 4 + sample(16, nrow(d), TRUE))
+  gen <- list(ids = s$genotypes$ids[46:105], m = s$genotypes$m[46:105, ])
+  fml <- y ~ cg + animal(id) + random(a, group = "g", nome = "ra") +
+    random(b, group = "g", nome = "rb")
+  th <- c(0.2, 0.05, 0.15, 0.4, 0.6)
+  sb <- function(dd, rpg) snp_blup(fml, dd, s$pedigree, genotypes = gen, theta = th,
+                                   rpg = rpg, tol = 1e-12, maxiter = 5000, verbose = FALSE)
+  f1 <- sb(d, 0.2)
+  set.seed(4)
+  f2 <- sb(d[sample(nrow(d)), ], 0.2)
+  expect_true(f1$converged && f2$converged)
+  expect_identical(names(f1$ebv$g), rep(sort(unique(c(d$a, d$b))), 2))
+  expect_identical(names(f2$ebv$g), names(f1$ebv$g))
+  expect_lt(max(abs(f2$ebv$g - f1$ebv$g)), 1e-6 * stats::sd(f1$ebv$g))
+  expect_lt(max(abs(f2$ebv$animal[names(f1$ebv$animal)] - f1$ebv$animal)),
+            1e-6 * stats::sd(f1$ebv$animal))
+  # sem PEV nao ha se nem acc, e a coluna term diz o bloco de cada linha
+  s1 <- solutions(f1, group = "g")
+  expect_identical(names(s1), c("id", "term", "ebv"))
+  expect_identical(sort(paste(s1$term, s1$id)),
+                   sort(paste(rep(c("ra", "rb"), each = 20), names(f1$ebv$g))))
+  # rpg -> 1: os marcadores saem, e sobra o BLUP de pedigree (medido: 1e-4 no grupo, 6e-4
+  # no animal, para desvios padrao de 0.17 e 0.40)
+  p <- model(fml, d, s$pedigree, start = th, maxiter = 0L, n_em = 0L, verbose = FALSE)
+  f9 <- sb(d, 0.999)
+  expect_identical(names(f9$ebv$g), names(p$ebv$g))
+  expect_lt(max(abs(f9$ebv$g - p$ebv$g)), 0.01 * stats::sd(p$ebv$g))
+  expect_lt(max(abs(f9$ebv$animal[names(p$ebv$animal)] - p$ebv$animal)),
+            0.01 * stats::sd(p$ebv$animal))
+})

@@ -7,7 +7,8 @@
 roh(m, min_snp = 30L, max_het = 0L, pos = NULL, min_kb = NULL, chr = NULL)
 }
 \arguments{
-\item{m}{0/1/2 matrix; NA breaks the run, it is never treated as homozygous}
+\item{m}{0/1/2 matrix; NA breaks the run, it is never treated as homozygous. Double,
+integer and raw storage give the same result; in a raw matrix 5 is the missing code}
 
 \item{min_snp}{minimum run length, in consecutive markers}
 

@@ -153,7 +153,7 @@ fit <- model(y ~ cg + animal(id), q$data, s$pedigree,
 fit                                # components, SEs, share of the phenotypic variance
 h2(fit)                            # the same ratio as the var(animal) share
 head(solutions(fit, s$pedigree))   # id, ebv, se, acc, sorted by breeding value
-accuracy(fit, s$pedigree)[1:5]     # prior 1+F, or the diagonal of G* if genotyped
+accuracy(fit, s$pedigree)[1:5]     # prior 1+F, G* diagonal if genotyped, K[i,i] for kernel()
 cor(ebv(fit)[names(s$tbv)], s$tbv) # against the simulator's own truth
 ```
 
@@ -315,11 +315,12 @@ g <- qc_genotypes(read_plink("chip")$m, min_maf = 0.01, hwe_p = 1e-7)
 
 Around the fit: `pedigree()` (topological order plus Meuwissen-Luo inbreeding),
 `a_inverse()`, `a22_inverse()`, `solutions()` (id, ebv, se and acc in one table, sorted
-by breeding value), `h2()` (over the phenotypic variance of the trait, covariances
+by breeding value; a `term` column when a group has more than one effect per level), `h2()` (over the phenotypic variance of the trait, covariances
 included and never the `rho(residual)` of `model_ar1()`; a direct-maternal covariance
 enters with coefficient 1, Willham, 1972), `t2()` (the total heritable variance of an
-indirect-effect model, with delta-method standard errors), `ebv()`, `accuracy()` (prior
-`1 + F`, or the diagonal of `G*` for a genotyped animal in a single step), `h2_curve()` and
+indirect-effect model, with delta-method standard errors), `ebv()`, `accuracy()` (prior per
+level: `1 + F`, the diagonal of `G*` for a genotyped animal in a single step, `K[i, i]` for a
+`kernel()` term or a declared `k_inverse =`, 1 for an iid term), `h2_curve()` and
 `plot()` for the reaction norm, `indirect_residual()` for the pen-size residual of the
 associative model, `var(e_i) = s2_ED + (n_i - 1)^(1 - 2d) s2_ES` with `d` taken from the
 `indirect()` term (`d = 0` is the book's `(n_i - 1) s2_ES`), by profile REML over exact
@@ -351,7 +352,9 @@ The layout unit is the **covariance group**, not the term. `group = "g"` puts tw
 terms in the same covariance matrix with the correlation estimated, and that is why
 direct-maternal, the reaction norm and the associative model **have no dedicated
 fitter**: they are the same engine with different incidences and the same
-`kron(C^-1, K^-1)` penalty.
+`kron(C^-1, K^-1)` penalty. The terms of a group index one set of levels, and level l of
+one term covaries with level l of the other: the pedigree animals, the ids of a declared K,
+or, for terms without a relationship matrix, the union of the level names of their columns.
 
 The formula therefore departs from `(1 | group)` on purpose: that notation has nowhere
 to say that two different terms share a covariance matrix.
@@ -386,7 +389,7 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | multi-trait AR(1) breeding values | EBV and PEV of the dense mixed-model equations built in R from the raw data |
 | indirect effects, identifiability | 30 replicates per design: pens of 2 to 8 recover the components (REML and Gibbs); pens of one size from two full-sib families flag SINGULAR and give the same -2logL from different starts |
 | sire / maternal-grandsire pedigree | exact: the pedigree expanded with a dummy dam per animal; the A^-1 printed for Example 15.2; the mixed pedigree (`dam =`) against the same expansion only where the dam is missing, A to 1e-12 and the fit identical; at scale, 20 replicates of 36 000 records recover var(sire) = va / 4 within 1.6% (`validation/sire_mgs_recovery.R`) |
-| APY core by eigenvalues | the count by two routes (eigenvalues of G, singular values of Z); `"auto"` == the same core passed by hand; the Lanczos estimate against the exact count on both sides of the Gram matrix, and at 10 000 x 10 000 the estimate within one standard error of the exact count (5973 to 5979 against 5953, `validation/apy_core_lanczos.R`) |
+| APY core by eigenvalues | the count by two routes (eigenvalues of G, singular values of Z); `"auto"` == the same core passed by hand; the Lanczos estimate against the exact count on both sides of the Gram matrix, within 2% and 4 standard errors + 2 (20 probe seeds: at most 1.04% and 3.8 standard errors, `validation/apy_core_lanczos_se.R`); the quadrature error, paired with the same probes on the exact eigenvectors and averaged over v from 80 to 99.5%, under 0.1%; the standard error against the spread of 20 independent probe sets, ratio within 0.7 to 1.4 (0.82 to 1.31 over eight draws at the gated levels); a probe that stops at an invariant subspace gives the count of its probes on the exact eigenvectors, and the test fails with that branch removed; at 10 000 x 10 000 over ten seeds, mean 5957.3 against 5953 exact (z = 1.1) and a paired quadrature error of +2.3 counts, 0.04% (`validation/apy_core_lanczos.R`) |
 | h_inverse() | the single-step formula rebuilt in R, exact and with APY; `kernel(K = H)` == `genotypes=` at the same theta |
 | threshold, estimated components | the EM fixed point against the minimum of the Laplace -2logL found without the EM step; 80 sires with 50 daughters each, binary, planted 0.15: mean 0.148 over 10 replicates |
 | Gibbs, probit and kernel() | with the components held, the posterior mean tracks the threshold-model mode (probit) and the `model()` BLUP (kernel); `K = I` == `random(id)`, the same chain |
@@ -398,7 +401,7 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | `pegs()` | at fixed variances the exact multivariate ridge, a dense `mk x mk` solve; the structures are identities where they must be; recovery with 2000 animals x 2000 markers x 3 traits; the Julia reference gives the same numbers on the same data |
 | `sire(sire, mgs =)` | -2logL and BLUP against the dense GLS with the incidence built by hand |
 | `indirect(dilution =)` in the siblings | the bivariate with no between-trait covariance == the sum of the univariate `model()` fits with the same d; AR(1) at rho = 0 == `model()`; the Gibbs chain with fixed components == the diluted BLUP |
-| `snp_blup()`, any structure | the dense single-step solve built in R with `H^-1` from `G*` without the affine step: breeding values and marker effects to 1e-6 of their SD with one animal term, direct-maternal in one group, direct and maternal in separate groups, a reaction norm and direct-indirect; `rpg` near 1 falls back to the pedigree BLUP; a planted QTL comes out on top |
+| `snp_blup()`, any structure | the dense single-step solve built in R with `H^-1` from `G*` without the affine step: breeding values and marker effects to 1e-6 of their SD with one animal term, direct-maternal in one group, direct and maternal in separate groups, a reaction norm and direct-indirect, the latter also with `dilution = 0.7` in pens of 1 to 7, with mates without a phenotype and a repeated record; `rpg` near 1 falls back to the pedigree BLUP; a planted QTL comes out on top |
 | genotype storage | double, integer and raw matrices give the same G, H^-1 (exact and APY), APY core (both routes), genomic F and D, fit and ssSNPBLUP, bit for bit, with missing values in the matrix; `read_blupf90_snp()` returns the matrix that was written, subsets by id |
 | `survival_split()` | the subject and change tables reproduce hand-built elementary records exactly, with the same fit; `S(t \| e) S(e) = S(t)` |
 
@@ -428,7 +431,7 @@ J., Greenbaum, A., Hammarling, S., McKenney, A. & Sorensen, D. (1999). *LAPACK U
 Guide*, 3rd ed. SIAM, Philadelphia.
 
 Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect genetic
-effects and group size. *Genetics* 186:1013-1028.
+effects and group size. *Genetics* 186:1029-1031.
 
 Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 quantitative genetics of inheritance and response to selection. *Genetics* 175:277-288.

@@ -26,8 +26,64 @@ eh_coluna_mgs <- function(nome)
 # os codigos de pai desconhecido do motor
 desconhecido <- function(v) is.na(v) | v %in% c("0", "", "NA")
 
+# O ROTULO DE UM ID, como o motor o escreve. O motor rotula a coluna numerica dos dados pelo
+# numero inteiro com todos os digitos ("100000"), e o lado R escrevia ids com as.character(),
+# que da "1e+05" para o double 100000 (e "1e+06", "1.2e+07" para todo id redondo): o
+# pedigree, os genotipos e as chaves nao casavam com o rotulo dos dados, e os registros
+# daqueles animais saiam do ajuste sem aviso (medido: ids 100000 a 100149, n_used 149 de
+# 150, outro -2logL). Toda conversao de id ou nivel para texto no R passa por aqui, e o
+# numero vai ao PROPRIO formatador do motor (R_rotulos, o de Coluna::rotulo), entao os dois
+# lados nao tem como divergir. O tipo segue a travessia dos dados em model(): fator vira o
+# texto dos niveis, texto fica como esta, o resto vira double. NA segue NA. Um numero que
+# nao e inteiro exato sai na menor escrita que volta ao mesmo double ("1.5", "1234567.5"),
+# entao dois numeros distintos nunca dividem um rotulo, em nenhuma coluna nem entre colunas.
+rotulo_motor <- function(x) {
+  if (is.null(x)) return(character(0))
+  if (is.factor(x) || is.character(x)) return(as.character(x))
+  .Call(R_rotulos, as.double(x))
+}
+
+# "1e+05", "1.5e+07": a forma que o as.character() e o factor() dao a um double inteiro
+# redondo, a que o motor confere em confere_rotulos_cientificos (src/mme.cpp)
+eh_cientifico <- function(x) grepl("^-?[1-9](\\.[0-9]+)?e\\+[0-9]+$", x)
+
+# O conferido do motor para um casamento feito em R: `fora` sao os rotulos que nao acharam
+# par em `niveis`. Um deles em notacao cientifica com o inteiro do outro lado, ou o
+# contrario, e o MESMO numero escrito de dois jeitos, e nao um id ausente: erro declarado em
+# vez de registros perdidos em silencio.
+recusa_cientifico <- function(fora, niveis, lado_fora, lado_niveis) {
+  fora <- unique(fora[!is.na(fora)])
+  if (!length(fora)) return(invisible(NULL))
+  # o rotulo inteiro do mesmo numero, como inteiro_de_cientifico() no motor: NA quando o
+  # texto nao e um inteiro exato ESCRITO PELO as.character(). "1.23457e+06" le como 1234570,
+  # mas o R escreve esse numero "1234570": o texto e um nao inteiro arredondado, e dizer que
+  # e o mesmo numero do outro lado seria fundir dois animais na mensagem
+  inteiro <- function(s) {
+    v <- suppressWarnings(as.numeric(s))
+    ok <- is.finite(v) & v == floor(v) & abs(v) < 2^53
+    ok[ok] <- as.character(v[ok]) == s[ok]
+    out <- rep(NA_character_, length(s))
+    out[ok] <- rotulo_motor(v[ok])
+    out
+  }
+  recusa <- function(em_fora, em_niveis, cientifico)
+    stop(lado_fora, " has the id '", em_fora, "' and ", lado_niveis, " has '", em_niveis,
+         "', the same number written two ways ('", cientifico, "' is how as.character() ",
+         "and factor() write a round number): write the ids the same way on both sides, ",
+         "as numbers or with format(x, scientific = FALSE, trim = TRUE)", call. = FALSE)
+  sf <- fora[eh_cientifico(fora)]
+  pf <- inteiro(sf)
+  k <- which(!is.na(pf) & pf %in% niveis)
+  if (length(k)) recusa(sf[k[1]], pf[k[1]], sf[k[1]])
+  sn <- unique(niveis[!is.na(niveis) & eh_cientifico(niveis)])
+  pn <- inteiro(sn)
+  k <- which(!is.na(pn) & pn %in% fora)
+  if (length(k)) recusa(pn[k[1]], sn[k[1]], sn[k[1]])
+  invisible(NULL)
+}
+
 colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
-  pega <- function(k) { v <- as.character(ped[[k]]); v[is.na(v)] <- "0"; v }
+  pega <- function(k) { v <- rotulo_motor(ped[[k]]); v[is.na(v)] <- "0"; v }
   mgs <- inherits(ped, "br_ped_mgs")
   if (mgs) {
     # declarado: o segundo progenitor e o avo materno; no pedigree MISTO e a mae quando ela
@@ -103,7 +159,7 @@ colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
 #' @export
 sire_mgs <- function(ped, id = 1L, sire = 2L, mgs = 3L, dam = NULL) {
   if (!is.data.frame(ped)) stop("expected a data.frame")
-  pega <- function(k) as.character(ped[[k]])
+  pega <- function(k) rotulo_motor(ped[[k]])
   out <- data.frame(id = pega(id), sire = pega(sire), mgs = pega(mgs),
                     stringsAsFactors = FALSE)
   if (!is.null(dam)) out <- pedigree_misto(out, pega(dam))
@@ -237,7 +293,7 @@ pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L,
   }
   cp <- colunas_pedigree(ped, id, sire, dam)
   r <- .Call(R_pedigree, cp$id, cp$sire, cp$dam,
-        if (is.null(metafounders)) character(0) else as.character(metafounders),
+        rotulo_motor(metafounders),
         if (is.null(gamma)) numeric(0) else as.double(gamma))
   out <- data.frame(id = r$id, sire = r$sire, dam = r$dam, F = r$F,
                     stringsAsFactors = FALSE)
@@ -304,7 +360,7 @@ a_inverse <- function(ped, id = 1L, sire = 2L, dam = 3L,
   if (!is.data.frame(ped)) stop("expected a data.frame")
   cp <- colunas_pedigree(ped, id, sire, dam)
   .Call(R_a_inversa, cp$id, cp$sire, cp$dam,
-        if (is.null(metafounders)) character(0) else as.character(metafounders),
+        rotulo_motor(metafounders),
         if (is.null(gamma)) numeric(0) else as.double(gamma))
 }
 
@@ -452,8 +508,8 @@ legendre <- function(x, order = 1L, limits = NULL) {
 #'   2017). Every unknown parent must then be a metafounder
 #' @return triplets of the lower triangle, `list(i, j, x, n, id)` as [a_inverse()]
 #'   returns, plus `h_prior` and `h_prior_row` (the diagonal of G* of each genotyped
-#'   animal and its row, which [accuracy()] uses as the prior), `n_imputed`,
-#'   `n_monomorphic` and `apy` (the core used, when there is one)
+#'   animal, named by animal, and its row in `id`, which [accuracy()] uses as the
+#'   prior), `n_imputed`, `n_monomorphic` and `apy` (the core used, when there is one)
 #' @references Aguilar, I., Misztal, I., Johnson, D.L., Legarra, A., Tsuruta, S. &
 #'   Lawlor, T.J. (2010). Journal of Dairy Science 93:743-752.
 #'
@@ -479,7 +535,7 @@ h_inverse <- function(pedigree, genotypes, blend = 0.05, apy_core = NULL,
   cp <- colunas_pedigree(pedigree)
   confere_base_mf(cp$sire, cp$dam, metafounders, TRUE)
   r <- .Call(R_h_inversa, cp$id, cp$sire, cp$dam,
-             if (is.null(metafounders)) character(0) else as.character(metafounders),
+             rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
              g$gid, g$gm, as.double(blend), as.character(nuc),
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k))
@@ -495,6 +551,31 @@ hinv_para_motor <- function(pedigree, genotypes, blend, apy_core, vecchia_k, k_i
     stop("give genotypes= (the single step is built here) or k_inverse=, not both")
   if (is.null(pedigree)) stop("genotypes without a pedigree: H^-1 needs A^-1")
   h_inverse(pedigree, genotypes, blend, apy_core, vecchia_k)
+}
+
+# k_inverse= DECLARADO nos motores em R (limiar, sobrevivencia): a priori de cada nivel do
+# termo de parentesco e a diagonal de K, e nao o 1 + F do pedigree. A inversa seletiva de
+# K^-1 da essa diagonal exata, porque o padrao do fator contem a diagonal. Com genotypes= a
+# K^-1 e a H^-1 montada aqui e a priori ja vai por anota_hinv().
+#
+# Uma h_inverse() passada como k_inverse= segue a MESMA convencao da rota genotypes=
+# (1 + F do pedigree, diag(G*) nos genotipados), e nao a diagonal de H: as duas portas do
+# mesmo modelo tem de dar a mesma acuracia. A diferenca entre as duas convencoes esta nos
+# NAO genotipados, onde H_ii = (1 + F_i) + [A12 A22^-1 (G* - A22) A22^-1 A21]_ii.
+anota_k_inverse <- function(fit, k_inverse, hinv, rel) {
+  if (is.null(k_inverse) || !is.null(hinv) || !length(rel)) return(fit)
+  if (is.list(k_inverse) && !is.null(k_inverse$h_prior)) {
+    fit$h_prior <- k_inverse$h_prior
+    fit$h_prior_row <- k_inverse$h_prior_row
+    return(fit)
+  }
+  ki <- valida_k_inverse(k_inverse)
+  si <- selected_inverse(ki)
+  d <- si$i == si$j
+  kd <- rep(NA_real_, ki$n)
+  kd[si$i[d]] <- si$x[d]
+  fit$k_prior <- stats::setNames(list(stats::setNames(kd, ki$id)), rel[[1]]$nome)
+  fit
 }
 
 anota_hinv <- function(fit, h) {

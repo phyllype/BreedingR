@@ -46,7 +46,7 @@ struct Termo {
   // o efeito social de cada colega; o efeito direto continua no termo animal comum, e os
   // dois dividem um grupo de covariancia com a correlacao direto-social estimada.
   bool social = false;
-  // Diluicao do efeito indireto com o tamanho da baia (Bijma 2010, Genetics 186:1013-1028):
+  // Diluicao do efeito indireto com o tamanho da baia (Bijma 2010, Genetics 186:1029-1031):
   // a entrada de Z_S de cada companheiro vale (n_i - 1)^(-diluicao), com n_i o numero de
   // animais DISTINTOS na baia do registro i. diluicao = 0 reproduz a soma do livro
   // (coeficiente 1 por companheiro, Mrode e Pocrnic 2023 cap. 9, n fixo); diluicao = 1 e a
@@ -112,6 +112,26 @@ Modelo monta_modelo(const std::string& alvo, std::vector<Termo> termos,
                     const std::vector<std::pair<std::string, std::vector<std::string>>>& grupos,
                     bool tem_ausente, double codigo_ausente);
 
+// O ROTULO DE UM NUMERO, o unico formato de id numerico do pacote. Inteiro exato abaixo de
+// 2^53 sai com todos os digitos e sem expoente ("100000", nunca "1e+05"); qualquer outro
+// numero finito sai na menor escrita de 15 a 17 digitos significativos que volta ao mesmo
+// double ("1.5", "1234567.5"), entao dois numeros distintos nunca tem o mesmo rotulo. E o
+// rotulo da coluna numerica dos dados (Coluna::rotulo) e o que o lado R usa, por R_rotulos,
+// para escrever ids numericos do pedigree, dos genotipos e das chaves (rotulo_motor() em
+// R/pedigree.R): um formato so, entao os dois lados nao divergem.
+std::string rotulo_numero(double x);
+// rotulo_numero(x) e o inteiro com todos os digitos: inteiro finito abaixo de 2^53
+bool rotulo_exato(double x);
+// "1e+05", "1.5e+07": a forma que o as.character() e o factor() do R dao a um double inteiro
+// redondo. Devolve o rotulo inteiro do mesmo numero ("100000"), ou "" quando s nao e um
+// inteiro exato escrito como o as.character() o escreveria ("1.23457e+06" nao e: o R escreve
+// 1234570 como "1234570").
+std::string inteiro_de_cientifico(const std::string& s);
+// O complemento de uma mensagem de id sem par: quando o par existe em `outros` escrito do
+// outro jeito ("1e+05" e "100000"), a frase que diz isso; "" quando nao existe. Varre
+// `outros` inteiro, entao e so para a hora do erro.
+std::string dica_cientifica(const std::string& id, const std::vector<std::string>& outros);
+
 // Uma coluna de dados: numerica ou textual, decidido na leitura.
 struct Coluna {
   bool texto = false;
@@ -144,8 +164,11 @@ struct DesenhoTermo {
   std::vector<char> casou;
 };
 
-// `niveis_fixos` vem do pedigree para termos com parentesco; vazio deixa os niveis virem dos
-// proprios dados, na ordem em que aparecem.
+// `niveis_fixos` e o conjunto de niveis que o termo indexa quando ele vem de fora da coluna:
+// os ids do pedigree num termo com parentesco, os ids da K (ja reduzida) num kernel(), e a
+// uniao ordenada dos rotulos num grupo sem estrutura de varios termos (monta_aleatorios, em
+// mme.cpp). Nulo deixa os niveis virem dos proprios dados, na ordem em que aparecem: o termo
+// fixo e o termo iid de grupo proprio. Recusa NA, NaN e Inf na coluna que da o nivel.
 DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
                          const std::vector<std::string>* niveis_fixos);
 

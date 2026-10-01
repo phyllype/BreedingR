@@ -87,6 +87,59 @@ test_that("the declared errors are declared", {
   expect_error(competition_strength(mau, s$d$group, s$d$competitor), "non-negative")
 })
 
+# DISPUTA OU COMPETIDOR AUSENTE. match(NA, unique(g)) da a posicao do NA, entao todo registro
+# sem disputa virava UMA disputa, e todo competidor sem nome UM competidor que somava as
+# vitorias de todos, sem erro nem aviso. A regra e a da baia de indirect(): NA, NaN, Inf e
+# -Inf numericos, texto em branco (a celula vazia de read.csv()) e o texto "NaN" que factor()
+# faz de um NaN sao recusados, com a contagem e a primeira linha.
+test_that("a missing contest or competitor is refused with its row, never pooled", {
+  s <- simula_disputa(n_comp = 20, n_grupos = 40, seed = 2)
+  d <- s$d
+  motivo_g <- ": a record without a contest would share ONE contest"
+  motivo_c <- ": records without a competitor would all be ONE competitor"
+
+  g <- d$group; g[c(4, 9)] <- NA
+  expect_error(competition_strength(d$wins, g, d$competitor),
+               paste0("NA in group in 2 row\\(s\\), the first at row 4", motivo_g))
+  expect_error(competition_strength(d$wins, factor(g), d$competitor),
+               "NA in group in 2 row\\(s\\), the first at row 4")
+  g <- d$group; g[c(6, 11)] <- c("", " \t")
+  expect_error(competition_strength(d$wins, g, d$competitor),
+               "blank text in group in 2 row\\(s\\), the first at row 6")
+  gn <- match(d$group, unique(d$group)); gn[c(3, 8, 12)] <- c(Inf, NaN, -Inf)
+  expect_error(competition_strength(d$wins, gn, d$competitor),
+               "NA or Inf or -Inf in group in 3 row\\(s\\), the first at row 3")
+  gn <- match(d$group, unique(d$group)); gn[5] <- NaN
+  expect_error(competition_strength(d$wins, factor(gn), d$competitor),
+               "the text 'NaN' in group in 1 row\\(s\\), the first at row 5")
+
+  a <- d$competitor; a[c(7, 2)] <- NA
+  expect_error(competition_strength(d$wins, d$group, a),
+               paste0("NA in competitor in 2 row\\(s\\), the first at row 2", motivo_c))
+  a <- d$competitor; a[10] <- ""
+  expect_error(competition_strength(d$wins, d$group, a),
+               "blank text in competitor in 1 row\\(s\\), the first at row 10")
+  an <- match(d$competitor, unique(d$competitor)); an[c(1, 15)] <- c(NA, Inf)
+  expect_error(competition_strength(d$wins, d$group, an),
+               "NA or Inf in competitor in 2 row\\(s\\), the first at row 1")
+})
+
+test_that("a contest or competitor NAMED 'NA' or 'Inf' in text is a label like any other", {
+  # os textos "NA" e "Inf" ficam fora da recusa de proposito, como na baia: o resultado e o
+  # de qualquer outro nome para o mesmo grupo de linhas
+  s <- simula_disputa(n_comp = 20, n_grupos = 40, seed = 2)
+  d <- s$d
+  ref <- suppressWarnings(competition_strength(d$wins, d$group, d$competitor))
+  for (nome in c("NA", "Inf")) {
+    g <- ifelse(d$group == d$group[1], nome, d$group)
+    expect_identical(suppressWarnings(competition_strength(d$wins, g, d$competitor))$strength,
+                     ref$strength)
+    a <- ifelse(d$competitor == "c001", nome, d$competitor)
+    r <- suppressWarnings(competition_strength(d$wins, d$group, a))
+    expect_identical(unname(r$strength[nome]), unname(ref$strength["c001"]))
+  }
+})
+
 # --- FORD'S CONDITION: WHO IS ACTUALLY MEASURED ---------------------------------------
 #
 # The strength is identified only inside the strongly connected component of the win graph

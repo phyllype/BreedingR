@@ -62,7 +62,7 @@ Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
 
 Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
-genetic effects and group size. Genetics 186:1013-1028.
+genetic effects and group size. Genetics 186:1029-1031.
 }
 \seealso{
 \code{\link[=h2_curve]{h2_curve()}} for a reaction norm, \code{\link[=rg]{rg()}} for the genetic correlation, \code{\link[=t2]{t2()}}

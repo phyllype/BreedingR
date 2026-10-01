@@ -18,7 +18,8 @@
 #'
 #' @param formula as in [model()]. The markers enter every relationship group and every
 #'   component of it, as `H^-1` does on the `genotypes=` path: direct-maternal in one
-#'   group, a reaction norm, direct and maternal in separate groups, the indirect effect.
+#'   group, a reaction norm, direct and maternal in separate groups, the indirect effect
+#'   (with its `dilution =`, the mate weights `(n_i - 1)^(-d)` described in [model()]).
 #'   A group of dimension q with covariance `K0` gets q sets of marker effects with
 #'   covariance `K0 (1-rpg) / k` between them, so the precision is `K0^-1` times the
 #'   scalar one
@@ -60,8 +61,7 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side")
   trait <- deparse(formula[[2]])
-  terms <- decompoe_formula(formula[[3]])
-  recusa_dilution(terms, "snp_blup()")
+  terms <- decompoe_formula(formula[[3]], environment(formula))
 
   used_columns <- unique(c(trait, vapply(terms, function(t) t$column, character(1)),
                            unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
@@ -95,8 +95,9 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
              g$gid, g$gm, as.double(rpg), as.double(theta),
              as.double(tol), as.integer(maxiter),
              isTRUE(verbose),
-             if (is.null(metafounders)) character(0) else as.character(metafounders),
-             if (is.null(gamma)) numeric(0) else as.double(gamma))
+             rotulo_motor(metafounders),
+             if (is.null(gamma)) numeric(0) else as.double(gamma),
+             vapply(terms, function(t) t$dilution, numeric(1)))
   r$seconds <- proc.time()[["elapsed"]] - t0
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
   # F, and without these two it would rebuild a DIFFERENT one: a metafounder label is a
@@ -110,7 +111,7 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   }
   r$theta <- theta
   r$rpg <- rpg
-  r$formula <- formula
+  r$formula <- formula_resolvida(formula, terms)
   r$trait <- trait
   structure(r, class = "breeding_snp_blup")
 }

@@ -35,8 +35,8 @@ correction Gamma already makes (Legarra et al., 2015; Garcia-Baccino et al.,
 \value{
 triplets of the lower triangle, \code{list(i, j, x, n, id)} as \code{\link[=a_inverse]{a_inverse()}}
 returns, plus \code{h_prior} and \code{h_prior_row} (the diagonal of G* of each genotyped
-animal and its row, which \code{\link[=accuracy]{accuracy()}} uses as the prior), \code{n_imputed},
-\code{n_monomorphic} and \code{apy} (the core used, when there is one)
+animal, named by animal, and its row in \code{id}, which \code{\link[=accuracy]{accuracy()}} uses as the
+prior), \code{n_imputed}, \code{n_monomorphic} and \code{apy} (the core used, when there is one)
 }
 \description{
 \verb{H^-1 = A^-1 + [0 0; 0 G*^-1 - A22^-1]} (Aguilar et al. 2010; Christensen and Lund

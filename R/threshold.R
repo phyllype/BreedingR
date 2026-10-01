@@ -104,6 +104,12 @@
 #'   (the GIVEN components plus `var(residual) = 1`), `b` and `se_b` (named
 #'   `term=level`), `ebv` and `pev` per random term (liability scale; [ebv()] and
 #'   [accuracy()] work), `categories`, and the convergence fields of every fitter.
+#'   With `k_inverse =` it carries `k_prior`, the diagonal of the declared K named by
+#'   level (read from the selective inverse of `K^-1`), which [accuracy()] divides the
+#'   PEV by in place of 1 + F; with `genotypes =` or `k_inverse = h_inverse(...)` it
+#'   carries `h_prior` and `h_prior_row` as in [model()] instead. A fit with
+#'   `k_inverse =` made before `k_prior` existed has neither, and [accuracy()] then
+#'   divides it by 1 + F of the pedigree given: refit it.
 #'   [predict()] on the fit returns the per-category probabilities, the number the
 #'   book actually delivers (p.272-273). Joint mode: `b` and `ebv` come named
 #'   `...|trait`; `nu` holds the corrected liability solutions, `b_regression` the
@@ -162,7 +168,7 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
          "residual is fixed at 1), given or, with estimate = TRUE, the starting point; ",
          "start = list(G =, R =) in the joint mode")
 
-  terms <- decompoe_formula(formula[[3]])
+  terms <- decompoe_formula(formula[[3]], environment(formula))
   if (!length(terms)) stop("the formula declares no effect")
   for (tm in terms) {
     if (tm$estrutura == 3L)
@@ -210,9 +216,10 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
   if (!isTRUE(estimate)) {
     fit <- ajusta(start)
     attr(fit, "estado") <- NULL
-    return(anota_hinv(fit, hinv))
+    return(anota_k_inverse(anota_hinv(fit, hinv), k_inverse, hinv, rel))
   }
-  anota_hinv(estima_limiar(ajusta, as.double(start), maxiter_em, tol_em, verbose), hinv)
+  anota_k_inverse(anota_hinv(estima_limiar(ajusta, as.double(start), maxiter_em, tol_em,
+                                           verbose), hinv), k_inverse, hinv, rel)
 }
 
 # O laco da estimacao: ajusta na variancia corrente (partida quente), passo EM, repete. No
@@ -280,6 +287,21 @@ soma_por_nivel <- function(vals, idx, nlev) {
   out
 }
 
+# Soma vals pelos pares DISTINTOS de niveis (a, b), em triplos (i = a, j = b, x = soma):
+# o bloco cruzado Z_a' W Z_b entre dois termos aleatorios. Ordena pelas duas colunas em
+# vez de fundi-las na chave (a - 1) * q_b + b, que em inteiro estoura (NA, "integer
+# overflow") quando q_a * q_b passa de 2^31 - 1, isto e, ja com ~46341 niveis em cada
+# termo, e que voltava de rownames(rowsum()) passando por texto. A ordem e estavel: cada
+# soma acumula os registros na mesma ordem, e os triplos saem na mesma ordem (a, b), de
+# modo que o sistema montado e identico bit a bit ao da chave quando ela nao estoura.
+soma_por_par <- function(vals, a, b) {
+  o <- order(a, b)
+  a <- a[o]; b <- b[o]
+  n <- length(o)
+  novo <- c(TRUE, a[-1L] != a[-n] | b[-1L] != b[-n])
+  list(i = a[novo], j = b[novo], x = rowsum(vals[o], cumsum(novo))[, 1])
+}
+
 # Symmetric matrix-vector product from one-triangle triplets.
 tri_matvec <- function(i, j, x, v) {
   out <- numeric(length(v))
@@ -313,8 +335,8 @@ monta_x_limiar <- function(terms, data, keep, primeiro_cheio) {
       info[[length(info) + 1L]] <- list(nome = tm$nome, column = tm$column,
                                         covariavel = TRUE, niveis = character(0))
     } else {
-      lv <- if (is.factor(col)) levels(droplevels(col)) else sort(unique(as.character(col)))
-      valores <- as.character(col)
+      valores <- rotulo_motor(col)
+      lv <- if (is.factor(col)) levels(droplevels(col)) else sort(unique(valores))
       if (anyNA(valores)) stop("missing value(s) in fixed effect '", tm$column, "'")
       fica <- if (primeiro_cheio && primeiro) lv else lv[-1]
       for (l in fica) cols[[paste0(tm$nome, "=", l)]] <- as.numeric(valores == l)
@@ -351,13 +373,16 @@ monta_x_limiar <- function(terms, data, keep, primeiro_cheio) {
 # variance (A^-1 for a relationship term, the identity for an iid one).
 monta_z_limiar <- function(aleat, data, pedigree, k_inverse, keep) {
   lapply(aleat, function(tm) {
-    valores <- as.character(data[[tm$column]][keep])
+    # o nivel como o motor o escreve, o mesmo rotulo dos ids de a_inverse() e do pedigree
+    valores <- rotulo_motor(data[[tm$column]][keep])
     if (anyNA(valores)) stop("missing value(s) in random term '", tm$column, "'")
     if (tm$estrutura == 2L) {
       ai <- if (is.null(k_inverse)) a_inverse(pedigree) else valida_k_inverse(k_inverse)
       idx <- match(valores, ai$id)
       if (anyNA(idx)) {
         quem <- unique(valores[is.na(idx)])
+        recusa_cientifico(quem, ai$id, "the data",
+                          if (is.null(k_inverse)) "the pedigree" else "k_inverse")
         stop(length(quem), " level(s) of '", tm$column, "' have no line in the ",
              if (is.null(k_inverse)) "pedigree" else "k_inverse", ": ",
              paste(utils::head(quem, 5), collapse = ", "),
@@ -389,6 +414,8 @@ valida_k_inverse <- function(k) {
   if (!is.list(k) || !all(c("i", "j", "x", "n", "id") %in% names(k)))
     stop("k_inverse must be a dense matrix with dimnames, or triplets ",
          "list(i, j, x, n, id) as a_inverse() returns")
+  # ids numericos nos triplos casam com os dados pelo rotulo do motor, como o pedigree
+  k$id <- rotulo_motor(k$id)
   k
 }
 
@@ -511,11 +538,8 @@ ajusta_limiar_ordinal <- function(formula, trait, terms, aleat, data, pedigree,
       poe(o + seq_len(z$q), o + seq_len(z$q), dw)
       poe(o + z$pi, o + z$pj, z$px / start[s])        # the kernel penalty
       if (s > 1L) for (s2 in seq_len(s - 1L)) {       # cross block between two terms
-        z2 <- zs[[s2]]; o2 <- offs[s2]
-        chave <- (z$idx - 1L) * z2$q + z2$idx
-        sw <- rowsum(gf$w, chave)
-        ch <- as.integer(rownames(sw))
-        poe(o + (ch - 1L) %/% z2$q + 1L, o2 + (ch - 1L) %% z2$q + 1L, sw[, 1])
+        sw <- soma_por_par(gf$w, z$idx, zs[[s2]]$idx)
+        poe(o + sw$i, offs[s2] + sw$j, sw$x)
       }
     }
     rhs <- c(gf$p,
@@ -614,6 +638,8 @@ laplace_limiar <- function(monta, zs, us, s2, tvec, b, X, codes, m) {
 # de C^ss nas posicoes de K_s^-1, que estao no padrao do fator: a inversa SELETIVA basta.
 em_limiar <- function(est) {
   si <- selected_inverse(est$monta)
+  # chave em double (o "- 1" e double): exata enquanto N^2 < 2^53. Com "- 1L" ela seria
+  # inteira e estouraria a partir de N ~ 46341 colunas.
   chave <- function(i, j) (pmax(i, j) - 1) * est$N + pmin(i, j)
   ks <- chave(si$i, si$j)
   vapply(seq_along(est$zs), function(s) {
@@ -749,7 +775,7 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
   pev_u1 <- pev_u2 <- rep(NA_real_, q)
   si <- tryCatch(selected_inverse(monta), error = function(e) NULL)
   if (!is.null(si)) {
-    chave <- function(i, j) (pmax(i, j) - 1) * N + pmin(i, j)
+    chave <- function(i, j) (pmax(i, j) - 1) * N + pmin(i, j)   # double, como em em_limiar
     ks <- chave(si$i, si$j)
     pega <- function(i, j) si$x[match(chave(i, j), ks)]
     l <- seq_len(q)
@@ -880,7 +906,7 @@ predict.breeding_fit_thr <- function(object, newdata,
       if (any(!is.finite(v))) stop("non-finite value(s) in covariate '", info$column, "'")
       a <- a + v * (if (info$nome %in% names(object$b)) object$b[[info$nome]] else 0)
     } else {
-      valores <- as.character(col)
+      valores <- rotulo_motor(col)
       fora <- setdiff(unique(valores), info$niveis)
       if (length(fora))
         stop("level(s) of '", info$column, "' not seen in the fit: ",
@@ -893,7 +919,7 @@ predict.breeding_fit_thr <- function(object, newdata,
   for (info in object$design$random) {
     if (!info$column %in% names(newdata))
       stop("no column '", info$column, "' in newdata")
-    valores <- as.character(newdata[[info$column]])
+    valores <- rotulo_motor(newdata[[info$column]])
     idx <- match(valores, info$ids)
     if (anyNA(idx))
       stop("level(s) of '", info$column, "' unknown to the fit: ",
@@ -921,7 +947,7 @@ prediz_conjunto <- function(object, newdata, type) {
         nm <- paste0(info$nome, "|", tr)
         a <- a + as.double(col) * (if (nm %in% names(object$b)) object$b[[nm]] else 0)
       } else {
-        valores <- as.character(col)
+        valores <- rotulo_motor(col)
         fora <- setdiff(unique(valores), info$niveis)
         if (length(fora))
           stop("level(s) of '", info$column, "' not seen in the fit: ",
@@ -935,7 +961,7 @@ prediz_conjunto <- function(object, newdata, type) {
   }
   info <- object$design$random[[1]]
   if (!info$column %in% names(newdata)) stop("no column '", info$column, "' in newdata")
-  ids <- as.character(newdata[[info$column]])
+  ids <- rotulo_motor(newdata[[info$column]])
   if (anyNA(match(ids, info$ids)))
     stop("level(s) of '", info$column, "' unknown to the fit: ",
          paste(unique(ids[is.na(match(ids, info$ids))]), collapse = ", "))

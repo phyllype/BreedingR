@@ -212,7 +212,10 @@ Densa gram_menor(const Genotipos& gt, RelatorioG& rel, double& escala) {
 // passo le os genotipos do R por blocos de marcadores, centra e imputa o bloco, e os dois
 // produtos do bloco vao aos ladrilhos com todas as sondas de uma vez. Sem reortogonalizacao: a
 // quadratura continua certa na perda de ortogonalidade (Knizhnerman 1996; e o que o artigo
-// usa), e o portao mede isso contra o eigen exato.
+// usa), e o portao mede isso contra o eigen exato. O erro sistematico que sobra tambem nao vem
+// dos fantasmas: e o da regra de Gauss no limiar (os nos de Ritz caem quase no mesmo lugar em
+// todas as sondas), que reortogonalizar nao tira; o R o tira com a media das regras das
+// ultimas tridiagonais lideres de cada sonda (nos_lanczos, em R/apy.R), que ja estao aqui.
 LanczosG lanczos_g(const Genotipos& gt, const Densa& sondas, std::size_t passos,
                    RelatorioG& rel) {
   const std::size_t n = gt.n, nm = gt.m;
@@ -1035,7 +1038,8 @@ Csc h_inversa(const Pedigree& ped, const Csc& ainv, const std::vector<std::strin
       auto it = std::lower_bound(tmp.begin(), tmp.end(), std::make_pair(g, std::size_t(0)),
           [](const auto& a, const auto& b){ return a.first < b.first; });
       if (it == tmp.end() || it->first != g)
-        throw Erro("genotyped animal '" + g + "' is not in the pedigree");
+        throw Erro("genotyped animal '" + g + "' is not in the pedigree" +
+                   dica_cientifica(g, ped.ids));
       idx.push_back(it->second);
     }
   }

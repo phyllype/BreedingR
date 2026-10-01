@@ -11,18 +11,28 @@ accuracy(fit, pedigree, group = NULL, trait = NULL)
 model_survival() (log-hazard scale, from the Laplace PEV of the frailty)
 (ordinal mode; the joint threshold fit carries no PEV, a declared limit)}
 
-\item{pedigree}{the same data.frame used in the fit}
+\item{pedigree}{the same data.frame used in the fit. Only a group with a pedigree
+term reads it; for a group of \code{kernel()} terms, of iid terms, or of a term given a
+declared \verb{k_inverse =} other than an \code{\link[=h_inverse]{h_inverse()}}, it may be omitted. A term fitted
+with \code{k_inverse = h_inverse(...)} or \verb{genotypes =} is a pedigree term and needs it}
 
 \item{group}{covariance group; the first one if omitted}
 
-\item{trait}{required in the multi-trait case: accuracy is per trait, with the
-corresponding var(group@trait)}
+\item{trait}{required in the multi-trait case (\code{model_mt()}, or \code{model_ar1()} with
+\code{cbind()}): accuracy is per trait, with the corresponding var(term@trait)}
+}
+\value{
+a numeric vector named by level, in the order of \code{fit$pev[[group]]}; a group
+with several scalar terms (direct-maternal, direct-indirect) returns one block of
+levels per term, each scaled by its own variance.
 }
 \description{
-acc_i = sqrt(1 - PEV_i / ((1 + F_i) sigma2_a)), with the PEV coming from the diagonal of
-the selective inverse of the MME at the optimum. The (1 + F_i) matters: without it the
-accuracy of an inbred animal comes out underestimated, and in a closed nucleus that is
-everybody.
+acc_i = sqrt(1 - PEV_i / (k_ii sigma2)), with the PEV coming from the diagonal of the
+selective inverse of the MME at the optimum, sigma2 the variance of the term and k_ii
+the PRIOR variance of level i at unit sigma2, the diagonal of the covariance matrix the
+term was fitted with. For a pedigree term that is 1 + F_i, and it matters: without it
+the accuracy of an inbred animal comes out underestimated, and in a closed nucleus that
+is everybody.
 }
 \details{
 It is only defined for a group with ONE coefficient. In a reaction norm the accuracy of
@@ -30,14 +40,49 @@ the intercept alone is misleading (the slope's is tiny and the total EBV's depen
 point of the gradient), so the error here tells you to combine the coefficients
 explicitly.
 
-The prior variance is the animal's own. For a pedigree animal it is 1 + F. For a
-GENOTYPED animal in a single-step fit it is the diagonal of H, which in that block is
-the diagonal of G*, and that is a different number: on a simulated population of 510
-animals, all genotyped, the two differ by up to 0.18, moving an individual accuracy by
-up to 0.067 (median 0.011). The herd average barely notices (0.6966 against 0.6964);
-what moves is the individual, and with it the ranking of genotyped animals by accuracy.
-The fit carries the genomic prior when it has one, so this is used automatically and no
-longer has to be read with a caveat.
+The prior variance is each level's own, read from the structure of its term and matched
+to the PEV by level NAME, never by position:
+\itemize{
+\item a pedigree term (animal(), sire(), maternal(), indirect()): 1 + F from the pedigree.
+The pedigree must be the one the fit used: every animal in it gets an equation, so
+its animals must be exactly the levels of the group, and a pedigree with animals
+added or missing is refused (it would change the F of their descendants). Its rows
+may come in any order.
+For a GENOTYPED animal in a single-step fit it is the diagonal of H, which in that
+block is the diagonal of G*, and that is a different number: on a simulated
+population of 510 animals, all genotyped, the two differ by up to 0.18, moving an
+individual accuracy by up to 0.067 (median 0.011). The herd average barely notices
+(0.6966 against 0.6964); what moves is the individual, and with it the ranking of
+genotyped animals by accuracy. The fit carries the genomic prior when it has one,
+in \code{h_prior}, named by genotyped animal.
+\item a \code{kernel(id, K = )} term: \code{K[i, i]}, the diagonal of the declared matrix, which the
+fit carries. With \code{K = dominance_matrix(ped)} on an inbred pedigree the diagonal is
+1 while 1 + F is not, and dividing by 1 + F overstated the accuracy (measured on an
+inbred pedigree with a sire-daughter mating: 0.7282 where the right value is 0.6426
+for the animals with F = 0.25). A K with a non-unit diagonal (a G with a ridge, a
+scaled matrix) is divided by that diagonal.
+\item a relationship term given its own inverse with \verb{k_inverse =} in \code{\link[=model_threshold]{model_threshold()}}
+or \code{\link[=model_survival]{model_survival()}}: the diagonal of K, read from the selective inverse of the
+declared K^-1 when the fit is built. An \code{\link[=h_inverse]{h_inverse()}} passed there follows the
+single-step convention of the first item instead, so both doors to the same model
+return the same accuracy. That convention divides a NON-genotyped animal by
+1 + F, while its prior variance under H is \code{H[i, i]}, which differs by
+\verb{(A12 A22^-1 (G* - A22) A22^-1 A21)[i, i]}; a dense H given as \code{kernel(K = H)} is
+divided by \code{H[i, i]} for every animal, so the two routes differ there.
+\item an iid term (pe(), random()): 1.
+}
+
+A group with several scalar terms (direct-maternal, direct-indirect, two correlated
+iid terms) is split into one block of levels per term, and each block is divided by
+its own variance. Every term of a group indexes the same levels: the pedigree, the ids
+of K, or, for terms without a relationship matrix (\code{random()}, \code{pe()}), the union of
+the level names of their columns. With 8 sires in one column and 16 dams in the other
+each block has the levels of both columns. A level that appears only in the other
+term's column has no record for this term, and its accuracy is what the group
+covariance carries over from the other term at the same level, 0 when that covariance
+is 0. A fit made before this version paired the levels of such a group by position;
+when its blocks do not carry the same level names it is refused, and it should be
+refitted either way.
 }
 \references{
 Henderson, C.R. (1975). Best linear unbiased estimation and prediction

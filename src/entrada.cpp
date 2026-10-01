@@ -9,6 +9,7 @@
 #include "mme.h"
 #include <cstdio>
 #include <fstream>
+#include <unordered_map>
 
 #include <R.h>
 #include <Rinternals.h>
@@ -184,10 +185,22 @@ extern "C" {
 // A ordem importa e por isso ela sai: o A^-1 e os efeitos genéticos vêm nessa ordem, e
 // juntar de volta pela posicao original seria trocar animal em silencio.
 // a priori de H dos genotipados e a linha do pedigree de cada um (1-based), para accuracy().
-// Sem PROTECT proprio: o valor vai direto para SET_VECTOR_ELT de uma lista ja protegida.
-static SEXP sexp_priori_h(const std::vector<double>& v) {
-  SEXP x = Rf_allocVector(REALSXP, (R_xlen_t) v.size());
+// A priori sai NOMEADA pelo id do animal (ped.ids na linha dele): a linha so vale no
+// pedigree que o motor montou, e accuracy() remonta o pedigree que o usuario passa, que pode
+// vir em outra ordem de linhas (a ordem topologica depende da ordem de entrada) e poria a
+// diagonal de G* no animal errado. O valor volta desprotegido: vai direto para
+// SET_VECTOR_ELT de uma lista ja protegida, ou para um PROTECT do chamador.
+static SEXP sexp_priori_h(const std::vector<double>& v, const std::vector<std::size_t>& linha,
+                          const br::Pedigree& ped) {
+  SEXP x = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) v.size()));
   for (std::size_t q = 0; q < v.size(); q++) REAL(x)[q] = v[q];
+  if (v.empty()) { UNPROTECT(1); return x; }
+  SEXP nm = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) v.size()));
+  for (std::size_t q = 0; q < v.size(); q++)
+    if (q < linha.size() && linha[q] < ped.ids.size())
+      SET_STRING_ELT(nm, (R_xlen_t) q, Rf_mkChar(ped.ids[linha[q]].c_str()));
+  Rf_setAttrib(x, R_NamesSymbol, nm);
+  UNPROTECT(2);
   return x;
 }
 static SEXP sexp_linha_h(const std::vector<std::size_t>& v) {
@@ -242,7 +255,7 @@ SEXP R_h_inversa(SEXP id, SEXP pai, SEXP mae, SEXP mfx, SEXP gmx, SEXP gid, SEXP
     SET_VECTOR_ELT(out, 2, vv);
     SET_VECTOR_ELT(out, 3, Rf_ScalarInteger(static_cast<int>(a.ncol)));
     SET_VECTOR_ELT(out, 4, ids);
-    SET_VECTOR_ELT(out, 5, sexp_priori_h(rel.diag_gstar));
+    SET_VECTOR_ELT(out, 5, sexp_priori_h(rel.diag_gstar, rel.linha_ped, ped));
     SET_VECTOR_ELT(out, 6, sexp_linha_h(rel.linha_ped));
     SET_VECTOR_ELT(out, 7, Rf_ScalarInteger(static_cast<int>(rel.n_imputados)));
     SET_VECTOR_ELT(out, 8, Rf_ScalarInteger(static_cast<int>(rel.n_monomorficos)));
@@ -450,13 +463,12 @@ SEXP R_resolve(SEXP i, SEXP j, SEXP x, SEXP n, SEXP b) {
 
 // Monta Modelo + Tabela + Pedigree a partir dos objetos do R.
 //
-// `tdil` e a diluicao por termo, paralela a tsoc; o padrao R_NilValue existe porque o
-// snp_blup() ainda nao a envia (ele recusa dilution > 0 no lado R, recusa_dilution em
-// R/model.R) e continua chamando com a aridade antiga.
+// `tdil` e a diluicao por termo, paralela a tsoc. Todo ajustador a envia (o snp_blup()
+// inclusive), entao nao tem padrao: esquecer de passa-la e erro de compilacao, e nao um
+// ajuste com d = 0 em silencio.
 static br::Modelo modelo_do_R(SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov, SEXP test,
                               SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP ausente,
-                              SEXP usa_ausente, SEXP tdil = R_NilValue,
-                              SEXP tfix = R_NilValue) {
+                              SEXP usa_ausente, SEXP tdil, SEXP tfix = R_NilValue) {
   const R_xlen_t nt = XLENGTH(tnome);
   std::vector<br::Termo> termos;
   std::vector<std::pair<std::string, std::vector<std::string>>> grupos;
@@ -473,11 +485,9 @@ static br::Modelo modelo_do_R(SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov, SEXP 
     if (*nest) t.aninhado = nest;
     if (t.aninhado.rfind("mgs:", 0) == 0) { t.mgs = true; t.aninhado = t.aninhado.substr(4); }
     t.social = LOGICAL(tsoc)[k] != 0;
-    if (tdil != R_NilValue) {
-      if (TYPEOF(tdil) != REALSXP || XLENGTH(tdil) != nt)
-        Rf_error("dilution: expected one numeric value per term");
-      t.diluicao = REAL(tdil)[k];
-    }
+    if (TYPEOF(tdil) != REALSXP || XLENGTH(tdil) != nt)
+      Rf_error("dilution: expected one numeric value per term");
+    t.diluicao = REAL(tdil)[k];
     // base: colunas separadas por virgula. E o que faz um termo virar regressao aleatoria,
     // um termo com m coeficientes e uma covariancia m x m, nao m termos independentes.
     const char* base = CHAR(STRING_ELT(tbase, k));
@@ -541,7 +551,11 @@ static br::Tabela tabela_do_R(SEXP dados, SEXP nomes) {
       c.txt.reserve(static_cast<std::size_t>(n));
       for (R_xlen_t i = 0; i < n; i++) {
         SEXP e = STRING_ELT(col, i);
-        if (e == NA_STRING) Rf_error("column with text NA at position %d", (int) k + 1);
+        // o nome da coluna e a linha: "position k" contava na lista das colunas usadas, que
+        // o usuario nao ve, e nao dizia qual registro corrigir
+        if (e == NA_STRING)
+          Rf_error("NA in the text column '%s' at row %d: drop those rows or fill them",
+                   CHAR(STRING_ELT(nomes, k)), (int) i + 1);
         c.txt.emplace_back(CHAR(e));
       }
     } else if (TYPEOF(col) == REALSXP) {
@@ -728,6 +742,9 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     std::vector<br::KernelDecl> ks = kernels_do_R(kern);
     br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw,
                                       ks.empty() ? nullptr : &ks);
+    // so quando os componentes andam: em maxiter = 0 e n_em = 0 o theta e dado
+    if (Rf_asInteger(maxiter) > 0 || Rf_asInteger(n_em) > 0)
+      br::confere_covariancias_iid(d.modelo, d.aleatorios, d.usa);
 
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk,                                           &diag_h_geno, &linha_h_geno);
 
@@ -840,12 +857,12 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     SET_VECTOR_ELT(out, 14, bfix);
     SET_VECTOR_ELT(out, 15, Rf_ScalarReal(r.decremento));
     // Sob passo unico a variancia a priori de um genotipado e a diagonal de H, que
-    // naquele bloco e a de G*, e nao 1 + F do pedigree. Vao as duas coisas: o valor e a
-    // LINHA do pedigree a que ele pertence, porque accuracy() indexa por linha. Vazio
-    // quando nao houve genomica, e ai accuracy() segue com o F do pedigree.
-    SEXP dh = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) diag_h_geno.size()));
+    // naquele bloco e a de G*, e nao 1 + F do pedigree. Vao as duas coisas: o valor,
+    // nomeado pelo id do animal (accuracy() casa por esse nome), e a LINHA do pedigree do
+    // motor a que ele pertence. Vazio quando nao houve genomica, e ai accuracy() segue com o
+    // F do pedigree.
+    SEXP dh = PROTECT(sexp_priori_h(diag_h_geno, linha_h_geno, ped));
     SEXP dr = PROTECT(Rf_allocVector(INTSXP, (R_xlen_t) linha_h_geno.size()));
-    for (std::size_t q = 0; q < diag_h_geno.size(); q++) REAL(dh)[q] = diag_h_geno[q];
     for (std::size_t q = 0; q < linha_h_geno.size(); q++)
       INTEGER(dr)[q] = (int) linha_h_geno[q] + 1;
     SET_VECTOR_ELT(out, 16, dh);
@@ -977,6 +994,8 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     std::vector<std::string> alv = textos(alvos, "traits");
     std::vector<br::KernelDecl> kd = kernels_do_R(kern);
     br::DesenhoMT d = br::monta_desenho_mt(m, alv, t, pp, &kd);
+    if (Rf_asInteger(maxiter) > 0)
+      br::confere_covariancias_iid(d.modelo, d.aleatorios, d.usa);
 
     // a priori do genotipado para accuracy(): diag(G*), e nao 1 + F (so o model() a
     // exportava, e o multicaracter seguia com o F do pedigree no passo unico)
@@ -1082,7 +1101,7 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     SEXP out = PROTECT(Rf_allocVector(VECSXP, 17));
     SEXP nms = PROTECT(Rf_allocVector(STRSXP, 17));
     for (int q = 0; q < 17; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
-    SET_VECTOR_ELT(out, 15, sexp_priori_h(diag_h_geno));
+    SET_VECTOR_ELT(out, 15, sexp_priori_h(diag_h_geno, linha_h_geno, ped));
     SET_VECTOR_ELT(out, 16, sexp_linha_h(linha_h_geno));
     SET_VECTOR_ELT(out, 14, sexp_bloco_denso(r.bloco_denso, r.colunas_fator));
     SET_VECTOR_ELT(out, 0, theta);
@@ -1182,6 +1201,8 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     br::DesenhoAR d = br::monta_desenho_ar1(m, alv, t, pp,
                                             CHAR(STRING_ELT(sujeito, 0)),
                                             CHAR(STRING_ELT(tempo, 0)), &kd);
+    if (Rf_asInteger(maxiter) > 0)
+      br::confere_covariancias_iid(d.modelo, d.aleatorios, d.usa);
 
     std::vector<double> diag_h_geno;
     std::vector<std::size_t> linha_h_geno;
@@ -1283,7 +1304,7 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     SEXP out = PROTECT(Rf_allocVector(VECSXP, 18));
     SEXP nms = PROTECT(Rf_allocVector(STRSXP, 18));
     for (int q = 0; q < 18; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
-    SET_VECTOR_ELT(out, 16, sexp_priori_h(diag_h_geno));
+    SET_VECTOR_ELT(out, 16, sexp_priori_h(diag_h_geno, linha_h_geno, ped));
     SET_VECTOR_ELT(out, 17, sexp_linha_h(linha_h_geno));
     SET_VECTOR_ELT(out, 15, sexp_bloco_denso(r.bloco_denso, r.colunas_fator));
     SET_VECTOR_ELT(out, 0, theta);
@@ -1330,6 +1351,8 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
     }
     std::vector<br::KernelDecl> kd = kernels_do_R(kern);
     br::Desenho d = br::monta_desenho(m, t, pp, nullptr, kd.empty() ? nullptr : &kd);
+    // a cadeia amostra os componentes, salvo com theta_fixed =
+    if (XLENGTH(theta_fixo) == 0) br::confere_covariancias_iid(d.modelo, d.aleatorios, d.usa);
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
 
     br::PrioriGibbs priori;
@@ -1435,9 +1458,10 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
 SEXP R_snp_blup(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                 SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                 SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP gid, SEXP gm,
-                SEXP rpg, SEXP theta, SEXP tol, SEXP maxiter, SEXP verb, SEXP mfx, SEXP gmx) {
+                SEXP rpg, SEXP theta, SEXP tol, SEXP maxiter, SEXP verb, SEXP mfx, SEXP gmx,
+                SEXP tdil) {
   GUARDA(
-    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente);
+    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente, tdil);
     br::Tabela t = tabela_do_R(dados, nomes);
     if (XLENGTH(pid) == 0) Rf_error("snp_blup needs a pedigree: the model is single step");
     auto i = textos(pid, "id");
@@ -1791,6 +1815,32 @@ SEXP R_pegs_estrutura(SEXP v, SEXP tipo, SEXP nfat) {
 
 SEXP R_versao(void) { return Rf_mkString("0.4.0.9000"); }
 
+// Os rotulos que o motor da a numeros (br::rotulo_numero, o de Coluna::rotulo), para o R
+// escrever um id numerico do pedigree, dos genotipos ou de uma chave EXATAMENTE como a
+// coluna numerica dos dados sai daqui. rotulo_motor() em R/pedigree.R e a unica porta. NA
+// (e NaN) segue NA, para o R tratar o ausente como sempre tratou.
+//
+// Aqui havia uma conferencia de COLISAO, dois numeros distintos com o mesmo rotulo (o %g de
+// um nao inteiro guardava 6 digitos significativos), que rodava por chamada e portanto por
+// coluna: o id 1.1234567 numa coluna e o pai 1.1234568 noutra davam os dois "1.12346" e
+// viravam o mesmo animal, e a coluna de dados do motor nunca passava por ela. O rotulo agora
+// volta ao mesmo double (rotulo_numero), entao numeros distintos tem rotulos distintos em
+// qualquer uniao de colunas, e a conferencia nao tinha mais o que achar.
+SEXP R_rotulos(SEXP x) {
+  GUARDA(
+    if (TYPEOF(x) != REALSXP) throw br::Erro("rotulos: expected a double vector");
+    const R_xlen_t n = XLENGTH(x);
+    const double* v = REAL(x);
+    SEXP out = PROTECT(Rf_allocVector(STRSXP, n));
+    for (R_xlen_t i = 0; i < n; i++) {
+      if (std::isnan(v[i])) { SET_STRING_ELT(out, i, NA_STRING); continue; }
+      SET_STRING_ELT(out, i, Rf_mkChar(br::rotulo_numero(v[i]).c_str()));
+    }
+    UNPROTECT(1);
+    return out;
+  )
+}
+
 // Threads das regioes paralelas: n >= 1 define, qualquer outro valor so consulta; lapack
 // TRUE/FALSE escolhe a rota das inversas densas grandes, NA so consulta.
 SEXP R_threads(SEXP n, SEXP lapack) {
@@ -1827,7 +1877,7 @@ static const R_CallMethodDef metodos[] = {
   {"R_avaliar_ar1",  (DL_FUNC) &R_avaliar_ar1, 24},
   {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 31},
     {"R_gibbs", (DL_FUNC) &R_gibbs, 36},
-  {"R_snp_blup",   (DL_FUNC) &R_snp_blup,  25},
+  {"R_snp_blup",   (DL_FUNC) &R_snp_blup,  26},
   {"R_lanczos_g",  (DL_FUNC) &R_lanczos_g,  3},
   {"R_confere_genotipos", (DL_FUNC) &R_confere_genotipos, 1},
   {"R_freq_genotipos", (DL_FUNC) &R_freq_genotipos, 1},
@@ -1835,6 +1885,7 @@ static const R_CallMethodDef metodos[] = {
   {"R_gram_genotipos", (DL_FUNC) &R_gram_genotipos, 1},
   {"R_le_snp_blupf90", (DL_FUNC) &R_le_snp_blupf90, 2},
 {"R_versao",     (DL_FUNC) &R_versao,     0},
+  {"R_rotulos",    (DL_FUNC) &R_rotulos,    1},
   {"R_threads",    (DL_FUNC) &R_threads,    2},
   {"R_pegs",       (DL_FUNC) &R_pegs,      10},
   {"R_pegs_estrutura", (DL_FUNC) &R_pegs_estrutura, 3},

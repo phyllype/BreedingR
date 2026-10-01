@@ -8,7 +8,10 @@
 # A rota "lanczos" (quadratura de Lanczos estocastica, sem matriz de Gram) e uma ESTIMATIVA:
 # o portao dela e a contagem exata do mesmo G a poucos por cento e a poucos erros padrao,
 # pelos dois lados (animais < marcadores e o contrario), com a tridiagonal conferida contra
-# o proprio G, e o resultado igual bit a bit com 1 e 4 threads.
+# o proprio G, e o resultado igual bit a bit com 1 e 4 threads. Dois portoes separam as duas
+# fontes de erro: o da QUADRATURA, pareado com as mesmas sondas nos autovetores exatos (o
+# ruido das sondas cancela e sobra so o erro da regra de Gauss), e o do erro padrao, contra
+# a dispersao real entre conjuntos independentes de sondas.
 
 # populacao de dimensao baixa: cada animal e um mosaico de poucos haplotipos fundadores
 # em blocos longos, o que concentra a variancia de G em poucos autovalores
@@ -121,6 +124,16 @@ geno_familias <- function(n, m, semente) {
   s$genotypes
 }
 
+# Com 80 passos nestas dimensoes o erro da quadratura ja e pequeno e sobra o das sondas.
+# Medido nas sementes de sonda 1 a 20 dos dois lados (40 chamadas, parte 1 de
+# validation/apy_core_lanczos_se.R): o erro nos 98% ficou em ate 1,04% da contagem exata
+# (exata 479 e 315), a tabela 90/95/98/99% em ate 2,4% (portao 5%), e a diferenca em ate
+# 3,79 EP: a semente 9 em 630 x 1500 da 484 contra 479 com EP 1,32, o menor EP das 20
+# (media 1,89). O EP vem de 30 sondas e tem erro proprio, e a contagem e arredondada, entao
+# |diferenca| / EP tem cauda mais pesada que a normal; 3 EP + 1 falharia nessa semente. O
+# portao e 4 EP + 2, com folga de pelo menos 2,28 contagens nas 40, e 2% (folga de quase
+# 2x). Roda so a semente 1 (482 contra 479, EP 1,86; 316 contra 315, EP 1,21). O desvio das
+# 20 contagens dividido pelo EP medio foi 1,06 e 0,97.
 test_that("apy_core_select(method = 'lanczos'): a contagem exata a poucos por cento, pelos dois lados", {
   for (cfg in list(c(630, 1500), c(830, 400))) {
     geno <- geno_familias(cfg[1], cfg[2], 7)
@@ -129,11 +142,148 @@ test_that("apy_core_select(method = 'lanczos'): a contagem exata a poucos por ce
     expect_identical(attr(la, "method"), "lanczos")
     expect_null(attr(la, "eigenvalues"))
     k_ex <- attr(ex, "size"); k_la <- attr(la, "size")
-    expect_lt(abs(k_la - k_ex) / k_ex, 0.04)
+    expect_lt(abs(k_la - k_ex) / k_ex, 0.02)
     expect_lt(abs(k_la - k_ex), 4 * attr(la, "count_se") + 2)
     expect_true(all(abs(attr(la, "eig") - attr(ex, "eig")) / attr(ex, "eig") < 0.05))
     expect_equal(attr(la, "variance_explained"), 0.98, tolerance = 0.005)
   }
+})
+
+# O operador em que o Lanczos roda, montado a mao: ZZ'/k no lado dos animais, Z'Z/k no dos
+# marcadores (o lado menor), sem ausentes; marcador monomorfico vira coluna de zeros
+operador_exato <- function(m) {
+  z <- sweep(m, 2, colMeans(m))
+  k <- 2 * sum(colMeans(m) / 2 * (1 - colMeans(m) / 2))
+  if (nrow(m) <= ncol(m)) tcrossprod(z) / k else crossprod(z) / k
+}
+
+# Portao da QUADRATURA. A referencia usa as MESMAS sondas nos autovetores exatos do operador
+# (nos = autovalores, pesos dim (u_i'q_b)^2 / nv): e a contagem que as sondas dariam sem erro
+# de quadratura, e o erro pareado com ela nao tem o ruido das sondas. A media sobre o perfil
+# de v de 0,80 a 0,995 cancela a parte que oscila de sinal com v e isola a sistematica. Com
+# 40 passos em ~1000 animais o regime dim / passos^2 e o de 10 000 animais com 100 passos. A
+# regra de Gauss simples (K = 1) conta 0,24-0,32% a mais nestas populacoes; a media de fase
+# (o padrao) fica em 0,02-0,03%. Levou de 7 a 13 s nas corridas medidas.
+test_that("lanczos: o erro da quadratura, pareado com as mesmas sondas nos autovetores exatos, abaixo de 0,1%", {
+  skip_on_cran()
+  vs <- c(seq(0.80, 0.99, by = 0.005), 0.995)
+  for (cfg in list(c(11, 1500, 40), c(12, 1500, 40), c(13, 1500, 40), c(11, 500, 30))) {
+    m <- simulate_breeding(n_founders = 40, n_generations = 4, offspring_per_generation = 240,
+                           h2 = 0.3, n_markers = cfg[2], seed = cfg[1])$genotypes$m + 0
+    op <- operador_exato(m)
+    ev <- eigen(op, symmetric = TRUE)
+    lam <- pmax(ev$values, 0)
+    dim <- nrow(op)
+    set.seed(1)
+    V <- matrix(sample(c(-1, 1), dim * 30, TRUE), dim)
+    r <- .Call(BreedingR:::R_lanczos_g, m, V, as.integer(cfg[3]))
+    expect_equal(r$dim, dim)
+    Y <- crossprod(ev$vectors, sweep(V, 2, sqrt(colSums(V^2)), "/"))
+    k_so <- vapply(vs, BreedingR:::medida_nos(data.frame(
+      theta = rep(lam, 30), w = dim / 30 * as.vector(Y^2), sonda = rep(1:30, each = dim)))$conta, 0)
+    k_ex <- vapply(vs, function(v) which(cumsum(lam) / sum(diag(op)) >= v - 1e-12)[1L], 1L)
+    D <- function(K) mean((vapply(vs, BreedingR:::medida_nos(
+      BreedingR:::nos_lanczos(r, K))$conta, 0) - k_so) / k_ex)
+    expect_lt(abs(D(NULL)), 0.001)
+    # o portao enxerga o defeito que conserta: a regra de Gauss simples fica acima de 0,2%
+    expect_gt(D(1), 0.002)
+  }
+})
+
+# Portao do ERRO PADRAO: 600 sondas numa corrida so, em 20 conjuntos DISJUNTOS de 30, no
+# mesmo G; o desvio real das 20 contagens dividido pelo EP medio reportado tem de ficar em
+# [0,7; 1,4] (com 20 repeticoes o desvio tem precisao de ~16%). Com as sondas da semente 1
+# da 0,92 nos 90% e 1,03 nos 98%; em 8 sorteios de sondas (sementes 1 a 8, parte 2 de
+# validation/apy_core_lanczos_se.R) a razao ficou em 0,80 a 1,31 nos 90/95/98/99% (media
+# 1,01) e em 0,82 a 1,31 nos dois niveis do portao. A semente 4 chega a 1,31, perto do 1,4:
+# outro sorteio pode cair fora so por ruido. O EP antigo (desvio das contagens por sonda num
+# limiar fixo) dava 0,57 e 0,21: inflado ate 5x. O count_se de apy_core_select() e o mesmo
+# se() da mesma medida. Com 4 threads (o resultado e o mesmo bit a bit com 1, o teste das
+# threads abaixo) levou de 5 a 10 s.
+test_that("lanczos: o erro padrao da contagem bate com a dispersao entre 20 conjuntos de sondas", {
+  skip_on_cran()
+  antes <- br_threads()
+  on.exit(br_threads(antes$threads, lapack = antes$lapack))
+  br_threads(4)
+  geno <- simulate_breeding(n_founders = 40, n_generations = 4, offspring_per_generation = 240,
+                            h2 = 0.3, n_markers = 1500, seed = 11)$genotypes
+  set.seed(1)
+  V <- matrix(sample(c(-1, 1), 1000 * 600, TRUE), 1000)
+  r <- .Call(BreedingR:::R_lanczos_g, geno$m, V, 40L)
+  medidas <- lapply(split(1:600, rep(1:20, each = 30)), function(g)
+    BreedingR:::medida_nos(BreedingR:::nos_lanczos(list(
+      alpha = r$alpha[, g], beta = r$beta[, g], steps = r$steps[g], dim = r$dim))))
+  for (v in c(0.90, 0.98)) {
+    razao <- stats::sd(vapply(medidas, function(x) x$conta(v), 0)) /
+      mean(vapply(medidas, function(x) x$se(v), 0))
+    expect_gt(razao, 0.7)
+    expect_lt(razao, 1.4)
+  }
+  la <- suppressWarnings(apy_core_select(geno, method = "lanczos", probes = 30, steps = 40,
+                                         seed = 1))
+  expect_equal(attr(la, "count_se"), medidas[[1]]$se(0.98), tolerance = 1e-10)
+  expect_equal(attr(la, "size"), round(medidas[[1]]$conta(0.98)))
+})
+
+# Sonda que para antes (subespaco invariante): a regra dela e a da tridiagonal inteira, que
+# ja e exata, e nao a media das ultimas ceiling(s / 4), que juntaria regras de tridiagonais
+# menores que o espaco de Krylov. Para o ramo ter efeito a sonda tem de parar em s >= 5 (em
+# s <= 4, ceiling(s / 4) = 1 de qualquer jeito). Tipos de animal repetidos quase nao servem
+# para isso: com 6 a 12 tipos x 3 ou 5 copias nenhuma sonda parou em 30 passos (beta / |alpha|
+# no passo da exaustao ficou em 1,1e-12 a 9,8e-10 com 5, 6 e 8 tipos x 5 copias, acima do
+# limiar 1e-12), e com 5 tipos so uma sonda de 16 parou no passo 5, as outras no 26 ou no 30.
+# Poucos marcadores param: 6 marcadores em 300 animais, G de posto 6, o Lanczos roda em
+# Z'Z/k (6 x 6) e esgota o espaco no passo 6, com beta / |alpha| de no maximo 1,7e-14 aqui
+# (as 8 sondas param). A contagem das sondas que pararam e a das mesmas sondas nos
+# autovetores exatos (diferenca medida 4e-15); as mesmas tridiagonais lidas como se 6 fossem
+# os passos pedidos (o ramo desligado, K = 2, junta a regra de T_5) se afastam dela em ate
+# 0,0012 contagem no perfil de v. Com o ramo trocado por FALSE em nos_lanczos, so este teste
+# falha no arquivo.
+test_that("lanczos: a sonda que para no subespaco invariante fica com a regra exata (K = 1)", {
+  set.seed(4)
+  m <- matrix(rbinom(300 * 6, 2, 0.4), 300, 6) + 0
+  V <- matrix(sample(c(-1, 1), 6 * 8, TRUE), 6)
+  ev <- eigen(operador_exato(m), symmetric = TRUE)
+  r <- .Call(BreedingR:::R_lanczos_g, m, V, 30L)
+  expect_equal(r$dim, 6)
+  b <- which(r$steps < 30)
+  expect_gte(length(b), 4)
+  expect_true(all(r$steps[b] == 6))
+  vs <- seq(0.30, 0.995, by = 0.005)
+  k_so <- vapply(vs, BreedingR:::medida_nos(data.frame(
+    theta = rep(pmax(ev$values, 0), length(b)),
+    w = 6 / length(b) * as.vector(crossprod(ev$vectors, V[, b, drop = FALSE] / sqrt(6))^2),
+    sonda = rep(seq_along(b), each = 6)))$conta, 0)
+  sub <- list(alpha = r$alpha[, b, drop = FALSE], beta = r$beta[, b, drop = FALSE],
+              steps = r$steps[b], dim = r$dim)
+  expect_equal(vapply(vs, BreedingR:::medida_nos(BreedingR:::nos_lanczos(sub))$conta, 0), k_so,
+               tolerance = 1e-10)
+  # o ramo desligado: com 6 linhas, s = 6 nao e menor que os passos e K = ceiling(6 / 4) = 2
+  k_sem <- vapply(vs, BreedingR:::medida_nos(BreedingR:::nos_lanczos(list(
+    alpha = sub$alpha[1:6, , drop = FALSE], beta = sub$beta[1:6, , drop = FALSE],
+    steps = sub$steps, dim = sub$dim)))$conta, 0)
+  expect_gt(max(abs(k_sem - k_so)), 1e-4)
+})
+
+# No lado dos animais (20 animais de 4 tipos, G de posto 3 mais o espaco nulo) o espaco de
+# Krylov se esgota no passo 4, onde K = 1 de todo jeito: aqui nao se testa o ramo, e sim que
+# a sonda que para e a que segue alem do espaco esgotado (o criterio nao dispara e a
+# recorrencia continua com nos fantasmas) dao as duas a contagem exata das mesmas sondas.
+# Neste sorteio 3 das 8 param no passo 4 e 5 seguem ate 30: beta / |alpha| no passo 4 vai de
+# 3,4e-13 a 3,2e-11, dos dois lados do limiar 1e-12. Qual sonda para depende do
+# arredondamento, entao o teste exige so a contagem exata, que vale nos dois caminhos.
+test_that("lanczos: parar ou seguir alem do espaco de Krylov esgotado, a contagem e a exata", {
+  set.seed(4)
+  m <- matrix(rbinom(4 * 200, 2, 0.4), 4, 200)[rep(1:4, each = 5), ] + 0
+  ev <- eigen(operador_exato(m), symmetric = TRUE)
+  V <- matrix(sample(c(-1, 1), 20 * 8, TRUE), 20)
+  r <- .Call(BreedingR:::R_lanczos_g, m, V, 30L)
+  so <- BreedingR:::medida_nos(data.frame(
+    theta = rep(pmax(ev$values, 0), 8),
+    w = 20 / 8 * as.vector(crossprod(ev$vectors, V / sqrt(20))^2), sonda = rep(1:8, each = 20)))
+  vs <- c(0.5, 0.8, 0.9, 0.95, 0.98)
+  expect_equal(vapply(vs, BreedingR:::medida_nos(BreedingR:::nos_lanczos(r))$conta, 0),
+               vapply(vs, so$conta, 0), tolerance = 1e-10)
 })
 
 test_that("a tridiagonal de Lanczos: primeiro passo e o quociente de Rayleigh da sonda em G", {

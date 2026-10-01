@@ -22,7 +22,8 @@ snp_blup(
 \arguments{
 \item{formula}{as in \code{\link[=model]{model()}}. The markers enter every relationship group and every
 component of it, as \code{H^-1} does on the \verb{genotypes=} path: direct-maternal in one
-group, a reaction norm, direct and maternal in separate groups, the indirect effect.
+group, a reaction norm, direct and maternal in separate groups, the indirect effect
+(with its \verb{dilution =}, the mate weights \code{(n_i - 1)^(-d)} described in \code{\link[=model]{model()}}).
 A group of dimension q with covariance \code{K0} gets q sets of marker effects with
 covariance \code{K0 (1-rpg) / k} between them, so the precision is \code{K0^-1} times the
 scalar one}

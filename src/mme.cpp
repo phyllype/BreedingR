@@ -19,6 +19,7 @@
 #include "mme.h"
 
 #include <R_ext/Print.h>
+#include <algorithm>
 #include <cstring>
 #include <cstdio>
 
@@ -87,9 +88,67 @@ void reduz_kernels(const Modelo& m, const std::vector<KernelDecl>*& kernels,
   kernels = &kern_red;
 }
 
+// O MESMO NUMERO ESCRITO DE DOIS JEITOS nao e um animal fora do pedigree. O R escreve o
+// double 100000 como "1e+05" (as.character(), factor(), rownames<-), e o motor rotula a
+// coluna numerica dos dados como "100000". Quando um lado passou por essa conversao e o
+// outro nao, o nivel nao casava com o pedigree (ou com a K), e os registros daquele animal
+// saiam da analise em silencio, so com o n_used menor. Aqui isso vira erro declarado, que diz
+// como escrever o id, nos dois sentidos: dado em notacao cientifica com o inteiro entre os
+// niveis, e nivel em notacao cientifica com o inteiro nos dados. So olha as linhas que nao
+// casaram, entao nao custa nada quando tudo casa.
+//
+// Os ids conferidos sao os niveis do termo E, num kernel(), os das linhas NULAS da K, que
+// reduz_kernels() tira dos niveis e guarda em kern_nulos: um registro de nivel nulo fica na
+// analise com incidencia zero (casa_niveis_nulos), e um id nulo escrito "1e+05" na K contra
+// 100000 nos dados nao casava com nada e saia calado, porque a conferencia so via os niveis.
+static void confere_rotulos_cientificos(
+    const Modelo& m, const std::vector<DesenhoTermo*>& aleatorios,
+    const std::vector<std::unordered_set<std::string> >& kern_nulos, const Tabela& t,
+    std::size_t nlin) {
+  for (const DesenhoTermo* a : aleatorios) {
+    const Termo& tm = m.termos[a->termo];
+    if (tm.estrutura != Estrutura::Parentesco && tm.estrutura != Estrutura::Declarada) continue;
+    bool algum = false;
+    for (std::size_t i = 0; i < nlin && !algum; i++) algum = !a->casou[i];
+    if (!algum) continue;
+    std::vector<std::string> ids = a->niveis;
+    if (tm.estrutura == Estrutura::Declarada && a->termo < kern_nulos.size())
+      ids.insert(ids.end(), kern_nulos[a->termo].begin(), kern_nulos[a->termo].end());
+    // a coluna que da o nivel da linha: a classe de aninhamento numa covariavel aninhada; no
+    // termo social e no pai / avo materno o aninhado e a baia e o avo, e o nivel e a coluna
+    const std::string& col =
+        (!tm.aninhado.empty() && !tm.social && !tm.mgs) ? tm.aninhado : tm.coluna;
+    const std::vector<std::string> rot = t.rotulos(col);
+    const std::string onde = tm.estrutura == Estrutura::Parentesco ? "pedigree" : "K";
+    auto recusa = [&](const std::string& nos_dados, const std::string& nos_niveis) {
+      throw Erro("term '" + tm.nome + "': the data has the id '" + nos_dados + "' and the " +
+                 onde + " has '" + nos_niveis + "', the same number written two ways ('" +
+                 (nos_dados.find("e+") != std::string::npos ? nos_dados : nos_niveis) +
+                 "' is how as.character() and factor() write a round number). Its records "
+                 "would leave the analysis: write the ids the same way on both sides, as "
+                 "numbers or with format(x, scientific = FALSE, trim = TRUE)");
+    };
+    // nas linhas, na ordem dos dados, para a mensagem apontar sempre o mesmo id
+    std::unordered_set<std::string> fora, niveis;
+    for (std::size_t i = 0; i < nlin; i++) {
+      if (a->casou[i]) continue;
+      fora.insert(rot[i]);
+      const std::string c = inteiro_de_cientifico(rot[i]);
+      if (c.empty()) continue;
+      if (niveis.empty()) niveis.insert(ids.begin(), ids.end());
+      if (niveis.count(c)) recusa(rot[i], c);
+    }
+    for (const std::string& nv : ids) {
+      const std::string c = inteiro_de_cientifico(nv);
+      if (!c.empty() && fora.count(c)) recusa(c, nv);
+    }
+  }
+}
+
 // Registro de um nivel declarado NULO na K: fica na analise, com incidencia zero neste
 // termo. A linha zero da K diz que o efeito e exatamente zero, entao nao ha nada a somar e
-// nada a excluir. Vale para os tres ajustadores.
+// nada a excluir. Vale para os tres ajustadores, e e o ultimo passo do casamento de niveis:
+// o que sobra sem casar passa pela conferencia dos ids em notacao cientifica.
 void casa_niveis_nulos(const Modelo& m, const std::vector<DesenhoTermo*>& aleatorios,
                        const std::vector<std::unordered_set<std::string> >& kern_nulos,
                        const Tabela& t, std::size_t nlin) {
@@ -99,6 +158,154 @@ void casa_niveis_nulos(const Modelo& m, const std::vector<DesenhoTermo*>& aleato
     const std::vector<std::string> rot = t.rotulos(m.termos[a->termo].coluna);
     for (std::size_t i = 0; i < nlin; i++)
       if (!a->casou[i] && kern_nulos[a->termo].count(rot[i])) a->casou[i] = 1;
+  }
+  confere_rotulos_cientificos(m, aleatorios, kern_nulos, t, nlin);
+}
+
+// Ordem dos niveis de um grupo sem estrutura de varios termos: os rotulos inteiros primeiro,
+// em ordem NUMERICA ("9" antes de "10", como o dado ja renumerado espera), depois o resto em
+// ordem de bytes. E uma ordem total sobre rotulos distintos: sinal, magnitude sem zeros a
+// esquerda e, no empate ("007" e "7"), os proprios bytes.
+static bool rotulo_inteiro(const std::string& s) {
+  std::size_t i = (!s.empty() && s[0] == '-') ? 1 : 0;
+  if (i == s.size()) return false;
+  for (; i < s.size(); i++)
+    if (s[i] < '0' || s[i] > '9') return false;
+  return true;
+}
+
+static bool rotulo_antes(const std::string& a, const std::string& b) {
+  const bool ia = rotulo_inteiro(a), ib = rotulo_inteiro(b);
+  if (ia != ib) return ia;
+  if (!ia) return a < b;
+  const bool na = a[0] == '-', nb = b[0] == '-';
+  if (na != nb) return na;
+  auto magnitude = [](const std::string& s) {
+    std::size_t i = (s[0] == '-') ? 1 : 0;
+    while (i + 1 < s.size() && s[i] == '0') i++;
+    return s.substr(i);
+  };
+  const std::string ma = magnitude(a), mb = magnitude(b);
+  if (ma != mb) {
+    const bool menor = ma.size() != mb.size() ? ma.size() < mb.size() : ma < mb;
+    return na ? !menor : menor;
+  }
+  return a < b;
+}
+
+// Os termos ALEATORIOS do desenho, com o conjunto de niveis de cada um. Um lugar so para os
+// tres montadores (model(), model_mt(), model_ar1(); gibbs() e snp_blup() passam por
+// monta_desenho).
+//
+// Todo termo de um grupo tem de indexar O MESMO conjunto de niveis, na mesma ordem: a
+// penalidade e kron(C_g^-1, K^-1) sobre a coluna coef * n_niveis + nivel, entao o nivel l de
+// um termo so covaria com o nivel l do outro, e montagem, traco da AI, EM, Gibbs e os nomes
+// dos EBV leem n_niveis do PRIMEIRO termo. No parentesco o conjunto e o pedigree; no kernel()
+// sao os ids da K, e kinv_declarada ja exige a mesma K em todo termo do grupo. No grupo SEM
+// estrutura (random(), pe()) cada termo tirava os niveis da propria coluna, na ordem de
+// aparicao, e o nivel i de um pareava com o nivel i do outro, que e outro nivel: medido no
+// caso de 20 + 20 niveis de tests/testthat/test-grupo-iid-niveis.R, o mesmo dado e o mesmo
+// theta davam -2logL 340.573 na ordem original das linhas e 340.078 na permutacao daquele
+// portao, contra 338.860 da MME densa pareada pelo nome; com 8 touros e 16 vacas a kron
+// tinha a dimensao do primeiro termo e os EBV das vacas saiam com rotulos de touro. Agora o
+// grupo usa a UNIAO dos rotulos dos seus termos, em rotulo_antes(), que nao depende da ordem
+// das linhas (um termo aleatorio aninhado e recusado em monta_modelo, entao o rotulo e o da
+// propria coluna). Um nivel que so aparece na coluna de um termo continua sendo efeito do
+// outro, sem registro ali, so com a priori (e com a informacao que a covariancia do grupo
+// traz do nivel irmao). O grupo de UM termo segue com a ordem de aparicao de sempre: sem par
+// nao ha pareamento a errar.
+std::vector<DesenhoTermo> monta_aleatorios(const Modelo& m, const Tabela& t,
+                                           const std::vector<std::string>& niveis_ped,
+                                           const std::vector<KernelDecl>* kernels) {
+  std::vector<std::vector<std::string>> uniao(m.termos.size());
+  std::vector<char> tem_uniao(m.termos.size(), 0);
+  for (const Grupo& g : m.grupos) {
+    if (g.estrutura != Estrutura::Diagonal || g.termos.size() < 2) continue;
+    std::vector<std::string> niveis;
+    std::unordered_set<std::string> visto;
+    for (std::size_t tk : g.termos)
+      for (const std::string& r : t.rotulos(m.termos[tk].coluna))
+        if (visto.insert(r).second) niveis.push_back(r);
+    std::sort(niveis.begin(), niveis.end(), rotulo_antes);
+    for (std::size_t tk : g.termos) {
+      uniao[tk] = niveis;
+      tem_uniao[tk] = 1;
+    }
+  }
+
+  std::vector<DesenhoTermo> out;
+  for (std::size_t k = 0; k < m.termos.size(); k++) {
+    if (!m.termos[k].aleatorio()) continue;
+    const std::vector<std::string>* nf = nullptr;
+    if (m.termos[k].estrutura == Estrutura::Parentesco) nf = &niveis_ped;
+    else if (m.termos[k].estrutura == Estrutura::Declarada) nf = &(*kernels)[k].ids;
+    else if (tem_uniao[k]) nf = &uniao[k];
+    out.push_back(monta_termo(m, k, t, nf));
+  }
+
+  // O invariante que a montagem supoe, conferido aqui: quebrado, ele nao da erro em lugar
+  // nenhum adiante, so estima outra coisa.
+  for (const Grupo& g : m.grupos) {
+    const DesenhoTermo* ref = nullptr;
+    for (std::size_t tk : g.termos)
+      for (const DesenhoTermo& a : out) {
+        if (a.termo != tk) continue;
+        if (!ref) ref = &a;
+        else if (a.niveis != ref->niveis)
+          throw Erro("group '" + g.nome + "': terms '" + ref->nome + "' (" +
+                     std::to_string(ref->n_niveis) + " levels) and '" + a.nome + "' (" +
+                     std::to_string(a.n_niveis) + " levels) do not index the same levels, "
+                     "and the group covariance pairs them level by level");
+      }
+  }
+  return out;
+}
+
+// A COVARIANCIA DE DOIS TERMOS IID SO EXISTE NA VEROSSIMILHANCA ATRAVES DOS NIVEIS COMUNS. Num
+// grupo sem estrutura, Var(y) leva Z_a (C_ab I) Z_b', cuja entrada (i, j) e C_ab quando o
+// nivel de a na linha i e o nivel de b na linha j sao o mesmo rotulo, e zero nos outros
+// casos. Sem nenhum nivel com registro nos dois termos (touro e vaca com ids que nunca se
+// repetem entre os sexos), C_ab some da verossimilhanca: ela e plana nessa direcao, e o
+// REML andava as 300 iteracoes, saia com converged = FALSE e erro padrao NaN em todos os
+// componentes. A recusa vem antes do ajuste, com o par de termos. Avaliar num theta dado
+// (maxiter = 0, theta_fixed = do gibbs()) continua valendo: ali C_ab e um valor conhecido, e
+// o BLUP de um nivel que so tem registro num termo usa essa covariancia. So conta linha que
+// entra na analise (`usa`), com incidencia nao nula.
+void confere_covariancias_iid(const Modelo& m, const std::vector<DesenhoTermo>& aleatorios,
+                              const std::vector<char>& usa) {
+  for (const Grupo& g : m.grupos) {
+    if (g.estrutura != Estrutura::Diagonal || g.termos.size() < 2) continue;
+    // com_registro[k][l]: o nivel l tem ao menos uma linha usada no k-esimo termo do grupo
+    std::vector<std::vector<char>> com_registro;
+    std::vector<const DesenhoTermo*> dt;
+    for (std::size_t tk : g.termos)
+      for (const DesenhoTermo& a : aleatorios) {
+        if (a.termo != tk) continue;
+        std::vector<char> tem(a.n_niveis, 0);
+        for (std::size_t c = 0; c < a.z.ncol; c++)
+          for (std::size_t q = a.z.colptr[c]; q < a.z.colptr[c + 1]; q++)
+            if (a.z.valor[q] != 0.0 && a.z.linha[q] < usa.size() && usa[a.z.linha[q]])
+              tem[c % a.n_niveis] = 1;
+        com_registro.push_back(std::move(tem));
+        dt.push_back(&a);
+      }
+    for (std::size_t p = 0; p < dt.size(); p++)
+      for (std::size_t q = p + 1; q < dt.size(); q++) {
+        bool comum = false;
+        for (std::size_t l = 0; l < com_registro[p].size() && !comum; l++)
+          comum = com_registro[p][l] && com_registro[q][l];
+        if (comum) continue;
+        const Termo& tp = m.termos[dt[p]->termo];
+        const Termo& tq = m.termos[dt[q]->termo];
+        throw Erro("group '" + g.nome + "': no level has records in both '" + tp.nome +
+                   "' (column '" + tp.coluna + "') and '" + tq.nome + "' (column '" +
+                   tq.coluna + "'). Their covariance pairs equal levels, and with no label "
+                   "in common it does not enter the likelihood: it cannot be estimated, and "
+                   "REML would end without convergence or standard errors. Put the two "
+                   "terms in separate groups, or hold the components at known values "
+                   "(start = with maxiter = 0 and n_em = 0 in model(), theta_fixed = in "
+                   "gibbs())");
+      }
   }
 }
 
@@ -680,15 +887,10 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
   for (std::size_t j = 0; j < cols.size(); j++)
     for (std::size_t i = 0; i < d.nlin; i++) xfull.at(i, j) = cols[j].second[i];
 
-  // aleatorios, com niveis do pedigree quando ha parentesco e da K quando declarada, em
-  // ambos os casos todo nivel da estrutura ganha equacao, com ou sem registro
-  for (std::size_t k = 0; k < m.termos.size(); k++) {
-    if (!m.termos[k].aleatorio()) continue;
-    const std::vector<std::string>* nf = nullptr;
-    if (m.termos[k].estrutura == Estrutura::Parentesco) nf = &niveis_ped;
-    else if (m.termos[k].estrutura == Estrutura::Declarada) nf = &(*kernels)[k].ids;
-    d.aleatorios.push_back(monta_termo(m, k, t, nf));
-  }
+  // aleatorios, com niveis do pedigree quando ha parentesco, da K quando declarada e da
+  // uniao das colunas num grupo sem estrutura de varios termos: todo nivel do conjunto
+  // ganha equacao, com ou sem registro. Ver monta_aleatorios().
+  d.aleatorios = monta_aleatorios(m, t, niveis_ped, kernels);
 
   {
     std::vector<DesenhoTermo*> pa;

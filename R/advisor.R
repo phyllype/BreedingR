@@ -24,7 +24,7 @@ suggest_model <- function(data, trait, animal, time = NULL, missing_code = NULL)
     stop("no column '", k, "' in the data")
   y <- data[[trait]]
   falta <- if (is.null(missing_code)) is.na(y) else (is.na(y) | y == missing_code)
-  ids <- as.character(data[[animal]])
+  ids <- rotulo_motor(data[[animal]])
   reg <- table(ids[!falta])
   rep_medio <- mean(reg)
   sug <- character(0)

@@ -68,7 +68,7 @@
 #'   fixed-effect solutions `b` come named `term=level|trait`, one entry per column of X
 #'   and per trait. The parametrization note of [model()] applies: dropped columns are
 #'   in `dropped_x` and only contrasts compare against a reference-level convention.
-#'   `dense_block`, `h_prior` and `h_prior_row` are as in [model()].
+#'   `dense_block`, `h_prior`, `h_prior_row` and `k_prior` are as in [model()].
 #' @export
 model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                        apy_core = NULL, vecchia_k = NULL, missing_code = NULL,
@@ -82,7 +82,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   traits <- vapply(as.list(lhs)[-1], deparse, character(1))
   if (length(traits) < 2L) stop("cbind() with only one column; for one, use model()")
 
-  terms <- decompoe_formula(formula[[3]])
+  terms <- decompoe_formula(formula[[3]], environment(formula))
   recusa_materno_mgs(terms, pedigree)
   recusa_kfixo(terms, "model_mt()")
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
@@ -110,6 +110,8 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
 
+  kern <- monta_kernels(terms, environment(formula))
+
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_ajustar_mt,
              lst, names(lst), traits,
@@ -128,10 +130,10 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
              nuc,
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
              isTRUE(verbose),
-             if (is.null(metafounders)) character(0) else as.character(metafounders),
+             rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
-             monta_kernels(terms, environment(formula)),
+             kern,
              if (is.null(start)) numeric(0) else as.double(start),
              vapply(terms, function(t) t$dilution, numeric(1)))
   r$seconds <- proc.time()[["elapsed"]] - t0
@@ -142,9 +144,11 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   # if it were tolerated the F would come back on the gamma = 0 base.
   r$metafounders <- metafounders
   r$gamma <- gamma
-  r$formula <- formula
+  r$formula <- formula_resolvida(formula, terms)
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$traits <- traits
+  # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
+  r$k_prior <- priori_kernels(terms, kern)
   structure(r, class = "breeding_fit_mt")
 }
 
@@ -163,12 +167,16 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
                              metafounders = NULL, gamma = NULL) {
   lhs <- formula[[2]]
   traits <- vapply(as.list(lhs)[-1], deparse, character(1))
-  terms <- decompoe_formula(formula[[3]])
+  terms <- decompoe_formula(formula[[3]], environment(formula))
   recusa_materno_mgs(terms, pedigree)
   used_columns <- unique(c(traits, vapply(terms, function(t) t$column, character(1)),
                              unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
                              unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
   used_columns <- used_columns[nzchar(used_columns)]
+  # a mesma conferencia do model_mt(): sem ela o data[used_columns] abaixo parava com o
+  # "undefined columns selected" do R, que nao diz qual coluna falta
+  falta <- setdiff(used_columns, names(data))
+  if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
   lst <- lapply(data[used_columns], function(col) {
     if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
   })
@@ -190,7 +198,7 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
         ped_id, ped_sire, ped_dam,
         if (is.null(missing_code)) 0.0 else as.double(missing_code), !is.null(missing_code),
         as.double(theta), isTRUE(with_dense),
-             if (is.null(metafounders)) character(0) else as.character(metafounders),
+             rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
              monta_kernels(terms, environment(formula)),

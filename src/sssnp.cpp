@@ -118,7 +118,8 @@ SnpBlup snp_blup(const Desenho& d, const Genotipos& gt, const std::vector<std::s
       auto it = std::lower_bound(tmp.begin(), tmp.end(), std::make_pair(g, std::size_t(0)),
           [](const auto& a, const auto& b){ return a.first < b.first; });
       if (it == tmp.end() || it->first != g)
-        throw Erro("genotyped animal '" + g + "' is not in the pedigree");
+        throw Erro("genotyped animal '" + g + "' is not in the pedigree" +
+                   dica_cientifica(g, dt->niveis));
       pos.push_back(it->second);
     }
   }

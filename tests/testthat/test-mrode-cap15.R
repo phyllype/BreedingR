@@ -313,12 +313,13 @@ test_that("Mrode Example 15.2: predict() gives the p.281 probabilities, and PEV 
   expect_error(predict(fit, cbind(celas[, 1:3], sire = "1")), "conditional on the quantitative")
 
   # PEV against the dense inverse of the SAME final system
-  terms <- decompoe_formula((cbind(bw, cd) ~ origin + season + sex + sire(sire))[[3]])
+  terms <- BreedingR:::decompoe_formula((cbind(bw, cd) ~ origin + season + sex + sire(sire))[[3]],
+                                        environment())
   aleat <- Filter(function(tm) tm$estrutura != 0L, terms)
-  f2 <- ajusta_limiar_conjunto(cbind(bw, cd) ~ origin + season + sex + sire(sire),
-                               c("bw", "cd"), terms, aleat, dado_15_2(), NULL, ainv_smgs(),
-                               list(G = G_15_2, R = R_15_2), NULL, 50L, 1e-8, FALSE,
-                               sistema = TRUE)
+  f2 <- BreedingR:::ajusta_limiar_conjunto(cbind(bw, cd) ~ origin + season + sex + sire(sire),
+                                           c("bw", "cd"), terms, aleat, dado_15_2(), NULL,
+                                           ainv_smgs(), list(G = G_15_2, R = R_15_2), NULL,
+                                           50L, 1e-8, FALSE, sistema = TRUE)
   S <- attr(f2, "sistema")
   M <- matrix(0, S$monta$n, S$monta$n)
   for (k in seq_along(S$monta$x)) {

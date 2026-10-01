@@ -2,23 +2,110 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <cstdio>
+#include <cstdlib>
 
 namespace br {
 
-std::string Coluna::rotulo(std::size_t i) const {
-  if (texto) return txt[i];
-  const double x = num[i];
+bool rotulo_exato(double x) {
+  return std::isfinite(x) && x == std::floor(x) && std::fabs(x) < 9007199254740992.0;
+}
+
+std::string rotulo_numero(double x) {
   // Um float que representa um inteiro exato perde o ".0". O limite 2^53 e onde o double
   // deixa de representar todo inteiro: acima dele o arredondamento ja nao e fiel e o rotulo
   // sai em decimal, menos util porem honesto.
-  if (std::isfinite(x) && x == std::floor(x) && std::fabs(x) < 9007199254740992.0) {
+  if (rotulo_exato(x)) {
     char b[32];
     std::snprintf(b, sizeof b, "%lld", static_cast<long long>(x));
     return b;
   }
-  char b[64];
-  std::snprintf(b, sizeof b, "%g", x);
+  // Fora disso, a MENOR escrita com 15, 16 ou 17 digitos significativos que volta ao mesmo
+  // double: "1.5" continua "1.5", e dois doubles distintos nunca dividem o rotulo. O %g de
+  // antes guardava 6 digitos, e 123456.7 saia "123457", o rotulo do inteiro 123457: na
+  // coluna de dados os dois viravam UM nivel sem aviso, e 1234567.5 saia "1.23457e+06", que
+  // parecia o inteiro 1234570 escrito pelo R. Com 17 digitos todo double finito volta a si
+  // mesmo. snprintf e strtod leem o mesmo separador decimal, entao a volta nao depende do
+  // locale. NaN e Inf seguem o %g ("nan", "inf"); como nivel de classe sao recusados em
+  // monta_termo.
+  char b[48];
+  if (!std::isfinite(x)) {
+    std::snprintf(b, sizeof b, "%g", x);
+    return b;
+  }
+  for (int p = 15; p <= 17; p++) {
+    std::snprintf(b, sizeof b, "%.*g", p, x);
+    if (std::strtod(b, nullptr) == x) break;
+  }
   return b;
+}
+
+std::string Coluna::rotulo(std::size_t i) const {
+  if (texto) return txt[i];
+  return rotulo_numero(num[i]);
+}
+
+std::string inteiro_de_cientifico(const std::string& s) {
+  // a forma do R: sinal opcional, um digito de 1 a 9, talvez um ponto com mais digitos, "e+"
+  // e o expoente. A conta e feita nos DIGITOS, sem strtod, que depende do separador decimal
+  // do locale.
+  const std::size_t e = s.find("e+");
+  if (e == std::string::npos || e + 2 >= s.size()) return "";
+  const std::size_t sinal = (s[0] == '-') ? 1 : 0;
+  std::size_t i = sinal;
+  if (i >= e || s[i] < '1' || s[i] > '9') return "";
+  std::string dig(1, s[i]);
+  std::size_t frac = 0;
+  i++;
+  if (i < e) {
+    if (s[i] != '.' || i + 1 >= e) return "";
+    for (i++; i < e; i++) {
+      if (s[i] < '0' || s[i] > '9') return "";
+      dig.push_back(s[i]);
+      frac++;
+    }
+    // o R nao escreve zero final na mantissa
+    if (dig.back() == '0') return "";
+  }
+  // o expoente do R tem dois digitos no minimo, e zero a esquerda so para chegar a dois
+  const std::size_t ne = s.size() - (e + 2);
+  if (ne < 2 || (ne > 2 && s[e + 2] == '0')) return "";
+  std::size_t expo = 0;
+  for (std::size_t k = e + 2; k < s.size(); k++) {
+    if (s[k] < '0' || s[k] > '9') return "";
+    expo = expo * 10 + static_cast<std::size_t>(s[k] - '0');
+    if (expo > 32) return "";
+  }
+  // inteiro so quando o expoente cobre as casas decimais
+  if (expo < frac) return "";
+  dig.append(expo - frac, '0');
+  if (dig.size() > 16) return "";
+  // E SO O QUE O as.character() ESCREVERIA. O R escolhe a notacao cientifica quando ela e
+  // MAIS CURTA que a fixa (empate fica na fixa): 1e+05 (5 contra 6 de "100000"), 1.2e+07 (7
+  // contra 8), mas 1200000 e nao 1.2e+06. Um texto como "1.23457e+06" le como 1234570, e o
+  // as.character() desse numero e "1234570": e um nao inteiro arredondado a 6 digitos (o %g
+  // de 1234567.5), e dizer que ele e o mesmo numero que "1234570" seria fundir dois animais
+  // na mensagem.
+  if (dig.size() <= s.size() - sinal) return "";
+  long long v = 0;
+  for (char c : dig) v = v * 10 + (c - '0');
+  const double x = static_cast<double>(s[0] == '-' ? -v : v);
+  if (!rotulo_exato(x)) return "";
+  return rotulo_numero(x);
+}
+
+std::string dica_cientifica(const std::string& id, const std::vector<std::string>& outros) {
+  if (id.empty()) return "";
+  const std::string c = inteiro_de_cientifico(id);
+  for (const std::string& o : outros) {
+    const bool par = (!c.empty() && o == c) ||
+                     (o.find("e+") != std::string::npos && inteiro_de_cientifico(o) == id);
+    if (par)
+      return " ('" + id + "' and '" + o + "' are the same number written two ways, the one "
+             "with 'e+' as as.character() and factor() write a round number: write the ids "
+             "the same way on both sides, as numbers or with "
+             "format(x, scientific = FALSE, trim = TRUE))";
+  }
+  return "";
 }
 
 const Coluna* Tabela::acha(const std::string& n) const {
@@ -164,9 +251,54 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
   const std::size_t nlin = t.nlin;
   d.casou.assign(nlin, 1);
 
-  // niveis: do pedigree quando ha parentesco, senao dos dados na ordem de aparicao.
-  // Ordem de aparicao e nao alfabetica: e o que mantem a saida comparavel com dado ja
-  // renumerado, onde o nivel "10" vem depois do "9" e nao entre "1" e "2".
+  // NIVEL AUSENTE e ERRO, no termo fixo de classe como no aleatorio. Coluna::rotulo faz de
+  // qualquer numero um rotulo: o NA de uma coluna numerica (NaN no motor) virava o nivel
+  // "nan", e as linhas sem nivel formavam UM nivel so, uma classe "cg=nan" no fixo ou um
+  // animal "nan" no aleatorio, com efeito estimado e sem aviso (num grupo iid, "nan" ainda
+  // pareava com o "nan" do outro termo). Num termo com parentesco o "nan" nao casava com o
+  // pedigree e a linha saia calada. O NA de coluna textual ja para em tabela_do_R
+  // (entrada.cpp), em qualquer linha, e esta e a mesma regra para a coluna numerica; Inf e
+  // -Inf tambem nao sao nivel. A coluna conferida e a que da o nivel: a classe, o animal do
+  // termo social, o pai do modelo pai / avo materno E a coluna do avo, ou a classe de
+  // aninhamento de uma covariavel aninhada. O avo AUSENTE (NA numerico) virava o avo "nan",
+  // que parava adiante com "maternal grandsire 'nan' is not in the level set", sem a linha;
+  // o avo DESCONHECIDO e o "0" (ou texto vazio), que deixa so o pai. A covariavel simples
+  // nao tem nivel, e a observacao ausente continua tirando so a linha (monta_desenho).
+  {
+    const bool so_valor = tm.base.empty() && tm.efeito == Efeito::Covariavel &&
+                          tm.aninhado.empty() && !tm.aleatorio();
+    std::vector<std::string> cols_nivel;
+    if (!so_valor)
+      cols_nivel.push_back((!tm.aninhado.empty() && !tm.social && !tm.mgs) ? tm.aninhado
+                                                                          : tm.coluna);
+    if (tm.mgs) cols_nivel.push_back(tm.aninhado);
+    for (const std::string& col_nivel : cols_nivel) {
+      const Coluna* cn = t.acha(col_nivel);
+      if (!cn || cn->texto) continue;
+      std::size_t n_aus = 0, primeira = 0;
+      bool viu_na = false, viu_inf = false;
+      for (std::size_t i = 0; i < nlin; i++) {
+        const double x = cn->num[i];
+        if (std::isfinite(x)) continue;
+        if (n_aus++ == 0) primeira = i;
+        (std::isnan(x) ? viu_na : viu_inf) = true;
+      }
+      if (n_aus > 0)
+        throw Erro("term '" + tm.nome + "': " +
+                   (viu_na ? std::string(viu_inf ? "NA or Inf" : "NA") : std::string("Inf")) +
+                   " in the column '" + col_nivel + "' in " + std::to_string(n_aus) +
+                   " row(s), the first at row " + std::to_string(primeira + 1) +
+                   ": a record without a level has no known effect, and those rows would "
+                   "share one level; drop those rows or fill them" +
+                   (tm.mgs && col_nivel == tm.aninhado
+                        ? " (an unknown maternal grandsire is 0)" : ""));
+    }
+  }
+
+  // niveis: o conjunto que vem de fora da coluna (pedigree, ids da K, ou a uniao ordenada
+  // num grupo iid de varios termos, ver monta_aleatorios em mme.cpp), senao os dados na
+  // ordem de aparicao. Ordem de aparicao e nao alfabetica: e o que mantem a saida comparavel
+  // com dado ja renumerado, onde o nivel "10" vem depois do "9" e nao entre "1" e "2".
   std::vector<std::string> rot = t.rotulos(tm.coluna);
   if (niveis_fixos) {
     d.niveis = *niveis_fixos;
@@ -186,6 +318,60 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
   // com parentesco) e ERRO declarado: soma-lo como zero afirmaria que o efeito social dele e
   // nulo, e descarta-lo mudaria o grupo de convivencia em silencio.
   if (tm.social) {
+    // Baia AUSENTE e ERRO. Coluna::rotulo faz de qualquer valor um rotulo: o NaN numerico
+    // vira "nan", o Inf vira "inf", e o texto em branco (o que read.csv() e fread() dao a uma
+    // celula vazia de coluna textual) fica "". Em todos os casos as linhas sem baia viravam
+    // UMA baia, e animais sem relacao entravam como companheiros uns dos outros sem aviso.
+    // Tratar cada uma como baia de um tambem seria inventar: o registro TEM companheiros, so
+    // nao se sabe quais. O que conta como ausente:
+    //   coluna numerica: NA ou NaN, Inf, -Inf;
+    //   coluna textual (e fator, que cruza como texto): texto vazio depois de tirar espacos,
+    //   tabulacoes e quebras de linha, e o texto "NaN", que factor() e as.character() fazem
+    //   de um NaN numerico. O NA textual ja para antes, em tabela_do_R.
+    // Os textos "NA" e "Inf" NAO entram: podem ser o nome de uma baia de verdade. A mesma
+    // regra esta em sem_rotulo() (R/indirect.R), que indirect_residual(),
+    // associative_matrix() e competition_strength() usam; mudar uma e mudar a outra. A
+    // recusa fica aqui, onde a incidencia social e montada, para valer em todo ajustador.
+    {
+      const Coluna* cb = t.acha(tm.aninhado);
+      if (!cb) throw Erro("no column '" + tm.aninhado + "' in the data");
+      static const char* const tipos_num[] = {"NA", "Inf", "-Inf"};
+      static const char* const tipos_txt[] = {"blank text", "the text 'NaN'", ""};
+      const char* const* nome_tipo = cb->texto ? tipos_txt : tipos_num;
+      // 0 quando a linha tem baia; senao 1 + o indice do tipo em nome_tipo
+      auto tipo = [&](std::size_t i) -> int {
+        if (!cb->texto) {
+          const double x = cb->num[i];
+          if (std::isnan(x)) return 1;
+          if (std::isinf(x)) return x > 0 ? 2 : 3;
+          return 0;
+        }
+        const std::string& s = cb->txt[i];
+        const std::size_t a = s.find_first_not_of(" \t\r\n");
+        if (a == std::string::npos) return 1;
+        const std::size_t b = s.find_last_not_of(" \t\r\n");
+        return s.compare(a, b - a + 1, "NaN") == 0 ? 2 : 0;
+      };
+      std::size_t n_aus = 0, primeira = 0;
+      bool viu[3] = {false, false, false};
+      for (std::size_t i = 0; i < nlin; i++) {
+        const int c = tipo(i);
+        if (c == 0) continue;
+        if (n_aus++ == 0) primeira = i;
+        viu[c - 1] = true;
+      }
+      if (n_aus > 0) {
+        std::string oque;
+        for (int c = 0; c < 3; c++)
+          if (viu[c]) oque += (oque.empty() ? "" : " or ") + std::string(nome_tipo[c]);
+        throw Erro("indirect term '" + tm.nome + "': " + oque + " in the pen column '" +
+                   tm.aninhado + "' of indirect() in " + std::to_string(n_aus) +
+                   " row(s), the first at row " + std::to_string(primeira + 1) +
+                   ": a record without a pen has no known pen mates, and grouping those "
+                   "rows would make them mates of each other; drop those rows or assign "
+                   "them a pen");
+      }
+    }
     const std::vector<std::string> baia = t.rotulos(tm.aninhado);
     // baia -> animais distintos nela
     std::unordered_map<std::string, std::vector<std::size_t>> membros;
@@ -195,7 +381,8 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
         auto it = pos.find(rot[i]);
         if (it == pos.end()) {
           throw Erro("indirect term '" + tm.nome + "': animal '" + rot[i] +
-                     "' is not in the level set (pedigree)");
+                     "' is not in the level set (pedigree)" +
+                     dica_cientifica(rot[i], d.niveis));
         }
         if (visto[baia[i]].insert(rot[i]).second)
           membros[baia[i]].push_back(it->second);
@@ -206,7 +393,7 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
     for (std::size_t i = 0; i < nlin; i++) {
       const std::size_t proprio = pos.at(rot[i]);
       const std::vector<std::size_t>& mem = membros[baia[i]];
-      // Diluicao (Bijma 2010, Genetics 186:1013-1028): cada companheiro entra com
+      // Diluicao (Bijma 2010, Genetics 186:1029-1031): cada companheiro entra com
       // (n_i - 1)^(-d), onde n_i - 1 e o numero de companheiros do registro i (o proprio
       // animal esta em `mem`, dai o -1). d = 0 e a soma do livro, coeficiente 1. A baia
       // de tamanho 1 nunca chega ao expoente: sem companheiro o laco abaixo nao executa
@@ -244,7 +431,7 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
       auto ja = pos.find(a);
       if (ja == pos.end())
         throw Erro("sire term '" + tm.nome + "': maternal grandsire '" + a +
-                   "' is not in the level set (pedigree)");
+                   "' is not in the level set (pedigree)" + dica_cientifica(a, d.niveis));
       li.push_back(static_cast<std::uint32_t>(i));
       cj.push_back(static_cast<std::uint32_t>(ja->second));
       v.push_back(0.5);

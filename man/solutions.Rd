@@ -10,20 +10,33 @@ solutions(fit, pedigree = NULL, group = NULL, trait = NULL)
 \item{fit}{result of \code{model()}, \code{model_mt()}, \code{model_ar1()}, \code{model_threshold()},
 \code{model_survival()} or \code{snp_blup()}}
 
-\item{pedigree}{the SAME pedigree the fit was built on. Optional: without it the
-accuracy column is absent, because accuracy needs the inbreeding of each animal.
-A \code{\link[=snp_blup]{snp_blup()}} fit has no PEV (it solves by conjugate gradients) and takes no
-\code{pedigree}; for \code{\link[=model_survival]{model_survival()}} the accuracy is on the log-hazard scale, from
-the Laplace PEV of the frailty}
+\item{pedigree}{the SAME pedigree the fit was built on. Needed for the accuracy of a
+group with a pedigree term (animal(), sire(), maternal(), indirect(), a single step),
+whose prior variance is 1 + F of each animal: without it that group gets no
+accuracy column. A group of \code{kernel()} terms, of iid terms, or of a term fitted with
+a declared \verb{k_inverse =} carries its own prior variance and gets the column without
+it (see \code{\link[=accuracy]{accuracy()}}), in a multi-trait fit only when \verb{trait =} is given, because the
+accuracy is per trait. A \code{\link[=snp_blup]{snp_blup()}} fit has no PEV (it solves by conjugate
+gradients) and takes no \code{pedigree}; for \code{\link[=model_survival]{model_survival()}} the accuracy is on the
+log-hazard scale, from the Laplace PEV of the frailty}
 
 \item{group}{covariance group; the first one by default}
 
-\item{trait}{for a multi-trait fit, which trait}
+\item{trait}{for a multi-trait fit (\code{model_mt()}, or \code{model_ar1()} with \code{cbind()}),
+which trait. Without it the table lists every trait, with ids written "level|trait",
+and has no \code{acc} column; given a \code{pedigree} but no \verb{trait =}, the call stops and
+asks for one, as \code{\link[=accuracy]{accuracy()}} does}
 }
 \value{
 a data.frame with one row per level of the group: \code{id}, \code{ebv}, \code{se} (the square
-root of the PEV, absent when the fitter does not produce PEV) and, when \code{pedigree} is
-given, \code{acc}. Sorted by \code{ebv}, descending, which is the order the table is read in.
+root of the PEV, absent when the fitter does not produce PEV) and \code{acc}, when
+\code{pedigree} is given or the group needs none (see \code{pedigree} and \code{trait}). Sorted by
+\code{ebv}, descending, which is the order the table is read in. A group with more than
+one effect per level (direct and maternal, direct and indirect, two correlated iid
+terms, the coefficients of a reaction norm) lists each level once per effect, and a
+\code{term} column after \code{id} says which effect the row belongs to, named as in the
+components (\code{animal}, \code{maternal}, \code{rn[0]}, \code{rn[1]}); \code{se} and \code{acc} are the ones of
+that effect. A group with one effect per level has no \code{term} column.
 }
 \description{
 One call for what an evaluation is for. \code{ebv()} returns a named vector and \code{accuracy()}

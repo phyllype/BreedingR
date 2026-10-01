@@ -41,7 +41,11 @@ affected}
 \code{min(n_animals, n_markers) = 4000})}
 
 \item{probes, steps}{random sign vectors and Lanczos steps of the \code{"lanczos"} route;
-the cost is \verb{2 x steps} passes over the genotype matrix with \code{probes} columns}
+the cost is \verb{2 x steps} passes over the genotype matrix with \code{probes} columns, plus
+the averaged rule, which solves \code{ceiling(steps / 4)} dense eigenproblems of order up
+to \code{steps} per probe in R, a cost that grows with \verb{probes x steps^4}: with 30 probes
+0.5 to 0.8 s at 100 steps, 7 to 12 s at 200 and 27 to 49 s at 300 (three runs in each
+of two sessions, \code{validation/apy_core_lanczos_se.R})}
 }
 \value{
 character vector with the ids of the core animals, in genotype order, of class
@@ -49,7 +53,7 @@ character vector with the ids of the core animals, in genotype order, of class
 \code{variance_explained} (the fraction the chosen size reaches), \code{eig} (the counts at
 90, 95, 98 and 99 percent, the preGSf90 table), \code{eigenvalues} (of G, decreasing),
 \code{n_genotyped}, \code{n_markers}, \code{seed}, \code{method}, and for \code{"lanczos"} \code{count_se} (the
-standard error of the count at \code{variance} across probes), \code{probes} and \code{steps}
+standard error of the count at \code{variance} over the random probes), \code{probes} and \code{steps}
 (\code{eigenvalues} is then NULL), and \code{cost_ratio}, the flops of one sparse
 factorization of the APY block relative to the exact dense one,
 \code{(nj (nc + 1)^2 + (nc + 1)^3 / 3) / (n^3 / 3)} with \code{nc} core and \code{nj} non-core
@@ -85,12 +89,22 @@ never forms it: stochastic Lanczos quadrature (Ubaru, Chen & Saad, 2017) runs \c
 Lanczos steps on G from each of \code{probes} random sign vectors, using only products with
 the genotype matrix (two passes per step, all probes at once, on \code{\link[=br_threads]{br_threads()}}
 threads), and the Gauss nodes and weights of the tridiagonals estimate the spectral
-measure of G, where the count is read at the point its mass reaches \code{variance}. The
-count is an estimate, and its standard error across probes is reported. Measured
-against the exact count on 3060 animals and 4000 markers, 2019 exact at 98\% and 2019 to
-2028 over four runs of 20 to 40 probes; on 10 000 x 10 000, 5953 exact and 5973 to 5979
-over three seeds, 46 s against 697 s (\code{validation/apy_core_lanczos.R}). The estimate
-tends to sit a little above the exact count, the conservative side for a core. \code{"auto"} takes the exact route up to
+measure of G, where the count is read at the point its mass reaches \code{variance}. A
+single Gauss rule per probe is biased there by an amount that more probes do not
+reduce, because the Ritz values near the threshold fall in almost the same place for
+every probe; the size and the sign of that bias change with \code{steps} and \code{variance}.
+Each probe therefore contributes the average of the Gauss rules of its last
+\code{ceiling(steps / 4)} leading tridiagonals, whose nodes interlace, at no extra pass over
+the genotypes; a probe that stops early at an invariant subspace keeps its whole
+tridiagonal, whose rule is already exact. The count is an estimate; \code{count_se} is its
+standard error over the random probes, from the linearized count. On 1000 animals with
+40 steps, eight independent draws of 600 probes, each split into 20 sets of 30, gave a
+spread of the 20 counts of 0.80 to 1.31 times the mean \code{count_se} at 90 to 99\% (mean
+1.01; \code{validation/apy_core_lanczos_se.R}). On 10 000 animals and 10 000 markers
+(\code{validation/apy_core_lanczos.R}, ten seeds) the exact count at 98\% is 5953 and the
+estimates ran from 5934 to 5975, mean 5957.3 with a standard error of about 12; with
+the same probes on the exact eigenvectors the quadrature error was +2.3 counts (0.04\%),
+against +21.4 (0.36\%) for a single Gauss rule. \code{"auto"} takes the exact route up to
 \code{min(n_animals, n_markers) = 4000} and Lanczos above. Choose the core once, keep the
 result and pass it to every fit, rather than \code{"auto"} in each of them.
 }

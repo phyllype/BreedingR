@@ -1,5 +1,5 @@
-# GATES of the dilution of the indirect genetic effect (Bijma, 2010, Genetics
-# 186:1013-1028) and of the pen-size heterogeneous residual it comes with.
+# GATES of the dilution of the indirect genetic effect (Bijma, 2010b, Genetics
+# 186:1029-1031) and of the pen-size heterogeneous residual it comes with.
 #
 # The chapter-9 model fixes n = 3 and gives every pen mate a coefficient of 1. Real pens
 # are unequal, and with coefficient 1 the social sum grows with n_i - 1. indirect() now
@@ -10,11 +10,14 @@
 # bias of forcing d = 0, and (d) that indirect_residual() recovers a planted
 # s2_ES / s2_ED ratio. None of these tests could pass before dilution existed: (a) is
 # the backward-compatibility contract of a new argument, and (b)-(d) exercise it.
+# (e) O snp_blup() resolve o mesmo desenho diluido que o passo unico denso, num fixture
+# com baia de um, companheiro sem fenotipo, registro repetido e marcador monomorfico.
 
 # Unequal pens with the genetics simulated by RECURSION (never through a factored A) and
-# each pen holding TWO full-sib families: the design in which indirect effects are
-# identifiable (Bijma, 2010). d_true is the simulated dilution of the social sum and
-# k_res the planted residual ratio, var(e_i) = s2e (1 + (n_i - 1)^(1 - 2 d_res) k_res): the
+# each pen holding TWO full-sib families: the design Bijma (2010a, Genetics 186:1013-1028)
+# found optimal for estimating indirect effects. d_true is the simulated dilution of the
+# social sum and k_res the planted residual ratio,
+# var(e_i) = s2e (1 + (n_i - 1)^(1 - 2 d_res) k_res): the
 # social environmental deviation of each mate enters with the same (n_i - 1)^(-d) weight as
 # the genetic one when d_res = d_true, which is the model indirect(dilution = d) declares.
 simula_pools <- function(seed, n_pens, sizes = c(2, 3, 4, 5, 6, 8, 10, 12),
@@ -100,11 +103,136 @@ test_that("dilution absent and dilution = 0 are the SAME fit, bit for bit", {
   expect_error(model(y ~ cg + animal(id, group = "g") +
                        indirect(id, pen = "baia", group = "g", dilution = "um"),
                      dat, ped, verbose = FALSE), "single finite number")
-  # the fitter that does not transport dilution (snp_blup) refuses it instead of fitting d = 0
-  expect_error(snp_blup(y ~ cg + animal(id, group = "g") +
-                          indirect(id, pen = "baia", group = "g", dilution = 1),
-                        dat, ped, genotypes = list(ids = "a01", m = matrix(1, 1, 1)),
-                        theta = c(1, 0, 1, 1)), "does not carry dilution")
+})
+
+test_that("snp_blup carries dilution: d = 0.7 equals the dense single step with Z_S diluted by hand", {
+  # O snp_blup() recusava dilution > 0, mas o desenho que ele resolve e o mesmo de todo
+  # ajustador (monta_termo aplica o peso (n_i - 1)^(-d)): levar o d e so fiacao. A
+  # referencia e o MME denso do passo unico montado aqui: H^-1 da G* = (1-w) ZZ'/k + w A22
+  # SEM o ajuste afim (o modelo do snp_blup), K0^-1 x H^-1 como penalidade, e Z_S montada
+  # num laco explicito sobre os registros, sem dividir nada com o C++ alem do modelo.
+  #
+  # O que o fixture tem para que cada conferencia morda: baias de 1 a 7 animais, quatro
+  # delas de um animal so (linha social zero para qualquer d); seis companheiros SEM
+  # fenotipo, que nao tem registro mas moram na baia e contam como membros; um registro
+  # repetido, o mesmo animal duas vezes numa baia de 7, que segue com 7 animais distintos
+  # em 8 linhas; e dois marcadores monomorficos (fixos em 0 e em 2), que voltam NA. Os
+  # membros da baia sao os animais DISTINTOS em TODAS as linhas, com e sem fenotipo.
+  s <- simulate_breeding(n_founders = 25, n_generations = 2, offspring_per_generation = 40,
+                         h2 = 0.4, n_markers = 60, seed = 11)
+  d <- s$data
+  tam <- rep(1:7, length.out = 200)
+  tam <- tam[cumsum(tam) <= nrow(d)]
+  tam <- c(tam, nrow(d) - sum(tam))
+  tam <- tam[tam > 0]
+  set.seed(13)
+  d$baia <- sample(rep(sprintf("p%03d", seq_along(tam)), tam))
+  expect_identical(range(table(d$baia)), c(1L, 7L))
+  # o primeiro registro de seis baias de 3 ou mais perde o y; o animal fica na baia
+  d$y[match(names(which(table(d$baia) >= 3))[1:6], d$baia)] <- NA
+  # o registro repetido vai para uma baia de 7 sem companheiro faltante, para que contar
+  # linhas e contar so as linhas com fenotipo sejam erros que mexem em baias diferentes
+  rep1 <- which(d$baia == setdiff(names(which(table(d$baia) == 7)), d$baia[is.na(d$y)])[1])[1]
+  d <- rbind(d, d[rep1, ])
+  d$y[nrow(d)] <- d$y[rep1] + 0.8
+  expect_identical(c(sum(duplicated(d$id)), sum(is.na(d$y))), c(1L, 6L))
+  # as quatro baias de um animal tem fenotipo, entao a linha social delas entra no sistema
+  expect_identical(sum(!is.na(d$y[d$baia %in% names(which(table(d$baia) == 1))])), 4L)
+  gid <- s$genotypes$ids[46:105]
+  gm <- s$genotypes$m[46:105, ]
+  gm[, 1] <- 0L
+  gm[, 2] <- 2L
+  th <- c(0.4, -0.05, 0.1, 0.6)
+  w <- 0.2
+
+  ai <- a_inverse(s$pedigree)
+  nA <- ai$n
+  Ainv <- matrix(0, nA, nA)
+  Ainv[cbind(ai$i, ai$j)] <- ai$x
+  Ainv[cbind(ai$j, ai$i)] <- ai$x
+  pos <- match(gid, ai$id)
+  p <- colMeans(gm) / 2
+  ok <- p > 0 & p < 1
+  expect_identical(which(!ok), 1:2)
+  zc <- sweep(gm[, ok, drop = FALSE], 2, 2 * p[ok])
+  kd <- 2 * sum(p[ok] * (1 - p[ok]))
+  A22 <- solve(Ainv)[pos, pos]
+  Gs <- (1 - w) * tcrossprod(zc) / kd + w * A22
+  Hinv <- Ainv
+  Hinv[pos, pos] <- Hinv[pos, pos] + solve(Gs) - solve(A22)
+  # o sistema so tem as linhas com fenotipo; a baia e montada sobre TODAS
+  fen <- !is.na(d$y)
+  X <- stats::model.matrix(~cg, d)[fen, ]
+  Zd <- matrix(0, sum(fen), nA)
+  Zd[cbind(seq_len(sum(fen)), match(d$id[fen], ai$id))] <- 1
+  # conta = "animais" e o modelo: membros sao os animais distintos em todas as linhas da
+  # baia. "registros" conta linhas (o repetido vale dois) e "fenotipados" so as linhas com
+  # y (o companheiro sem fenotipo some): os dois erros que o portao tem de separar.
+  # isolado e a entrada do proprio animal na linha de uma baia de um: 0 no modelo, 1 no
+  # erro de tomar o animal como companheiro de si mesmo
+  referencia <- function(dil, conta = "animais", isolado = 0) {
+    Zs <- matrix(0, nrow(d), nA)
+    for (r in seq_len(nrow(d))) {
+      na_baia <- d$baia == d$baia[r] & (conta != "fenotipados" | fen)
+      outros <- setdiff(unique(d$id[na_baia]), d$id[r])
+      if (length(outros))
+        Zs[r, match(outros, ai$id)] <-
+          (if (conta == "registros") sum(na_baia) - 1 else length(outros))^(-dil)
+      else Zs[r, match(d$id[r], ai$id)] <- isolado
+    }
+    W <- cbind(Zd, Zs[fen, ])
+    C <- rbind(cbind(crossprod(X), crossprod(X, W)),
+               cbind(crossprod(W, X),
+                     crossprod(W) + kronecker(solve(matrix(th[c(1, 2, 2, 3)], 2)) * th[4], Hinv)))
+    sol <- solve(C, c(crossprod(X, d$y[fen]), crossprod(W, d$y[fen])))
+    u <- matrix(sol[-seq_len(ncol(X))], nA, dimnames = list(ai$id, NULL))
+    list(u = u, g = ((1 - w) / kd) * crossprod(zc, solve(Gs, u[pos, , drop = FALSE])))
+  }
+  # os EBV do ajuste, uma coluna por componente (animal, indirect)
+  componentes <- function(f) {
+    v <- f$ebv[["g"]]
+    nl <- length(unique(names(v)))
+    matrix(v, nl, dimnames = list(names(v)[seq_len(nl)], NULL))
+  }
+  # o maior desvio de cada componente, em desvios-padrao da referencia
+  distancia <- function(f, ref) {
+    u <- componentes(f)
+    ur <- ref$u[rownames(u), , drop = FALSE]
+    vapply(1:2, function(k) max(abs(u[, k] - ur[, k])) / stats::sd(ur[, k]), numeric(1))
+  }
+  confere <- function(f, ref) {
+    expect_true(f$converged)
+    expect_identical(f$n_used, sum(fen))
+    expect_lt(max(distancia(f, ref)), 1e-6)
+    expect_identical(colnames(f$g), c("animal", "indirect"))
+    expect_lt(max(abs(f$g[ok, ] - ref$g)), 1e-6 * max(abs(ref$g)))
+    expect_true(all(is.na(f$g[!ok, ])))
+  }
+
+  f7 <- snp_blup(y ~ cg + animal(id, group = "g") +
+                   indirect(id, pen = "baia", group = "g", dilution = 0.7),
+                 d, s$pedigree, genotypes = list(ids = gid, m = gm), theta = th, rpg = w,
+                 tol = 1e-10, maxiter = 5000, verbose = FALSE)
+  r7 <- referencia(0.7)
+  confere(f7, r7)
+  # O AJUSTE fica longe de cada leitura errada da baia, e nao so a referencia certa perto
+  # dele. Medido, em sd do EBV (animal, indirect): contar registros 0.0045 e 0.055; contar
+  # so os fenotipados 0.12 e 0.58; dar ao animal da baia de um a propria coluna 0.20 e
+  # 0.83. Todos milhares de vezes a tolerancia de 1e-6 acima, entao o ajuste tem linha
+  # social zero nas baias de um e conta os membros como animais distintos em todas as linhas
+  expect_gt(max(distancia(f7, referencia(0.7, conta = "registros"))), 0.01)
+  expect_gt(max(distancia(f7, referencia(0.7, conta = "fenotipados"))), 0.1)
+  expect_gt(max(distancia(f7, referencia(0.7, isolado = 1))), 0.1)
+  # o braco d = 0: a soma simples, o modelo que o snp_blup() ajustava antes da diluicao
+  f0 <- snp_blup(y ~ cg + animal(id, group = "g") + indirect(id, pen = "baia", group = "g"),
+                 d, s$pedigree, genotypes = list(ids = gid, m = gm), theta = th, rpg = w,
+                 tol = 1e-10, maxiter = 5000, verbose = FALSE)
+  confere(f0, referencia(0))
+  # e o d chega ao motor: os dois ajustes ficam longe no EBV indireto (medido 0.67 sd,
+  # contra os 1e-8 sd dos portoes de exatidao acima), entao os dois portoes nao passariam
+  # juntos se o d se perdesse no caminho
+  expect_gt(max(abs(componentes(f7)[, 2] - componentes(f0)[, 2])) /
+              stats::sd(r7$u[, 2]), 0.5)
 })
 
 test_that("THEOREM: d = 1 equals a dense GLS with the mate-mean Z_S built by hand", {

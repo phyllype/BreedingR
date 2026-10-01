@@ -14,7 +14,9 @@
 
 #' Per-marker Fst between groups (Weir & Cockerham)
 #'
-#' @param m 0/1/2 matrix, animals in rows, markers in columns; NA allowed
+#' @param m 0/1/2 matrix, animals in rows, markers in columns; NA allowed. Double, integer
+#'   and raw storage give the same result; in a raw matrix, as [read_blupf90_snp()]
+#'   returns it, 5 is the missing code
 #' @param groups vector with each animal's group (line, population, generation...)
 #' @return data.frame with marker, fst and the per-group frequencies
 #'
@@ -26,12 +28,10 @@
 #'   analysis of population structure. Evolution 38:1358-1370.
 #' @export
 fst <- function(m, groups) {
-  if (!is.matrix(m)) stop("expected a genotype matrix")
-  groups <- as.character(groups)
+  m <- matriz_genotipos_r(m)
+  groups <- rotulo_motor(groups)
   if (length(groups) != nrow(m))
     stop(length(groups), " groups for ", nrow(m), " animals")
-  fora <- !is.na(m) & !(m %in% c(0, 1, 2))
-  if (any(fora)) stop(sum(fora), " genotype(s) outside 0, 1, 2 and NA")
   gs <- unique(groups)
   r <- length(gs)
   if (r < 2) stop("Fst requires at least two groups; there are ", r)
@@ -68,7 +68,8 @@ fst <- function(m, groups) {
 
 #' Runs of homozygosity: F_ROH per animal and per-marker frequency
 #'
-#' @param m 0/1/2 matrix; NA breaks the run, it is never treated as homozygous
+#' @param m 0/1/2 matrix; NA breaks the run, it is never treated as homozygous. Double,
+#'   integer and raw storage give the same result; in a raw matrix 5 is the missing code
 #' @param min_snp minimum run length, in consecutive markers
 #' @param max_het heterozygotes tolerated inside a run (0 = none)
 #' @param pos positions in base pairs, optional; with them `min_kb` also filters
@@ -83,9 +84,7 @@ fst <- function(m, groups) {
 #'   populations. American Journal of Human Genetics 83:359-372.
 #' @export
 roh <- function(m, min_snp = 30L, max_het = 0L, pos = NULL, min_kb = NULL, chr = NULL) {
-  if (!is.matrix(m)) stop("expected a genotype matrix")
-  fora <- !is.na(m) & !(m %in% c(0, 1, 2))
-  if (any(fora)) stop(sum(fora), " genotype(s) outside 0, 1, 2 and NA")
+  m <- matriz_genotipos_r(m)
   n <- nrow(m); nm <- ncol(m)
   if (!is.null(pos) && length(pos) != nm) stop("pos has the wrong length")
   if (!is.null(chr) && length(chr) != nm) stop("chr has the wrong length")

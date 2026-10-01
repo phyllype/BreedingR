@@ -59,9 +59,9 @@
 #'   inadmissible theta. The fixed-effect solutions come in `b`, named `term=level`
 #'   (with `|trait` appended under `cbind()`); the parametrization note of [model()]
 #'   applies -- dropped columns are in `dropped_x` and only contrasts compare against a
-#'   reference-level convention. `dense_block`, `h_prior` and `h_prior_row` are as in
-#'   [model()]: in a single step, [accuracy()] divides a genotyped animal by its diagonal
-#'   of G* and not by 1 + F
+#'   reference-level convention. `dense_block`, `h_prior`, `h_prior_row` and `k_prior`
+#'   are as in [model()]: in a single step, [accuracy()] divides a genotyped animal by its
+#'   diagonal of G* and not by 1 + F, and a `kernel()` level by its diagonal of K
 #' @param verbose print the fit as it walks: one line per AI iteration with the
 #'   -2logL and the relative step, so a long fit is a progress report instead of
 #'   silence. The relative step is half of the convergence criterion; the Newton
@@ -99,7 +99,7 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
   lhs <- formula[[2]]
   trait <- if (is.call(lhs) && identical(as.character(lhs[[1]]), "cbind"))
     vapply(as.list(lhs)[-1], deparse, character(1)) else deparse(lhs)
-  terms <- decompoe_formula(formula[[3]])
+  terms <- decompoe_formula(formula[[3]], environment(formula))
   recusa_materno_mgs(terms, pedigree)
   recusa_kfixo(terms, "model_ar1()")
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
@@ -126,6 +126,8 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
 
+  kern <- monta_kernels(terms, environment(formula))
+
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_ajustar_ar1,
              lst, names(lst), trait,
@@ -145,10 +147,10 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
              nuc,
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
              isTRUE(verbose),
-             if (is.null(metafounders)) character(0) else as.character(metafounders),
+             rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
-             monta_kernels(terms, environment(formula)),
+             kern,
              if (is.null(start)) numeric(0) else as.double(start),
              vapply(terms, function(t) t$dilution, numeric(1)))
   r$seconds <- proc.time()[["elapsed"]] - t0
@@ -159,9 +161,11 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
   # if it were tolerated the F would come back on the gamma = 0 base.
   r$metafounders <- metafounders
   r$gamma <- gamma
-  r$formula <- formula
+  r$formula <- formula_resolvida(formula, terms)
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
+  # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
+  r$k_prior <- priori_kernels(terms, kern)
   structure(r, class = "breeding_fit_ar1")
 }
 
@@ -183,13 +187,17 @@ eval_internal_ar1 <- function(formula, data, pedigree = NULL, subject, time, the
   lhs <- formula[[2]]
   trait <- if (is.call(lhs) && identical(as.character(lhs[[1]]), "cbind"))
     vapply(as.list(lhs)[-1], deparse, character(1)) else deparse(lhs)
-  terms <- decompoe_formula(formula[[3]])
+  terms <- decompoe_formula(formula[[3]], environment(formula))
   recusa_materno_mgs(terms, pedigree)
   used_columns <- unique(c(trait, subject, time,
                              vapply(terms, function(t) t$column, character(1)),
                              unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
                              unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
   used_columns <- used_columns[nzchar(used_columns)]
+  # a mesma conferencia do model_ar1(): sem ela o data[used_columns] abaixo parava com o
+  # "undefined columns selected" do R, que nao diz qual coluna falta
+  falta <- setdiff(used_columns, names(data))
+  if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
   lst <- lapply(data[used_columns], function(col) {
     if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
   })
@@ -212,7 +220,7 @@ eval_internal_ar1 <- function(formula, data, pedigree = NULL, subject, time, the
         if (is.null(missing_code)) 0.0 else as.double(missing_code), !is.null(missing_code),
         subject, time,
         as.double(theta), isTRUE(with_dense),
-             if (is.null(metafounders)) character(0) else as.character(metafounders),
+             rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
              monta_kernels(terms, environment(formula)),

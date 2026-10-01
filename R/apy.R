@@ -133,12 +133,22 @@ apy_inverse <- function(m, core, lambda = 0.01) {
 #' Lanczos steps on G from each of `probes` random sign vectors, using only products with
 #' the genotype matrix (two passes per step, all probes at once, on [br_threads()]
 #' threads), and the Gauss nodes and weights of the tridiagonals estimate the spectral
-#' measure of G, where the count is read at the point its mass reaches `variance`. The
-#' count is an estimate, and its standard error across probes is reported. Measured
-#' against the exact count on 3060 animals and 4000 markers, 2019 exact at 98% and 2019 to
-#' 2028 over four runs of 20 to 40 probes; on 10 000 x 10 000, 5953 exact and 5973 to 5979
-#' over three seeds, 46 s against 697 s (`validation/apy_core_lanczos.R`). The estimate
-#' tends to sit a little above the exact count, the conservative side for a core. `"auto"` takes the exact route up to
+#' measure of G, where the count is read at the point its mass reaches `variance`. A
+#' single Gauss rule per probe is biased there by an amount that more probes do not
+#' reduce, because the Ritz values near the threshold fall in almost the same place for
+#' every probe; the size and the sign of that bias change with `steps` and `variance`.
+#' Each probe therefore contributes the average of the Gauss rules of its last
+#' `ceiling(steps / 4)` leading tridiagonals, whose nodes interlace, at no extra pass over
+#' the genotypes; a probe that stops early at an invariant subspace keeps its whole
+#' tridiagonal, whose rule is already exact. The count is an estimate; `count_se` is its
+#' standard error over the random probes, from the linearized count. On 1000 animals with
+#' 40 steps, eight independent draws of 600 probes, each split into 20 sets of 30, gave a
+#' spread of the 20 counts of 0.80 to 1.31 times the mean `count_se` at 90 to 99% (mean
+#' 1.01; `validation/apy_core_lanczos_se.R`). On 10 000 animals and 10 000 markers
+#' (`validation/apy_core_lanczos.R`, ten seeds) the exact count at 98% is 5953 and the
+#' estimates ran from 5934 to 5975, mean 5957.3 with a standard error of about 12; with
+#' the same probes on the exact eigenvectors the quadrature error was +2.3 counts (0.04%),
+#' against +21.4 (0.36%) for a single Gauss rule. `"auto"` takes the exact route up to
 #' `min(n_animals, n_markers) = 4000` and Lanczos above. Choose the core once, keep the
 #' result and pass it to every fit, rather than `"auto"` in each of them.
 #'
@@ -161,13 +171,17 @@ apy_inverse <- function(m, core, lambda = 0.01) {
 #'   (stochastic Lanczos quadrature, no Gram matrix) or `"auto"` (exact up to
 #'   `min(n_animals, n_markers) = 4000`)
 #' @param probes,steps random sign vectors and Lanczos steps of the `"lanczos"` route;
-#'   the cost is `2 x steps` passes over the genotype matrix with `probes` columns
+#'   the cost is `2 x steps` passes over the genotype matrix with `probes` columns, plus
+#'   the averaged rule, which solves `ceiling(steps / 4)` dense eigenproblems of order up
+#'   to `steps` per probe in R, a cost that grows with `probes x steps^4`: with 30 probes
+#'   0.5 to 0.8 s at 100 steps, 7 to 12 s at 200 and 27 to 49 s at 300 (three runs in each
+#'   of two sessions, `validation/apy_core_lanczos_se.R`)
 #' @return character vector with the ids of the core animals, in genotype order, of class
 #'   `breeding_apy_core`, with attributes `size`, `variance` (the target),
 #'   `variance_explained` (the fraction the chosen size reaches), `eig` (the counts at
 #'   90, 95, 98 and 99 percent, the preGSf90 table), `eigenvalues` (of G, decreasing),
 #'   `n_genotyped`, `n_markers`, `seed`, `method`, and for `"lanczos"` `count_se` (the
-#'   standard error of the count at `variance` across probes), `probes` and `steps`
+#'   standard error of the count at `variance` over the random probes), `probes` and `steps`
 #'   (`eigenvalues` is then NULL), and `cost_ratio`, the flops of one sparse
 #'   factorization of the APY block relative to the exact dense one,
 #'   `(nj (nc + 1)^2 + (nc + 1)^3 / 3) / (n^3 / 3)` with `nc` core and `nj` non-core
@@ -233,7 +247,7 @@ apy_core_select <- function(genotypes, variance = 0.98, size = NULL, include = N
       stop("probes and steps must be at least 2")
     dim <- min(n, ncol(g$gm))
     sondas <- matrix(sample(c(-1, 1), dim * as.integer(probes), TRUE), dim)
-    ml <- medida_lanczos(.Call(R_lanczos_g, g$gm, sondas, as.integer(steps)))
+    ml <- medida_nos(nos_lanczos(.Call(R_lanczos_g, g$gm, sondas, as.integer(steps))))
     conta <- function(v) max(1L, round(ml$conta(v)))
     explica <- ml$explica
     se <- ml$se
@@ -242,10 +256,10 @@ apy_core_select <- function(genotypes, variance = 0.98, size = NULL, include = N
   if (length(k) != 1L || is.na(k) || k < 2L) stop("the APY core needs at least 2 animals")
   k <- min(k, n)
 
-  inc <- if (is.null(include)) integer(0) else match(as.character(include), g$gid)
+  inc <- if (is.null(include)) integer(0) else match(rotulo_motor(include), g$gid)
   if (anyNA(inc))
     stop("include has id(s) that are not among the genotyped: ",
-         paste(utils::head(as.character(include)[is.na(inc)], 5), collapse = ", "))
+         paste(utils::head(rotulo_motor(include)[is.na(inc)], 5), collapse = ", "))
   inc <- unique(inc)
   if (length(inc) > k) {
     warning(length(inc), " animal(s) in include, more than the core size ", k,
@@ -276,28 +290,57 @@ apy_core_select <- function(genotypes, variance = 0.98, size = NULL, include = N
             steps = if (method == "lanczos") as.integer(steps), cost_ratio = custo)
 }
 
-# A medida espectral estimada pela quadratura de Lanczos: cada sonda b da os nos theta (os
-# autovalores da tridiagonal dela) com pesos dim tau / nv, tau o quadrado da primeira
-# componente de cada autovetor. conta(v) le quantos autovalores levam a massa a v, com
-# interpolacao dentro do no que atravessa v; explica(k) e a inversa; se(v) o erro padrao
-# da contagem entre as sondas, no mesmo ponto de corte. A massa total e a estimativa de
-# Hutchinson do traco (sum_b v_b' G v_b), a mesma medida do numerador: a fracao fica em
-# [0, 1] por construcao.
-medida_lanczos <- function(r) {
+# Os nos da quadratura de Lanczos: cada sonda b da os nos theta (os autovalores de uma
+# tridiagonal dela) com pesos dim tau / nv, tau o quadrado da primeira componente de cada
+# autovetor. Uma regra de Gauss so (a tridiagonal inteira) conta DEMAIS no corte, na media
+# sobre o perfil de v (num v so o erro tambem oscila de sinal com v e com os passos): os nos de
+# Ritz perto do limiar caem quase no mesmo lugar em todas as sondas (a dispersao entre sondas
+# e de 1-7% do espacamento local), entao juntar sondas nao preenche o vao entre eles e o
+# poligono da massa fica abaixo da curva verdadeira; o erro e deterministico em (G, passos),
+# cresce como dim / passos^2 e nao cai com mais sondas. O conserto e a media de fase: as
+# regras de Gauss das K ultimas tridiagonais lideres de cada sonda (j = s-K+1..s, K = s/4
+# arredondado para cima), cada uma com peso 1/K. Pelo entrelacamento de Cauchy os nos delas
+# ficam escalonados e cobrem o vao; nao custa produto nenhum com a matriz, os prefixos ja
+# existem. A sonda que parou antes (subespaco invariante: a regra dela ja e exata) fica com a
+# tridiagonal inteira; as menores que o espaco de Krylov nao sao exatas e a media as juntaria.
+# Parar exige beta < 1e-12 |alpha| no C++, o que acontece com poucos marcadores (o lado Z'Z)
+# mas quase nunca no lado dos animais com tipos repetidos: ali a sonda segue alem do espaco
+# esgotado com nos fantasmas, e a regra continua exata (os dois casos em test-apy-auto.R).
+# K = 1 e a regra de Gauss simples. Devolve os nos de todas as sondas juntos: theta, w e a
+# sonda de origem.
+nos_lanczos <- function(r, K = NULL) {
   nv <- ncol(r$alpha)
-  nos <- lapply(seq_len(nv), function(b) {
-    k <- r$steps[b]
-    tri <- diag(r$alpha[seq_len(k), b], k)
-    if (k > 1) {
-      fora <- cbind(2:k, 1:(k - 1))
-      tri[fora] <- r$beta[seq_len(k - 1), b]
-      tri[fora[, 2:1, drop = FALSE]] <- r$beta[seq_len(k - 1), b]
+  passos <- nrow(r$alpha)
+  x <- do.call(rbind, lapply(seq_len(nv), function(b) {
+    s <- r$steps[b]
+    kb <- if (s < passos) 1L else if (is.null(K)) ceiling(s / 4) else min(as.integer(K), s)
+    tri <- diag(r$alpha[seq_len(s), b], s)
+    if (s > 1) {
+      fora <- cbind(2:s, 1:(s - 1))
+      tri[fora] <- r$beta[seq_len(s - 1), b]
+      tri[fora[, 2:1, drop = FALSE]] <- r$beta[seq_len(s - 1), b]
     }
-    e <- eigen(tri, symmetric = TRUE)
-    data.frame(theta = pmax(e$values, 0), w = r$dim / nv * e$vectors[1, ]^2, sonda = b)
-  })
-  a <- do.call(rbind, nos)
-  a <- a[order(a$theta, decreasing = TRUE), ]
+    # a tridiagonal j x j e o bloco lider da inteira
+    cbind(do.call(rbind, lapply((s - kb + 1L):s, function(j) {
+      e <- eigen(tri[seq_len(j), seq_len(j), drop = FALSE], symmetric = TRUE)
+      cbind(pmax(e$values, 0), r$dim / (nv * kb) * e$vectors[1, ]^2)
+    })), b)
+  }))
+  data.frame(theta = x[, 1], w = x[, 2], sonda = as.integer(x[, 3]))
+}
+
+# A medida espectral estimada a partir dos nos (theta, w, sonda): os de nos_lanczos, ou os
+# exatos (autovalores de G com pesos dim (u_i'q_b)^2 / nv), que e como os testes a conferem.
+# conta(v) le quantos autovalores levam a massa a v, com interpolacao dentro do no que
+# atravessa v; explica(k) e a inversa. A massa total e a estimativa de Hutchinson do traco
+# (sum_b q_b' G q_b), a mesma medida do numerador: a fracao fica em [0, 1] por construcao.
+# se(v) e o erro padrao da contagem pela funcao de influencia: k = N(t) com S(t) = v T, e
+# como dS/dt = t dN/dt, linearizar da dk = dN - (dS - v dT) / t. Cada sonda contribui
+# psi_b = N_b - (S_b - v T_b) / t, no limiar t do no que atravessa v e com os pesos dela
+# (nv w); EP = sd(psi) / sqrt(nv). A dobradica tira o salto de um peso de Ritz inteiro
+# quando um no cruza o limiar, que era o que inflava o desvio das contagens por sonda.
+medida_nos <- function(nos, nv = length(unique(nos$sonda))) {
+  a <- nos[order(nos$theta, decreasing = TRUE), ]
   massa <- cumsum(a$w * a$theta) / sum(a$w * a$theta)
   cum <- cumsum(a$w)
   corte <- function(v) which(massa >= v - 1e-12)[1L]
@@ -316,9 +359,13 @@ medida_lanczos <- function(r) {
       f0 + (massa[i] - f0) * (k - c0) / a$w[i]
     },
     se = function(v) {
-      lim <- a$theta[corte(v)]
-      cb <- vapply(nos, function(x) nv * sum(x$w[x$theta >= lim]), numeric(1))
-      stats::sd(cb) / sqrt(nv)
+      t <- a$theta[corte(v)]
+      acima <- a$theta > t
+      sonda <- factor(a$sonda)
+      nb <- tapply(nv * a$w * acima, sonda, sum)
+      sb <- tapply(nv * a$w * a$theta * acima, sonda, sum)
+      tb <- tapply(nv * a$w * a$theta, sonda, sum)
+      stats::sd(nb - (sb - v * tb) / t) / sqrt(nv)
     })
 }
 
@@ -350,7 +397,7 @@ nucleo_apy <- function(apy_core, genotypes) {
     nuc <- apy_core
     fonte <- if (inherits(apy_core, "breeding_apy_core")) "apy_core_select" else "ids"
   }
-  ids <- as.character(unclass(nuc))
+  ids <- rotulo_motor(unclass(nuc))
   structure(ids, registro = list(
     ids = ids, size = length(ids), source = fonte,
     variance_explained = attr(nuc, "variance_explained"), seed = attr(nuc, "seed")))

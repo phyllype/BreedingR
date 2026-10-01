@@ -116,15 +116,10 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   // a via como dependente, e a coluna chegava vazia na montagem. model() derrubava o nivel
   // e ajustava; model_ar1() devolvia "did NOT converge" com decremento 0,46 e model_mt()
   // "SINGULAR", dois diagnosticos que apontavam para o lugar errado.
-  for (std::size_t k = 0; k < m.termos.size(); k++) {
-    if (!m.termos[k].aleatorio()) continue;
-    // niveis: do pedigree quando ha parentesco, DA K quando declarada. Todo nivel da
-    // estrutura ganha equacao, com ou sem registro, exatamente como em model().
-    const std::vector<std::string>* nf = nullptr;
-    if (m.termos[k].estrutura == Estrutura::Parentesco) nf = &niveis_ped;
-    else if (m.termos[k].estrutura == Estrutura::Declarada) nf = &(*kernels)[k].ids;
-    d.aleatorios.push_back(monta_termo(m, k, tab, nf));
-  }
+  // niveis: do pedigree quando ha parentesco, DA K quando declarada, da uniao das colunas
+  // num grupo sem estrutura de varios termos. Todo nivel do conjunto ganha equacao, com ou
+  // sem registro, exatamente como em model() (monta_aleatorios, em mme.cpp).
+  d.aleatorios = monta_aleatorios(m, tab, niveis_ped, kernels);
   {
     std::vector<DesenhoTermo*> pa;
     for (DesenhoTermo& a : d.aleatorios) pa.push_back(&a);

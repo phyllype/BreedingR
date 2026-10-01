@@ -48,7 +48,7 @@ read_plink <- function(prefix, storage = c("double", "integer", "raw")) {
     m[cod == 2L] <- 1
     m[cod == 3L] <- 0
     colnames(m) <- bim[[2]]
-    return(list(ids = as.character(fam[[2]]), m = guarda_como(m, storage)))
+    return(list(ids = rotulo_motor(fam[[2]]), m = guarda_como(m, storage)))
   }
   if (file.exists(raw)) {
     d <- utils::read.table(raw, header = TRUE, stringsAsFactors = FALSE,
@@ -56,7 +56,7 @@ read_plink <- function(prefix, storage = c("double", "integer", "raw")) {
     fixas <- c("FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE")
     m <- as.matrix(d[, setdiff(names(d), fixas), drop = FALSE])
     storage.mode(m) <- "double"
-    return(list(ids = as.character(d$IID), m = guarda_como(m, storage)))
+    return(list(ids = rotulo_motor(d$IID), m = guarda_como(m, storage)))
   }
   stop("neither '", bed, "' nor '", raw, "' exists")
 }
@@ -95,9 +95,9 @@ guarda_como <- function(m, storage) {
 read_blupf90_snp <- function(file, ids = NULL) {
   if (!file.exists(file)) stop("no file '", file, "'")
   r <- .Call(R_le_snp_blupf90, normalizePath(file),
-             if (is.null(ids)) character(0) else as.character(ids))
+             rotulo_motor(ids))
   if (!is.null(ids)) {
-    falta <- setdiff(as.character(ids), r$ids)
+    falta <- setdiff(rotulo_motor(ids), r$ids)
     if (length(falta))
       warning(length(falta), " id(s) not in the file, e.g. ",
               paste(utils::head(falta, 3), collapse = ", "), call. = FALSE)
@@ -111,30 +111,35 @@ read_blupf90_snp <- function(file, ids = NULL) {
 #' chi-square, and REPORTS what each filter removed: silent filtering is how a panel
 #' quietly loses the markers that mattered.
 #'
-#' @param m dosage matrix 0/1/2/NA (animals in rows)
+#' @param m dosage matrix 0/1/2/NA (animals in rows). Double, integer and raw storage give
+#'   the same filtering and counts; in a raw matrix, as [read_blupf90_snp()] returns it, 5
+#'   is the missing code
 #' @param min_call_rate keep markers with at least this fraction of non-missing calls
 #' @param min_maf keep markers with minor allele frequency at least this
 #' @param hwe_p if not NULL, drop markers whose HWE chi-square p-value falls below it
-#' @return list with `m` (filtered matrix), and the counts `n_call`, `n_maf`, `n_hwe`
-#'   removed by each filter (applied in that order)
+#' @return list with `m` (filtered matrix, in the storage it came in: a raw matrix stays
+#'   raw, with 5 as missing), and the counts `n_call`, `n_maf`, `n_hwe` removed by each
+#'   filter (applied in that order)
 #' @export
 qc_genotypes <- function(m, min_call_rate = 0.90, min_maf = 0.01, hwe_p = NULL) {
-  if (!is.matrix(m)) stop("expected a genotype matrix")
-  fora <- !is.na(m) & !(m %in% c(0, 1, 2))
-  if (any(fora)) stop(sum(fora), " genotype(s) outside 0, 1, 2 and NA")
-  cr <- colMeans(!is.na(m))
+  # a conta e na vista numerica; o que volta e o subconjunto da matriz no tipo em que veio
+  x <- matriz_genotipos_r(m)
+  cr <- colMeans(!is.na(x))
   keep1 <- cr >= min_call_rate
   n_call <- sum(!keep1)
-  p <- colMeans(m, na.rm = TRUE) / 2
+  p <- colMeans(x, na.rm = TRUE) / 2
   maf <- pmin(p, 1 - p)
   keep2 <- keep1 & !is.na(maf) & maf >= min_maf
   n_maf <- sum(keep1 & !(keep2))
   keep <- keep2
   n_hwe <- 0L
   if (!is.null(hwe_p)) {
-    pv <- rep(NA_real_, ncol(m))
+    pv <- rep(NA_real_, ncol(x))
     for (j in which(keep2)) {
-      g <- m[, j]
+      # em double nos tres tipos: no R o mean() de integer e o de double sao algoritmos
+      # diferentes (uma passada so contra uma segunda de correcao), e assim a identidade
+      # entre os tipos nao depende de os dois coincidirem
+      g <- as.double(x[, j])
       g <- g[!is.na(g)]
       n <- length(g)
       pj <- mean(g) / 2
@@ -260,10 +265,11 @@ qc_phenotypes <- function(data, trait, missing_code = NULL, classes = NULL,
   pequenos <- list()
   for (cl in classes) {
     if (!cl %in% names(data)) stop("no column '", cl, "' in the data")
-    todos <- unique(as.character(data[[cl]]))
+    # os niveis como o motor os ve: 100000 e "100000", e nao o "1e+05" do as.character()
+    rot <- rotulo_motor(data[[cl]])
     # a level whose records are ALL missing must still show up as small: build the
     # count over every level present in the data, not only the observed ones
-    tab <- table(factor(as.character(data[[cl]])[!falta & !fora], levels = todos))
+    tab <- table(factor(rot[!falta & !fora], levels = unique(rot)))
     pequenos[[cl]] <- sum(tab < min_class_n)
   }
   list(data = data, n_missing = sum(falta), n_outliers = sum(fora),

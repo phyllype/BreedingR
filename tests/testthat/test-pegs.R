@@ -43,10 +43,10 @@ test_that("com variancias fixas o Gauss-Seidel e a solucao exata do ridge multiv
 test_that("xfa com q = k e hcs numa simetria composta sao identidades", {
   set.seed(5)
   A <- matrix(stats::rnorm(36), 6); V <- tcrossprod(A) + 6 * diag(6)
-  expect_lt(max(abs(.Call(R_pegs_estrutura, V, 2L, 6L) - V)), 1e-10)
+  expect_lt(max(abs(.Call(BreedingR:::R_pegs_estrutura, V, 2L, 6L) - V)), 1e-10)
   d <- 0.5 + stats::runif(6)
   C <- 0.42 * outer(d, d); diag(C) <- d^2
-  expect_lt(max(abs(.Call(R_pegs_estrutura, C, 1L, 0L) - C)), 1e-12)
+  expect_lt(max(abs(.Call(BreedingR:::R_pegs_estrutura, C, 1L, 0L) - C)), 1e-12)
 })
 
 test_that("recupera r_g, acuracia e h2 com 2000 animais, 2000 marcadores e 3 caracteres", {

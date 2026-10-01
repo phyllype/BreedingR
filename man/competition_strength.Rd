@@ -17,9 +17,12 @@ competition_strength(
 \arguments{
 \item{wins}{number of outcomes competitor \code{competitor[k]} won in group \code{group[k]}}
 
-\item{group}{the contest each row belongs to (a litter, a pen, a match)}
+\item{group}{the contest each row belongs to (a litter, a pen, a match). A missing
+group, \code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or the text "NaN", is refused with its
+row: those records would otherwise form one contest together}
 
-\item{competitor}{who competed}
+\item{competitor}{who competed; a missing competitor is refused the same way, since
+those records would otherwise be one competitor}
 
 \item{exposure}{opportunity of that competitor in that contest, a semen dose, a
 number of attempts. NULL means every competitor had the same. It enters as an

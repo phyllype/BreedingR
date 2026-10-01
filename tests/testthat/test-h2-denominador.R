@@ -98,8 +98,8 @@ test_that("G4 indireto: h2 e T2 com o sigma2_P de Bijma, feitos a mao", {
 test_that("indirect(): o share fica em branco e o print diz por que", {
   th <- c("var(animal)" = 1.0, "cov(indirect,animal)" = 0.1, "var(indirect)" = 0.2,
           "var(residual)" = 2.0)
-  tb <- tabela_componentes(th, rep(NA_real_, 4), indireto = TRUE)
+  tb <- BreedingR:::tabela_componentes(th, rep(NA_real_, 4), indireto = TRUE)
   expect_true(all(is.na(tb$share)))
   expect_false(is.na(tb$correlation[tb$component == "cov(indirect,animal)"]))
-  expect_output(mostra_componentes(tb), "t2\\(fit, n = \\)")
+  expect_output(BreedingR:::mostra_componentes(tb), "t2\\(fit, n = \\)")
 })

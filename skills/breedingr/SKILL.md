@@ -43,9 +43,9 @@ An unmarked term is a fixed class effect. Marked terms:
 | `pe(id)` | permanent environment: what the repeated records of one subject share and is not additive genetic, so it carries the non-additive genetic effects as well (Mrode & Pocrnic, 2023, Eqn 5.1); repeatability is `share(animal) + share(pe)` in the printed table. Two `pe()` in one model must be NAMED (`nome=`): a component's name never depends on how many terms the model has |
 | `random(litter)` | iid random (litter, batch, pen, technician) |
 | `rn(id, base = c("phi0","phi1"))` | random regression / reaction norm |
-| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel 2002). The SIGN of its covariance with the direct effect separates heritable competition from heritable co-operation; the response follows the total breeding value `A_D + (n-1) A_S`, so reading it takes the pen size n too (Bijma et al. 2007): `h2(fit, n = , r = )` and `t2(fit, n = , r = )` take the size and the relationship between mates, and the `share` column is blank for this model. With unequal pens, `indirect(id, pen="pen", dilution=1)` is the mate mean: `dilution=d` scales every mate's entry to `(n_i - 1)^(-d)` (Bijma 2010), `d=0` is the plain sum and the default, and d is chosen by a small grid of fits compared on `-2logL`. `indirect()` with its `dilution` fits in `model()`, `model_mt()`, `model_ar1()` and `gibbs()`; `snp_blup()` refuses `dilution > 0`, saying so. Separability is the design's: pens of one size made of two full-sib families identify only the TBV variance and `va - 2cov + vs`, and the fit says SINGULAR |
+| `indirect(id, pen = "pen")` | associative effect of PEN MATES (Muir & Schinckel 2002). The SIGN of its covariance with the direct effect separates heritable competition from heritable co-operation; the response follows the total breeding value `A_D + (n-1) A_S`, so reading it takes the pen size n too (Bijma et al. 2007): `h2(fit, n = , r = )` and `t2(fit, n = , r = )` take the size and the relationship between mates, and the `share` column is blank for this model. With unequal pens, `indirect(id, pen="pen", dilution=1)` is the mate mean: `dilution=d` scales every mate's entry to `(n_i - 1)^(-d)` (Bijma 2010), `d=0` is the plain sum and the default, and d is chosen by a small grid of fits compared on `-2logL`. `indirect()` with its `dilution` fits in `model()`, `model_mt()`, `model_ar1()`, `gibbs()` and `snp_blup()` (the grid can run inside `lapply()`). The pen column must not hold a missing pen (NA, NaN, Inf, blank text, the text 'NaN'): the fit stops with the first row; numeric pen codes group exactly like the same codes as text. Separability is the design's: pens of one size made of two full-sib families identify only the TBV variance and `va - 2cov + vs`, and the fit says SINGULAR |
 | `kernel(id, K = D)` | random term with a DECLARED covariance matrix (symmetric PD, rownames = levels; an all-zero row = a level with no contribution). Constructors: `dominance_matrix()`, `g_matrix()`, `g_dominance()`, `g_epistasis()`, `g_epistasis_ad()`, `g_epistasis_dd()`, `g_epistasis_order()` (ch. 13), `partial_a()` for the multibreed partial matrices (ch. 14). Two kernels need `nome=`. `kernel(id, K = D, fixed = v)` holds the component at v in `model()` and `gibbs()`; `model_mt()` and `model_ar1()` refuse it |
-| `group = "g"` | put two terms in one covariance matrix |
+| `group = "g"` | put two terms in one covariance matrix. The name is literal: `group = g` is the group "g". Terms are paired by level NAME (pedigree ids, K ids, or for random()/pe() the union of their columns' labels); two iid terms need at least one level with records in both to estimate their covariance |
 
 ```r
 model(weight ~ cg + cov(age) + animal(id), data, pedigree = ped)          # animal model
@@ -151,9 +151,9 @@ fit <- model(y ~ cg + animal(id), q$data, ped, missing_code = -999)
 
 # 5. read it
 fit                          # estimate, SE, share of the phenotypic variance, correlation
-h2(fit); solutions(fit, ped) # heritability; id/ebv/se/acc sorted by ebv
+h2(fit); solutions(fit, ped) # heritability; id/(term)/ebv/se/acc sorted by ebv; multi-trait: trait = for acc
 ebv(fit); ebv(fit, "animal"); ebv(fit_mt, "animal", trait = "t2")
-accuracy(fit, ped)           # prior 1+F, or the diagonal of G* for a genotyped animal
+accuracy(fit, ped)           # prior 1+F, diag(G*) if genotyped, K[i,i] for kernel(), 1 iid; no ped needed for kernel/iid
 rg(fit_mt, "animal", "t1", "t2")
 h2_curve(fit_rn, limits = c(55, 80)); plot(fit_rn)
 t2(fit_ige, n = 4)           # indirect effects: TBV variance, T2, direct h2, with SEs

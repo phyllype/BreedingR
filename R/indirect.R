@@ -28,6 +28,31 @@
 # qualquer d (sem isto, 0^(1-2d) explodiria para d > 1/2).
 coef_social <- function(n, d) ifelse(n > 1, (n - 1)^(1 - 2 * d), 0)
 
+# Os registros sem rotulo de grupo (baia, disputa, competidor), pela MESMA regra com que
+# monta_termo (src/modelo.cpp) recusa a baia de indirect(); mudar uma e mudar a outra.
+# Ausente e: NA ou NaN, Inf e -Inf numericos; texto vazio depois de aparar os espacos (o que
+# read.csv() e fread() dao a uma celula vazia de coluna textual); e o texto "NaN", que
+# factor() e as.character() fazem de um NaN numerico. Qualquer um deles viraria UM rotulo
+# so, e registros sem relacao entre si seriam agrupados sem aviso. Os textos "NA" e "Inf"
+# ficam de fora de proposito: podem ser o nome de uma baia de verdade. Devolve NULL quando
+# todo registro tem rotulo; senao o comeco da mensagem, "<o que> in <onde> in n row(s), the
+# first at row k", para o chamador completar com a sua razao.
+sem_rotulo <- function(x, onde) {
+  if (is.factor(x)) x <- as.character(x)
+  tipos <- if (is.character(x)) {
+    s <- trimws(x)
+    list("NA" = is.na(x), "blank text" = !is.na(s) & !nzchar(s),
+         "the text 'NaN'" = !is.na(s) & s == "NaN")
+  } else {
+    x <- as.double(x)
+    list("NA" = is.na(x), "Inf" = !is.na(x) & x == Inf, "-Inf" = !is.na(x) & x == -Inf)
+  }
+  ruim <- Reduce(`|`, tipos)
+  if (!any(ruim)) return(NULL)
+  paste0(paste(names(tipos)[vapply(tipos, any, logical(1))], collapse = " or "), " in ",
+         onde, " in ", sum(ruim), " row(s), the first at row ", which(ruim)[1L])
+}
+
 #' Estimate the pen-size heterogeneous residual of the associative model
 #'
 #' Fits `var(e_i) = s2_ED + (n_i - 1)^(1 - 2d) s2_ES`, with `n_i` the number of distinct
@@ -94,7 +119,7 @@ coef_social <- function(n, d) ifelse(n > 1, (n - 1)^(1 - 2 * d), 0)
 #'   quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
 #'
 #'   Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
-#'   genetic effects and group size. Genetics 186:1013-1028.
+#'   genetic effects and group size. Genetics 186:1029-1031.
 #'
 #'   Mrode, R.A. & Pocrnic, I. (2023). Linear Models for the Prediction of the Genetic
 #'   Merit of Animals, 4th ed. CABI, ch. 9.
@@ -112,7 +137,8 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
   if (any(c("weights", "start") %in% names(list(...))))
     stop("weights and start are driven by the profile itself: pass neither")
 
-  soc <- Filter(function(t) isTRUE(t$social), decompoe_formula(formula[[3]]))
+  soc <- Filter(function(t) isTRUE(t$social),
+                decompoe_formula(formula[[3]], environment(formula)))
   if (length(soc) != 1L)
     stop("the formula needs exactly one indirect() term: that is where the pen comes from")
   pen_col <- soc[[1]]$nested
@@ -125,11 +151,18 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
   if (!all(c(pen_col, id_col) %in% names(data)))
     stop("no column(s) in the data: ",
          paste(setdiff(c(pen_col, id_col), names(data)), collapse = ", "))
+  # a mesma recusa do motor (monta_termo), com a mesma mensagem, feita antes dos pesos: com
+  # baia NA o n_i abaixo sai NA, e o erro chegaria como "every weight must be finite", sem
+  # dizer a causa; com baia em branco ou Inf o motor recusaria so depois do primeiro ajuste
+  if (!is.null(falta <- sem_rotulo(data[[pen_col]],
+                                   paste0("the pen column '", pen_col, "' of indirect()"))))
+    stop(falta, ": a record without a pen has no known pen mates, and grouping those rows ",
+         "would make them mates of each other; drop those rows or assign them a pen")
 
   # n_i = distinct animals in the pen of record i, the same count the social incidence
   # uses (repeated records of one animal are one animal)
-  pen_lab <- as.character(data[[pen_col]])
-  n <- as.vector(tapply(as.character(data[[id_col]]), pen_lab,
+  pen_lab <- rotulo_motor(data[[pen_col]])
+  n <- as.vector(tapply(rotulo_motor(data[[id_col]]), pen_lab,
                         function(x) length(unique(x)))[pen_lab])
 
   # the profile: fit at k, then remove the weight jacobian so values at different k live
@@ -274,9 +307,12 @@ print.breeding_indirect_residual <- function(x, ...) {
 #' animal in one pen the direct deviation `eps_D` is shared between them and the block is
 #' no longer `I + (n - 2) J`. That case is refused rather than approximated.
 #'
-#' @param pen pen (group) label of each record
+#' @param pen pen (group) label of each record. A missing pen, `NA`, `NaN`, `Inf`, `-Inf`,
+#'   blank text or the text "NaN", is refused with its row, as in every fitter that takes
+#'   `indirect()`
 #' @param id animal of each record, used to count DISTINCT animals per pen, which is the
-#'   `n` of the model and the same count the `indirect()` incidence uses
+#'   `n` of the model and the same count the `indirect()` incidence uses; a missing id
+#'   is refused the same way
 #' @param dilution the same `d` as in `indirect(dilution = d)`: each mate's social
 #'   environmental deviation enters with weight `(n - 1)^(-d)`, so the block of a pen
 #'   becomes `(n - 1)^(-2d) [I + (n - 2) J]`. Keep it equal to the formula's value; with
@@ -289,20 +325,29 @@ print.breeding_indirect_residual <- function(x, ...) {
 #'   quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
 #'
 #'   Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
-#'   genetic effects and group size. Genetics 186:1013-1028.
+#'   genetic effects and group size. Genetics 186:1029-1031.
 #' @export
 associative_matrix <- function(pen, id, labels = NULL, dilution = 0) {
   if (!is.numeric(dilution) || length(dilution) != 1L || !is.finite(dilution) || dilution < 0)
     stop("dilution must be a single non-negative number, the same d as in indirect()")
-  pen <- as.character(pen)
-  id <- as.character(id)
+  # ausente conferido ANTES da conversao para texto, pela regra do motor (sem_rotulo): o
+  # as.character() fazia de um NaN numerico o texto "NaN", que o anyNA() nao ve mais, e o
+  # texto em branco de uma celula vazia passava direto; as linhas sem baia formariam uma so
+  if (!is.null(falta <- sem_rotulo(pen, "pen")))
+    stop(falta, ": a record with no pen has no associative residual to build; drop those ",
+         "rows or assign them a pen")
+  if (!is.null(falta <- sem_rotulo(id, "id")))
+    stop(falta, ": a record with no animal id cannot be counted among the distinct ",
+         "animals of its pen; drop those rows or fill the id")
+  # baia, animal e rotulo escritos como o motor escreve a coluna dos dados: os rotulos sao os
+  # niveis que o kernel() casa, e o as.character() escrevia o registro 100000 como "1e+05"
+  pen <- rotulo_motor(pen)
+  id <- rotulo_motor(id)
   if (length(pen) != length(id))
     stop("pen and id must have one entry per record: got ", length(pen), " and ", length(id))
-  if (anyNA(pen) || anyNA(id))
-    stop("NA in pen or id: a record with no pen has no associative residual to build")
   nr <- length(pen)
-  if (is.null(labels)) labels <- as.character(seq_len(nr))
-  labels <- as.character(labels)
+  if (is.null(labels)) labels <- seq_len(nr)
+  labels <- rotulo_motor(labels)
   if (length(labels) != nr) stop("labels must have one entry per record")
   if (anyDuplicated(labels))
     stop("labels must be unique: they are the levels the kernel() term matches on")

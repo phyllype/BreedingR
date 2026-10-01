@@ -124,7 +124,12 @@
 #'   book's table), `n_censored`, `loglik_joint` (the penalized joint log-likelihood
 #'   at the mode), `marginal_loglik` (the Laplace value, when computed), the
 #'   convergence fields of every fitter, and [predict()] for relative risks and
-#'   survival probabilities `S(t)` -- the book's p.292 numbers.
+#'   survival probabilities `S(t)` -- the book's p.292 numbers. With `k_inverse =` it
+#'   carries `k_prior`, the diagonal of the declared K named by level, which
+#'   [accuracy()] divides the PEV by in place of 1 + F; with `genotypes =` or
+#'   `k_inverse = h_inverse(...)` it carries `h_prior` and `h_prior_row` as in [model()]
+#'   instead. A fit with `k_inverse =` made before `k_prior` existed has neither, and
+#'   [accuracy()] then divides it by 1 + F of the pedigree given: refit it.
 #' @references Kachman, S.D. (1999) Applications in survival analysis. J. Anim. Sci.
 #'   77 (suppl. 2), 147-153. Ducrocq, V. (1997) Survival analysis, a statistical tool
 #'   for longevity data. 48th Annual Meeting of the EAAP, Vienna. Mrode, R.A. &
@@ -174,7 +179,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
          "a lower bound, not a missing value. If no record is censored, say so with ",
          "a column of ones.")
 
-  terms <- decompoe_formula(formula[[3]])
+  terms <- decompoe_formula(formula[[3]], environment(formula))
   if (!length(terms)) stop("the formula declares no effect")
   for (tm in terms) {
     if (tm$estrutura == 3L)
@@ -229,10 +234,10 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   if (!is.null(entry) && is.null(subject))
     stop("with entry= the records are pieces of a subject's history: give subject= ",
          "too, the column that says whose piece each row is")
-  sv <- if (is.null(subject)) as.character(seq_len(nrow(data))) else {
+  sv <- if (is.null(subject)) rotulo_motor(seq_len(nrow(data))) else {
     if (!is.character(subject) || length(subject) != 1L || !subject %in% names(data))
       stop("subject must name the column that identifies each subject")
-    as.character(data[[subject]])
+    rotulo_motor(data[[subject]])
   }
 
   keep <- !is.na(tv) & !is.na(qv) & !is.na(ev) & !is.na(sv)
@@ -447,7 +452,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
                   random = list(list(nome = z$nome, column = z$column, ids = z$ids))),
     seconds = proc.time()[["elapsed"]] - t0
   ), class = "breeding_fit_surv")
-  anota_hinv(fit_s, hinv)
+  anota_k_inverse(anota_hinv(fit_s, hinv), k_inverse, hinv, aleat)
 }
 
 # ------------------------------------------------------------------ methods
@@ -530,7 +535,7 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
       if (any(!is.finite(v))) stop("non-finite value(s) in covariate '", info$column, "'")
       d <- d + v * (if (info$nome %in% names(object$b)) object$b[[info$nome]] else 0)
     } else {
-      valores <- as.character(col)
+      valores <- rotulo_motor(col)
       fora <- setdiff(unique(valores), info$niveis)
       if (length(fora))
         stop("level(s) of '", info$column, "' not seen in the fit: ",
@@ -543,7 +548,7 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
   for (info in object$design$random) {
     if (!info$column %in% names(newdata))
       stop("no column '", info$column, "' in newdata")
-    valores <- as.character(newdata[[info$column]])
+    valores <- rotulo_motor(newdata[[info$column]])
     idx <- match(valores, info$ids)
     if (anyNA(idx))
       stop("level(s) of '", info$column, "' unknown to the fit: ",
@@ -608,19 +613,28 @@ survival_split <- function(subjects, changes, id = "id", time = "time", event = 
   if (length(sem))
     stop("time-dependent column(s) missing from subjects (their starting values): ",
          paste(sem, collapse = ", "))
-  chave <- as.character(subjects[[id]])
+  # as duas tabelas pelo rotulo do motor: o sujeito 100000 guardado como double em uma e como
+  # integer na outra era "1e+05" de um lado e "100000" do outro, e nao casava
+  chave <- rotulo_motor(subjects[[id]])
   if (anyDuplicated(chave)) stop("a subject appears more than once in subjects")
   fim <- as.double(subjects[[time]])
   if (any(!is.finite(fim)) || any(fim <= 0)) stop("time must be finite and > 0")
   ev <- subjects[[event]]
   if (any(!ev %in% c(0, 1))) stop("event must be 0 or 1")
-  qual <- match(as.character(changes[[id]]), chave)
-  if (anyNA(qual)) stop("change(s) for subject(s) not in subjects: ",
-                        paste(utils::head(unique(changes[[id]][is.na(qual)]), 3), collapse = ", "))
+  de_quem <- rotulo_motor(changes[[id]])
+  qual <- match(de_quem, chave)
+  if (anyNA(qual)) {
+    recusa_cientifico(de_quem[is.na(qual)], chave, "changes", "subjects")
+    stop("change(s) for subject(s) not in subjects: ",
+         paste(utils::head(unique(de_quem[is.na(qual)]), 3), collapse = ", "))
+  }
   quando <- as.double(changes[[at]])
   if (any(!is.finite(quando)) || any(quando <= 0))
     stop("at must be finite and > 0: the value at the start belongs in subjects")
-  if (anyDuplicated(paste(qual, quando, sep = "_")))
+  # repeticao EXATA pelas duas colunas; a chave paste(qual, quando) passava o tempo por
+  # texto com 15 digitos e juntava tempos distintos como 3 e 3 + 4e-15
+  od <- order(qual, quando)
+  if (any(diff(qual[od]) == 0L & diff(quando[od]) == 0))
     stop("two changes of the same subject at the same time: merge them into one row")
   dentro <- quando < fim[qual]
   # as linhas de partida (entry 0, valores de subjects) e as de mudanca, empilhadas e

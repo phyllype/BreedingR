@@ -21,11 +21,21 @@
 * `read_blupf90_snp()`: the SNP_FILE of the BLUPF90 programs into a raw matrix, in two
   passes over the file so nothing else is held; `ids =` keeps a subset. `read_plink()` takes
   `storage = "integer"` or `"raw"`.
-* `apy_core_select(method = "lanczos")`: the count of eigenvalues that explain 98% of G by
-  stochastic Lanczos quadrature (Ubaru, Chen & Saad, 2017), from products with the genotype
-  matrix only, never the Gram matrix nor its eigendecomposition; the count comes with its
-  standard error across probes. On 10 000 animals and 10 000 markers (`validation/apy_core_lanczos.R`) the exact count at 98% was 5953 and the estimate 5973 to 5979 over three seeds (standard error about 71), in 46 s against 697 s for the exact eigendecomposition; the estimate sat 0.3 to 0.5% above the exact count, the conservative side for a core. `"auto"` keeps the exact route up to
-  4000 animals or markers and takes Lanczos above.
+* `apy_core_select(method = "lanczos")`: the count of eigenvalues that explain 98% of G
+  by stochastic Lanczos quadrature (Ubaru, Chen & Saad, 2017), from products with the
+  genotype matrix only, never the Gram matrix nor its eigendecomposition. Each probe
+  contributes the average of the Gauss rules of its last `ceiling(steps / 4)` leading
+  tridiagonals: a single Gauss rule per probe is biased at the threshold, and more
+  probes do not remove that bias, because the Ritz values near it fall in almost the
+  same place for every probe. The count comes with a standard error over the probes,
+  from the linearized count. On 1000 animals, eight independent draws of 20 sets of 30
+  probes put the spread of the counts at 0.82 to 1.31 times the reported standard error
+  at the gated levels (90% and 98%, mean about 1.0, `validation/apy_core_lanczos_se.R`).
+  On 10 000 animals and 10 000 markers (`validation/apy_core_lanczos.R`, ten seeds) the
+  exact count at 98% was 5953 and the estimate 5934 to 5975 (mean 5957.3, standard error
+  about 12); with the same probes on the exact eigenvectors the quadrature error was
+  +2.3 counts (0.04%), against +21.4 (0.36%) for a single Gauss rule. `"auto"` keeps the
+  exact route up to 4000 animals or markers and takes Lanczos above.
 * `simulate_breeding()` preallocates: it grew the haplotype matrices by `rbind` once per
   animal, O(n^2 m) copying, and 10 000 animals with 10 000 markers did not finish in hours;
   they take 26 s now, with the same population for the same seed.
@@ -164,13 +174,19 @@
   dense GLS with the incidence built by hand, over the A of the sire and
   maternal-grandsire pedigree.
 
-* `indirect(dilution = )` also in `model_mt()`, `model_ar1()` and `gibbs()`: the
+* `indirect(dilution = )` also in `model_mt()`, `model_ar1()`, `gibbs()` and `snp_blup()`: the
   dilution of Bijma (2010) was applied by the design all of them share, and only
   the argument did not cross their calls, so they refused it. Gates on pens of
   unequal size: the bivariate fit without covariance between traits is the sum
   of the two univariate fits with the same d, the AR(1) at rho = 0 is `model()`,
   and the Gibbs chain with fixed components reproduces the diluted BLUP.
-  `snp_blup()` still refuses `dilution > 0`.
+  In `snp_blup()`, on pens of 1 to 7 animals with d = 0.7, four single-animal pens, six
+  pen mates without a phenotype, a repeated record and two monomorphic markers, the
+  breeding values match a dense single step (`H^-1` from `G*` without the affine step,
+  Z_S built by hand) to 1.2e-8 of their SD and the marker effects to 1.8e-9; the fit
+  sits 0.055 SD from a reference that counts records instead of distinct animals, 0.58
+  SD from one that drops the mates without a phenotype and 0.83 SD from one that gives a
+  single-animal pen a self entry.
 
 * `pegs()`: the multivariate SNP-BLUP of Xavier and Habier (2022), ported from
   this project's validated Julia engine and giving the same numbers on the same
@@ -210,6 +226,160 @@
 
 ## Fixed
 
+* A covariance group of terms without a relationship matrix, `random(a, group = "g") +
+  random(b, group = "g")` (or `pe()`), paired its levels by position. Each term took the
+  levels of its own column in order of appearance, so level i of `a` covaried with level
+  i of `b`, which is another label, and the fit depended on the row order. On 300
+  records with 20 + 20 levels and fixed components, -2logL was 340.573 in the original
+  order and 340.078 with the rows permuted, against 338.860 from dense mixed-model
+  equations paired by name. With 8 + 16 levels the Kronecker block had the size of the
+  first term (the MME route gave 340.868, the V form 328.760), and the breeding values
+  of the second term came out under the first term's labels. The terms of such a group
+  now index the union of the level names of their columns, sorted (integer labels in
+  numeric order, then the rest), and pair by name. A level present in one column only is
+  still an effect of the other term, with no record there. Results no longer depend on
+  the row order in `model()`, `model_mt()`, `model_ar1()`, `gibbs()` and `snp_blup()` (a
+  row-permutation gate for each). `model()` also equals the dense equations paired by
+  name to 1e-10, and a bivariate `model_mt()` with zero between-trait covariances equals
+  the sum of the two univariate fits to 1e-10. In `snp_blup()`, permuting the rows moved
+  the group's breeding values by up to 1.28 (sd 0.31). Relationship and `kernel()`
+  groups give the same -2logL as before. Refit every fit with a multi-term iid group
+  made before this version: `accuracy()` refuses such an old fit only when its blocks
+  carry different level names (8 + 16); one whose two columns had the same number of
+  levels names both blocks with the first term's levels and passes without an error,
+  still on the old pairing.
+* A group of iid terms whose columns share no level with records in both (sire and dam
+  ids that never repeat between the sexes) has a covariance that does not enter the
+  likelihood. REML used to run its 300 iterations and end with `converged = FALSE` and
+  NaN standard errors for every component. `model()`, `model_mt()`, `model_ar1()` and
+  `gibbs()` now stop before fitting and name the group, the two terms and their columns.
+  With given components (`start =` with `maxiter = 0` and `n_em = 0`, or `theta_fixed =`
+  in `gibbs()`) the group is accepted.
+* `solutions()` on a group with more than one effect per level (direct and maternal,
+  direct and indirect, two iid terms in one group, the coefficients of a reaction norm)
+  has a `term` column after `id`, and `se` and `acc` are those of the row's own effect.
+  They were joined by id alone, so every row of an id got the first block's values: in
+  Example 8.1 of Mrode and Pocrnic the maternal effect of animal 5 showed the direct
+  standard error, 11.71 against its own 9.16, and the slope `rn[1]` of a reaction norm
+  showed the intercept's, 0.496 against 0.264. A group with one effect per level keeps
+  the old columns.
+* `accuracy()` divides each level by its own prior variance, matched to the PEV by level
+  name. A `kernel(id, K =)` term is divided by `K[i, i]`, which the fit now carries in
+  `k_prior`, no longer by 1 + F of the pedigree: with `K = dominance_matrix(ped)` on an
+  inbred pedigree (a sire-daughter mating) the animals with F = 0.25 got 0.7282 where
+  the right value is 0.6426. An iid term (`pe()`, `random()`) is divided by 1, and a
+  relationship term fitted with a declared `k_inverse =` in `model_threshold()` or
+  `model_survival()` by the diagonal of K. These groups need no pedigree, and
+  `solutions()` gives their `acc` column without one (in a multi-trait fit, with `trait
+  =`).
+* `accuracy()` no longer matches the pedigree by position. The pedigree was rebuilt and
+  read row by row, so the same pedigree with its rows in another order divided animals
+  by the F of other animals (up to 0.065 on 210 simulated animals). The single-step
+  prior `h_prior` comes named by genotyped animal from `model()`, `model_mt()`,
+  `model_ar1()` and `h_inverse()` and is placed by name. The pedigree must still hold
+  exactly the animals of the fit.
+* `accuracy()` on a group of several scalar terms (direct-maternal, direct-indirect)
+  also works in `model_mt()`, per trait, each block divided by its own
+  `var(term@trait)`, and it treats a `model_ar1()` with `cbind()` as multi-trait:
+  `accuracy(fit, trait =)` and `solutions(fit, trait =)` work on a two-trait AR(1) fit,
+  which used to stop with "80 coefficient(s) for 40 animals".
+* A numeric column that gives the level of a term may not hold `NA`, `NaN`, `Inf` or
+  `-Inf`: a fixed class, the id of a random term, the animal and the pen of
+  `indirect()`, the sire and the maternal grandsire of `sire(mgs =)`, the class of a
+  nested covariate. The engine labelled such values "nan" and "inf", and the rows
+  without a level formed one shared level with an estimated effect: `random(g)` with 2
+  NA had a level "nan" among the breeding values, a fixed class got a column "cg=nan",
+  every record without a pen went into ONE pen (unrelated animals became each other's
+  pen mates), and in a relationship term the rows left in silence (`n_used` 38 of 40).
+  The fit now stops with the term, the column, the number of such rows and the first of
+  them. The level column is checked on every row, including rows whose observation is
+  missing; a missing observation with its levels present still drops only its record.
+* A blank text pen (`""` or only spaces, what `read.csv()` and `data.table::fread()`
+  give for an empty cell) and the text "NaN" (what `factor()` makes of a numeric `NaN`)
+  are refused like `NA` in every fitter that takes `indirect()`, in
+  `indirect_residual()` and in `associative_matrix()`, with the first row. Before, those
+  rows silently became one pen, and `indirect_residual()` failed with "every weight must
+  be finite and positive". The texts "NA" and "Inf" remain ordinary pen names.
+  `associative_matrix()` also refuses a missing or `NaN` id.
+* `competition_strength()` refuses a missing `group` or `competitor` (`NA`, `NaN`,
+  `Inf`, blank text) with the count and the first row. Every record without a contest
+  used to become ONE contest, and every record without a competitor one competitor with
+  a missing name that summed all their wins.
+* `eval_internal()`, `eval_internal_mt()` and `eval_internal_ar1()` report a misnamed
+  column as "no column(s) in the data: x", as the fitters do, instead of "undefined
+  columns selected".
+* Numeric ids are written the same way on both sides. The engine labels a numeric data
+  column by the full integer ("100000"); the R side wrote the numeric ids of the
+  pedigree, the genotypes and the keys with `as.character()`, which gives "1e+05" for
+  the double 100000, and the records of those animals left the fit, visible only as a
+  smaller `n_used`. On 150 animals with ids 1e6 and 2e6 among 100002 to 100149, two
+  records each, `n_used` was 296 of 300 and -2logL 434.12, against 300 and 441.69 with
+  the same ids as text. Every numeric id now goes through the engine's own formatter, so
+  double, integer and text ids, and mixed types across the pedigree columns, give the
+  same `n_used`, -2logL, components, breeding values and accuracy (gated to 1e-10), in
+  `model()`, the single step, `snp_blup()`, `model_threshold()`, `model_survival()` and
+  `survival_split()` (double ids in `subjects` and integer ids in `changes` used to stop
+  it). Fits made before with such ids named their levels "1e+05": refit before calling
+  `predict()` on them.
+* The same number written two ways ("1e+05", what `as.character()`, `factor()` and
+  `rownames<-` write for a round double, against 100000) is an error that names both
+  spellings, no longer records dropped in silence: the data against the pedigree, the
+  data against a `kernel()` K (including an all-zero row of K, which lost 2 of 300
+  records), genotype ids against the pedigree, one pedigree column against another,
+  `survival_split()`, `pegs()` and the names of `breed` in `partial_a()`.
+* A non-integer numeric id was labelled with 6 significant digits: 123456.7 became
+  "123457", the label of the integer 123457, and in the pedigree the animal 1.1234567
+  and the sire 1.1234568 became one animal. Labels are now the shortest writing with 15
+  to 17 significant digits that reads back to the same double, so distinct numbers never
+  share a label.
+* The marker arguments that take a value, `base =`, `dilution =` and the `fixed =` of
+  `kernel()`, are evaluated in the environment of the formula, as `K =` already was.
+  They were evaluated three frames above the formula reader, a frame that changed with
+  the number of terms and the fitter: a grid `lapply(c(0, 0.7), function(dd) model(...
+  dilution = dd))` stopped with "object 'dd' not found" in `model()` and `gibbs()`, and
+  so did `base = b` and `fixed = v` inside a function and a formula built in one
+  function and fitted in another; with `indirect()` alone on the right-hand side,
+  `dilution = tol` read `model()`'s own `tol = 1e-8` with no warning (-2logL 237.235
+  against 236.549 for the intended d = 0.7). `gibbs(chains =, cores =)` evaluates `K =`
+  once in the calling process; a formula written in the global environment used to fail
+  on the PSOCK workers.
+* The fit stores its formula with the values of `base =`, `dilution =` and `fixed =`
+  written in, so `h2()`, `t2()` and `accuracy()` read the value the fit was made with.
+  In a `for` loop over d, `t2()` of the d = 0 fit used to reread the last d (var_p
+  1.37711 against 1.63203 at n = 5). `base = ""`, or a base with an empty or `NA` entry,
+  is refused; it used to be ignored silently.
+* `group =`, `pen =`, `nome =`, `nested =` and `mgs =` name things and are taken
+  literally, never evaluated (`group = g` is the group "g"), and `model()` now says so.
+  A term alone in a group whose unquoted name is a variable of the formula's environment
+  holding a different text stops, with both spellings: `group = grp` with `grp <- "g"`
+  used to form a group of its own, without the covariance it was meant to have.
+* `model_threshold()` with two or more random terms failed once the product of their
+  level counts passed 2^31 - 1 (about 46 341 levels each, which a pedigree for 20 000 to
+  50 000 records reaches): the block between two terms was keyed by the integer `(a - 1)
+  * q_b + b`, which overflowed to NA, and the fit stopped with a misleading "system is
+  not solvable". The block is now summed by ordering on the two level columns, bit for
+  bit the same below the overflow; a fit with two terms of 50 000 levels each converges,
+  and its prediction error variances match a closed-form reference. `survival_split()`
+  compares change times exactly; its text key kept 15 significant digits and refused
+  distinct times such as 3 and 3 + 4e-15.
+* `fst()`, `roh()` and `qc_genotypes()` accept a raw genotype matrix (1 byte per
+  genotype, 5 for missing), as `read_blupf90_snp()` and `read_plink(storage = "raw")`
+  return it, with the same filtering, counts and values as a double or integer matrix; a
+  raw matrix used to be refused with the number of entries of the whole matrix reported
+  as out-of-code genotypes. `qc_genotypes()` returns the filtered matrix in the storage
+  it came in.
+* `apy_core_select(method = "lanczos")`: the earlier estimate sat 0.3 to 0.5% above the
+  exact count because of the Gauss quadrature at the threshold, not because of the
+  probes, and its `count_se` was the spread of the per-probe counts at a fixed
+  threshold, which jumps by a whole Ritz weight: at 10 000 x 10 000 it was 69 against an
+  actual spread of 12.5 over ten seeds, so "within one standard error" tested little.
+  The averaged rule and the new standard error fix both (paired quadrature error at 98%
+  from +21.4 to +2.3 counts, standard error 12.2 against a spread of 11.9). The
+  "conservative side" claim is withdrawn.
+* The reference to Bijma (2010), Multilevel selection 4, gave the page range of another
+  paper by the same author in the same issue. It is now Genetics 186:1029-1031 in the
+  help pages of `model()`, `h2()`, `t2()`, `indirect_residual()` and
+  `associative_matrix()`, in README.md and in REFERENCES.md.
 * `kernel(K =)` refuses a K that is singular up to rounding (the smallest Cholesky pivot
   squared below 1e-12 of the largest diagonal), not only one whose factorization fails. A
   raw G of 15 animals from 20 markers, rank 14, was refused on Windows and accepted on

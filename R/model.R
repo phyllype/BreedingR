@@ -31,10 +31,31 @@ ARGS_MARCADOR <- local({
 #'   class effect; `cov(x)` is a fixed covariate; `animal(id)`, `maternal(dam)` and
 #'   `sire(sire)` are random with relationship, and `sire(sire, mgs = "mgs")` is the sire
 #'   and maternal-grandsire model, 1 on the sire and 1/2 on the maternal grandsire of the
-#'   record in the same effect (an unknown grandsire, "0", leaves the sire only); `pe(id)`
+#'   record in the same effect (an unknown grandsire, "0", leaves the sire only; a
+#'   missing value in that column is refused, see below); `pe(id)`
 #'   and `random(lote)` are random
 #'   without relationship. `group = "nome"` puts two random terms in the SAME covariance
-#'   matrix, with the correlation estimated. `indirect(id, pen = "pen")` is the indirect
+#'   matrix, with the correlation estimated. The terms of a group index one set of levels,
+#'   and level l of one term covaries with level l of the other: the pedigree animals in a
+#'   relationship group, the ids of K in a `kernel()` group, and in a group of terms
+#'   without a relationship matrix (`random()`, `pe()`) the union of the level names of
+#'   their columns, sorted (integer labels in numeric order, then the rest). The pairing
+#'   is by name, so the order of the rows does not matter, and a level that appears in
+#'   only one column is still an effect of the other term, with no record there. Their
+#'   covariance is estimated only through the levels that have records in both columns:
+#'   with none (sire and dam ids that never repeat between the sexes) it does not enter
+#'   the likelihood, and every fitter that estimates components stops before fitting and
+#'   names the two terms. At given components (`start =` with `maxiter = 0` and
+#'   `n_em = 0`, or `theta_fixed =` in [gibbs()]) the group is accepted.
+#'   A column that gives the level of a term (a fixed class, the id of a random term,
+#'   the maternal grandsire of `sire(mgs =)`, the class of a nested covariate) may not
+#'   hold `NA`, `NaN`, `Inf` or `-Inf` on ANY row, including a row whose observation is
+#'   missing: those rows would form one shared level. A numeric column stops the fit with
+#'   the term, the column, the number of such rows and the first of them; a text column
+#'   with `NA` stops it with the column and the first row. Drop those rows before the
+#'   fit. A missing observation (`NA` in the trait, or `missing_code`) with its levels
+#'   present only drops its record.
+#'   `indirect(id, pen = "pen")` is the indirect
 #'   (associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a
 #'   record marks the animal's DISTINCT pen mates, and it shares a group with `animal()`
 #'   so the direct-social covariance is estimated. Its `dilution = d` argument scales the
@@ -45,7 +66,13 @@ ARGS_MARCADOR <- local({
 #'   sum grows with `n_i - 1` and the choice of `d` is an empirical question: fit a small
 #'   grid (say 0, 0.5, 1) and compare `-2logL`, which is comparable across `d` because
 #'   only the incidence changes. A pen of size 1 keeps its zero social row under every
-#'   `d`. See [indirect_residual()] for the residual side of the same problem.
+#'   `d`. The pen column may be text, factor or numeric (codes 10, 20, 30 group exactly
+#'   like "10", "20", "30"), but it may not hold a missing pen: `NA`, `NaN`, `Inf`,
+#'   `-Inf`, blank text (what `read.csv()` gives an empty cell of a text column, spaces
+#'   included) or the text "NaN". A record without a pen has pen mates nobody knows, so
+#'   every fitter stops, names the column, the row count and the first row, and asks to
+#'   drop those rows or assign them a pen. See [indirect_residual()] for the residual
+#'   side of the same problem.
 #'   `kernel(id, K = D)` is a random term with a user-supplied (user-defined)
 #'   covariance matrix, called a DECLARED covariance throughout this package: K is a symmetric positive-definite matrix whose rownames
 #'   are the level identifiers, and every row of K gets an equation, with or without a
@@ -60,8 +87,34 @@ ARGS_MARCADOR <- local({
 #'   an absence is a gap. Two kernel terms need `nome=` to tell their components apart.
 #'   The inversion of K is dense, so the declared route is for matrices of moderate
 #'   size, the size of a genotyped set, not of a national pedigree.
+#'   The marker arguments that take a value and not a column name, `base =`,
+#'   `dilution =`, `K =` and the `fixed =` of `kernel()` (which holds that term's variance
+#'   at the value given), are evaluated in the environment of the formula, the one where
+#'   it was written. A grid over `d` run as
+#'   `lapply(c(0, 0.5, 1), function(d) model(y ~ cg + animal(id, group = "g") +
+#'   indirect(id, pen = "pen", group = "g", dilution = d), data, ped))` finds its `d`, and
+#'   so does a formula built in one function and fitted in another. The fit keeps in
+#'   `formula` the formula with the values of `base =`, `dilution =` and `fixed =` written
+#'   in, so [h2()], [t2()] and [accuracy()] read the value the fit was made with even
+#'   after the variable changes or is removed. The arguments that NAME something,
+#'   `group =`, `pen =`, `nome =`, `nested =` and `mgs =`, are taken literally and never
+#'   evaluated: `group = g` is the group called "g", the same as `group = "g"`, and not
+#'   the value of a variable `g`. Because a group meant by value would silently become a
+#'   group of its own, a term that is alone in a group whose unquoted name is a variable
+#'   of the formula's environment holding a different text is refused, with both
+#'   spellings in the message; write group names in quotes.
 #' @param data data.frame with the columns referenced
-#' @param pedigree data.frame animal, sire, dam; required with a relationship term
+#' @param pedigree data.frame animal, sire, dam; required with a relationship term. Ids
+#'   may be numeric or text, and each column may have its own type: a numeric id is
+#'   written as its full integer everywhere (the data, the pedigree, the genotypes, the
+#'   matrices this package builds and the names of the results), so 100000 as a double,
+#'   as an integer and as the text "100000" are one animal. A numeric id that is not an
+#'   integer keeps the digits that tell it apart from every other number (1234567.5 is
+#'   "1234567.5", and 123456.7 never meets 123457). Text that R wrote in
+#'   scientific notation ("1e+05" is what `as.character()`, `factor()` and `rownames<-`
+#'   give for the double 100000) is a different label, and when the other side holds
+#'   that same number the fit stops with an error rather than dropping the animal's
+#'   records
 #' @param missing_code missing-value code for observations, for example -999
 #' @param genotypes list with `ids` and `m` for single-step: animals x markers coded 0/1/2,
 #'   as a double, integer or raw matrix. NA (5 in a raw matrix, the BLUPF90 code) is
@@ -135,7 +188,12 @@ ARGS_MARCADOR <- local({
 #'   are completely full, and each factorization costs about `k^3 / 3` there. In a single
 #'   step without `apy_core =`, `k` is at least the number of genotyped animals; with it,
 #'   at least the core size plus one. The fill of the pedigree itself can add to it, and
-#'   in a small herd it dominates. The object holds
+#'   in a small herd it dominates. With a `kernel()` term it carries `k_prior`, one
+#'   vector per kernel term, named by term, holding the diagonal of the declared K by
+#'   level: the prior variance [accuracy()] divides the PEV by. In a single step it
+#'   carries `h_prior`, the diagonal of G* of each genotyped animal, named by animal, and
+#'   `h_prior_row`, the row of that animal in the pedigree the fit built: the prior
+#'   variance [accuracy()] uses for a genotyped animal instead of 1 + F. The object holds
 #'   the components `theta` with their `se`,
 #'   the fixed-effect solutions `b` (named `term=level`, in the order the columns of X
 #'   entered), `ebv` and `pev` per covariance group, `score`, `vcov`, the convergence
@@ -163,7 +221,7 @@ ARGS_MARCADOR <- local({
 #'   inverse of the genomic relationship matrix. Journal of Dairy Science 97:3943-3952.
 #'
 #'   Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
-#'   genetic effects and group size. Genetics 186:1013-1028.
+#'   genetic effects and group size. Genetics 186:1029-1031.
 #' @export
 model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                   apy_core = NULL, vecchia_k = NULL, missing_code = NULL, maxiter = 300L, tol = 1e-8,
@@ -172,7 +230,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   if (!inherits(formula, "formula")) stop("expected a formula, like peso ~ cg + animal(id)")
   if (length(formula) != 3L) stop("the formula needs a left-hand side: peso ~ ...")
   trait <- deparse(formula[[2]])
-  terms <- decompoe_formula(formula[[3]])
+  terms <- decompoe_formula(formula[[3]], environment(formula))
   recusa_materno_mgs(terms, pedigree)
   if (!length(terms)) stop("the formula declares no effect")
 
@@ -224,7 +282,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              nuc,
              if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
              isTRUE(verbose),
-             if (is.null(metafounders)) character(0) else as.character(metafounders),
+             rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma), w,
              if (is.null(start)) numeric(0) else as.double(start), kern,
              vapply(terms, function(t) t$dilution, numeric(1)),
@@ -237,9 +295,11 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # if it were tolerated the F would come back on the gamma = 0 base.
   r$metafounders <- metafounders
   r$gamma <- gamma
-  r$formula <- formula
+  r$formula <- formula_resolvida(formula, terms)
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
+  # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
+  r$k_prior <- priori_kernels(terms, kern)
   structure(r, class = "breeding_fit")
 }
 
@@ -305,13 +365,14 @@ valida_genotipos <- function(genotypes) {
                        if (is.raw(gm)) " (5 in a raw matrix)", ". An unknown ",
                        "code must become NA beforehand, to be imputed with the mean ",
                        "instead of counted as the zero genotype")
-    gid <- as.character(genotypes$ids)
+    gid <- rotulo_motor(genotypes$ids)
   }
   list(gid = gid, gm = gm)
 }
 
-# Para as contas feitas em R (D genomica, F genomico, Gamma, PEGS, efeitos de SNP): a matriz
-# raw vira integer com NA no 5; double e integer passam como estao.
+# Para as contas feitas em R (D genomica, F genomico, Gamma, efeitos de SNP, Fst, ROH e o
+# controle de qualidade): a matriz raw vira integer com NA no 5; double e integer passam como
+# estao.
 genotipos_numericos <- function(gm) {
   if (!is.raw(gm)) return(gm)
   x <- as.integer(gm)
@@ -319,6 +380,24 @@ genotipos_numericos <- function(gm) {
   dim(x) <- dim(gm)
   dimnames(x) <- dimnames(gm)
   x
+}
+
+# fst(), roh() e qc_genotypes() recebem a matriz solta, sem ids, e fazem a conta em R. A
+# checagem dos valores e a do motor (R_confere_genotipos): le o raw com o 5 como ausente, e
+# nao cria os vetores logicos do tamanho da matriz que o %in% criava. Antes o raw caia no %in%
+# e era recusado com o total de entradas como se todas fossem invalidas. Devolve a vista
+# numerica (integer com NA no 5 quando veio raw); o erro sai com a chamada de quem pediu.
+matriz_genotipos_r <- function(m) {
+  quem <- sys.call(-1)
+  falha <- function(...) stop(simpleError(paste0(...), quem))
+  if (!is.matrix(m)) falha("expected a genotype matrix")
+  if (is.logical(m)) storage.mode(m) <- "integer"
+  if (!(is.double(m) || is.integer(m) || is.raw(m)))
+    falha("the genotype matrix must be double, integer or raw")
+  fora <- .Call(R_confere_genotipos, m)
+  if (fora > 0) falha(format(fora, scientific = FALSE), " genotype(s) outside 0, 1, 2 and NA",
+                      if (is.raw(m)) " (5 in a raw matrix)")
+  genotipos_numericos(m)
 }
 
 # Weights: a column name or a vector, validated finite and positive. Empty means none.
@@ -361,18 +440,26 @@ monta_kernels <- function(terms, envir) {
       stop("kernel '", t$nome, "': K is not symmetric (largest asymmetry ",
            format(assimetria, digits = 3), "). Symmetrize it explicitly: (K + t(K)) / 2")
     storage.mode(K) <- "double"
-    list(as.character(ids), K)
+    list(rotulo_motor(ids), K)
   })
   if (all(vapply(out, is.null, logical(1)))) NULL else out
 }
 
-decompoe_formula <- function(expr) {
+# envir e o ambiente da formula, environment(formula): e nele que base=, dilution= e fixed=
+# sao avaliados, como o K= do kernel() em monta_kernels(), porque e onde quem escreveu a
+# formula tem as variaveis. Antes eram avaliados em parent.frame(3L), o quadro de quem
+# estivesse tres chamadas acima, e isso dependia do numero de termos e do ajustador: dentro
+# de lapply(function(dd) model(... dilution = dd)) a variavel nao era achada, e com o
+# indirect() sozinho no lado direito respondia o quadro do proprio ajustador (dilution = tol
+# pegava o tol = 1e-8 do model(), calado). Sem valor padrao de proposito: quem esquecer o
+# ambiente para numa formula que precise dele, em vez de avaliar noutro lugar.
+decompoe_formula <- function(expr, envir) {
   partes <- list()
   anda <- function(e) {
     if (is.call(e) && identical(as.character(e[[1]]), "+")) {
       anda(e[[2]]); anda(e[[3]]); return(invisible())
     }
-    partes[[length(partes) + 1L]] <<- interpreta_termo(e)
+    partes[[length(partes) + 1L]] <<- interpreta_termo(e, envir)
     invisible()
   }
   anda(expr)
@@ -397,10 +484,28 @@ decompoe_formula <- function(expr) {
          "depend on how many terms the model has: ",
          rep_nome[1], "(", quais[1], ", nome = \"", rep_nome[1], "_", quais[1], "\")")
   }
+  # group= E UM NOME LIDO AO PE DA LETRA, como pen=, nome=, nested= e mgs=: group = g e o
+  # grupo "g", e nao o valor de uma variavel g. Escrito sem aspas por quem queria o valor,
+  # o termo caia sozinho num grupo com o nome da variavel e a covariancia com o resto do
+  # grupo pretendido sumia do modelo, sem aviso. O sinal disso e um grupo de UM termo cujo
+  # nome e uma variavel do ambiente da formula que guarda um texto diferente do nome: ai
+  # a leitura para. Um grupo citado por mais de um termo e o uso literal, e passa.
+  grupos <- vapply(partes, function(t) if (is.null(t$group)) "" else t$group, character(1))
+  for (t in partes) {
+    if (!isTRUE(t$group_simbolo) || sum(grupos == t$group) > 1L || !is.environment(envir))
+      next
+    v <- get0(t$group, envir = envir, inherits = TRUE)
+    if (is.character(v) && length(v) == 1L && !is.na(v) && !identical(v, t$group))
+      stop(t$marcador, "(", t$column, ", group = ", t$group, "): group = takes the group ",
+           "NAME literally, so this term would be alone in a group called '", t$group,
+           "', while ", t$group, " is a variable holding \"", v, "\". Write group = \"", v,
+           "\" to put the term in that group, or group = \"", t$group, "\" to keep the name",
+           call. = FALSE)
+  }
   partes
 }
 
-interpreta_termo <- function(e) {
+interpreta_termo <- function(e, envir) {
   if (is.name(e)) {
     n <- as.character(e)
     return(list(nome = n, column = n, estrutura = 0L, covariavel = FALSE,
@@ -447,8 +552,12 @@ interpreta_termo <- function(e) {
   # covariance. Reaction norm and random regression are THIS, not a fitter of their own.
   base <- ""
   if (!is.null(args[["base"]])) {
-    b <- eval(args[["base"]], parent.frame(3L))
-    if (!is.character(b) || !length(b)) stop("'base' must be a vector of column names")
+    b <- eval(args[["base"]], envir)
+    # um nome vazio ou NA nao e coluna. base = "" passava como termo sem base, e a formula
+    # guardada ficava com base = character(0), que a releitura recusa: termos_do_ajuste()
+    # devolvia lista vazia e h2(), t2() e accuracy() perdiam todos os termos do ajuste
+    if (!is.character(b) || !length(b) || anyNA(b) || !all(nzchar(b)))
+      stop("'base' must be a vector of column names, none of them empty")
     base <- paste(b, collapse = ",")
   }
   if (marc == "rn" && !nzchar(base))
@@ -460,12 +569,13 @@ interpreta_termo <- function(e) {
   #
   # dilution = d (Bijma, 2010) scales each mate's entry to (n_i - 1)^(-d), with n_i the
   # number of distinct animals in the pen of record i. d = 0 is the book's plain sum and
-  # the default; d = 1 is the mate mean. The value crosses over in the dilution field and
-  # only model() and eval_internal() carry it down to the engine.
-  # sire(sire, mgs = "mgs"): the sire / maternal-grandsire MODEL (Quaas and Pollak; Mrode and
-  # Pocrnic ch. 3): the record carries 1 on the sire and 1/2 on the maternal grandsire, two
-  # levels of the SAME effect. The grandsire column crosses over in the nested field with a
-  # "mgs:" prefix the engine strips; an unknown grandsire ("0", "", NA) leaves the sire only.
+  # the default; d = 1 is the mate mean. The value crosses over in the dilution field, and
+  # every fitter that takes indirect() carries it down to the engine.
+  # sire(sire, mgs = "mgs"): o MODELO pai / avo materno (Quaas e Pollak; Mrode e Pocrnic
+  # cap. 3): o registro leva 1 no pai e 1/2 no avo materno, dois niveis do MESMO efeito. A
+  # coluna do avo cruza no campo de aninhamento com o prefixo "mgs:", que o motor tira. Avo
+  # desconhecido ("0", texto vazio, ou o texto "NA") deixa so o pai; o valor AUSENTE na coluna
+  # (NA numerico ou textual, NaN, Inf) e recusado com a linha, como em toda coluna de nivel.
   if (marc == "sire" && !is.null(args[["mgs"]])) {
     if (nzchar(nested) || nzchar(base))
       stop("sire(mgs =) takes neither nested = nor base =")
@@ -477,7 +587,7 @@ interpreta_termo <- function(e) {
     if (!nzchar(pen)) stop("indirect() requires pen = the pen column: without knowing who lives with whom there is no indirect effect")
     nested <- pen
     if (!is.null(args[["dilution"]])) {
-      dilution <- eval(args[["dilution"]], parent.frame(3L))
+      dilution <- eval(args[["dilution"]], envir)
       if (!is.numeric(dilution) || length(dilution) != 1L || !is.finite(dilution))
         stop("indirect(): dilution must be a single finite number")
       if (dilution < 0)
@@ -507,7 +617,7 @@ interpreta_termo <- function(e) {
     # additive-versus-multiplicative heterogeneity of Thompson and Sharp (1999), and
     # fitted with the scale free it returns a heritability of 1 against a true 0.6.
     if (!is.null(args[["fixed"]])) {
-      kfixo <- eval(args[["fixed"]], parent.frame(3L))
+      kfixo <- eval(args[["fixed"]], envir)
       if (!is.numeric(kfixo) || length(kfixo) != 1L || !is.finite(kfixo) || kfixo <= 0)
         stop("kernel(): fixed must be a single positive finite number, the value to ",
              "hold this term's variance at. fixed = 1 is the known-covariance case")
@@ -519,16 +629,38 @@ interpreta_termo <- function(e) {
   list(nome = nome, column = column, estrutura = estrutura,
        covariavel = marc == "cov", group = group, nested = nested, base = base,
        social = marc == "indirect", dilution = dilution, kexpr = kexpr, kfixo = kfixo,
-       marcador = marc)
+       marcador = marc, group_simbolo = is.name(args[["group"]]))
 }
 
-# dilution= travels down the .Call of every fitter except snp_blup(), which does not
-# carry it yet and calls this right after decompoe_formula(): refusing loudly beats
-# fitting d = 0 in silence and reporting components of a model the user did not write.
-recusa_dilution <- function(terms, quem) {
-  d <- vapply(terms, function(t) t$dilution, numeric(1))
-  if (any(d > 0))
-    stop(quem, " does not carry dilution= yet: drop it, or fit with model()")
+# A formula que o ajuste GUARDA leva os valores de base=, dilution= e fixed= com que foi
+# ajustado, no lugar das expressoes. h2(), t2() e accuracy() releem fit$formula depois, e a
+# releitura avaliaria a expressao de novo: numa grade em laco for no ambiente global, todo
+# ajuste relia o d da ULTIMA volta (o t2 do ajuste com d = 0 saia com o d = 0.7), e com a
+# variavel apagada a releitura falhava e o ajuste parecia nao ter termo indireto. Os termos
+# vem na ordem em que decompoe_formula() anda na mesma arvore. O K= fica como expressao: a
+# releitura nao o avalia, e a diagonal de que accuracy() precisa ja vai em k_prior. O
+# group = escrito sem aspas vira o texto do nome, que e o que ele ja significava.
+formula_resolvida <- function(formula, terms) {
+  k <- 0L
+  troca <- function(e) {
+    if (is.call(e) && identical(as.character(e[[1]]), "+")) {
+      e[[2]] <- troca(e[[2]]); e[[3]] <- troca(e[[3]])
+      return(e)
+    }
+    k <<- k + 1L
+    if (is.call(e)) {
+      t <- terms[[k]]
+      if (!is.null(e[["base"]])) e[["base"]] <- strsplit(t$base, ",", fixed = TRUE)[[1]]
+      if (!is.null(e[["dilution"]])) e[["dilution"]] <- t$dilution
+      if (!is.null(e[["fixed"]])) e[["fixed"]] <- t$kfixo
+      # group = g sem aspas ja e o grupo "g"; escrito como texto, a releitura nao depende de
+      # haver ou nao uma variavel g no ambiente quando h2() ou accuracy() a fizerem
+      if (is.name(e[["group"]])) e[["group"]] <- t$group
+    }
+    e
+  }
+  formula[[3]] <- troca(formula[[3]])
+  formula
 }
 
 # kernel(fixed =) PRENDE a variancia do termo, e so o motor univariado sabe tirar uma
@@ -568,12 +700,16 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
                           genotypes = NULL, blend = 0.05, apy_core = NULL,
                           vecchia_k = NULL) {
   trait <- deparse(formula[[2]])
-  terms <- decompoe_formula(formula[[3]])
+  terms <- decompoe_formula(formula[[3]], environment(formula))
   recusa_materno_mgs(terms, pedigree)
   used_columns <- unique(c(trait, vapply(terms, function(t) t$column, character(1)),
                              unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
                              unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
   used_columns <- used_columns[nzchar(used_columns)]
+  # a mesma conferencia do model(): sem ela o data[used_columns] abaixo parava com o
+  # "undefined columns selected" do R, que nao diz qual coluna falta
+  falta <- setdiff(used_columns, names(data))
+  if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
   lst <- lapply(data[used_columns], function(col) {
     if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
   })
@@ -596,7 +732,7 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
         ped_id, ped_sire, ped_dam,
         if (is.null(missing_code)) 0.0 else as.double(missing_code), !is.null(missing_code),
         as.double(theta), isTRUE(with_dense),
-             if (is.null(metafounders)) character(0) else as.character(metafounders),
+             rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
              valida_pesos(weights, data),
         gv$gid, gv$gm, as.double(blend),
@@ -791,31 +927,72 @@ print.summary.breeding_fit <- function(x, ...) {
 
 #' Accuracy of the genetic values
 #'
-#' acc_i = sqrt(1 - PEV_i / ((1 + F_i) sigma2_a)), with the PEV coming from the diagonal of
-#' the selective inverse of the MME at the optimum. The (1 + F_i) matters: without it the
-#' accuracy of an inbred animal comes out underestimated, and in a closed nucleus that is
-#' everybody.
+#' acc_i = sqrt(1 - PEV_i / (k_ii sigma2)), with the PEV coming from the diagonal of the
+#' selective inverse of the MME at the optimum, sigma2 the variance of the term and k_ii
+#' the PRIOR variance of level i at unit sigma2, the diagonal of the covariance matrix the
+#' term was fitted with. For a pedigree term that is 1 + F_i, and it matters: without it
+#' the accuracy of an inbred animal comes out underestimated, and in a closed nucleus that
+#' is everybody.
 #'
 #' It is only defined for a group with ONE coefficient. In a reaction norm the accuracy of
 #' the intercept alone is misleading (the slope's is tiny and the total EBV's depends on the
 #' point of the gradient), so the error here tells you to combine the coefficients
 #' explicitly.
 #'
-#' The prior variance is the animal's own. For a pedigree animal it is 1 + F. For a
-#' GENOTYPED animal in a single-step fit it is the diagonal of H, which in that block is
-#' the diagonal of G*, and that is a different number: on a simulated population of 510
-#' animals, all genotyped, the two differ by up to 0.18, moving an individual accuracy by
-#' up to 0.067 (median 0.011). The herd average barely notices (0.6966 against 0.6964);
-#' what moves is the individual, and with it the ranking of genotyped animals by accuracy.
-#' The fit carries the genomic prior when it has one, so this is used automatically and no
-#' longer has to be read with a caveat.
+#' The prior variance is each level's own, read from the structure of its term and matched
+#' to the PEV by level NAME, never by position:
+#' * a pedigree term (animal(), sire(), maternal(), indirect()): 1 + F from the pedigree.
+#'   The pedigree must be the one the fit used: every animal in it gets an equation, so
+#'   its animals must be exactly the levels of the group, and a pedigree with animals
+#'   added or missing is refused (it would change the F of their descendants). Its rows
+#'   may come in any order.
+#'   For a GENOTYPED animal in a single-step fit it is the diagonal of H, which in that
+#'   block is the diagonal of G*, and that is a different number: on a simulated
+#'   population of 510 animals, all genotyped, the two differ by up to 0.18, moving an
+#'   individual accuracy by up to 0.067 (median 0.011). The herd average barely notices
+#'   (0.6966 against 0.6964); what moves is the individual, and with it the ranking of
+#'   genotyped animals by accuracy. The fit carries the genomic prior when it has one,
+#'   in `h_prior`, named by genotyped animal.
+#' * a `kernel(id, K = )` term: `K[i, i]`, the diagonal of the declared matrix, which the
+#'   fit carries. With `K = dominance_matrix(ped)` on an inbred pedigree the diagonal is
+#'   1 while 1 + F is not, and dividing by 1 + F overstated the accuracy (measured on an
+#'   inbred pedigree with a sire-daughter mating: 0.7282 where the right value is 0.6426
+#'   for the animals with F = 0.25). A K with a non-unit diagonal (a G with a ridge, a
+#'   scaled matrix) is divided by that diagonal.
+#' * a relationship term given its own inverse with `k_inverse =` in [model_threshold()]
+#'   or [model_survival()]: the diagonal of K, read from the selective inverse of the
+#'   declared K^-1 when the fit is built. An [h_inverse()] passed there follows the
+#'   single-step convention of the first item instead, so both doors to the same model
+#'   return the same accuracy. That convention divides a NON-genotyped animal by
+#'   1 + F, while its prior variance under H is `H[i, i]`, which differs by
+#'   `(A12 A22^-1 (G* - A22) A22^-1 A21)[i, i]`; a dense H given as `kernel(K = H)` is
+#'   divided by `H[i, i]` for every animal, so the two routes differ there.
+#' * an iid term (pe(), random()): 1.
+#'
+#' A group with several scalar terms (direct-maternal, direct-indirect, two correlated
+#' iid terms) is split into one block of levels per term, and each block is divided by
+#' its own variance. Every term of a group indexes the same levels: the pedigree, the ids
+#' of K, or, for terms without a relationship matrix (`random()`, `pe()`), the union of
+#' the level names of their columns. With 8 sires in one column and 16 dams in the other
+#' each block has the levels of both columns. A level that appears only in the other
+#' term's column has no record for this term, and its accuracy is what the group
+#' covariance carries over from the other term at the same level, 0 when that covariance
+#' is 0. A fit made before this version paired the levels of such a group by position;
+#' when its blocks do not carry the same level names it is refused, and it should be
+#' refitted either way.
 #' @param fit result of model(), model_mt(), model_ar1(), model_threshold() or
 #'   model_survival() (log-hazard scale, from the Laplace PEV of the frailty)
 #'   (ordinal mode; the joint threshold fit carries no PEV, a declared limit)
-#' @param pedigree the same data.frame used in the fit
+#' @param pedigree the same data.frame used in the fit. Only a group with a pedigree
+#'   term reads it; for a group of `kernel()` terms, of iid terms, or of a term given a
+#'   declared `k_inverse =` other than an [h_inverse()], it may be omitted. A term fitted
+#'   with `k_inverse = h_inverse(...)` or `genotypes =` is a pedigree term and needs it
 #' @param group covariance group; the first one if omitted
-#' @param trait required in the multi-trait case: accuracy is per trait, with the
-#'   corresponding var(group@trait)
+#' @param trait required in the multi-trait case (`model_mt()`, or `model_ar1()` with
+#'   `cbind()`): accuracy is per trait, with the corresponding var(term@trait)
+#' @return a numeric vector named by level, in the order of `fit$pev[[group]]`; a group
+#'   with several scalar terms (direct-maternal, direct-indirect) returns one block of
+#'   levels per term, each scaled by its own variance.
 #' @references Henderson, C.R. (1975). Best linear unbiased estimation and prediction
 #'   under a selection model. Biometrics 31:423-447.
 #'
@@ -833,66 +1010,166 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
   if (is.null(group)) group <- names(fit$ebv)[1]
   pv <- fit$pev[[group]]
   if (is.null(pv)) stop("there is no PEV for group '", group, "'")
-  if (inherits(fit, "breeding_fit_mt")) {
+  # multicaracter pelos nomes dos componentes: o model_ar1() com cbind() tambem e
+  mt <- eh_multicaracter(fit)
+  if (mt) {
     if (is.null(trait))
       stop("in the multi-trait case the accuracy is per trait: pass trait=")
     pega <- grepl(paste0("\\|", trait, "(\\[\\d+\\])?$"), names(pv))
     if (!any(pega)) stop("there is no trait '", trait, "' in group '", group, "'")
     pv <- pv[pega]
     names(pv) <- sub(paste0("\\|", trait), "", names(pv))
-    va <- fit$theta[[paste0("var(", group, "@", trait, ")")]]
-  } else {
-    va <- unname(fit$theta[match(paste0("var(", group, ")"), names(fit$theta))])
   }
+  if (is.null(names(pv)))
+    stop("the PEV of group '", group, "' carries no level names to match the prior on")
+  # OS TERMOS DO GRUPO, cada um com a sua estrutura. Um grupo de varios termos escalares
+  # (direto-materno, direto-indireto) tem um bloco de niveis por termo, e cada bloco tem a
+  # sua variancia. Um termo com varios coeficientes (norma de reacao) segue erro declarado:
+  # la o ponto de combinacao importa.
+  termos <- termos_do_grupo(fit, group)
+  nt <- length(termos)
+  if (any(vapply(termos, function(t) nzchar(t$base), logical(1))) ||
+      any(grepl("\\[\\d+\\]$", names(pv))))
+    stop("group '", group, "' has ", length(pv), " coefficient(s) in ", nt,
+         " term(s): accuracy per combined coefficient is not defined here. ",
+         "Combine the coefficients with the base at the desired point of the gradient.")
+  # OS BLOCOS TEM DE SER O MESMO CONJUNTO DE NIVEIS, na mesma ordem. O motor monta a
+  # covariancia do grupo como C_g (x) K sobre um conjunto de niveis comum a todos os termos
+  # (o pedigree, os ids da K, ou a uniao dos rotulos num grupo iid) e o confere na montagem.
+  # Um ajuste de versao anterior pareava os niveis de um grupo iid pela posicao e nomeava a
+  # PEV inteira com os niveis do PRIMEIRO termo, repetidos: com 8 touros e 16 vacas a
+  # divisao em blocos iguais punha niveis de um termo na variancia do outro, em silencio.
+  # Esse objeto continua recusado aqui: rotulos repetidos dentro do bloco, ou blocos com
+  # rotulos diferentes, dizem que os termos nao tem os mesmos niveis.
+  n <- length(pv) %/% nt
+  niveis <- names(pv)[seq_len(n)]
+  if (n * nt != length(pv) || anyDuplicated(niveis) ||
+      !all(vapply(seq_len(nt), function(k) identical(names(pv)[(k - 1L) * n + seq_len(n)],
+                                                      niveis), logical(1))))
+    stop("the ", nt, " term(s) of group '", group, "' do not share one set of levels (",
+         length(pv), " PEV, with repeated or differing level names between the terms): ",
+         "accuracy needs the same levels, in the same order, in every term of a group. ",
+         "A fit made before this version paired the levels of an iid group by position; ",
+         "refit it")
+  # A PRIORI DE CADA NIVEL, casada pelo NOME do nivel e nunca pela posicao. Antes a priori
+  # era 1 + F do pedigree para qualquer grupo, casada por posicao: num kernel(K = D) com
+  # endogamia a acuracia dos animais com F = 0.25 saia 0.7282 onde o certo (diag D = 1) e
+  # 0.6426, e uma K do tamanho do pedigree mas em outra ordem trocaria animais em silencio.
+  # A do pedigree so e montada se algum termo do grupo a pede, e uma vez so (os blocos tem
+  # os mesmos niveis, conferido acima).
+  ped_prior <- NULL
+  out <- pv
+  for (k in seq_along(termos)) {
+    t <- termos[[k]]
+    bloco <- (k - 1L) * n + seq_len(n)
+    fonte <- fonte_priori(fit, t)
+    if (fonte == "K" && is.null(fit$k_prior[[t$nome]]))
+      stop("the fit does not carry the diagonal of the K of term '", t$nome, "', the ",
+           "prior variance of its levels: refit with this version of the package")
+    priori <- switch(fonte,
+      K = unname(fit$k_prior[[t$nome]][niveis]),
+      iid = rep(1, n),
+      pedigree = {
+        if (is.null(ped_prior)) ped_prior <- priori_pedigree(fit, pedigree, niveis)
+        unname(ped_prior[niveis])
+      })
+    if (anyNA(priori))
+      stop(sum(is.na(priori)), " level(s) of term '", t$nome, "' have no prior variance ",
+           "in the ", if (fonte == "pedigree") "pedigree given" else "declared K",
+           " (first: ", niveis[is.na(priori)][1], ")")
+    comp <- nome_comp("var", t$nome, if (mt) trait else "")
+    va <- unname(fit$theta[match(comp, names(fit$theta))])
+    if (is.na(va)) stop("no component '", comp, "' to scale the accuracy of term '",
+                        t$nome, "'")
+    arg <- 1 - pv[bloco] / (priori * va)
+    arg[arg < 0] <- 0     # rounding near zero accuracy
+    out[bloco] <- sqrt(arg)
+  }
+  out
+}
+
+# Os termos aleatorios de um grupo de covariancia, na ordem em que o motor monta os blocos.
+# Um termo sem group= e grupo de si mesmo, com o nome do termo. Sem formula legivel (ajuste
+# antigo) fica o comportamento de antes, um termo de pedigree com o nome do grupo, salvo se
+# o ajuste declarou K: ai a estrutura nao pode ser adivinhada.
+termos_do_grupo <- function(fit, group) {
+  ts <- Filter(function(t) t$estrutura != 0L &&
+                 (identical(t$group, group) || (!nzchar(t$group) && identical(t$nome, group))),
+               termos_do_ajuste(fit))
+  if (length(ts)) return(ts)
+  if (length(fit$k_prior))
+    stop("the terms of group '", group, "' could not be read from the formula of the fit, ",
+         "and a fit with a declared K needs them to choose the prior variance")
+  list(list(nome = group, estrutura = 2L, base = ""))
+}
+
+# De onde vem a priori dos niveis de um termo: a diagonal da K declarada (kernel(), ou um
+# termo de parentesco ajustado com k_inverse = nos motores em R), 1 num termo iid, ou o
+# pedigree (1 + F, e diag(G*) nos genotipados de um passo unico).
+fonte_priori <- function(fit, t) {
+  if (!is.null(fit$k_prior[[t$nome]])) return("K")
+  switch(as.character(t$estrutura), "1" = "iid", "3" = "K", "pedigree")
+}
+
+# TRUE quando accuracy() do grupo sai sem o pedigree: todos os termos com priori propria
+# (K declarada ou iid) e escalares. Um grupo que nao se deixa ler fica FALSE, e tambem um
+# kernel() de ajuste antigo, sem a diagonal da K guardada: accuracy() pede para reajusta-lo,
+# e solutions() sem pedido segue sem a coluna, como antes.
+acuracia_sem_pedigree <- function(fit, group) {
+  termos <- tryCatch(termos_do_grupo(fit, group), error = function(e) NULL)
+  length(termos) > 0 &&
+    all(vapply(termos, function(t) {
+      fonte <- fonte_priori(fit, t)
+      fonte != "pedigree" && !nzchar(t$base) &&
+        (fonte != "K" || !is.null(fit$k_prior[[t$nome]]))
+    }, logical(1)))
+}
+
+# 1 + F de cada animal do pedigree, na MESMA base do ajuste, trocado pela diagonal de G*
+# nos genotipados de um passo unico. Nomeado pelo id, para casar por nome. `niveis` sao os
+# niveis de um termo de pedigree do grupo, na ordem do motor.
+priori_pedigree <- function(fit, pedigree, niveis) {
+  if (missing(pedigree) || is.null(pedigree))
+    stop("this group has a pedigree term: pass the pedigree the fit used")
   # the SAME base the fit was built on. A fit with metafounders cites labels that have no
   # line of their own, so rebuilding the pedigree without them dies on a declared error;
   # and even if the label had a line, gamma = 0 would return F on the wrong base and
   # understate the accuracy of every descendant.
   confere_tipo_pedigree(fit, pedigree)
   p <- pedigree(pedigree, metafounders = fit$metafounders, gamma = fit$gamma)
-  # A PRIORI DE CADA ANIMAL. For a pedigree animal it is (1 + F). For a GENOTYPED animal
-  # in a single-step fit it is the diagonal of H, which in that block is the diagonal of
-  # G*, and that is a different number: measured on a simulated population of 510 animals,
-  # all genotyped, the two differ by up to 0.18 and move an individual accuracy by up to
-  # 0.067. The herd mean barely moves (0.6966 against 0.6964); what moves is the
-  # individual, and with it the ranking of genotyped animals by accuracy. The fit carries
-  # the right number when it has one, so this used to be a declared limit and is not.
-  priori <- 1 + p$F
-  if (!is.null(fit$h_prior) && length(fit$h_prior) > 0) {
-    linha <- fit$h_prior_row
-    ok <- linha >= 1 & linha <= length(priori)
-    priori[linha[ok]] <- fit$h_prior[ok]
+  # O MESMO pedigree, e nao so um que cubra os niveis. Todo animal do pedigree ganha
+  # equacao num termo de parentesco, entao o conjunto de niveis E p$id. Um pedigree com
+  # ancestrais a mais ou a menos muda o F de quem descende deles (medido: ate 0.154 na
+  # acuracia com 2 ancestrais a mais), e o casamento por nome sozinho o aceitaria calado.
+  fora <- c(setdiff(p$id, niveis), setdiff(niveis, p$id))
+  if (length(p$id) != length(niveis) || length(fora))
+    stop("the pedigree given has ", length(p$id), " animal(s) and the fit ", length(niveis),
+         " level(s) in this group", if (length(fora)) paste0(", ", length(fora),
+         " of them in only one of the two (first: ", fora[1], ")"),
+         ": pass the same pedigree the fit used")
+  priori <- stats::setNames(1 + p$F, p$id)
+  if (length(fit$h_prior)) {
+    # a priori genomica casada pelo id do genotipado. Um ajuste de versao anterior a traz
+    # sem nome, so com a linha: ela indexa o pedigree que o MOTOR montou, cuja ordem e a dos
+    # niveis de um termo de pedigree, e NAO a do pedigree remontado aqui, que depende da
+    # ordem das linhas que o usuario passou (medido: o mesmo pedigree embaralhado movia a
+    # acuracia de genotipados em ate 0.456 pela posicao)
+    geno <- names(fit$h_prior)
+    if (is.null(geno)) geno <- niveis[fit$h_prior_row]
+    if (anyNA(geno) || !all(geno %in% p$id))
+      stop("the genotyped animals of the fit are not all in the pedigree given: pass the ",
+           "same pedigree the fit used")
+    priori[geno] <- unname(fit$h_prior)
   }
-  if (length(pv) != nrow(p)) {
-    # a group with SEVERAL scalar terms (direct-maternal, direct-indirect) has one
-    # block of animals per term, and each block has its own variance: the accuracy is
-    # per term, var(<term name>) block by block. A term with several coefficients
-    # (a reaction norm) stays a declared error: there the combination point matters.
-    termos <- tryCatch(decompoe_formula(fit$formula[[3]]), error = function(e) NULL)
-    no_grupo <- if (is.null(termos)) list() else
-      Filter(function(t) identical(t$group, group) && t$estrutura != 0L, termos)
-    escalares <- length(no_grupo) > 1 &&
-      all(vapply(no_grupo, function(t) !nzchar(t$base), logical(1)))
-    if (escalares && length(pv) == length(no_grupo) * nrow(p)) {
-      out <- pv
-      for (k in seq_along(no_grupo)) {
-        vk <- unname(fit$theta[match(paste0("var(", no_grupo[[k]]$nome, ")"),
-                                     names(fit$theta))])
-        if (is.na(vk)) stop("no component 'var(", no_grupo[[k]]$nome,
-                            ")' to scale the accuracy of that term")
-        bloco <- (k - 1L) * nrow(p) + seq_len(nrow(p))
-        arg <- 1 - pv[bloco] / (priori * vk)
-        arg[arg < 0] <- 0
-        out[bloco] <- sqrt(arg)
-      }
-      return(out)
-    }
-    stop("group '", group, "' has ", length(pv), " coefficient(s) for ", nrow(p),
-         " animals: accuracy per combined coefficient is not defined here. ",
-         "Combine the coefficients with the base at the desired point of the gradient.")
-  }
-  if (is.null(va) || is.na(va)) va <- fit$theta[[1]]
-  arg <- 1 - pv / (priori * va)
-  arg[arg < 0] <- 0     # rounding near zero accuracy
-  sqrt(arg)
+  priori
+}
+
+# A priori de cada nivel de um termo kernel(): a diagonal da K declarada, nomeada pelo id
+# do nivel e guardada no ajuste pelo nome do termo, para accuracy() dividir a PEV pelo que
+# o nivel tem. Uma linha nula da K tem diagonal 0, mas esse nivel nao tem equacao nem PEV.
+priori_kernels <- function(terms, kern) {
+  if (is.null(kern)) return(NULL)
+  tem <- !vapply(kern, is.null, logical(1))
+  stats::setNames(lapply(kern[tem], function(k) stats::setNames(diag(k[[2]]), k[[1]])),
+                  vapply(terms[tem], function(t) t$nome, character(1)))
 }

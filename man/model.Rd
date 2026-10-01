@@ -28,10 +28,31 @@ model(
 class effect; \code{cov(x)} is a fixed covariate; \code{animal(id)}, \code{maternal(dam)} and
 \code{sire(sire)} are random with relationship, and \code{sire(sire, mgs = "mgs")} is the sire
 and maternal-grandsire model, 1 on the sire and 1/2 on the maternal grandsire of the
-record in the same effect (an unknown grandsire, "0", leaves the sire only); \code{pe(id)}
+record in the same effect (an unknown grandsire, "0", leaves the sire only; a
+missing value in that column is refused, see below); \code{pe(id)}
 and \code{random(lote)} are random
 without relationship. \code{group = "nome"} puts two random terms in the SAME covariance
-matrix, with the correlation estimated. \code{indirect(id, pen = "pen")} is the indirect
+matrix, with the correlation estimated. The terms of a group index one set of levels,
+and level l of one term covaries with level l of the other: the pedigree animals in a
+relationship group, the ids of K in a \code{kernel()} group, and in a group of terms
+without a relationship matrix (\code{random()}, \code{pe()}) the union of the level names of
+their columns, sorted (integer labels in numeric order, then the rest). The pairing
+is by name, so the order of the rows does not matter, and a level that appears in
+only one column is still an effect of the other term, with no record there. Their
+covariance is estimated only through the levels that have records in both columns:
+with none (sire and dam ids that never repeat between the sexes) it does not enter
+the likelihood, and every fitter that estimates components stops before fitting and
+names the two terms. At given components (\verb{start =} with \code{maxiter = 0} and
+\code{n_em = 0}, or \verb{theta_fixed =} in \code{\link[=gibbs]{gibbs()}}) the group is accepted.
+A column that gives the level of a term (a fixed class, the id of a random term,
+the maternal grandsire of \code{sire(mgs =)}, the class of a nested covariate) may not
+hold \code{NA}, \code{NaN}, \code{Inf} or \code{-Inf} on ANY row, including a row whose observation is
+missing: those rows would form one shared level. A numeric column stops the fit with
+the term, the column, the number of such rows and the first of them; a text column
+with \code{NA} stops it with the column and the first row. Drop those rows before the
+fit. A missing observation (\code{NA} in the trait, or \code{missing_code}) with its levels
+present only drops its record.
+\code{indirect(id, pen = "pen")} is the indirect
 (associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a
 record marks the animal's DISTINCT pen mates, and it shares a group with \code{animal()}
 so the direct-social covariance is estimated. Its \code{dilution = d} argument scales the
@@ -42,7 +63,13 @@ animals in the pen of record i: \code{d = 0}, the default, is the book's plain s
 sum grows with \code{n_i - 1} and the choice of \code{d} is an empirical question: fit a small
 grid (say 0, 0.5, 1) and compare \verb{-2logL}, which is comparable across \code{d} because
 only the incidence changes. A pen of size 1 keeps its zero social row under every
-\code{d}. See \code{\link[=indirect_residual]{indirect_residual()}} for the residual side of the same problem.
+\code{d}. The pen column may be text, factor or numeric (codes 10, 20, 30 group exactly
+like "10", "20", "30"), but it may not hold a missing pen: \code{NA}, \code{NaN}, \code{Inf},
+\code{-Inf}, blank text (what \code{read.csv()} gives an empty cell of a text column, spaces
+included) or the text "NaN". A record without a pen has pen mates nobody knows, so
+every fitter stops, names the column, the row count and the first row, and asks to
+drop those rows or assign them a pen. See \code{\link[=indirect_residual]{indirect_residual()}} for the residual
+side of the same problem.
 \code{kernel(id, K = D)} is a random term with a user-supplied (user-defined)
 covariance matrix, called a DECLARED covariance throughout this package: K is a symmetric positive-definite matrix whose rownames
 are the level identifiers, and every row of K gets an equation, with or without a
@@ -56,11 +83,36 @@ Pocrnic, 4th ed., p.243-244). An id absent from K altogether still excludes the
 record, as with an animal missing from the pedigree: a zero row is a declaration,
 an absence is a gap. Two kernel terms need \verb{nome=} to tell their components apart.
 The inversion of K is dense, so the declared route is for matrices of moderate
-size, the size of a genotyped set, not of a national pedigree.}
+size, the size of a genotyped set, not of a national pedigree.
+The marker arguments that take a value and not a column name, \verb{base =},
+\verb{dilution =}, \verb{K =} and the \verb{fixed =} of \code{kernel()} (which holds that term's variance
+at the value given), are evaluated in the environment of the formula, the one where
+it was written. A grid over \code{d} run as
+\code{lapply(c(0, 0.5, 1), function(d) model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "pen", group = "g", dilution = d), data, ped))} finds its \code{d}, and
+so does a formula built in one function and fitted in another. The fit keeps in
+\code{formula} the formula with the values of \verb{base =}, \verb{dilution =} and \verb{fixed =} written
+in, so \code{\link[=h2]{h2()}}, \code{\link[=t2]{t2()}} and \code{\link[=accuracy]{accuracy()}} read the value the fit was made with even
+after the variable changes or is removed. The arguments that NAME something,
+\verb{group =}, \verb{pen =}, \verb{nome =}, \verb{nested =} and \verb{mgs =}, are taken literally and never
+evaluated: \code{group = g} is the group called "g", the same as \code{group = "g"}, and not
+the value of a variable \code{g}. Because a group meant by value would silently become a
+group of its own, a term that is alone in a group whose unquoted name is a variable
+of the formula's environment holding a different text is refused, with both
+spellings in the message; write group names in quotes.}
 
 \item{data}{data.frame with the columns referenced}
 
-\item{pedigree}{data.frame animal, sire, dam; required with a relationship term}
+\item{pedigree}{data.frame animal, sire, dam; required with a relationship term. Ids
+may be numeric or text, and each column may have its own type: a numeric id is
+written as its full integer everywhere (the data, the pedigree, the genotypes, the
+matrices this package builds and the names of the results), so 100000 as a double,
+as an integer and as the text "100000" are one animal. A numeric id that is not an
+integer keeps the digits that tell it apart from every other number (1234567.5 is
+"1234567.5", and 123456.7 never meets 123457). Text that R wrote in
+scientific notation ("1e+05" is what \code{as.character()}, \code{factor()} and \verb{rownames<-}
+give for the double 100000) is a different label, and when the other side holds
+that same number the fit stops with an error rather than dropping the animal's
+records}
 
 \item{genotypes}{list with \code{ids} and \code{m} for single-step: animals x markers coded 0/1/2,
 as a double, integer or raw matrix. NA (5 in a raw matrix, the BLUPF90 code) is
@@ -149,7 +201,12 @@ that has to sum on the same base as the likelihood needs. \code{dense_block} is
 are completely full, and each factorization costs about \code{k^3 / 3} there. In a single
 step without \verb{apy_core =}, \code{k} is at least the number of genotyped animals; with it,
 at least the core size plus one. The fill of the pedigree itself can add to it, and
-in a small herd it dominates. The object holds
+in a small herd it dominates. With a \code{kernel()} term it carries \code{k_prior}, one
+vector per kernel term, named by term, holding the diagonal of the declared K by
+level: the prior variance \code{\link[=accuracy]{accuracy()}} divides the PEV by. In a single step it
+carries \code{h_prior}, the diagonal of G* of each genotyped animal, named by animal, and
+\code{h_prior_row}, the row of that animal in the pedigree the fit built: the prior
+variance \code{\link[=accuracy]{accuracy()}} uses for a genotyped animal instead of 1 + F. The object holds
 the components \code{theta} with their \code{se},
 the fixed-effect solutions \code{b} (named \code{term=level}, in the order the columns of X
 entered), \code{ebv} and \code{pev} per covariance group, \code{score}, \code{vcov}, the convergence
@@ -182,5 +239,5 @@ Misztal, I., Legarra, A. & Aguilar, I. (2014). Using recursion to compute the
 inverse of the genomic relationship matrix. Journal of Dairy Science 97:3943-3952.
 
 Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
-genetic effects and group size. Genetics 186:1013-1028.
+genetic effects and group size. Genetics 186:1029-1031.
 }

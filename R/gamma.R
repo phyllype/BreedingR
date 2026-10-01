@@ -83,7 +83,7 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
                            method = c("pseudo_em", "gls", "ml"), start = NULL, tol = 1e-8,
                            maxiter = 1000L, bounded = TRUE, verbose = interactive()) {
   method <- match.arg(method)
-  mf <- as.character(metafounders)
+  mf <- rotulo_motor(metafounders)
   q <- length(mf)
   if (!q) stop("give the metafounder labels")
   cp <- colunas_pedigree(pedigree)
@@ -123,7 +123,7 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
            "'pseudo_em'")
     classico <- pedigree
     for (k in 2:3) {
-      v <- as.character(classico[[k]]); v[v %in% mf] <- "0"; classico[[k]] <- v
+      v <- rotulo_motor(classico[[k]]); v[v %in% mf] <- "0"; classico[[k]] <- v
     }
     Bi <- a22_inverse(classico, match(g$gid, pedigree(classico)$id))
     w <- rowSums(Bi)                                   # A22^-1 1
@@ -146,7 +146,7 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
   } else if (method == "gls") {
     classico <- pedigree
     for (k in 2:3) {
-      v <- as.character(classico[[k]]); v[v %in% mf] <- "0"; classico[[k]] <- v
+      v <- rotulo_motor(classico[[k]]); v[v %in% mf] <- "0"; classico[[k]] <- v
     }
     V0 <- a22inv_vezes(a_inverse(classico), g$gid, Q2[, estimavel, drop = FALSE])
     mu <- solve(crossprod(Q2[, estimavel, drop = FALSE], V0), crossprod(V0, gn))

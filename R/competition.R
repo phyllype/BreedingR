@@ -43,8 +43,11 @@
 #' decomposition.
 #'
 #' @param wins number of outcomes competitor `competitor[k]` won in group `group[k]`
-#' @param group the contest each row belongs to (a litter, a pen, a match)
-#' @param competitor who competed
+#' @param group the contest each row belongs to (a litter, a pen, a match). A missing
+#'   group, `NA`, `NaN`, `Inf`, `-Inf`, blank text or the text "NaN", is refused with its
+#'   row: those records would otherwise form one contest together
+#' @param competitor who competed; a missing competitor is refused the same way, since
+#'   those records would otherwise be one competitor
 #' @param exposure opportunity of that competitor in that contest, a semen dose, a
 #'   number of attempts. NULL means every competitor had the same. It enters as an
 #'   offset, so the strength is ability PER UNIT of exposure
@@ -80,9 +83,20 @@ competition_strength <- function(wins, group, competitor, exposure = NULL,
   if (any(!is.finite(exposure)) || any(exposure <= 0))
     stop("exposure must be finite and positive")
   if (prior < 0) stop("prior must be non-negative")
+  # disputa ou competidor ausente e ERRO, pela regra da baia de indirect() (sem_rotulo, em
+  # R/indirect.R): o match(NA, unique(g)) abaixo fazia de todo registro sem disputa UMA
+  # disputa, e de todo competidor sem nome UM competidor, que somava as vitorias de todos
+  if (!is.null(falta <- sem_rotulo(group, "group")))
+    stop(falta, ": a record without a contest would share ONE contest with every other ",
+         "such record; drop those rows or give them their contest")
+  if (!is.null(falta <- sem_rotulo(competitor, "competitor")))
+    stop(falta, ": records without a competitor would all be ONE competitor, with the ",
+         "wins of all of them; drop those rows or name the competitor")
 
-  g <- as.character(group)
-  a <- as.character(competitor)
+  # os nomes do resultado viram o id de um fenotipo, que casa com o pedigree: o competidor
+  # 100000 sai "100000", como o motor o escreve, e nao o "1e+05" do as.character()
+  g <- rotulo_motor(group)
+  a <- rotulo_motor(competitor)
   gi <- match(g, unique(g))
   ai <- match(a, unique(a))
   nomes <- unique(a)

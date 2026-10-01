@@ -79,6 +79,12 @@ an object of class \code{breeding_fit_thr}. Ordinal mode: \code{thresholds} (wit
 (the GIVEN components plus \code{var(residual) = 1}), \code{b} and \code{se_b} (named
 \code{term=level}), \code{ebv} and \code{pev} per random term (liability scale; \code{\link[=ebv]{ebv()}} and
 \code{\link[=accuracy]{accuracy()}} work), \code{categories}, and the convergence fields of every fitter.
+With \verb{k_inverse =} it carries \code{k_prior}, the diagonal of the declared K named by
+level (read from the selective inverse of \code{K^-1}), which \code{\link[=accuracy]{accuracy()}} divides the
+PEV by in place of 1 + F; with \verb{genotypes =} or \code{k_inverse = h_inverse(...)} it
+carries \code{h_prior} and \code{h_prior_row} as in \code{\link[=model]{model()}} instead. A fit with
+\verb{k_inverse =} made before \code{k_prior} existed has neither, and \code{\link[=accuracy]{accuracy()}} then
+divides it by 1 + F of the pedigree given: refit it.
 \code{\link[=predict]{predict()}} on the fit returns the per-category probabilities, the number the
 book actually delivers (p.272-273). Joint mode: \code{b} and \code{ebv} come named
 \code{...|trait}; \code{nu} holds the corrected liability solutions, \code{b_regression} the

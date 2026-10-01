@@ -63,10 +63,11 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
-  ids <- as.character(data[[id]])
+  # o animal como o motor escreve o id dos genotipos: 100000 e "100000", nao "1e+05"
+  ids <- rotulo_motor(data[[id]])
   if (!is.null(environment)) {
     if (length(traits) != 1L) stop("with environment =, give ONE trait column")
-    env <- as.character(data[[environment]])
+    env <- rotulo_motor(data[[environment]])
     if (anyDuplicated(paste(ids, env, sep = "\r")))
       stop("an animal appears more than once in the same environment: aggregate first")
     niveis <- sort(unique(env[!is.na(env)]))
@@ -84,6 +85,9 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
     Y[em[!is.na(em)], ] <- as.matrix(data[!is.na(em), traits, drop = FALSE])
     dropped <- sum(rowSums(!is.na(as.matrix(data[is.na(em), traits, drop = FALSE]))) > 0)
   }
+  # um registro sem genotipo sai e e contado em `dropped`; o mesmo id escrito de dois jeitos
+  # nos dois lados nao e registro sem genotipo, e erro declarado
+  recusa_cientifico(ids[is.na(em)], g$gid, "the data", "the genotypes")
   k <- ncol(Y)
   tipo <- match(cov_structure, c("unstructured", "hcs", "xfa")) - 1L
   if (!estimate && is.null(start)) stop("estimate = FALSE needs start = list(Vb =, Ve =)")

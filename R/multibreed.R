@@ -67,6 +67,9 @@ partial_a <- function(ped, breed) {
     stop("'breed' must be a named vector: names are the founder ids, values the breed labels")
   fundador <- is.na(s) & is.na(d)
   falta <- setdiff(p$id[fundador], names(breed))
+  # names(breed) <- ids numericos passa pelo as.character() do R ("1e+05"), e o pedigree
+  # escreve o id como o motor ("100000"): o mesmo fundador, e erro que diz isso
+  recusa_cientifico(falta, names(breed), "the pedigree", "the names of 'breed'")
   if (length(falta))
     stop("founder(s) without a declared breed: ", paste(falta, collapse = ", "))
   sobra <- setdiff(names(breed), p$id[fundador])

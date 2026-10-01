@@ -102,7 +102,8 @@ Pedigree constroi_pedigree(const std::vector<std::string>& id0,
     // Um pai citado e ausente NAO pode virar desconhecido em silencio: isso muda a variancia
     // mendeliana do filho e o parentesco de toda a descendencia.
     if (it == pos.end())
-      throw Erro("parent '" + s + "' is cited and has no line of its own in the pedigree");
+      throw Erro("parent '" + s + "' is cited and has no line of its own in the pedigree" +
+                 dica_cientifica(s, id));
     return static_cast<std::int64_t>(it->second);
   };
   // o mapa guarda a COLUNA de Gamma, nao o valor: com Gamma cheia e a coluna que importa

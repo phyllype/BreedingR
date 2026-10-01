@@ -25,33 +25,95 @@ eh_norma_reacao <- function(theta) any(grepl("\\[\\d+\\]", names(theta)))
 #'
 #' @param fit result of `model()`, `model_mt()`, `model_ar1()`, `model_threshold()`,
 #'   `model_survival()` or `snp_blup()`
-#' @param pedigree the SAME pedigree the fit was built on. Optional: without it the
-#'   accuracy column is absent, because accuracy needs the inbreeding of each animal.
-#'   A [snp_blup()] fit has no PEV (it solves by conjugate gradients) and takes no
-#'   `pedigree`; for [model_survival()] the accuracy is on the log-hazard scale, from
-#'   the Laplace PEV of the frailty
+#' @param pedigree the SAME pedigree the fit was built on. Needed for the accuracy of a
+#'   group with a pedigree term (animal(), sire(), maternal(), indirect(), a single step),
+#'   whose prior variance is 1 + F of each animal: without it that group gets no
+#'   accuracy column. A group of `kernel()` terms, of iid terms, or of a term fitted with
+#'   a declared `k_inverse =` carries its own prior variance and gets the column without
+#'   it (see [accuracy()]), in a multi-trait fit only when `trait =` is given, because the
+#'   accuracy is per trait. A [snp_blup()] fit has no PEV (it solves by conjugate
+#'   gradients) and takes no `pedigree`; for [model_survival()] the accuracy is on the
+#'   log-hazard scale, from the Laplace PEV of the frailty
 #' @param group covariance group; the first one by default
-#' @param trait for a multi-trait fit, which trait
+#' @param trait for a multi-trait fit (`model_mt()`, or `model_ar1()` with `cbind()`),
+#'   which trait. Without it the table lists every trait, with ids written "level|trait",
+#'   and has no `acc` column; given a `pedigree` but no `trait =`, the call stops and
+#'   asks for one, as [accuracy()] does
 #' @return a data.frame with one row per level of the group: `id`, `ebv`, `se` (the square
-#'   root of the PEV, absent when the fitter does not produce PEV) and, when `pedigree` is
-#'   given, `acc`. Sorted by `ebv`, descending, which is the order the table is read in.
+#'   root of the PEV, absent when the fitter does not produce PEV) and `acc`, when
+#'   `pedigree` is given or the group needs none (see `pedigree` and `trait`). Sorted by
+#'   `ebv`, descending, which is the order the table is read in. A group with more than
+#'   one effect per level (direct and maternal, direct and indirect, two correlated iid
+#'   terms, the coefficients of a reaction norm) lists each level once per effect, and a
+#'   `term` column after `id` says which effect the row belongs to, named as in the
+#'   components (`animal`, `maternal`, `rn[0]`, `rn[1]`); `se` and `acc` are the ones of
+#'   that effect. A group with one effect per level has no `term` column.
 #' @seealso [ebv()] and [accuracy()] for the pieces, [h2()] for the ratio
 #' @export
 solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
   e <- ebv(fit, group = group, trait = trait)
-  out <- data.frame(id = names(e), ebv = unname(e),
-                    row.names = NULL, stringsAsFactors = FALSE)
   g <- if (is.null(group)) names(fit$ebv)[1] else group
+  # O EFEITO DE CADA LINHA. Num grupo de varios termos (direto-materno, direto-indireto, dois
+  # termos iid) ou de varios coeficientes (norma de reacao) o mesmo id aparece uma vez por
+  # efeito, e o se e a acc eram casados so pelo id: todas as linhas do id recebiam os do
+  # PRIMEIRO bloco (medido em c8e7f00: no direto-materno do exemplo 8.1 de Mrode e Pocrnic o
+  # materno do animal 5 saia com o se do direto, 11.71 contra 9.16, e o rn[1] de a01 com o
+  # de rn[0], 0.496 contra 0.264; com o grupo iid ja pareado pelo nome, a vaca m01 de um
+  # grupo touro + vaca saia com sqrt(PEV) 0.519, a do bloco de touro, onde a dela e 0.275).
+  # Agora a coluna `term` diz o efeito, e se e acc vem do mesmo (termo, id).
+  ef <- efeito_por_linha(fit, g, length(e), trait)
+  out <- data.frame(id = names(e), ebv = unname(e), row.names = NULL, stringsAsFactors = FALSE)
+  if (!is.null(ef)) out <- data.frame(id = out$id, term = ef, ebv = out$ebv, row.names = NULL,
+                                      stringsAsFactors = FALSE)
+  # o vetor v (PEV ou acuracia) na ordem das linhas de `out`, pelo par (termo, id): o motor
+  # escreve EBV e PEV na mesma disposicao, entao o termo de cada posicao de v e o mesmo `ef`
+  casa <- function(v) {
+    chave_v <- paste(if (is.null(ef)) "" else ef, names(v), sep = "\r")
+    chave_e <- paste(if (is.null(ef)) "" else ef, names(e), sep = "\r")
+    if (length(v) != length(e) || anyDuplicated(chave_e)) {
+      if (identical(names(v), names(e))) return(unname(v))
+      stop("the levels of group '", g, "' repeat with no term to tell them apart: ",
+           "se and acc cannot be matched to the breeding values")
+    }
+    unname(v[match(chave_e, chave_v)])
+  }
   pv <- fit$pev[[g]]
   if (!is.null(pv) && length(pv)) {
     pv <- pega_traco(pv, trait)
-    out$se <- sqrt(unname(pv[out$id]))
+    out$se <- sqrt(casa(pv))
   }
-  if (!is.null(pedigree)) {
-    a <- accuracy(fit, pedigree, group = group, trait = trait)
-    out$acc <- unname(a[out$id])
-  }
+  # A ACURACIA SEM PEDIDO so entra quando accuracy() esta definida com o que se tem: um grupo
+  # de kernel(), iid ou k_inverse = declarado (a priori de cada nivel vem do proprio ajuste)
+  # e, num ajuste multicaracter, um caracter escolhido, porque a acuracia e por caracter.
+  # Sem essa ultima condicao o model_mt() sem trait= e o model_ar1() de dois caracteres
+  # morriam aqui, onde antes devolviam id, ebv e se. Com o pedigree dado a acuracia foi
+  # pedida, e o erro de accuracy() sobe como sempre subiu.
+  if (!is.null(pedigree) ||
+      (length(pv) && (!eh_multicaracter(fit) || !is.null(trait)) &&
+       acuracia_sem_pedigree(fit, g)))
+    out$acc <- casa(accuracy(fit, pedigree, group = group, trait = trait))
   out[order(out$ebv, decreasing = TRUE), , drop = FALSE]
+}
+
+# O efeito de cada posicao do vetor de EBV de um grupo, com o nome do componente: o termo
+# ("animal", "maternal") ou, com varios coeficientes, o termo e o coeficiente ("rn[0]"). A
+# disposicao e a do motor: termo, depois caracteristica (no multicaracter sem trait=), depois
+# coeficiente, com o nivel variando mais rapido. NULL quando o grupo tem um efeito so por
+# nivel, ou quando a disposicao nao fecha com o comprimento (um ajuste que nao se deixa ler).
+efeito_por_linha <- function(fit, g, n_total, trait) {
+  termos <- tryCatch(termos_do_grupo(fit, g), error = function(e) NULL)
+  if (!length(termos)) return(NULL)
+  ncoef <- vapply(termos, function(t)
+    if (nzchar(t$base)) length(strsplit(t$base, ",", fixed = TRUE)[[1]]) else 1L, integer(1))
+  if (sum(ncoef) < 2L) return(NULL)
+  ntr <- if (is.null(trait)) max(1L, length(tracos_do_theta(fit$theta))) else 1L
+  n <- n_total / (ntr * sum(ncoef))
+  if (n < 1 || n != floor(n)) return(NULL)
+  unlist(lapply(seq_along(termos), function(k) {
+    rot <- if (ncoef[k] == 1L) termos[[k]]$nome else
+      paste0(termos[[k]]$nome, "[", seq_len(ncoef[k]) - 1L, "]")
+    rep(rep(rot, each = n), times = ntr)
+  }))
 }
 
 #' Heritability from the estimated components
@@ -101,7 +163,7 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
 #'   quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
 #'
 #'   Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
-#'   genetic effects and group size. Genetics 186:1013-1028.
+#'   genetic effects and group size. Genetics 186:1029-1031.
 #' @seealso [h2_curve()] for a reaction norm, [rg()] for the genetic correlation, [t2()]
 #'   for the indirect-effect model
 #' @export
@@ -179,7 +241,7 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0) {
 #'   quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
 #'
 #'   Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
-#'   genetic effects and group size. Genetics 186:1013-1028.
+#'   genetic effects and group size. Genetics 186:1029-1031.
 #'
 #'   Leite, N.G. et al. (2023). Genetics Selection Evolution 55:47.
 #' @seealso [h2()], [se_function()]
@@ -217,7 +279,8 @@ t2 <- function(fit, n, r = 0, trait = NULL) {
 # Os termos da formula do ajuste, ou lista vazia se ela nao estiver guardada
 termos_do_ajuste <- function(fit) {
   if (is.null(fit$formula)) return(list())
-  tryCatch(decompoe_formula(fit$formula[[3]]), error = function(e) list())
+  tryCatch(decompoe_formula(fit$formula[[3]], environment(fit$formula)),
+           error = function(e) list())
 }
 
 # O par direto-indireto do ajuste: nomes dos dois termos e a diluicao do indireto. O direto
@@ -250,6 +313,12 @@ tracos_do_theta <- function(th) {
   m <- regmatches(names(th), gregexpr("@[^,)]+", names(th)))
   unique(sub("^@", "", unlist(m)))
 }
+
+# Ajuste multicaracter: pelo "@" dos nomes dos componentes, como em h2(), e nao so pela
+# classe. O model_ar1() com cbind() e da classe AR(1), e accuracy() olhava so a classe:
+# procurava var(random) onde o componente e var(random@y) e morria.
+eh_multicaracter <- function(fit)
+  inherits(fit, "breeding_fit_mt") || any(grepl("@", names(fit$theta), fixed = TRUE))
 
 # os componentes (var e cov, nada de rho) que pertencem so ao traco t
 componentes_do_traco <- function(th, t) {

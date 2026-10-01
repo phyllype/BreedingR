@@ -90,7 +90,12 @@ term (log-frailty scale; \code{\link[=ebv]{ebv()}} works, and \code{exp(ebv())} 
 book's table), \code{n_censored}, \code{loglik_joint} (the penalized joint log-likelihood
 at the mode), \code{marginal_loglik} (the Laplace value, when computed), the
 convergence fields of every fitter, and \code{\link[=predict]{predict()}} for relative risks and
-survival probabilities \code{S(t)} -- the book's p.292 numbers.
+survival probabilities \code{S(t)} -- the book's p.292 numbers. With \verb{k_inverse =} it
+carries \code{k_prior}, the diagonal of the declared K named by level, which
+\code{\link[=accuracy]{accuracy()}} divides the PEV by in place of 1 + F; with \verb{genotypes =} or
+\code{k_inverse = h_inverse(...)} it carries \code{h_prior} and \code{h_prior_row} as in \code{\link[=model]{model()}}
+instead. A fit with \verb{k_inverse =} made before \code{k_prior} existed has neither, and
+\code{\link[=accuracy]{accuracy()}} then divides it by 1 + F of the pedigree given: refit it.
 }
 \description{
 The trait is the time until failure (length of productive life, days to culling)

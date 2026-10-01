@@ -84,6 +84,9 @@ test_that("limiar e sobrevivencia com genotypes =, e accuracy() pela diag(G*)", 
   expect_equal(f$ebv, f0$ebv, tolerance = 1e-12)
   expect_match(f$message, "single-step: 50 genotyped")
   a1 <- accuracy(f, z$ped)
+  # a MESMA H^-1 entrando por k_inverse = h_inverse(): a mesma convencao da rota
+  # genotypes = (1 + F e diag(G*)), e nao a diagonal de H, que difere nos nao genotipados
+  expect_equal(accuracy(f0, z$ped), a1, tolerance = 1e-12)
   f$h_prior <- NULL
   a0 <- accuracy(f, z$ped)
   expect_false(isTRUE(all.equal(a1[z$gids], a0[z$gids])))

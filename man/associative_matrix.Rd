@@ -7,10 +7,13 @@
 associative_matrix(pen, id, labels = NULL, dilution = 0)
 }
 \arguments{
-\item{pen}{pen (group) label of each record}
+\item{pen}{pen (group) label of each record. A missing pen, \code{NA}, \code{NaN}, \code{Inf}, \code{-Inf},
+blank text or the text "NaN", is refused with its row, as in every fitter that takes
+\code{indirect()}}
 
 \item{id}{animal of each record, used to count DISTINCT animals per pen, which is the
-\code{n} of the model and the same count the \code{indirect()} incidence uses}
+\code{n} of the model and the same count the \code{indirect()} incidence uses; a missing id
+is refused the same way}
 
 \item{labels}{row and column names for the returned matrix, one per record; defaults to
 the record position. These are the levels the \code{\link[=kernel]{kernel()}} term will match on, so they
@@ -69,5 +72,5 @@ Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
 
 Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
-genetic effects and group size. Genetics 186:1013-1028.
+genetic effects and group size. Genetics 186:1029-1031.
 }
