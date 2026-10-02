@@ -16,69 +16,108 @@ model_threshold(
   tol = 1e-08,
   verbose = interactive(),
   estimate = FALSE,
-  maxiter_em = 200L,
-  tol_em = 1e-06,
+  maxiter_em = NULL,
+  tol_em = NULL,
   genotypes = NULL,
   blend = 0.05,
   apy_core = NULL,
-  vecchia_k = NULL
+  vecchia_k = NULL,
+  max_evals = 500L,
+  tol_estimate = 1e-06,
+  profile = TRUE
 )
 }
 \arguments{
 \item{formula}{as in \code{\link[=model]{model()}}: fixed class effects, \code{cov()} covariates, and random
-terms among \code{animal()}, \code{sire()} and \code{random()}. \code{rn()}, \code{indirect()} and
-\verb{group=} are not available here. \code{cbind(quant, bin)} on the left-hand side
-switches to the joint analysis.}
+terms among \code{animal()}, \code{sire()}, \code{random()} and \code{indirect()}, with \verb{group =} to
+put several terms in one covariance matrix (direct and indirect, typically). The
+terms of a group share one set of levels: the relationship levels for
+\code{animal()}/\code{sire()}/\code{indirect()}, the union of the column labels for \code{random()}.
+\code{rn()}, \code{kernel()}, \verb{nested =} and \code{sire(mgs =)} are not available here.
+\code{cbind(quant, bin)} on the left-hand side switches to the joint analysis, which
+takes one relationship term and neither \code{indirect()} nor \verb{group =}.}
 
 \item{data}{data.frame with the columns referenced. The categorical trait can be
 integer codes, character or factor; categories are ordered by factor level order,
 or by sort order otherwise. In the joint mode the second trait must have exactly
 two values (the larger one is the "difficulty").}
 
-\item{pedigree}{data.frame animal, sire, dam; required with \code{animal()} or \code{sire()}
-unless \code{k_inverse} is given}
+\item{pedigree}{data.frame animal, sire, dam; required with \code{animal()}, \code{sire()} or
+\code{indirect()} unless \code{k_inverse} is given}
 
-\item{start}{MANDATORY. Ordinal mode: one variance per random term, in formula
-order, on the liability scale (the residual is fixed at 1 and is not in \code{start}).
-Joint mode: \verb{list(G = 2x2 genetic matrix, R = 2x2 residual matrix)}.}
+\item{start}{MANDATORY. Ordinal mode: the components on the liability scale (the
+residual is fixed at 1 and is not in \code{start}), in the order of \code{\link[=model]{model()}}: the
+covariance groups declared with \verb{group =} in order of first appearance, then each
+term without a group in formula order, and inside a group the lower triangle by
+columns, as \code{fit$theta} names them (\code{var(animal)}, \code{cov(indirect,animal)},
+\code{var(indirect)}). Without groups that is one variance per random term in formula
+order. Joint mode: \verb{list(G = 2x2 genetic matrix, R = 2x2 residual matrix)}.}
 
-\item{k_inverse}{the inverse of the relationship matrix for the relationship term,
-replacing the \code{A^-1} built from \code{pedigree}: either triplets
-\code{list(i, j, x, n, id)} as \code{\link[=a_inverse]{a_inverse()}} returns, or a dense symmetric matrix with
-the ids as \code{dimnames}. This is the door for a relationship the pedigree path
-cannot build -- the book's sire / maternal-grandsire matrix of Example 15.2
-(p.278) enters here.}
+\item{k_inverse}{the inverse of the relationship matrix for the relationship terms,
+replacing the \code{A^-1} built from \code{pedigree} (every relationship term uses it, so the
+terms of a group share it): either triplets \code{list(i, j, x, n, id)} as \code{\link[=a_inverse]{a_inverse()}}
+returns, or a dense symmetric matrix with the ids as \code{dimnames}. This is the door
+for a relationship the pedigree path cannot build -- the book's sire / maternal-
+grandsire matrix of Example 15.2 (p.278) enters here.}
 
 \item{missing_code}{missing-value code for the trait(s); records missing the trait
-(or either trait, in the joint mode) are dropped and counted}
+(or either trait, in the joint mode) are dropped and counted. A record dropped for
+a missing trait still counts as a pen mate of \code{indirect()}.}
 
 \item{thresholds_start}{starting values for the m - 1 thresholds; by default the
 normal quantiles of the cumulative category proportions, as the book does (p.267)}
 
-\item{maxiter}{maximum number of Fisher scoring iterations}
+\item{maxiter}{maximum number of Fisher scoring iterations. With \code{estimate = TRUE} it
+bounds each evaluation of the -2logL, and an evaluation that does not converge
+within it counts as an inadmissible point (the message counts them)}
 
 \item{tol}{RELATIVE tolerance on the full solution vector,
 \code{sqrt(sum(delta^2) / sum(sol^2))}, same convention as the other fitters}
 
 \item{verbose}{print one line per scoring iteration with the relative step (the
-convergence criterion itself)}
+convergence criterion itself), and with \code{estimate = TRUE} one line per evaluation
+of the Laplace -2logL instead}
 
-\item{estimate}{ordinal mode only: estimate the variances by Laplace + EM, with
-\code{start} as the starting point, instead of taking them as given}
+\item{estimate}{ordinal mode only: estimate the components as the minimum of the
+Laplace -2logL, with \code{start} as the starting point, instead of taking them as given}
 
-\item{maxiter_em}{maximum number of EM steps when \code{estimate = TRUE}}
-
-\item{tol_em}{RELATIVE tolerance on the variances between two EM steps}
+\item{maxiter_em, tol_em}{no longer used: they controlled the EM step that the minimum
+of the Laplace -2logL replaced. Passing either (by name or in their old positions)
+gives a warning; use \code{max_evals} and \code{tol_estimate}}
 
 \item{genotypes, blend, apy_core, vecchia_k}{single step, as in \code{\link[=model]{model()}}: the
-relationship term gets the \code{H^-1} of \code{\link[=h_inverse]{h_inverse()}} instead of \code{A^-1}}
+relationship terms get the \code{H^-1} of \code{\link[=h_inverse]{h_inverse()}} instead of \code{A^-1}}
+
+\item{max_evals}{with \code{estimate = TRUE} and more than one component, the maximum
+number of Nelder-Mead evaluations of the Laplace -2logL, and again at each point of
+a correlation profile. It does not bound the Newton polish (up to 10 steps of
+2k^2 + 1 evaluations for k components), the boundary check (one per variance), the
+standard errors (2k^2 + 1) or the number of profile points; \code{n_evals} reports the
+total. Refused with a single component, which \code{\link[stats:optimize]{stats::optimize()}} finds without
+such a bound}
+
+\item{tol_estimate}{with \code{estimate = TRUE}, the tolerance of the estimation: the
+interval width of \code{\link[stats:optimize]{stats::optimize()}} on the log of the variance for one component,
+and the largest Newton step (log variances and atanh correlations) that still moves
+the estimate for several}
+
+\item{profile}{with \code{estimate = TRUE}: \code{TRUE} (default) profiles a correlation near
++-1, \code{FALSE} skips the profile (each profile point re-optimizes every other
+component, which can cost more than the estimate) and only withholds its standard
+error. Refused when the model estimates no correlation}
 }
 \value{
 an object of class \code{breeding_fit_thr}. Ordinal mode: \code{thresholds} (with
 \code{se_thresholds} from the generalized inverse, the book's p.271 column), \code{theta}
-(the GIVEN components plus \code{var(residual) = 1}), \code{b} and \code{se_b} (named
-\code{term=level}), \code{ebv} and \code{pev} per random term (liability scale; \code{\link[=ebv]{ebv()}} and
-\code{\link[=accuracy]{accuracy()}} work), \code{categories}, and the convergence fields of every fitter.
+(the components plus \code{var(residual) = 1}), \code{se}, \code{b} and \code{se_b} (named
+\code{term=level}), \code{ebv} and \code{pev} per covariance group as in \code{\link[=model]{model()}} (one vector per
+group, the blocks of its terms in sequence, each named by level; liability scale;
+\code{\link[=ebv]{ebv()}} and \code{\link[=accuracy]{accuracy()}} work), \code{categories}, and the convergence fields of every
+fitter. With \code{estimate = TRUE} also \code{n_evals}, the evaluations of the -2logL,
+\code{vcov}, the delta-method covariance of \code{theta} (zero for the fixed residual, NA for a
+component without a standard error; absent when no component has one), and
+\code{profile}, the correlation profiles when one
+was run.
 With \verb{k_inverse =} it carries \code{k_prior}, the diagonal of the declared K named by
 level (read from the selective inverse of \code{K^-1}), which \code{\link[=accuracy]{accuracy()}} divides the
 PEV by in place of 1 + F; with \verb{genotypes =} or \code{k_inverse = h_inverse(...)} it
@@ -114,20 +153,73 @@ CONTRASTS, or pass the column as a factor with the reference level first.
 }
 
 THE COMPONENTS ARE GIVEN BY DEFAULT, as the book uses the model (both examples of
-chapter 15 fix them): \verb{start=} is one variance per random term, on the liability
-scale. With \code{estimate = TRUE} (ordinal mode) \code{start} is the starting point and the
-components are ESTIMATED by approximate marginal maximum likelihood: the locations
-(thresholds, fixed and random effects) are integrated by the Laplace approximation
-around the mode, and the variances are updated by the EM-type step of Foulley, Im,
-Gianola and Hoeschele (1987), \verb{s2 = (u' K^-1 u + tr(K^-1 C^uu)) / q}, with \code{C^uu} the
-block of the inverse of the scoring system at the mode. \code{neg2logl} is the Laplace
--2 log likelihood (in both modes of \code{estimate}), comparable between fits of the same
-data and fixed effects; the standard errors come from its numerical Hessian in the
-log of the variances. Read the estimate knowing its known bias: with a binary trait
-and few records per level of the random effect the Laplace approximation
-UNDERESTIMATES the variance (Tempelman 1998); many daughters per sire is where it is
-reliable, and Gibbs sampling with data augmentation (THRGIBBS1F90) is the unbiased
-alternative.
+chapter 15 fix them): \verb{start=} holds the components on the liability scale. With
+\code{estimate = TRUE} (ordinal mode) \code{start} is the starting point and the components are
+ESTIMATED by approximate marginal maximum likelihood: the locations (thresholds,
+fixed and random effects) are integrated by the Laplace approximation around the
+mode, and the estimate is the MINIMUM of that Laplace -2 log likelihood, the very
+number the fit reports in \code{neg2logl}: \code{\link[stats:optimize]{stats::optimize()}} in the log of the variance
+when there is one component, Nelder-Mead followed by Newton steps on a numerical
+Hessian (in log variances and the inverse hyperbolic tangent of the correlations)
+when there are several. Earlier versions iterated the EM-type step of Foulley, Im,
+Gianola and Hoeschele (1987) instead and reported the -2logL at its fixed point. That
+point is NOT the minimum (the step ignores how the weights W move with the variance),
+so the reported value was not a maximized likelihood, a likelihood-ratio test compared
+values that were not maxima, and the standard error was read off the curvature away
+from the optimum; \verb{validation/indirect_threshold_survival_recovery.R em_antigo} measures
+the gap against the code of that version.
+\code{neg2logl} is comparable between fits of the same data and fixed effects; the standard
+errors come from its numerical Hessian (Var = 2 H^-1, delta method to the components),
+and \code{vcov} carries that covariance for \code{\link[=se_function]{se_function()}} and \code{\link[=t2]{t2()}}. A correlation
+between two terms of a group at or near +-1 is PROFILED instead (every other component
+re-optimized on a grid of r): its delta-method standard error means nothing at the
+boundary and is withheld, and the message gives the profile-likelihood 95\% interval,
+with the profile in \code{profile} (\code{profile = FALSE} skips the profile and still withholds
+the standard error). A variance the data do not tell apart from zero (moved to 1e-6
+with the rest fixed, the -2logL rises by less than 0.01) is held at its estimate with
+the correlations it links, as ASReml holds a boundary component, and has no standard
+error; the others come from the curvature in the free components. Where that
+curvature is singular or nearly so (a combination of the components the data do not
+identify), only the standard errors that depend on the combination are withheld, and
+the message names them. An
+\code{indirect()} term whose pens all hold a single animal has no incidence, and its
+estimation is refused.
+Read the estimate knowing its known bias: with a binary trait and few records per
+level of the random effect the Laplace approximation UNDERESTIMATES the variance
+(Tempelman 1998); many daughters per sire is where it is reliable. Gibbs sampling with
+data augmentation (\code{\link[=gibbs]{gibbs()}} with \code{family = "probit"} for a binary trait, or
+THRGIBBS1F90) does not use the approximation; with \code{indirect()} its recovery of the
+components is not validated in this package.
+
+INDIRECT GENETIC EFFECTS. \code{indirect(id, pen = "pen", dilution = d)} enters the
+liability exactly as it enters the phenotype in \code{\link[=model]{model()}}: record i receives
+\verb{(n_i - 1)^(-d) sum_j a_S,j} over its distinct pen mates j, with \code{n_i} the number of
+distinct animals of its pen counted over EVERY row of \code{data} (a mate without a
+phenotype is still a mate). Declared in one \verb{group =} with \code{animal()}, the direct
+and indirect values share the 2x2 matrix \code{G0} and the penalty \code{kron(G0^-1, A^-1)}.
+The pen column follows the engine's labelling (a numeric pen 10 and a text pen "10"
+are the same pen), and a pen that is NA, NaN, Inf, blank text or the text "NaN" is
+refused with its row: such rows have no known mates. Add \code{random(pen)} for the
+environmental part shared by pen mates; leaving it out inflates the indirect
+variance, which then absorbs it. \code{\link[=t2]{t2()}} gives T2 and the direct heritability on the
+liability scale, with the residual 1 in the denominator.
+DECLARED LIMIT: the probit fixes the residual of every record at 1, and with an
+environmental effect of the mates (variance s2_ES) the residual of a record in a pen
+of n animals is \verb{s2_ED + (n - 1)^(1 - 2d) s2_ES}, of which
+\verb{(n - 1)^(-2d) (n - 2) s2_ES} is shared with each mate (taking the direct and social
+environmental deviations of one animal as uncorrelated; with a covariance between
+them the shared part can be negative, and no \code{random(pen)} variance represents it).
+One scale for every record is exact only when all pens have the same size (the
+shared part is then \code{random(pen)}); with pens of unequal size the latent scale
+changes with the pen size, which needs a heteroscedastic probit that this fitter does
+not have, and the residual 1 that \code{\link[=t2]{t2()}} divides by is then a convention, not the
+variance of every record.
+MEASURED BIAS, at prototype scale only (2329 records, one per animal, three
+categories, 8 replicates; \code{validation/indirect_threshold_survival_recovery.R}): the
+direct variance estimated with \code{indirect()} ran 0.031 (SE 0.007) below the direct-only
+fit of the same direct values without an indirect effect, where REML on the same
+liability observed gives 0.007 (SE 0.008). The extra is consistent with the Laplace
+approximation (it shrank with ten categories) but has not been isolated from it.
 
 JOINT QUANTITATIVE + BINARY ANALYSIS (Foulley et al. 1983; section 15.3 of the
 book). With \code{cbind(quant, bin)} on the left-hand side the fit is the joint one: a
@@ -179,4 +271,6 @@ estimation of parameters for n polygenic binary traits. Genet. Sel. Evol. 19,
 197-224.
 Tempelman, R.J. (1998) Generalized linear mixed models in dairy cattle breeding.
 J. Dairy Sci. 81, 1428-1444.
+Bijma, P. (2010) Multilevel selection 4: modeling the relationship of indirect
+genetic effects and group size. Genetics 186, 1029-1031.
 }

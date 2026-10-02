@@ -16,9 +16,10 @@
 \arguments{
 \item{object}{result of \code{\link[=model_survival]{model_survival()}}}
 
-\item{newdata}{data.frame with the fixed and random columns of the formula. The
-random column may hold any animal of the pedigree (a sire without a record
-included) -- that is how the book computes the percentage of live daughters.}
+\item{newdata}{data.frame with the fixed and random columns of the formula and the pen
+column of every \code{indirect()} term. The random column may hold any animal of the
+pedigree (a sire without a record included) -- that is how the book computes the
+percentage of live daughters.}
 
 \item{time}{survival mode only: the time (one number, or one per row of \code{newdata})
 at which to evaluate \code{S(t)}}
@@ -44,7 +45,12 @@ is assembled exactly as in the fit. \code{type = "risk"} returns \code{exp(d)} W
 intercept -- the relative risk against the baseline, the RRS of the book's tables
 (p.291): above 1 is more risk of failure. \code{type = "survival"} returns
 \verb{S(t) = exp(-(lambda t)^rho * exp(d))} (Eqn 16.4), the probability of still being
-alive at \code{time} -- the book's p.292 numbers -- using the full predictor, intercept
-included. A reference level contributes zero; a level absent from the fit's data is
-an error, not a silent zero.
+alive at \code{time} -- the book's p.292 numbers -- with the \code{lambda} of the fit, given or
+estimated, so the intercept \code{rho * log(lambda)} is included (earlier versions left
+an ESTIMATED lambda out of \code{S(t)}). A reference level contributes zero; a level absent
+from the fit's data is an error, not a silent zero. An \code{indirect()} term contributes
+\verb{(n - 1)^(-d) sum_j a_S,j} over the pen mates of the row IN \code{newdata}: the pen column
+must be there (otherwise the prediction is refused), and the mates are the distinct
+animals of that pen among the rows of \code{newdata}, counted with the static rule
+(\code{mates = "all"}) whatever the fit used.
 }

@@ -171,17 +171,31 @@ test_that("the survival interface refuses what it cannot mean", {
   d3 <- d; d3$lpl[1] <- 0
   expect_error(model_survival(lpl ~ herd + animal(cow), d3, ped_16_1, censor = "code",
                               verbose = FALSE), "strictly positive")
-  # exactly one frailty term
-  expect_error(model_survival(lpl ~ herd + animal(cow) + random(ysp), d, ped_16_1,
-                              censor = "code", verbose = FALSE), "exactly ONE random term")
+  # at least one frailty term; several are taken, with their components in sigma2= in
+  # the order of model() (estimating two components on 12 cows is not the point here)
   expect_error(model_survival(lpl ~ herd + ysp, d, ped_16_1, censor = "code",
-                              verbose = FALSE), "exactly ONE random term")
+                              verbose = FALSE), "at least one random term")
+  f2 <- model_survival(lpl ~ herd + animal(cow) + random(ysp), d, ped_16_1,
+                       censor = "code", rho = 1, lambda = 1, sigma2 = c(0.4, 0.1),
+                       verbose = FALSE)
+  expect_identical(names(f2$theta), c("var(animal)", "var(random)"))
+  expect_identical(names(f2$ebv), c("animal", "random"))
+  expect_error(model_survival(lpl ~ herd + animal(cow) + random(ysp), d, ped_16_1,
+                              censor = "code", sigma2 = 0.4, verbose = FALSE),
+               "the 2 component\\(s\\) var\\(animal\\), var\\(random\\)")
   # no multi-trait mode
   expect_error(model_survival(cbind(lpl, lpl) ~ herd + animal(cow), d, ped_16_1,
                               censor = "code", verbose = FALSE), "ONE time trait")
-  # markers outside the survival model are refused by name
-  expect_error(model_survival(lpl ~ herd + indirect(cow, pen = "herd"), d, ped_16_1,
-                              censor = "code", verbose = FALSE), "indirect\\(\\)")
+  # markers and arguments outside the survival model are refused by name: nested= and
+  # sire(mgs =) used to be ignored here without a word
+  expect_error(model_survival(lpl ~ herd + rn(cow, base = "lpl"), d, ped_16_1,
+                              censor = "code", verbose = FALSE), "rn\\(\\) is not available")
+  expect_error(model_survival(lpl ~ herd + random(cow, nested = "herd"), d, ped_16_1,
+                              censor = "code", verbose = FALSE), "nested= is not available")
+  d5 <- d; d5$mgs <- "0"
+  expect_error(model_survival(lpl ~ herd + sire(cow, mgs = "mgs"), d5, ped_16_1,
+                              censor = "code", verbose = FALSE),
+               "sire\\(mgs =\\) is not available")
   # a missing record is dropped and counted, missing is not censored
   d4 <- d; d4$lpl[2] <- NA
   fit <- model_survival(lpl ~ herd + ysp + animal(cow), d4, ped_16_1, censor = "code",

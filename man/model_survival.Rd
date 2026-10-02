@@ -22,21 +22,28 @@ model_survival(
   genotypes = NULL,
   blend = 0.05,
   apy_core = NULL,
-  vecchia_k = NULL
+  vecchia_k = NULL,
+  mates = c("all", "present"),
+  start = NULL,
+  max_evals = 500L,
+  tol_estimate = 1e-06,
+  profile = TRUE
 )
 }
 \arguments{
-\item{formula}{fixed class effects, \code{cov()} covariates, and exactly ONE random term
-among \code{animal()}, \code{sire()} and \code{random()} -- the frailty. \code{rn()}, \code{indirect()},
-\code{pe()}, \code{kernel()} and \verb{group=} are not available here (\verb{k_inverse=} is the door
-for a relationship matrix the pedigree cannot build). The left-hand side is the
-time column, strictly positive.}
+\item{formula}{fixed class effects, \code{cov()} covariates, and one or more random terms
+among \code{animal()}, \code{sire()}, \code{random()} and \code{indirect()} -- the frailties -- with
+\verb{group =} to put several in one covariance matrix. \code{rn()}, \code{kernel()}, \verb{nested =}
+and \code{sire(mgs =)} are not available here (\verb{k_inverse=} is the door for a
+relationship matrix the pedigree cannot build). The left-hand side is the time
+column, strictly positive.}
 
 \item{data}{data.frame with the columns referenced. Records with a missing time or
-a missing censoring indicator are dropped and counted.}
+a missing censoring indicator are dropped and counted; they still count as pen
+mates of \code{indirect()}.}
 
-\item{pedigree}{data.frame animal, sire, dam; required with \code{animal()} or \code{sire()}
-unless \code{k_inverse} is given}
+\item{pedigree}{data.frame animal, sire, dam; required with \code{animal()}, \code{sire()} or
+\code{indirect()} unless \code{k_inverse} is given}
 
 \item{censor}{MANDATORY: the censoring indicator, as a column name or a vector --
 1 (or TRUE) for a complete record, 0 (or FALSE) for a right-censored one. If no
@@ -52,50 +59,82 @@ intercept; a positive number fixes the baseline and drops the intercept
 (\code{lambda = 1} reproduces the book's parametrization, reference classes at
 risk 1)}
 
-\item{sigma2}{the frailty variance: \code{NULL} (default) estimates it by Laplace;
-a positive number takes it as GIVEN (Example 16.1 publishes its solutions under
-\code{sigma2 = 0.4} -- see the note in the gate file about the misprinted 20)}
+\item{sigma2}{the frailty components: \code{NULL} (default) estimates them by Laplace;
+numbers take them as GIVEN, in the order of \code{\link[=model]{model()}} (\code{fit$theta} names them:
+covariance groups first, the lower triangle of each by columns, then the terms
+without a group), which with a single frailty is its variance (Example 16.1
+publishes its solutions under \code{sigma2 = 0.4} -- see the note in the gate file
+about the misprinted 20)}
 
-\item{k_inverse}{the inverse of the relationship matrix for the frailty term,
-replacing the \code{A^-1} built from \code{pedigree}: either triplets
-\code{list(i, j, x, n, id)} as \code{\link[=a_inverse]{a_inverse()}} returns, or a dense symmetric matrix
-with the ids as \code{dimnames}}
+\item{k_inverse}{the inverse of the relationship matrix for the relationship terms,
+replacing the \code{A^-1} built from \code{pedigree} (every relationship term uses it):
+either triplets \code{list(i, j, x, n, id)} as \code{\link[=a_inverse]{a_inverse()}} returns, or a dense
+symmetric matrix with the ids as \code{dimnames}}
 
 \item{maxiter}{maximum Newton iterations per inner fit}
 
 \item{tol}{RELATIVE tolerance on the full solution vector,
 \code{sqrt(sum(delta^2) / sum(sol^2))}, same convention as the other fitters}
 
-\item{verbose}{print one line per Newton iteration, and one per variance
-evaluation when \code{sigma2} is being estimated}
+\item{verbose}{print one line per Newton iteration, and one per evaluation of the
+Laplace -2logL when the components are being estimated}
 
 \item{entry}{column with the start of each elementary record (\code{0} for the first
 piece of a subject observed from time zero); NULL means every row starts at 0}
 
 \item{subject}{column with the subject of each elementary record; required with
-\code{entry}. The frailty level must be the same in every piece of a subject}
+\code{entry}. The level of every frailty term other than \code{indirect()} must be the same
+in every piece of a subject (so \code{random(pen)} refuses an animal that changes pen)}
 
 \item{gaps}{\code{"error"} (default) refuses a gap between two pieces of a subject;
 \code{"allow"} accepts it as time out of observation, in which no risk is counted}
 
 \item{genotypes, blend, apy_core, vecchia_k}{single step, as in \code{\link[=model]{model()}}: the frailty
 of a relationship term gets the \code{H^-1} of \code{\link[=h_inverse]{h_inverse()}} instead of \code{A^-1}}
+
+\item{mates}{\code{indirect()} with elementary records: \code{"all"} (default) counts every
+animal that was in the pen as a mate on every piece; \code{"present"} counts on each
+piece only the mates with a piece overlapping it, and dilutes by their number}
+
+\item{start}{the starting point of the estimation when there is more than one
+component, in the order of \code{sigma2}; by default 0.1 for every variance and 0 for
+every covariance. A single component is searched on the whole interval
+\verb{[1e-6, 1e4]} and takes none: \verb{start=} is then refused, as it is with \verb{sigma2=}}
+
+\item{max_evals}{with more than one component estimated, the maximum number of
+Nelder-Mead evaluations of the Laplace -2logL, and again at each point of a
+correlation profile. It does not bound the Newton polish, the boundary check (one
+evaluation per variance), the standard errors or the number of profile points;
+\code{n_evals} reports the total. Refused with \verb{sigma2=} and
+with a single component, which \code{\link[stats:optimize]{stats::optimize()}} finds without such a bound}
+
+\item{tol_estimate}{tolerance of the estimation: the interval width of
+\code{\link[stats:optimize]{stats::optimize()}} on the log of the variance for one component, and the largest
+Newton step (log variances and atanh correlations) that still moves the estimate
+for several. Refused with \verb{sigma2=}}
+
+\item{profile}{\code{TRUE} (default) profiles a correlation near +-1; \code{FALSE} skips the
+profile and only withholds its standard error. Refused with \verb{sigma2=} and when no
+correlation is estimated}
 }
 \value{
 an object of class \code{breeding_fit_surv}: \code{rho}, \code{lambda} (with
-\code{se_log_rho} when \code{rho} was estimated), \code{theta} (the frailty variance, with an
-\code{se} from the curvature of the Laplace profile when it was estimated), \code{b} and
-\code{se_b} (named \code{term=level}, log relative risks), \code{ebv} and \code{pev} per the frailty
-term (log-frailty scale; \code{\link[=ebv]{ebv()}} works, and \code{exp(ebv())} is the RRS of the
-book's table), \code{n_censored}, \code{loglik_joint} (the penalized joint log-likelihood
-at the mode), \code{marginal_loglik} (the Laplace value, when computed), the
-convergence fields of every fitter, and \code{\link[=predict]{predict()}} for relative risks and
-survival probabilities \code{S(t)} -- the book's p.292 numbers. With \verb{k_inverse =} it
-carries \code{k_prior}, the diagonal of the declared K named by level, which
-\code{\link[=accuracy]{accuracy()}} divides the PEV by in place of 1 + F; with \verb{genotypes =} or
-\code{k_inverse = h_inverse(...)} it carries \code{h_prior} and \code{h_prior_row} as in \code{\link[=model]{model()}}
-instead. A fit with \verb{k_inverse =} made before \code{k_prior} existed has neither, and
-\code{\link[=accuracy]{accuracy()}} then divides it by 1 + F of the pedigree given: refit it.
+\code{se_log_rho} when \code{rho} was estimated), \code{theta} (the frailty components, with an
+\code{se} from the curvature of the Laplace -2logL when they were estimated), \code{b} and
+\code{se_b} (named \code{term=level}, log relative risks), \code{ebv} and \code{pev} per covariance
+group as in \code{\link[=model]{model()}} (log-frailty scale; \code{\link[=ebv]{ebv()}} works, and \code{exp(ebv())} is the
+RRS of the book's table), \code{n_censored}, \code{loglik_joint} (the penalized joint
+log-likelihood at the mode), \code{marginal_loglik} (the Laplace value), the
+convergence fields of every fitter, \code{vcov} (the delta-method covariance of \code{theta},
+NA for a component without a standard error) when the components were estimated
+and at least one has a standard error, \code{profile} when a correlation was profiled, and
+\code{\link[=predict]{predict()}} for relative risks and survival probabilities \code{S(t)} -- the book's
+p.292 numbers. With \verb{k_inverse =} it carries \code{k_prior}, the diagonal of the
+declared K named by level, which \code{\link[=accuracy]{accuracy()}} divides the PEV by in place of
+1 + F; with \verb{genotypes =} or \code{k_inverse = h_inverse(...)} it carries \code{h_prior} and
+\code{h_prior_row} as in \code{\link[=model]{model()}} instead. A fit with \verb{k_inverse =} made before
+\code{k_prior} existed has neither, and \code{\link[=accuracy]{accuracy()}} then divides it by 1 + F of the
+pedigree given: refit it.
 }
 \description{
 The trait is the time until failure (length of productive life, days to culling)
@@ -133,13 +172,55 @@ Weibull \code{rho} joins the Newton system as one more coordinate unless it is g
 \code{lambda} is the same parameter as the intercept (\code{intercept = rho * log(lambda)},
 Eqn 16.3): estimating it adds the intercept column, giving it fixes the baseline
 and removes the intercept, so the reference classes sit at risk 1 -- the convention
-of Example 16.1, which fixes \code{rho = 1} and \code{lambda = 1}. The frailty variance
-\code{sigma2} is estimated by maximizing the Laplace approximation of the marginal
-likelihood -- the frailty is integrated at its conditional mode, the fixed effects
-and \code{rho} are profiled -- because the marginal has no closed form here and the
-package's AI-REML machinery needs a Gaussian residual this model does not have.
-Give \verb{sigma2=} to skip that (the book's route: its example takes the variance as
-known).
+of Example 16.1, which fixes \code{rho = 1} and \code{lambda = 1}. The frailty components are
+estimated as the MAXIMUM of the Laplace approximation of the marginal likelihood
+(the frailties are integrated at their conditional mode, the fixed effects and \code{rho}
+are profiled), the very \code{marginal_loglik} the fit reports, because the marginal has
+no closed form here and the package's AI-REML machinery needs a Gaussian residual
+this model does not have: \code{\link[stats:optimize]{stats::optimize()}} in the log of the variance when there
+is one component, Nelder-Mead and Newton steps on a numerical Hessian (log variances,
+inverse hyperbolic tangent of the correlations) when there are several. As in
+\code{\link[=model_threshold]{model_threshold()}}, a correlation at or near +-1 is profiled instead of given a
+delta-method standard error, a variance the data do not tell apart from zero (the
+-2logL at 1e-6 within 0.01 of its value at the estimate) is held at its estimate
+without a standard error, a curvature that is singular in some combination of the
+components withholds the standard errors that depend on it and keeps the others, an
+inner fit that does not converge counts as an inadmissible point, and an \code{indirect()}
+term whose pens all hold one animal is refused. Give \verb{sigma2=} to skip the estimation
+(the book's route: its example takes the variance as known). There is no residual
+variance, so neither \code{\link[=h2]{h2()}} nor \code{\link[=t2]{t2()}} has a denominator here. MEASURED BIAS, at
+prototype scale only (2329 records, one per animal, 40\% censored, 8 replicates;
+\code{validation/indirect_threshold_survival_recovery.R}): the direct frailty variance ran
+low, 0.195 (SE 0.016) against 0.25 without \code{indirect()} and 0.207 (SE 0.015) with it,
+so the indirect term added no bias of its own (paired +0.012, SE 0.014).
+
+SEVERAL FRAILTY TERMS AND INDIRECT EFFECTS. The linear predictor takes any number of
+random terms, as in \code{\link[=model]{model()}}: a sire and a herd-year frailty, or indirect genetic
+effects on the log-hazard of animals kept in groups,
+\code{animal(id, group = "g") + indirect(id, pen = "pen", group = "g", dilution = d)},
+where record i receives \verb{(n_i - 1)^(-d) sum_j a_S,j} over its distinct pen mates and
+the direct and indirect frailties share one 2x2 matrix. (Ellen et al. 2010 reached
+this model in two steps, a survival analysis and then a linear associative model,
+because the survival software of the time took no associative effect.) The pen is
+labelled as the engine labels it, and a pen that is NA, NaN, Inf, blank text or the
+text "NaN" is refused with its row. Add \code{random(pen)} for the frailty shared by the
+pen; left out, it is absorbed by the indirect variance. A frailty other than
+\code{indirect()} belongs to the subject, so with elementary records an animal that moves
+to another pen cannot carry a \code{random(pen)} frailty (refused), while its indirect
+effect follows it into both pens. With elementary records, \code{mates = "all"} (the
+default) keeps every animal that was ever in the pen as a mate on every piece, culled
+and dead ones included, with the dilution of the whole pen. That is the choice the
+literature supports: Ask et al. (2020; pigs, daily gain) found that omitting culled
+animals, or weighting their indirect effects by the time they spent in the pen,
+reduced predictive ability, and Brinker et al. (2015; laying hens) found that making
+the indirect effect of a mate stop at its death reduced EBV accuracy compared with an
+analysis of survival time. \code{mates = "present"} is that time-dependent alternative:
+each piece keeps only the mates with a piece of their own that overlaps it, and the
+dilution uses their number (this weight is the package's choice, the group-size
+dilution of Bijma 2010 applied to the mates present; it is not taken from Brinker et
+al.). With it, cut the records where the composition of the pen changes, so that each
+piece has one set of mates: a mate whose last piece ends at t is absent from a piece
+that starts at t, since pieces are \verb{(entry, stop]}.
 
 NO IMPLICIT INTERCEPT unless \code{lambda} is estimated, and the FIRST level of every
 fixed class factor is dropped (solution zero), as the book does. Levels come in
@@ -176,4 +257,13 @@ Kachman, S.D. (1999) Applications in survival analysis. J. Anim. Sci.
 for longevity data. 48th Annual Meeting of the EAAP, Vienna. Mrode, R.A. &
 Pocrnic, I. (2023) Linear Models for the Prediction of the Genetic Merit of
 Animals, 4th ed., chapter 16.
+Ellen, E.D., Ducrocq, V., Ducro, B.J., Veerkamp, R.F. & Bijma, P. (2010) Genetic
+parameters for social effects on survival in cannibalistic layers. Genet. Sel.
+Evol. 42, 27. Brinker, T., Ellen, E.D., Veerkamp, R.F. & Bijma, P. (2015)
+Predicting direct and indirect breeding values for survival time in laying hens
+using repeated measures. Genet. Sel. Evol. 47, 75. Ask, B., Christensen, O.F.,
+Heidaritabar, M., Madsen, P. & Nielsen, H.M. (2020) The predictive ability of
+indirect genetic models is reduced when culled animals are omitted from the data.
+Genet. Sel. Evol. 52, 8. Bijma, P. (2010) Multilevel selection 4: modeling the
+relationship of indirect genetic effects and group size. Genetics 186, 1029-1031.
 }

@@ -69,14 +69,16 @@ through a block Gibbs sampler (Geman and Geman, 1984) over the same equations.
 
 The trunk is Gaussian, but the trait does not have to be. An ordered categorical trait
 fits on a probit liability with `model_threshold()`, alone or jointly with a
-quantitative one, with the components given or estimated by Laplace and EM (Foulley, Im,
-Gianola and Hoeschele, 1987); `gibbs(family = "probit")` samples a binary trait by data
+quantitative one, with the components given or estimated as the minimum of the Laplace approximation of
+the marginal likelihood, indirect genetic effects among pen mates included; `gibbs(family = "probit")` samples a binary trait by data
 augmentation (Albert and Chib, 1993; Sorensen et al., 1995). Time until failure fits
 with `model_survival()`, where a right-censored record enters as a lower bound rather
 than a missing value and a covariate that changes during a life enters as elementary
 records. `model_threshold()` and `model_survival()` take `genotypes=` for a single step,
 through `h_inverse()`. And a random
-term can carry any user-supplied covariance matrix through `kernel(id, K = )`, called a
+term can carry any user-supplied covariance matrix through `kernel(id, K = )`, or its
+inverse through `kernel(id, Kinv = )`, which is how the sparse inverse of the dominance
+matrix from `dominance_inverse()` enters, called a
 DECLARED covariance throughout this package: the dominance
 and epistasis constructions of chapter 13 of Mrode and Pocrnic (2023), and the multibreed
 partial matrices of chapter 14, are matrices built by their own constructors and handed
@@ -94,7 +96,7 @@ fitter of its own.
 | direct-maternal, correlation estimated | `animal(id, group=)` + `maternal(dam, group=)` | `model()` |
 | reaction norm on a gradient | `rn(id, base=)` | `model()` |
 | indirect (social) genetic effects | `indirect(id, pen=, group=, dilution=)` | `model()` |
-| dominance, epistasis, multibreed, any declared K | `kernel(id, K=)` | `model()` |
+| dominance, epistasis, multibreed, any declared K | `kernel(id, K=)`, or its precision `kernel(id, Kinv=)` | `model()` |
 | several traits, full residual matrix | `cbind(y1, y2) ~ ...` | `model_mt()` |
 | serial correlation in the residual | `subject=`, `time=` | `model_ar1()` |
 | the same models, sampled instead of maximised | same formula, `prior=` | `gibbs()` |
@@ -117,6 +119,7 @@ Relationships and genomics are arguments, not different programs.
 | many environments of one trait, fast, from markers | `pegs()` (residuals uncorrelated across environments) |
 | marker effects from a single-step fit | `snp_effects()` |
 | G, dominance, epistasis to any order | `g_matrix()`, `g_dominance()`, `g_epistasis_ad/dd/order()` |
+| dominance by pedigree, dense or as a sparse inverse by sire x dam subclasses | `dominance_matrix()`, `dominance_inverse()` |
 | multibreed partial matrices | `partial_a()` |
 | the associative residual, exactly | `associative_matrix()` |
 
@@ -153,7 +156,7 @@ fit <- model(y ~ cg + animal(id), q$data, s$pedigree,
 fit                                # components, SEs, share of the phenotypic variance
 h2(fit)                            # the same ratio as the var(animal) share
 head(solutions(fit, s$pedigree))   # id, ebv, se, acc, sorted by breeding value
-accuracy(fit, s$pedigree)[1:5]     # prior 1+F, G* diagonal if genotyped, K[i,i] for kernel()
+accuracy(fit, s$pedigree)[1:5]     # prior 1+F, G* diagonal if genotyped, K[i,i] for kernel(K=), the fit's prior for kernel(Kinv=)
 cor(ebv(fit)[names(s$tbv)], s$tbv) # against the simulator's own truth
 ```
 
@@ -266,9 +269,10 @@ gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)
 
 # ordered categorical trait on a probit liability (Gianola & Foulley 1983);
 # thresholds replace the intercept, predict() gives per-category probabilities.
-# The components are GIVEN, or with estimate = TRUE estimated by Laplace and the EM
-# step of Foulley et al. (1987), which runs low for a binary trait with few records
-# per level (Tempelman, 1998). cbind(quant, bin) fits the joint analysis of Foulley
+# The components are GIVEN, or with estimate = TRUE estimated as the minimum of the
+# Laplace -2logL, which runs low for a binary trait with few records per level
+# (Tempelman, 1998), lower still with indirect(). indirect(), group= and random(pen)
+# enter as in model(). cbind(quant, bin) fits the joint analysis of Foulley
 # et al. (1983), with pev for u1 and for the ranking value u2, and predict() the
 # probability of Eqn 15.25
 model_threshold(score ~ herd + sex + sire(sire), d, ped, start = 1/19)
@@ -285,6 +289,9 @@ model_survival(lpl ~ herd + ysp + animal(cow), d, ped, censor = "code")
 # term (chapter 13), or any K that is neither A nor H. kernel(id, K = , fixed = v)
 # holds the component at v in model() and gibbs(); model_mt() and model_ar1() refuse it
 model(y ~ pen + animal(id) + kernel(id, K = dominance_matrix(ped)), d, ped)
+# the same dominance on a large pedigree: the sparse inverse by sire x dam subclasses
+# (Hoeschele & VanRaden 1991, generalized to inbreeding), for the animals with records
+model(y ~ pen + animal(id) + kernel(id, Kinv = dominance_inverse(ped, animals = d$id)), d, ped)
 
 # multibreed by pedigree: the partial relationship matrices of Garcia-Cortes &
 # Toro (2006), one kernel() per founder breed and per segregating pair
@@ -320,7 +327,9 @@ included and never the `rho(residual)` of `model_ar1()`; a direct-maternal covar
 enters with coefficient 1, Willham, 1972), `t2()` (the total heritable variance of an
 indirect-effect model, with delta-method standard errors), `ebv()`, `accuracy()` (prior per
 level: `1 + F`, the diagonal of `G*` for a genotyped animal in a single step, `K[i, i]` for a
-`kernel()` term or a declared `k_inverse =`, 1 for an iid term), `h2_curve()` and
+`kernel()` term or a declared `k_inverse =`, the prior carried in the fit for
+`kernel(Kinv =)` (1 for an animal, `F_cc / 4` for a subclass of `dominance_inverse()`), 1 for
+an iid term), `h2_curve()` and
 `plot()` for the reaction norm, `indirect_residual()` for the pen-size residual of the
 associative model, `var(e_i) = s2_ED + (n_i - 1)^(1 - 2d) s2_ES` with `d` taken from the
 `indirect()` term (`d = 0` is the book's `(n_i - 1) s2_ES`), by profile REML over exact
@@ -380,6 +389,7 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | fixed-effect solutions | the published fixed effects of Examples 4.1, 5.1, 5.2, 8.1 and 9.1 (by contrast), plus GLS and dense-MME rebuilds in plain R at 1e-6 |
 | threshold model | Examples 15.1 and 15.2: published thresholds, solutions, standard errors, category probabilities, and the joint quantitative-binary analysis |
 | kernel(K=), non-additive | Examples 13.1-13.5: the printed D and D^-1, solutions to 1e-3, and the MME-vs-V-form identity with a kernel term in the model |
+| `dominance_inverse()`, `kernel(Kinv=)` | the subclass F printed in HV91 Tables 1 and 3; Example 13.1 through the sparse inverse (DV and BV of p.228 to 1e-3); `Q^-1 = D` to 1e-10 by both routes on random inbred pedigrees; at fixed components -2logL, score and AI equal to `kernel(K = D)` in `model()` and `model_mt()`, -2logL and score in `model_ar1()`; 50 columns of Q against Cockerham-from-Colleau columns on ~50,000 animals with pair keys past 2^31 (exactness, 4.6e-15); recovery of the base-population sigma2_D by gene dropping, 20 replicates of 6,300 animals (0.158, Monte Carlo SE 0.0075, target 0.15). A full fit at >= 20k animals was not run |
 | multibreed partial matrices | Examples 14.1 and 14.2: the printed partial A's and solutions, and the identity model 14.8 == variance-weighted 14.3 |
 | survival model | Example 16.1: the 23 published solutions, RRS and S(40); a censoring gate where treating censored as observed provably distorts the fit |
 | survival, time-dependent covariates | a record split into two pieces with the same covariates changes nothing; the joint -2logL equals a Weibull likelihood written from scratch, with a late entry |
@@ -391,7 +401,8 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | sire / maternal-grandsire pedigree | exact: the pedigree expanded with a dummy dam per animal; the A^-1 printed for Example 15.2; the mixed pedigree (`dam =`) against the same expansion only where the dam is missing, A to 1e-12 and the fit identical; at scale, 20 replicates of 36 000 records recover var(sire) = va / 4 within 1.6% (`validation/sire_mgs_recovery.R`) |
 | APY core by eigenvalues | the count by two routes (eigenvalues of G, singular values of Z); `"auto"` == the same core passed by hand; the Lanczos estimate against the exact count on both sides of the Gram matrix, within 2% and 4 standard errors + 2 (20 probe seeds: at most 1.04% and 3.8 standard errors, `validation/apy_core_lanczos_se.R`); the quadrature error, paired with the same probes on the exact eigenvectors and averaged over v from 80 to 99.5%, under 0.1%; the standard error against the spread of 20 independent probe sets, ratio within 0.7 to 1.4 (0.82 to 1.31 over eight draws at the gated levels); a probe that stops at an invariant subspace gives the count of its probes on the exact eigenvectors, and the test fails with that branch removed; at 10 000 x 10 000 over ten seeds, mean 5957.3 against 5953 exact (z = 1.1) and a paired quadrature error of +2.3 counts, 0.04% (`validation/apy_core_lanczos.R`) |
 | h_inverse() | the single-step formula rebuilt in R, exact and with APY; `kernel(K = H)` == `genotypes=` at the same theta |
-| threshold, estimated components | the EM fixed point against the minimum of the Laplace -2logL found without the EM step; 80 sires with 50 daughters each, binary, planted 0.15: mean 0.148 over 10 replicates |
+| threshold and survival, estimated components | the estimate is the minimum of the Laplace -2logL the fit reports: no point of a grid around it in any optimizer coordinate is lower, a second start and an independent `optimize()` land on it; a variance the data do not tell apart from zero is held at its minimum without an SE while the other SEs stay exact; 80 sires with 50 daughters each, binary, planted 0.15: mean 0.161 (SE 0.007) over 10 replicates (`validation/indirect_threshold_survival_recovery.R touro`) |
+| `indirect()` in `model_threshold()` and `model_survival()` | exactness on 105 to 296 records: the incidence built in R == the engine's (Gaussian BLUP against `model()`); mode, system, PEV and Laplace with a direct-indirect group and `random(pen)` against dense references written from the definition with Z from a loop of their own (1e-8 or better); the correlation near +-1 profiled. Recovery at prototype scale only (2329 records, 8 replicates), and the declared gates FAIL: the threshold components run LOW, more with the indirect term than without (paired s2D -0.031, SE 0.007); the Weibull components run low with one record per animal, equally with and without it. Nothing at >= 20k records |
 | Gibbs, probit and kernel() | with the components held, the posterior mean tracks the threshold-model mode (probit) and the `model()` BLUP (kernel); `K = I` == `random(id)`, the same chain |
 | Gibbs, the whole chain | with flat priors the posterior of the components is the REML likelihood (Harville, 1974): four chains match a 2-D quadrature of the -2logL at z = 0.15 and 0.08 (`validation/gibbs_harville.R`); `rhat()` near 1 on iid chains, above 1.01 on shifted or rescaled ones; serial and parallel chains identical |
 | threads | the tiled tail, the dense inverses, the products and the selected inverse against `chol()`, `solve()` and the formulas; the same bits with 1 and 4 threads, and the whole suite passes at both |

@@ -633,14 +633,15 @@ Gianola and Foulley (1983) system, with the variance components on the liability
 GIVEN via `start=`: the Gaussian REML of section 5 has no likelihood for a categorical
 trait, and the package says so rather than pretending. With `estimate = TRUE` the
 components are estimated instead, by approximate marginal maximum likelihood: the
-locations are integrated by the Laplace approximation around the mode, and the variances
-are updated by the EM step of Foulley, Im, Gianola and Hoeschele (1987),
-`s2 = (u' K^-1 u + tr(K^-1 C^uu)) / q`, with standard errors from the numerical Hessian of
-the Laplace -2logL. Its known weakness is a binary trait with few records per level of
+locations are integrated by the Laplace approximation around the mode, and the estimate
+is the MINIMUM of that Laplace -2logL, the number the fit reports, with standard errors
+from its numerical Hessian. (The EM step of Foulley, Im, Gianola and Hoeschele, 1987,
+`s2 = (u' K^-1 u + tr(K^-1 C^uu)) / q`, was the estimator before; its fixed point is not
+that minimum, because the step ignores how the weights move with s2.) Its known weakness is a binary trait with few records per level of
 the random effect, where the Laplace approximation underestimates the variance
 (Tempelman, 1998); on 80 sires with 50 daughters each and a planted variance of 0.15 it
-averaged 0.148 over 10 replicates, and `gibbs(family = "probit")` is the unbiased
-alternative. `cbind(quant, binary)` fits the
+averaged 0.161 (SE 0.007) over 10 replicates, and `gibbs(family = "probit")` is the
+unbiased alternative for a binary trait without `indirect()`. `cbind(quant, binary)` fits the
 joint quantitative-binary analysis of Foulley, Gianola and Thompson (1983), with the PEV
 of u1 and of the ranking value u2, and `predict()` the probability of Eqn 15.25; Mrode and
 Pocrnic (2023, ch. 15) carry both through worked examples, which are the package's
@@ -670,7 +671,8 @@ density, a censored one its survival `S(t)`, and that difference is where the ce
 information lives: `model_survival()` therefore refuses to run without `censor=`.
 Solutions are LOG RELATIVE RISKS (`exp()` gives the relative risk of failing), the
 Weibull `rho` is estimated by Newton alongside the effects, and the frailty variance
-comes from a Laplace profile of the marginal likelihood, or is given, as the book does.
+comes from the minimum of the Laplace -2logL of the marginal likelihood (one or several
+components, `indirect()` included), or is given, as the book does.
 
 A covariate that changes during a life is constant by pieces, and each piece is an
 elementary record `(entry, stop]` of the same `subject`, with the failure only on the

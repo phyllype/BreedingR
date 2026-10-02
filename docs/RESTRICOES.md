@@ -126,7 +126,7 @@ nomes, e sem o fator `s2e` do univariado, porque as MME dos espelhos ja sao abso
 
 | # | origem | restricao | estado |
 |---|---|---|---|
-| 11 | `R/threshold.R:40` | componentes DADAS, nao estimadas: `start=` obrigatorio | **FEITO** 2026-09-29: `estimate = TRUE`, Laplace + EM de Foulley et al. (1987), -2logL de Laplace e EP pela Hessiana (test-limiar-estimacao.R) |
+| 11 | `R/threshold.R:40` | componentes DADAS, nao estimadas: `start=` obrigatorio | **FEITO** 2026-09-29: `estimate = TRUE`, minimo do -2logL de Laplace (o ponto fixo do EM de Foulley et al. 1987 nao e esse minimo; trocado em 2026-10-01), -2logL de Laplace e EP pela Hessiana (test-limiar-estimacao.R) |
 | 12 | `R/threshold.R:96`, `R/model.R:584` | `predict()` e PEV indisponiveis no modo conjunto | **FEITO** 2026-09-29: PEV de u1 e u2 e `predict()` da Eqn 15.25 de Mrode (test-mrode-cap15.R) |
 | 13 | `R/survival.R:45` | sem covariaveis dependentes do tempo | **FEITO** 2026-09-29: `entry =` e `subject =`, registros elementares com os intervalos validados (test-sobrevivencia-tdc.R) |
 

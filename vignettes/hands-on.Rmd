@@ -514,8 +514,8 @@ pa$h                                        # only the F2 segregates
 `model_threshold()` fits an ordered categorical trait by probit on an underlying
 liability (Gianola and Foulley), residual FIXED at 1 for identifiability, thresholds in
 place of the intercept, components GIVEN via `start=`. With `estimate = TRUE` the same
-`start=` is only the starting point and the variances are estimated by Laplace and EM
-(Foulley et al., 1987), known to run low for a binary trait with few records per level;
+`start=` is only the starting point and the components are estimated as the minimum of the
+Laplace -2logL the fit reports, known to run low for a binary trait with few records per level;
 `gibbs(family = "probit")` is the unbiased route there. `predict()` returns the
 per-category probabilities:
 

@@ -886,7 +886,7 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
 # o conhece; h2(fit, n =) e t2() fazem a conta. Na sobrevivencia tambem: o modelo de
 # fragilidade nao tem variancia residual, e a unica linha saia com share 1,00.
 tabela_componentes <- function(theta, se, indireto = FALSE, sem_share = NULL) {
-  if (indireto)
+  if (indireto && is.null(sem_share))
     sem_share <- paste0("share left blank: with indirect() the phenotypic variance ",
                         "depends on the group size; use h2(fit, n = ) or t2(fit, n = )")
   nm <- names(theta)
@@ -919,6 +919,51 @@ tabela_componentes <- function(theta, se, indireto = FALSE, sem_share = NULL) {
 
 tem_indireto <- function(fit)
   any(vapply(termos_do_ajuste(fit), function(t) isTRUE(t$social), logical(1)))
+
+# A nota do share da classe, a mesma no print e no summary. A sobrevivencia nao tem
+# residuo (nem h2() nem t2() tem denominador ali); o limiar com indirect() tem a escala
+# latente com residuo 1, e h2() nao aceita a classe: a nota aponta so o t2(). NULL deixa a
+# regra geral de tabela_componentes().
+nota_share <- function(fit) {
+  if (inherits(fit, "breeding_fit_surv"))
+    return(paste0("share left blank: the frailty model has no residual variance, so there ",
+                  "is no phenotypic variance to divide by on this scale"))
+  if (inherits(fit, "breeding_fit_thr") && tem_indireto(fit))
+    return(paste0("share left blank: with indirect() the liability variance depends on the ",
+                  "group size; t2(fit, n = ) gives T2 and h2_direct on the liability scale ",
+                  "(residual fixed at 1)"))
+  NULL
+}
+
+# A nota do bloco fixo das classes sem intercepto implicito, a mesma no print e no summary
+# (o summary dizia "implicit intercept" no limiar e na sobrevivencia, que nao tem). NULL
+# deixa a nota geral de mostra_fixos().
+nota_fixos <- function(fit) {
+  if (inherits(fit, "breeding_fit_thr"))
+    return(if (identical(fit$type, "joint"))
+      paste0("the first class factor carries the intercept; later factors zero ",
+             "their first level")
+    else paste0("no intercept: the thresholds set the origin and every class factor ",
+                "zeroes its first level"))
+  if (inherits(fit, "breeding_fit_surv"))
+    return(if (isTRUE(fit$lambda_given))
+      paste0("no intercept: lambda given, reference classes at risk 1; every ",
+             "class factor zeroes its first level")
+    else "the intercept is rho*log(lambda); every class factor zeroes its first level")
+  NULL
+}
+
+# A ultima frase do rodape do summary: como sai o erro-padrao de uma funcao dos
+# componentes. Nos ajustadores em R a covariancia vem da Hessiana do -2logL de Laplace, e
+# profile_theta() (que reajusta pelo model()) nao serve.
+nota_se <- function(fit) {
+  if (inherits(fit, c("breeding_fit_thr", "breeding_fit_surv")))
+    return(paste0("For a standard error of either, se_function(fit, function(th) ...) ",
+                  "applies the\ndelta method over 2 H^-1 of the Laplace -2logL when the ",
+                  "components were estimated;\na profiled correlation or a variance at its ",
+                  "boundary has none.\n"))
+  NULL
+}
 
 # imprime a tabela com as celulas vazias em branco, e nao "NA": share vazio numa
 # covariancia e correlacao vazia numa variancia nao sao dado faltante, sao nao aplicavel
@@ -1032,7 +1077,9 @@ print.summary.breeding_fit <- function(x, ...) {
   if (!is.null(x$rho))
     cat("\nrho ", format(x$rho, digits = 4), ",  lambda ", format(x$lambda, digits = 4),
         "\n", sep = "")
-  if (!is.null(x$fixed)) mostra_fixos(x$fixed, x$dropped_x)
+  if (!is.null(x$fixed))
+    mostra_fixos(x$fixed, x$dropped_x,
+                 if (is.null(x$nota_fixos)) "implicit intercept" else x$nota_fixos)
   if (!is.null(x$indirect_residual))
     cat("\nresidual by pen size: k ", format(x$indirect_residual[["k"]], digits = 4),
         ",  s2_ED ", format(x$indirect_residual[["s2_ED"]], digits = 4),
@@ -1042,8 +1089,9 @@ print.summary.breeding_fit <- function(x, ...) {
       "var(animal) row is h2. A covariance BETWEEN traits, a correlation parameter such as\n",
       "rho(residual), and every row of a model with indirect() have no share.\n",
       "correlation: each covariance over the square root of the two variances it links.\n",
-      "For a standard error of either, se_function(fit, function(th) ...) applies the\n",
-      "delta method over 2 AI^-1; near a boundary use profile_theta().\n", sep = "")
+      if (!is.null(x$nota_se)) x$nota_se else paste0(
+        "For a standard error of either, se_function(fit, function(th) ...) applies the\n",
+        "delta method over 2 AI^-1; near a boundary use profile_theta().\n"), sep = "")
   invisible(x)
 }
 

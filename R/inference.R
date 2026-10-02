@@ -30,7 +30,9 @@
 se_function <- function(fit, f, h = 1e-6) {
   th <- fit$theta
   if (is.null(fit$vcov) || all(is.na(fit$vcov)))
-    stop("this fit carries no covariance of the components; it did not reach an optimum")
+    stop("this fit carries no covariance of the components: they were given rather than ",
+         "estimated, the fit did not reach an optimum, or the curvature at the estimate ",
+         "is singular")
   v0 <- f(th)
   if (length(v0) != 1L || !is.finite(v0)) stop("f must return one finite number")
   g <- numeric(length(th))
@@ -40,7 +42,12 @@ se_function <- function(fit, f, h = 1e-6) {
     tm <- th; tm[[k]] <- tm[[k]] - passo
     g[k] <- (f(tp) - f(tm)) / (2 * passo)
   }
-  var_f <- drop(crossprod(g, fit$vcov %*% g))
+  # um componente sem erro-padrao (correlacao perfilada, variancia na fronteira) tem a
+  # linha NA na covariancia: se f depende dele, o erro-padrao de f tambem nao existe
+  usa <- g != 0
+  if (anyNA(fit$vcov[usa, usa]))
+    return(list(estimate = v0, se = NA_real_, gradient = g))
+  var_f <- drop(crossprod(g[usa], fit$vcov[usa, usa, drop = FALSE] %*% g[usa]))
   list(estimate = v0, se = if (var_f > 0) sqrt(var_f) else NA_real_, gradient = g)
 }
 

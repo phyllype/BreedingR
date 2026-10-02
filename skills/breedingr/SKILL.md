@@ -60,10 +60,12 @@ model_ar1(y ~ cg + animal(id) + pe(id), d, ped, subject="id", time="day") # AR(1
 gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)                        # Bayesian
 gibbs(y01 ~ cg + sire(sire), d, ped, family = "probit")   # binary, liability sampled
 model(y ~ pen + animal(id) + kernel(id, K = dominance_matrix(ped)), d, ped) # dominance
+model(y ~ pen + animal(id) +
+        kernel(id, Kinv = dominance_inverse(ped, animals = d$id)), d, ped) # dominance, large pedigree
 model_threshold(score ~ herd + sex + sire(sire), d, ped, start = 1/19)    # categorical,
                                        # probit liability, components GIVEN via start=
 model_threshold(score ~ herd + sire(sire), d, ped, start = 0.1, estimate = TRUE)
-                                       # components ESTIMATED by Laplace + EM
+                                       # components ESTIMATED: minimum of the Laplace -2logL
 model_survival(lpl ~ herd + ysp + animal(cow), d, ped, censor = "code")   # Weibull
                                        # frailty; a censored record is a LOWER BOUND
 model_survival(stop ~ herd + dz + animal(cow), d, ped, censor = "q",
@@ -76,7 +78,9 @@ generator, so `set.seed()` governs all of them and series and parallel agree); t
 result pools the chains and reports `rhat` (rank-normalized split R-hat, Vehtari et al.
 2021; above 1.01 means not mixed), also available alone as `rhat()`. `model_threshold(estimate = TRUE)` runs LOW for a binary trait with few
 records per level of the random effect (Tempelman 1998); `gibbs(family = "probit")` is the
-unbiased route there. In `model_survival()` each row is an elementary record
+unbiased route there. With `indirect()` the Laplace components of a threshold trait ran lower
+still at prototype scale (paired s2D -0.03 against the direct-only fit at 2329 records), and
+the Gibbs route is not validated for the components there. In `model_survival()` each row is an elementary record
 `(entry, stop]` of one subject, with `censor = 1` only on the last piece of a subject that
 failed; never set a covariate that is only known later from the start of the life.
 `survival_split(subjects, changes)` builds those pieces from one row per subject (end of
@@ -153,7 +157,7 @@ fit <- model(y ~ cg + animal(id), q$data, ped, missing_code = -999)
 fit                          # estimate, SE, share of the phenotypic variance, correlation
 h2(fit); solutions(fit, ped) # heritability; id/(term)/ebv/se/acc sorted by ebv; multi-trait: trait = for acc
 ebv(fit); ebv(fit, "animal"); ebv(fit_mt, "animal", trait = "t2")
-accuracy(fit, ped)           # prior 1+F, diag(G*) if genotyped, K[i,i] for kernel(), 1 iid; no ped needed for kernel/iid
+accuracy(fit, ped)           # prior 1+F, diag(G*) if genotyped, K[i,i] for kernel(K=), the fit's prior for kernel(Kinv=) (1 animal, F_cc/4 subclass), 1 iid; no ped needed for kernel/iid
 rg(fit_mt, "animal", "t1", "t2")
 h2_curve(fit_rn, limits = c(55, 80)); plot(fit_rn)
 t2(fit_ige, n = 4)           # indirect effects: TBV variance, T2, direct h2, with SEs

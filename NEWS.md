@@ -105,12 +105,198 @@
   variance fixed at 1. It is the unbiased route to the components of a binary
   trait, and it carries everything the Gaussian chain carries: `kernel()`,
   `indirect()`, genotypes and APY.
-* `model_threshold(estimate = TRUE)`: the variances of the ordinal threshold
-  model by approximate marginal maximum likelihood, Laplace plus the EM step of
-  Foulley, Im, Gianola and Hoeschele (1987), with a Laplace `neg2logl` in both
-  modes and standard errors from its numerical Hessian. Measured on 80 sires with
-  50 daughters each, binary, planted variance 0.15: mean 0.148 over 10 replicates.
-  The known downward bias with few records per level is in the documentation.
+* `model_threshold(estimate = TRUE)` and `model_survival()` estimate the components as the
+  MINIMUM of the Laplace -2logL the fit reports: `optimize()` in the log of the variance for
+  one component, Nelder-Mead and then Newton steps on a numerical Hessian (log variances,
+  atanh of the correlations) for several. The threshold fitter used to iterate the EM step of
+  Foulley, Im, Gianola and Hoeschele (1987). It reported the -2logL at the EM fixed point, but
+  that point is not the minimum (the step ignores how the weights W move with the variance),
+  so the reported value was not a maximized likelihood, a likelihood-ratio test compared
+  values that were not maxima, and the standard error came from the curvature away from the
+  optimum. On the direct-only control of the recovery design (2329 records, one per animal,
+  seeds 101 to 104) the EM point sat 0.010 to 0.020 below the minimum in s2 (-2logL 0.05 to
+  0.13 higher), and one EM step from the minimum moved away from it
+  (`validation/indirect_threshold_survival_recovery.R em_antigo`, which runs the code of
+  commit 790037d). On 80 sires with 50 daughters each, binary, planted 0.15: mean 0.161 (SE
+  0.007) over 10 replicates, 16 to 20 evaluations each (`... touro`).
+  The estimate carries `n_evals`, `vcov` (the delta-method covariance of `theta`, which
+  `t2()` and `se_function()` now read: `se_t2` was always NA on a threshold fit) and
+  `profile`. A correlation at or near +-1 is PROFILED (every other component re-optimized on
+  a grid of r) and reported with its profile-likelihood 95% interval, censored at +-0.999
+  when the profile never crosses, in place of a delta-method SE; `profile = FALSE` skips the
+  profile and still withholds the SE. The boundary is decided by the likelihood: a variance
+  the data do not tell apart from zero (moved to 1e-6 with the rest fixed, the -2logL rises
+  by less than 0.01) is held at the minimum of its own coordinate, with the correlations it
+  links, as ASReml holds a 'B' component, and has no SE; the Newton polish and the SE Hessian
+  move only the free components, so the other SEs are those of the free fit. On 1200 records
+  of 40 sires with a `random(grp)` whose planted variance is 0, an interior var(grp) of
+  8.6e-5 (the -2logL at zero only 8.8e-5 higher) is held, and var(sire) keeps the SE of the
+  fit without `random(grp)` (0.0432, within 2e-3); the Weibull fit the same with var(grp)
+  3.7e-4. Where the curvature is singular or nearly
+  so (an eigenvalue below 0.01 in log variances and atanh correlations), only the SEs that
+  depend on that direction are withheld, the message names them, and the others stay.
+  Example 15.1 with `estimate = TRUE` now reports var(sire) at the boundary with no SE (the
+  EM stopped at 0.0185 without converging). An inner fit that does not converge counts as an
+  inadmissible point and the message counts them; when every evaluation fails that way the
+  error says to raise `maxiter =`.
+  API: `maxiter_em =` and `tol_em =` keep their positions (12th and 13th) and warn that they
+  do nothing; `max_evals =`, `tol_estimate =` and `profile =` come last, and are refused when
+  nothing is estimated (`estimate = FALSE`, or `sigma2 =` given), as is `start =` in
+  `model_survival()` with a single component (searched over the whole `[1e-6, 1e4]`);
+  `max_evals =` is also refused with a single component (found by `optimize()`, which takes
+  no such bound) and `profile =` when no correlation is estimated. The
+  fields `iters_em` and `reldelta_em` are gone. With the components given, `neg2logl`, the
+  PEV and `se_thresholds` now come from the system rebuilt at the final point instead of the
+  last iteration's system: thresholds, `b` and EBV are unchanged, and on Example 15.1
+  `se_thresholds` moves 1.8e-10 and `neg2logl` 2.0e-9 at the default `tol` (1.45e-4 at
+  `tol = 1e-4`).
+* `indirect()` (with `dilution =`) and `group =` in `model_threshold()` (ordinal mode) and
+  `model_survival()`, with `random(pen)` alongside for the environment the pen mates share,
+  and in `model_survival()` any number of frailty terms. The incidence is the engine's: mates
+  are the distinct animals of the pen over every row of the data (a mate without a phenotype
+  counts), weight `(n - 1)^(-d)`, a pen of one gives an empty row, a mate outside the level
+  set is an error, and a pen that is NA, NaN, Inf, blank text or the text "NaN" is refused
+  with its first row. `start =` / `sigma2 =` take the components in the order of `model()`
+  (`var(animal)`, `cov(indirect,animal)`, `var(indirect)`). `k_inverse =` applies to every
+  relationship term, and `fit$k_prior` carries the diagonal of K for each. An `indirect()`
+  whose pens all hold one animal has no incidence, and estimating its components is refused.
+  `model_survival(mates = "present")` keeps on each elementary record only the mates with a
+  record overlapping it, diluted by their number (the package's choice, the dilution of
+  Bijma 2010 applied to the mates present); `"all"`, the default, keeps every animal that was
+  ever in the pen, the choice Ask et al. (2020) support, and Brinker et al. (2015) found that
+  making a mate's indirect effect stop at its death reduced EBV accuracy. A non-social
+  frailty belongs to the subject, so `random(pen)` refuses an animal that changes pen
+  between elementary records, while `indirect()` follows it into both pens. `predict()`
+  builds the indirect part from the pen mates IN `newdata` and refuses without the pen
+  column. `t2()` on a threshold fit is on the liability scale with the residual 1 in the
+  denominator. Gates: the R incidence against the C++ one of `model()` (Gaussian BLUP,
+  1e-10, numeric and factor pens, a mate without a phenotype, an animal with two records and
+  one in two pens, and the membership counted only on the phenotyped rows moves it by 0.025);
+  mode, Fisher system, PEV and Laplace of the threshold fit with a direct-indirect group and
+  `random(pen)` against a dense reference written from the probabilities with Z from a loop
+  of its own (1e-8 or better; with d = 0 the reference moves); the same for the Weibull; a
+  direct-maternal group in both fitters and two grouped iid terms paired by name against the
+  dense references (mode 1.4e-13 relative); elementary records with the static rule
+  identical to the unsplit record, and the "present" rule against its own reference with the
+  pieces cut at the median and at every exit of a pen mate, where the convention
+  `(entry, stop]` decides (closing the interval moves the EBVs by 0.10 and fails the gate);
+  the reported point is the minimum on a grid in every optimizer coordinate, in both
+  fitters, and a second start reaches it; a correlation near the boundary profiled in both
+  fitters and its interval end checked by an independent re-optimization;
+  `gibbs(family = "probit")` with `indirect()` and fixed G0 tracks the threshold mode
+  (correlation 0.9994 to 0.9996 in the indirect block over 12 chains) and a d wrong by 0.3
+  falls to 0.990. DECLARED LIMITS: the latent residual is fixed at 1 for every record, which
+  is exact with `random(pen)` only when all pens have the same size (an environmental effect
+  of the mates on a liability with pens of unequal size needs a heteroscedastic probit, not
+  available); the joint quantitative + binary mode refuses `indirect()` and `group =`.
+* KNOWN BIAS, measured at prototype scale only (2329 records, one per animal, 500 pens of 2
+  to 8, two full-sib families per pen, d = 0.6, 8 replicates, truth 0.30 / -0.06 / 0.10;
+  `validation/indirect_threshold_survival_recovery.R`; NOT scale evidence): the Laplace
+  estimates of a threshold trait run low, and lower with the indirect term than without it.
+  Three categories: s2D 0.184 (SE 0.012), cov -0.033 (0.008), s2S 0.068 (0.009), against
+  0.215 (0.013) for the direct-only control on the same direct values; the paired difference
+  -0.031 (SE 0.007) FAILS its declared gate (not below -0.03). The same liability observed and
+  fitted by REML in `model()` gives a paired difference of -0.007 (SE 0.008); with ten
+  categories it is -0.021 (SE 0.006), which also fails its declared gate (+-0.02). The extra
+  bias is consistent with the Laplace approximation (it shrinks as the categories carry more
+  information) but it is not isolated: no exact marginal and no Gibbs run on the same design
+  separate it from the rest. `gibbs(family = "probit")` does not use the approximation, but
+  its recovery of the components with `indirect()` is not validated (only its EBVs at fixed
+  components). The Weibull frailty has a bias of its own with one record
+  per animal and 40% censoring, and the indirect term adds none: s2D 0.207 (SE 0.015) against
+  0.195 (SE 0.016) for the direct-only control (paired +0.012, SE 0.014), cov -0.057 and s2S
+  0.067 against -0.05 and 0.08, rho 1.39 against 1.4; the declared gate of that scenario
+  (each component within 2 SE of the truth) FAILS on s2D (-2.88 SE). With a pen frailty of
+  0.15 fitted by `random(pen)`: 0.196 / -0.044 / 0.058, pen 0.124; left out, the covariance
+  goes to -0.010 and the indirect variance absorbs part of it.
+* `dominance_inverse()`: the sparse inverse of the Cockerham dominance matrix by sire x dam
+  subclasses (Hoeschele & VanRaden, 1991), generalized to inbreeding, overlapping
+  generations, unknown parents and repeated matings, entered as
+  `kernel(id, Kinv = dominance_inverse(ped))`. `kernel()` takes `Kinv =`, a declared
+  precision (the lower triangle in the triplets of `a_inverse()`, or a dense matrix with the
+  ids as dimnames), and inverts nothing. The deviation of an animal with both parents is the
+  effect of its subclass plus a deviation within it, `D = W (F / 4) W' + diag(Delta)` with
+  `Delta_i = 1 - [(1 + F_S)(1 + F_D) + 4 F_i^2] / 4`; the subclass levels are latent, like
+  ancestors without records in A^-1, so the component is the same `s2d` as with
+  `kernel(id, K = dominance_matrix(ped))`. Two exact routes build `F^-1`: `"dense"` (the A
+  between the parents by Colleau, inverted in tiles; few subclasses with many offspring) and
+  `"sparse"` (the pair recursion of the paper with the residual variances generalized to
+  inbreeding, over the ancestral closure of the subclasses, with exact elimination of pairs
+  that have at most one child; few offspring per subclass). `route = "auto"` compares the
+  symbolic Cholesky cost of the joint equations of a reference model. Its early exits are
+  deterministic counts:
+  - the pair closure against the dense block;
+  - the triplets each route assembles for the pair block of Q (`entries`), where A^-1,
+    common to both, stays out of the count;
+  - the minimum-degree work of the sparse candidate against that of the dense one plus
+    0.05 times the dense cost (`work`).
+  `animals =` keeps only the animals with records; a record with an observed response of
+  an animal left out, or with the label of a pair level, is refused instead of dropped.
+  When `Delta_i <= 0` (selfing in the second generation, full-sib mating in the sixth) the
+  function stops naming the animal: D may still be positive-definite but has no subclass
+  representation, and if the animal has no record `animals =` gets around it.
+
+  Gates, all exactness on small dense references:
+  - the subclass F printed in HV91 Table 1 (1e-14);
+  - the inbred Table 3 against `dominance_matrix()` (F = 1.25 where the non-inbred rule
+    gives 1);
+  - Mrode and Pocrnic Example 13.1 through `kernel(Kinv =)`, DV and BV of p.228 within 1e-3
+    (the book prints 3 decimals);
+  - random pedigrees with inbreeding, overlapping generations, unknown parents, repeated
+    matings, reciprocal crosses, animals used as sire and as dam, and selfing:
+    `Q^-1 = D` within 1e-10 by both routes, with the closed-form `log|K|`;
+  - at fixed components, -2logL, score and average information equal to `K = D` in
+    `model()` and `model_mt()`, -2logL and score in `model_ar1()`, and the same REML optimum;
+  - `gibbs()` starts from the same point (deterministic). With the components held, its
+    posterior mean matches the BLUP within Monte Carlo error by both routes. This is a
+    statistical check of the plumbing, not an identity;
+  - pair keys above 2^31 on a pedigree of 50,010 animals.
+
+  Exactness on ~50,000 animals (`validation/dominance_hv91_exact_scale.R`, not a scale
+  validation): 50 columns of `Q k_j = e_j` and 3 direct solves against columns of the
+  augmented covariance, built by Cockerham from Colleau columns of A, on pedigrees whose
+  largest subclass key passes 2^31. The maximum error was 4.6e-15 on 49,260 animals with
+  litters (dense route, 4,860 subclasses) and 4.4e-16 on 50,400 animals with one offspring
+  per pair (sparse route).
+
+  Recovery (`validation/dominance_hv91_recovery.R`; 20 replicates of 6,300 animals by gene
+  dropping with 500 QTL and directional dominance, random mating, F as a covariate; target
+  the base-population variance `sigma2_D = sum (2pqd)^2 = 0.15`): mean `s2d` 0.158 (Monte
+  Carlo SE 0.0075), `s2a` 0.303 (0.0064, target 0.30), `s2e` 0.546 (0.0081, target 0.55).
+  Inbreeding depression was -3.81 per unit F (SE 0.19) against a true -3.75. All 20 fits
+  took the dense route, and 6,300 animals is not a scale validation.
+
+  The choice of `"auto"` (`validation/dominance_hv91_routes.R`): eight pedigrees of 3,230 to
+  60,100 animals, three replicates except two single runs that the output marks. The
+  decision took 0.02 to 1.9 s. In five of the seven pedigrees where both routes were timed,
+  it picked the cheaper route for a fit (build plus ten evaluations at fixed components):
+  - with litters the sparse route cost 2 and 140 times more (9,280 animals: 4.0 s against
+    572 s, the sparse route a single run);
+  - with one offspring per pair the dense route cost 11 and 5.6 times more (15,040 animals:
+    233 s against 42 s, the dense route a single run).
+  On 25,100 animals with 300 records the two cost the same. On 60,100 animals with 800
+  records after five generations, the work ceiling sent `"auto"` to the dense route, which
+  cost 1.9 times the sparse one. On 12,280 animals with litters the sparse route was still
+  building Q after 608 s, past 2 GB, when it was stopped.
+
+  Memory (`validation/dominance_hv91_memory.R`, a fresh process per measurement, three
+  runs): the dense route rose 72 MB for 2,400 subclasses against 119 MB estimated. On two
+  litter pedigrees the decision of `"auto"` added 24 to 29 MB to the dense route it picked.
+  One evaluation with 1.8 million entries in Q rose 209 MB (116 bytes per entry).
+
+  `accuracy()` divides by the prior variance of each level carried in the fit (1 for an
+  animal, `F_cc / 4` for a pair); `solutions()` of such a group gets a `type` column and
+  lists the animals first; the fit carries `k_level_type`.
+* `setTimeLimit()` now stops the following between columns or panels, with the error
+  "interrupted (Ctrl-C or a time limit)" and without leaving the factor allocated:
+  - the sparse Cholesky factorization;
+  - the minimum-degree ordering;
+  - the tiled dense factorization of every fitter;
+  - the pair closure and the packed dense inverse of `dominance_inverse()`.
+  The interruption comes back as a C++ exception, not as a jump over the engine's
+  destructors. A gate checks it: a sparse build of `dominance_inverse()` stops within
+  seconds of a 1 s limit. Ctrl-C goes through the same `R_CheckUserInterrupt()` check but
+  was not tested interactively, and the gate has not yet run on the Linux and macOS CI.
 * The joint quantitative + binary threshold fit returns `pev` for u1 and for the
   ranking value u2 = nu + b u1, and `predict()` gives the probability of
   Eqn 15.25 of Mrode and Pocrnic, conditional on the quantitative trait.
@@ -226,6 +412,22 @@
 
 ## Fixed
 
+* `predict.breeding_fit_surv(type = "survival")` with an ESTIMATED `lambda` left the
+  intercept `rho * log(lambda)` out of `S(t)` (it used `t^rho` in place of
+  `(lambda t)^rho`): on the simulated sire data of test-mrode-cap16.R (seed 42), sire 1 at time 30, 6.0e-161
+  where the formula gives 0.227. Present since `predict()` existed; the book gate fixes
+  `lambda = 1`, so it never showed. Now gated against `exp(-t^rho exp(intercept + d))`.
+* `t2()` on a `model_survival()` fit with `indirect()` returned a T2 over a "phenotypic
+  variance" with no residual term; it is refused, since the frailty model has no residual.
+  `print()` and `summary()` of the two R fitters now agree: the survival note does not point
+  to `h2()` or `t2()`, the threshold note with `indirect()` points to `t2()` only (`h2()`
+  refuses the class), the summary footer says the SE of a function of the components comes
+  from 2 H^-1 of the Laplace -2logL (not AI-REML, and not `profile_theta()`), and the
+  fixed-effect note of `summary()` no longer says "implicit intercept" for fits that have
+  none. `se_function()` gives the SE of a function that does not depend on a component
+  without one.
+* `model_threshold()` and `model_survival()` silently ignored `nested =` and `sire(mgs =)`
+  and fitted another model; both are refused by name.
 * A covariance group of terms without a relationship matrix, `random(a, group = "g") +
   random(b, group = "g")` (or `pe()`), paired its levels by position. Each term took the
   levels of its own column in order of appearance, so level i of `a` covaried with level
