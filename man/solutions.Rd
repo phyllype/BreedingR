@@ -36,7 +36,11 @@ one effect per level (direct and maternal, direct and indirect, two correlated i
 terms, the coefficients of a reaction norm) lists each level once per effect, and a
 \code{term} column after \code{id} says which effect the row belongs to, named as in the
 components (\code{animal}, \code{maternal}, \code{rn[0]}, \code{rn[1]}); \code{se} and \code{acc} are the ones of
-that effect. A group with one effect per level has no \code{term} column.
+that effect. A group with one effect per level has no \code{term} column. A group whose
+precision has latent levels besides the animals, \code{kernel(id, Kinv = dominance_inverse(ped))}, has a \code{type} column after \code{id} (and \code{term}), \code{"animal"},
+\code{"subclass"} or \code{"ancestral"}, and lists the animals first, each type sorted by \code{ebv}:
+the dominance deviations of the animals are ranked among themselves, not among the
+sire x dam effects.
 }
 \description{
 One call for what an evaluation is for. \code{ebv()} returns a named vector and \code{accuracy()}

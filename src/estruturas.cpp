@@ -133,6 +133,8 @@ void inversa_empacotada(const double* l, std::size_t n, double* z, int nth) {
       }
     }
   }
+  // entre as duas fases, fora das regioes paralelas
+  checa_interrupcao();
 #ifdef _OPENMP
 #pragma omp parallel for schedule(dynamic, 1) num_threads(nth)
 #endif

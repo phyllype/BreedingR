@@ -128,7 +128,7 @@ colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
 #' granddams is ignored, the assumption every program that offers the format makes
 #' (ASReml `!MGS`, DMU method 3). A declared grandsire pedigree does not combine with
 #' metafounders, with a `maternal()` term (the dam is not in it), with [partial_a()] or
-#' with [dominance_matrix()]; each of those is refused.
+#' with [dominance_matrix()] or [dominance_inverse()]; each of those is refused.
 #'
 #' With `dam =` the pedigree is MIXED, the file of a population where the dams of some
 #' animals are recorded and only the maternal grandsire of others: a row with a known dam

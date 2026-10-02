@@ -22,7 +22,7 @@ ARGS_MARCADOR <- local({
   list(animal = comum, maternal = comum, sire = c(comum, "mgs"), pe = comum, random = comum,
        cov = comum, rn = comum,
        indirect = c(comum, "pen", "dilution"),
-       kernel = c(comum, "K", "fixed"))
+       kernel = c(comum, "K", "Kinv", "fixed"))
 })
 
 #' Fit a mixed model by AI-REML
@@ -85,11 +85,29 @@ ARGS_MARCADOR <- local({
 #'   Pocrnic, 4th ed., p.243-244). An id absent from K altogether still excludes the
 #'   record, as with an animal missing from the pedigree: a zero row is a declaration,
 #'   an absence is a gap. Two kernel terms need `nome=` to tell their components apart.
-#'   The inversion of K is dense, so the declared route is for matrices of moderate
-#'   size, the size of a genotyped set, not of a national pedigree.
+#'   The inversion of K is dense, so `K =` is for matrices of moderate size, the size of
+#'   a genotyped set, not of a national pedigree.
+#'   `kernel(id, Kinv = Q)` declares the PRECISION instead, `Q = K^-1`, and nothing is
+#'   inverted: Q is the lower triangle in triplets, `list(i, j, x, n, id)` as
+#'   [a_inverse()] returns (`i >= j`), or a dense matrix with the level ids as dimnames.
+#'   It is the route of [dominance_inverse()], the sparse inverse of the dominance matrix
+#'   by sire x dam subclasses: `kernel(id, Kinv = dominance_inverse(ped))` has the
+#'   component, -2logL, score and average information of
+#'   `kernel(id, K = dominance_matrix(ped))` (what the tests check, and in which fitter,
+#'   is on the page of [dominance_inverse()]), with the subclass levels as latent effects,
+#'   so [ebv()] of the term returns one value per level, animals and pairs; the fit
+#'   carries `k_level_type`, the type of each level by term (`"animal"`, `"subclass"`,
+#'   `"ancestral"`), to tell them apart, and [solutions()] adds a `type` column and lists
+#'   the animals first. A record with an observed response of an animal that
+#'   `dominance_inverse(animals = )` left out is refused, not dropped, and so is a record
+#'   whose id is the label of a pair level. A dense `Kinv` follows the rules of a dense
+#'   `K` (square, named, symmetric, finite); the range, the lower triangle and the
+#'   finiteness of triplets are checked by the engine in one pass. Exactly one of `K`
+#'   and `Kinv` is given.
 #'   The marker arguments that take a value and not a column name, `base =`,
-#'   `dilution =`, `K =` and the `fixed =` of `kernel()` (which holds that term's variance
-#'   at the value given), are evaluated in the environment of the formula, the one where
+#'   `dilution =`, `K =`, `Kinv =` and the `fixed =` of `kernel()` (which holds that
+#'   term's variance at the value given), are evaluated in the environment of the formula,
+#'   the one where
 #'   it was written. A grid over `d` run as
 #'   `lapply(c(0, 0.5, 1), function(d) model(y ~ cg + animal(id, group = "g") +
 #'   indirect(id, pen = "pen", group = "g", dilution = d), data, ped))` finds its `d`, and
@@ -190,7 +208,9 @@ ARGS_MARCADOR <- local({
 #'   at least the core size plus one. The fill of the pedigree itself can add to it, and
 #'   in a small herd it dominates. With a `kernel()` term it carries `k_prior`, one
 #'   vector per kernel term, named by term, holding the diagonal of the declared K by
-#'   level: the prior variance [accuracy()] divides the PEV by. In a single step it
+#'   level: the prior variance [accuracy()] divides the PEV by. With a
+#'   `kernel(id, Kinv = dominance_inverse(ped))` term it also carries `k_level_type`, the
+#'   type of each level by term (`"animal"`, `"subclass"`, `"ancestral"`). In a single step it
 #'   carries `h_prior`, the diagonal of G* of each genotyped animal, named by animal, and
 #'   `h_prior_row`, the row of that animal in the pedigree the fit built: the prior
 #'   variance [accuracy()] uses for a genotyped animal instead of 1 + F. The object holds
@@ -262,7 +282,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
   w <- valida_pesos(weights, data)
-  kern <- monta_kernels(terms, environment(formula))
+  kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_ajustar,
@@ -300,6 +320,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   r$trait <- trait
   # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
   r$k_prior <- priori_kernels(terms, kern)
+  r$k_level_type <- tipos_kernels(terms, kern)
   structure(r, class = "breeding_fit")
 }
 
@@ -419,10 +440,17 @@ valida_pesos <- function(weights, data) {
 # formula and validates the shape the engine needs, square, named, symmetric, finite.
 # Positive-definiteness is left to the factorization, where the answer is exact instead of
 # a tolerance. Returns NULL when the model has no kernel term, so every fitter can pass
-# the result straight to .Call.
-monta_kernels <- function(terms, envir) {
+# the result straight to .Call. A kernel(id, Kinv=) term goes as the lower triangle of the
+# precision in triplets, list(ids, NULL, i, j, x, start_scale, logdet, signature, prior,
+# type); the engine reads the first eight. `data`, when given, is checked against the
+# animals a dominance_inverse(animals = ) left out, on the rows with an observed response
+# (`resp`, the response column(s), and `missing_code`).
+monta_kernels <- function(terms, envir, data = NULL, resp = NULL, missing_code = NULL) {
   out <- lapply(terms, function(t) {
     if (t$estrutura != 3L) return(NULL)
+    if (isTRUE(t$kinv))
+      return(monta_kinv(t, eval(t$kexpr, envir), data,
+                        linhas_com_resposta(data, resp, missing_code)))
     K <- eval(t$kexpr, envir)
     if (!is.matrix(K) || !is.numeric(K) || nrow(K) != ncol(K))
       stop("kernel '", t$nome, "': K must be a square numeric matrix")
@@ -443,6 +471,93 @@ monta_kernels <- function(terms, envir) {
     list(rotulo_motor(ids), K)
   })
   if (all(vapply(out, is.null, logical(1)))) NULL else out
+}
+
+# A PRECISAO declarada de um kernel(id, Kinv =), na convencao do k_inverse dos motores em R
+# (valida_k_inverse): triplos do triangulo inferior ou matriz densa com dimnames. O que vem
+# de dominance_inverse() traz junto a escala de partida, a priori de cada nivel (1 nos
+# animais, F_cc / 4 nas subclasses) e os animais que o animals = deixou de fora: um registro
+# de um deles sairia da analise calado, como nivel sem par na K, e aqui e erro.
+#
+# As conferencias que custam um vetor do tamanho de nnz (faixa de cada triplo, triangulo
+# inferior, valores finitos) ficam no motor (kernels_do_R), numa passada so: aqui, com uma
+# Kinv de 1e8 entradas, cada vetor logico temporario seria 400 MB a mais no pico.
+monta_kinv <- function(t, Ki, data, usadas) {
+  falha <- function(...) stop("kernel '", t$nome, "': ", ..., call. = FALSE)
+  lista <- is.list(Ki)
+  if (is.matrix(Ki)) {
+    # a densa segue as regras do K= denso: quadrada, nomeada, simetrica, finita
+    if (!is.numeric(Ki) || nrow(Ki) != ncol(Ki))
+      falha("a dense Kinv must be a square numeric matrix")
+    if (is.null(rownames(Ki)) || (!is.null(colnames(Ki)) &&
+                                  !identical(rownames(Ki), colnames(Ki))))
+      falha("a dense Kinv needs the level ids as rownames (and the same ids as colnames, ",
+            "if it has colnames)")
+    if (any(!is.finite(Ki))) falha("Kinv has non-finite value(s)")
+    assimetria <- max(abs(Ki - t(Ki)))
+    if (assimetria > 1e-8 * max(1, max(abs(Ki))))
+      falha("Kinv is not symmetric (largest asymmetry ", format(assimetria, digits = 3),
+            "). Symmetrize it explicitly: (Kinv + t(Kinv)) / 2")
+  } else if (!lista || !all(c("i", "j", "x", "n", "id") %in% names(Ki))) {
+    falha("Kinv must be a dense matrix with the ids as dimnames, or the triplets of its ",
+          "lower triangle, list(i, j, x, n, id), as a_inverse() and dominance_inverse() ",
+          "return them")
+  }
+  ki <- valida_k_inverse(Ki)
+  n <- as.integer(ki$n)
+  if (length(n) != 1L || is.na(n) || n < 1L || length(ki$id) != n)
+    falha("Kinv needs n and one id per row")
+  if (anyDuplicated(ki$id))
+    falha("duplicated id(s) in Kinv: ", paste(utils::head(unique(ki$id[duplicated(ki$id)]), 5),
+                                              collapse = ", "))
+  i <- as.integer(ki$i); j <- as.integer(ki$j); x <- as.double(ki$x)
+  if (length(i) != length(x) || length(j) != length(x))
+    falha("i, j and x of Kinv have different lengths")
+  fora_q <- if (lista) Ki$left_out else NULL
+  tipo <- if (lista && is.character(Ki$type) && length(Ki$type) == n) Ki$type else NULL
+  # OS REGISTROS QUE O MOTOR DESCARTARIA CALADO. Um nivel sem linha na K tira o registro da
+  # analise (a regra de kernel()); com uma Kinv de dominance_inverse(animals = ) isso e um
+  # animal que o animals = deixou de fora, e com um rotulo "pai x mae" nos dados seria o
+  # nivel LATENTE de uma subclasse recebendo o registro. Os dois sao erro, nos registros que
+  # entram na analise (resposta observada); o de resposta faltante sairia de todo jeito.
+  if (!is.null(data) && t$column %in% names(data) && (length(fora_q) || !is.null(tipo))) {
+    linha <- if (is.null(usadas)) seq_len(nrow(data)) else which(usadas)
+    rot <- rotulo_motor(data[[t$column]])[linha]
+    fora <- rot %in% fora_q
+    if (any(fora))
+      falha(sum(fora), " record(s) with an observed response belong to animals that ",
+            "dominance_inverse(animals = ) left out of the precision (first: '", rot[fora][1],
+            "', row ", linha[fora][1], "). The fit would drop them without notice: add ",
+            "them to animals =, or drop those rows")
+    lat <- if (is.null(tipo)) logical(length(rot)) else rot %in% ki$id[tipo != "animal"]
+    if (any(lat))
+      falha(sum(lat), " record(s) carry the label of a sire x dam pair level of Kinv ",
+            "(first: '", rot[lat][1], "', row ", linha[lat][1], "), not an animal id: a pair ",
+            "level is latent and takes no record")
+  }
+  num1 <- function(v) if (is.numeric(v) && length(v) == 1L) as.double(v) else NA_real_
+  # o log|K| pela forma fechada so vale com a assinatura dos triplos que o acompanha; o
+  # motor a confere e, se nao bater, fatora a Kinv como faria com qualquer outra precisao
+  ass <- if (lista && is.character(Ki$signature) && length(Ki$signature) == 1L &&
+             !is.na(Ki$signature)) Ki$signature else ""
+  priori <- if (lista && is.numeric(Ki$prior) && length(Ki$prior) == n)
+    unname(as.double(Ki$prior)) else NULL
+  list(ki$id, NULL, i, j, x, if (lista) num1(Ki$start_scale) else NA_real_,
+       if (lista) num1(Ki$logdet) else NA_real_, ass, priori, tipo)
+}
+
+# As linhas com alguma resposta observada (nem NA nem missing_code): sao as que entram na
+# analise. NULL sem dados; todas, quando a resposta nao e uma coluna dos dados.
+linhas_com_resposta <- function(data, resp, missing_code) {
+  if (is.null(data)) return(NULL)
+  resp <- intersect(resp, names(data))
+  if (!length(resp)) return(rep(TRUE, nrow(data)))
+  Reduce(`|`, lapply(resp, function(v) {
+    y <- data[[v]]
+    ok <- !is.na(y)
+    if (!is.null(missing_code) && is.numeric(y)) ok <- ok & y != as.double(missing_code)
+    ok
+  }))
 }
 
 # envir e o ambiente da formula, environment(formula): e nele que base=, dilution= e fixed=
@@ -604,11 +719,18 @@ interpreta_termo <- function(e, envir) {
   # possibly large matrix there would be work done for nobody.
   kexpr <- NULL
   kfixo <- NA_real_
+  kinv <- FALSE
   if (marc == "kernel") {
-    if (is.null(args[["K"]]))
-      stop("kernel() requires K = the covariance matrix of its levels: without a K, ",
-           "use animal() for the pedigree relationship or random() for the identity")
-    kexpr <- args[["K"]]
+    tem_k <- !is.null(args[["K"]])
+    kinv <- !is.null(args[["Kinv"]])
+    if (tem_k && kinv)
+      stop("kernel() takes K = (the covariance matrix) or Kinv = (its inverse, the ",
+           "precision), not both")
+    if (!tem_k && !kinv)
+      stop("kernel() requires K = the covariance matrix of its levels (or Kinv = its ",
+           "inverse): without one, use animal() for the pedigree relationship or random() ",
+           "for the identity")
+    kexpr <- if (kinv) args[["Kinv"]] else args[["K"]]
     # fixed = v HOLDS this term's variance component at v instead of estimating it. The
     # case that asks for it is a KNOWN error covariance: Var(y) = s2a A + s2env I + V_e
     # with V_e entering at coefficient 1. Left free, V_e and s2env are not simultaneously
@@ -629,7 +751,7 @@ interpreta_termo <- function(e, envir) {
   list(nome = nome, column = column, estrutura = estrutura,
        covariavel = marc == "cov", group = group, nested = nested, base = base,
        social = marc == "indirect", dilution = dilution, kexpr = kexpr, kfixo = kfixo,
-       marcador = marc, group_simbolo = is.name(args[["group"]]))
+       kinv = kinv, marcador = marc, group_simbolo = is.name(args[["group"]]))
 }
 
 # A formula que o ajuste GUARDA leva os valores de base=, dilution= e fixed= com que foi
@@ -738,7 +860,7 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
         gv$gid, gv$gm, as.double(blend),
         nucleo_apy(recusa_auto(apy_core), genotypes),
         if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
-        monta_kernels(terms, environment(formula)),
+        monta_kernels(terms, environment(formula), data, trait, missing_code),
         vapply(terms, function(t) t$dilution, numeric(1)))
 }
 
@@ -959,6 +1081,12 @@ print.summary.breeding_fit <- function(x, ...) {
 #'   inbred pedigree with a sire-daughter mating: 0.7282 where the right value is 0.6426
 #'   for the animals with F = 0.25). A K with a non-unit diagonal (a G with a ridge, a
 #'   scaled matrix) is divided by that diagonal.
+#' * a `kernel(id, Kinv = )` term: the diagonal of `K = Kinv^-1`. From
+#'   [dominance_inverse()] it comes ready in `prior`, 1 for an animal and `F_cc / 4` for a
+#'   sire x dam pair, so the animals get the same accuracy as with
+#'   `kernel(K = dominance_matrix(ped))`; for any other precision it is read from the
+#'   selective inverse of Kinv after the fit, one more factorization of Kinv (if that
+#'   fails, the fit is kept with a warning and the term has no accuracy).
 #' * a relationship term given its own inverse with `k_inverse =` in [model_threshold()]
 #'   or [model_survival()]: the diagonal of K, read from the selective inverse of the
 #'   declared K^-1 when the fit is built. An [h_inverse()] passed there follows the
@@ -1167,9 +1295,39 @@ priori_pedigree <- function(fit, pedigree, niveis) {
 # A priori de cada nivel de um termo kernel(): a diagonal da K declarada, nomeada pelo id
 # do nivel e guardada no ajuste pelo nome do termo, para accuracy() dividir a PEV pelo que
 # o nivel tem. Uma linha nula da K tem diagonal 0, mas esse nivel nao tem equacao nem PEV.
+# Numa precisao declarada (Kinv) e a diagonal de K = Kinv^-1: a que veio pronta (1 nos
+# animais e F_cc / 4 nas subclasses de dominance_inverse()), ou a da inversa seletiva.
 priori_kernels <- function(terms, kern) {
   if (is.null(kern)) return(NULL)
   tem <- !vapply(kern, is.null, logical(1))
-  stats::setNames(lapply(kern[tem], function(k) stats::setNames(diag(k[[2]]), k[[1]])),
+  nomes <- vapply(terms[tem], function(t) t$nome, character(1))
+  stats::setNames(Map(function(k, nome) {
+    if (!is.null(k[[2]])) return(stats::setNames(diag(k[[2]]), k[[1]]))
+    if (length(k) >= 9L && !is.null(k[[9]])) return(stats::setNames(k[[9]], k[[1]]))
+    # uma precisao generica: a diagonal de K pela inversa seletiva, uma fatoracao a mais
+    # depois do ajuste. Uma falha aqui (memoria) nao pode levar junto um ajuste ja feito:
+    # o termo fica sem priori, e accuracy() diz que falta.
+    kd <- rep(NA_real_, length(k[[1]]))
+    tryCatch({
+      si <- selected_inverse(list(i = k[[3]], j = k[[4]], x = k[[5]], n = length(k[[1]])))
+      d <- si$i == si$j
+      kd[si$i[d]] <- si$x[d]
+    }, error = function(e)
+      warning("kernel '", nome, "': the diagonal of K = Kinv^-1 could not be computed (",
+              conditionMessage(e), "); accuracy() will have no prior variance for this ",
+              "term", call. = FALSE))
+    stats::setNames(kd, k[[1]])
+  }, kern[tem], nomes), nomes)
+}
+
+# O tipo de cada nivel de um kernel(Kinv = dominance_inverse()): "animal", "subclass" ou
+# "ancestral", por termo, para separar os desvios dos animais dos efeitos de subclasse no
+# vetor de ebv(). NULL quando nenhum termo traz tipos.
+tipos_kernels <- function(terms, kern) {
+  if (is.null(kern)) return(NULL)
+  tem <- vapply(kern, function(k) !is.null(k) && length(k) >= 10L && !is.null(k[[10]]),
+                logical(1))
+  if (!any(tem)) return(NULL)
+  stats::setNames(lapply(kern[tem], function(k) stats::setNames(k[[10]], k[[1]])),
                   vapply(terms[tem], function(t) t$nome, character(1)))
 }

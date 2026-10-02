@@ -20,8 +20,27 @@
 #ifdef _OPENMP
 #include <omp.h>
 #endif
+#include <R_ext/Utils.h>
+#define R_NO_REMAP
+#include <Rinternals.h>
+#include <chrono>
 
 namespace br {
+
+// INTERRUPCAO do usuario (Ctrl-C, ou um setTimeLimit()) entre passos sequenciais longos. O
+// R_CheckUserInterrupt roda dentro de R_ToplevelExec, e a interrupcao volta como excecao
+// C++: o longjmp direto pularia os destrutores dos vetores vivos (o fator, o fecho de
+// pares), que ficariam alocados ate o fim do processo. Dentro de regiao paralela nao faz
+// nada, porque o R so pode ser chamado da thread principal.
+namespace {
+void checa_r(void*) { R_CheckUserInterrupt(); }
+}  // namespace
+void checa_interrupcao() {
+#ifdef _OPENMP
+  if (omp_in_parallel()) return;
+#endif
+  if (!R_ToplevelExec(checa_r, nullptr)) throw Interrompido();
+}
 
 // Triangulo superior, incluindo a diagonal.
 Csc triu(const Csc& a) {
@@ -189,6 +208,9 @@ bool fatora_cauda(Cauda& c, int nth) {
   // o painel da vez, empacotado por ladrilho de linhas (preenchido no passo 2)
   std::vector<double> painel(nb * LADRILHO * LADRILHO, 0.0);
   for (std::size_t kb = 0; kb < nb; kb++) {
+    // entre um painel e o proximo (fora das regioes paralelas): uma cauda de 15 mil colunas
+    // fatora em minutos
+    checa_interrupcao();
     const std::size_t k0 = kb * LADRILHO, k1 = std::min(T, k0 + LADRILHO);
     const std::size_t kw = k1 - k0;
     // 1. ladrilho da diagonal, serial (left-looking dentro dele)
@@ -372,7 +394,15 @@ bool cholesky(const Csc& au, const Simbolica& sb, Csc& L) {
   const bool hibrido = T_cauda >= CAUDA_MINIMA;
   const std::size_t base = hibrido ? n - T_cauda : n;
 
+  // a interrupcao e conferida pelo RELOGIO, olhado a cada 64 colunas: uma coluna custa de
+  // nada (A^-1) a muito (enchimento), e contar colunas daria intervalos de segundos a minutos
+  using relogio = std::chrono::steady_clock;
+  relogio::time_point prox_checa = relogio::now() + std::chrono::milliseconds(250);
   for (std::size_t k = 0; k < n; k++) {
+    if ((k & 63) == 0 && relogio::now() >= prox_checa) {
+      checa_interrupcao();
+      prox_checa = relogio::now() + std::chrono::milliseconds(250);
+    }
     const std::size_t topo = alcance(au, k, sb.pai, s, marca);
 
     if (k >= base) {
@@ -597,7 +627,8 @@ Csc permuta_sim(const Csc& a, const std::vector<std::size_t>& perm) {
 //
 // O grafo quociente e o que torna isto pagavel: uma variavel eliminada vira um ELEMENTO que
 // guarda o clique que ela criou, entao o preenchimento nunca e materializado.
-std::vector<std::size_t> grau_minimo(const Csc& a) {
+std::vector<std::size_t> grau_minimo(const Csc& a, double teto, double teto_trabalho,
+                                     double* trabalho) {
   const std::size_t n = a.ncol;
   std::vector<std::size_t> ordem;
   if (n == 0) return ordem;
@@ -630,11 +661,19 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
   std::size_t n_adiados = 0;
   auto ativo = [&](std::uint32_t j) { return vivo[j] && !adiado[j]; };
 
+  // TRABALHO: entradas de lista lidas (vizinhos, membros de elemento, absorcao, limpeza).
+  // E a medida deterministica do custo da ordenacao, que nao e a soma de c_j^2: num grafo de
+  // muito enchimento cada pivo rele elementos que se sobrepoem, e medido num pedigree de
+  // leitegadas a ordenacao andou a ~3e7 c_j^2 por segundo contra ~7e9 da fatoracao em
+  // ladrilhos. Serve ao teto de quem pede (teto_trabalho) e a checagem de interrupcao.
+  double trab = 0.0;
+
   // a lista de um elemento so perde membros (quem morre ou e adiado nao volta), entao ela
   // e compactada ao ser lida: cada entrada morta custa uma leitura so, e nao uma a cada
   // viz() e a cada checagem de absorcao que passar por ela
   auto compacta = [&](std::uint32_t e) {
     auto& l = le[e];
+    trab += static_cast<double>(l.size());
     l.erase(std::remove_if(l.begin(), l.end(), [&](std::uint32_t x) { return !ativo(x); }),
             l.end());
   };
@@ -644,9 +683,11 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
     selo++;
     std::vector<std::uint32_t> out;
     marca[i] = selo;
+    trab += static_cast<double>(av[i].size() + ev[i].size());
     for (std::uint32_t j : av[i]) if (ativo(j) && marca[j] != selo) { marca[j] = selo; out.push_back(j); }
     for (std::uint32_t e : ev[i]) {
       compacta(e);
+      trab += static_cast<double>(le[e].size());
       for (std::uint32_t j : le[e]) if (marca[j] != selo) { marca[j] = selo; out.push_back(j); }
     }
     return out;
@@ -762,7 +803,11 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
   // LENTA com enchimento identico. Com L_p grande vale o caminho antigo, exato.
   const std::size_t lp_pequeno = 32;
   std::vector<char> sujo(n, 0);
+  double acumulado = 0.0;
+  const double passo_checa = 6.4e7;
+  double prox_checa = passo_checa;
   auto limpa = [&](std::size_t i) {
+    trab += static_cast<double>(av[i].size() + ev[i].size());
     auto& a_i = av[i];
     a_i.erase(std::remove_if(a_i.begin(), a_i.end(),
                              [&](std::uint32_t x) { return !ativo(x); }), a_i.end());
@@ -801,7 +846,29 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
       break;
     }
 
+    // INTERRUPCAO e TETO DE TRABALHO, conferidos a cada pivo: um so pivo de um grafo de muito
+    // enchimento ja pode custar segundos, e a ordenacao inteira minutos
+    if (trab >= prox_checa) {
+      checa_interrupcao();
+      prox_checa = trab + passo_checa;
+    }
+    if (teto_trabalho > 0.0 && trab > teto_trabalho) {
+      if (trabalho) *trabalho = trab;
+      return std::vector<std::size_t>();
+    }
     std::vector<std::uint32_t> lp = viz(p);
+    // TETO de c_j^2 (so quem pede, a rota automatica da dominancia): |L_p| + 1 e a contagem
+    // da coluna p do fator SEM os adiados, entao a soma parcial de (|L_p| + 1)^2 nunca passa
+    // a soma de c_j^2 desta ordem. Passou do teto, a fatoracao custaria mais que o teto e a
+    // ordem nao interessa: devolve vazio.
+    if (teto > 0.0) {
+      const double c = static_cast<double>(lp.size()) + 1.0;
+      acumulado += c * c;
+      if (acumulado > teto) {
+        if (trabalho) *trabalho = trab;
+        return std::vector<std::size_t>();
+      }
+    }
     vivo[p] = 0;
     ordem.push_back(p);
     le[p] = lp;
@@ -841,9 +908,11 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
       e_i.erase(std::remove(e_i.begin(), e_i.end(), static_cast<std::uint32_t>(p)), e_i.end());
       e_i.push_back(static_cast<std::uint32_t>(p));
       // absorcao: um elemento cujos membros vivos ja estao dentro de L_p esta morto
+      trab += static_cast<double>(a_i.size() + e_i.size());
       e_i.erase(std::remove_if(e_i.begin(), e_i.end(), [&](std::uint32_t e) {
         if (e == p) return false;
         compacta(e);
+        trab += static_cast<double>(le[e].size());
         for (std::uint32_t x : le[e]) if (no_lp[x] != selo_lp) return false;
         return true;
       }), e_i.end());
@@ -862,6 +931,7 @@ std::vector<std::size_t> grau_minimo(const Csc& a) {
       if (b < lo) lo = b;
     }
   }
+  if (trabalho) *trabalho = trab;
   return ordem;
 }
 

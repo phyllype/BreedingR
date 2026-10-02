@@ -86,11 +86,13 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
     if (g.estrutura == Estrutura::Parentesco) {
       d.kinv.push_back(ainv);
       d.kinv_logdet.push_back(ld_ainv);
+      d.kinv_escala.push_back(0.0);
     } else if (g.estrutura == Estrutura::Declarada) {
-      kinv_declarada(m, g, kernels, d.kinv, d.kinv_logdet);
+      kinv_declarada(m, g, kernels, d.kinv, d.kinv_logdet, d.kinv_escala);
     } else {
       d.kinv.push_back(Csc());
       d.kinv_logdet.push_back(0.0);
+      d.kinv_escala.push_back(0.0);
     }
   }
 
@@ -349,7 +351,7 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
       // a mesma equivariancia da partida do multicaracter; o racional esta la
       double esc = 1.0;
       if (g.estrutura == Estrutura::Declarada && ig < d.kinv.size() && d.kinv[ig].ncol > 0) {
-        const double gm = std::exp(-d.kinv_logdet[ig] / static_cast<double>(d.kinv[ig].ncol));
+        const double gm = escala_kernel(d.kinv_escala, d.kinv_logdet, d.kinv, ig);
         if (std::isfinite(gm) && gm > 0.0) esc = gm;
       }
       ig++;

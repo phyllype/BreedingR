@@ -38,7 +38,7 @@ The inbreeding this gives is not the true inbreeding: every relationship through
 granddams is ignored, the assumption every program that offers the format makes
 (ASReml \code{!MGS}, DMU method 3). A declared grandsire pedigree does not combine with
 metafounders, with a \code{maternal()} term (the dam is not in it), with \code{\link[=partial_a]{partial_a()}} or
-with \code{\link[=dominance_matrix]{dominance_matrix()}}; each of those is refused.
+with \code{\link[=dominance_matrix]{dominance_matrix()}} or \code{\link[=dominance_inverse]{dominance_inverse()}}; each of those is refused.
 
 With \verb{dam =} the pedigree is MIXED, the file of a population where the dams of some
 animals are recorded and only the maternal grandsire of others: a row with a known dam

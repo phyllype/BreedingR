@@ -68,7 +68,8 @@
 #'   fixed-effect solutions `b` come named `term=level|trait`, one entry per column of X
 #'   and per trait. The parametrization note of [model()] applies: dropped columns are
 #'   in `dropped_x` and only contrasts compare against a reference-level convention.
-#'   `dense_block`, `h_prior`, `h_prior_row` and `k_prior` are as in [model()].
+#'   `dense_block`, `h_prior`, `h_prior_row`, `k_prior` and `k_level_type` are as in
+#'   [model()].
 #' @export
 model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                        apy_core = NULL, vecchia_k = NULL, missing_code = NULL,
@@ -110,7 +111,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
 
-  kern <- monta_kernels(terms, environment(formula))
+  kern <- monta_kernels(terms, environment(formula), data, traits, missing_code)
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_ajustar_mt,
@@ -149,6 +150,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   r$traits <- traits
   # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
   r$k_prior <- priori_kernels(terms, kern)
+  r$k_level_type <- tipos_kernels(terms, kern)
   structure(r, class = "breeding_fit_mt")
 }
 
@@ -201,7 +203,7 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
              rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
-             monta_kernels(terms, environment(formula)),
+             monta_kernels(terms, environment(formula), data, traits, missing_code),
              vapply(terms, function(t) t$dilution, numeric(1)))
 }
 

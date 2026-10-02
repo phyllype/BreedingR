@@ -47,7 +47,12 @@ eh_norma_reacao <- function(theta) any(grepl("\\[\\d+\\]", names(theta)))
 #'   terms, the coefficients of a reaction norm) lists each level once per effect, and a
 #'   `term` column after `id` says which effect the row belongs to, named as in the
 #'   components (`animal`, `maternal`, `rn[0]`, `rn[1]`); `se` and `acc` are the ones of
-#'   that effect. A group with one effect per level has no `term` column.
+#'   that effect. A group with one effect per level has no `term` column. A group whose
+#'   precision has latent levels besides the animals, `kernel(id, Kinv =
+#'   dominance_inverse(ped))`, has a `type` column after `id` (and `term`), `"animal"`,
+#'   `"subclass"` or `"ancestral"`, and lists the animals first, each type sorted by `ebv`:
+#'   the dominance deviations of the animals are ranked among themselves, not among the
+#'   sire x dam effects.
 #' @seealso [ebv()] and [accuracy()] for the pieces, [h2()] for the ratio
 #' @export
 solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
@@ -92,7 +97,35 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
       (length(pv) && (!eh_multicaracter(fit) || !is.null(trait)) &&
        acuracia_sem_pedigree(fit, g)))
     out$acc <- casa(accuracy(fit, pedigree, group = group, trait = trait))
-  out[order(out$ebv, decreasing = TRUE), , drop = FALSE]
+  # O TIPO DE CADA NIVEL numa precisao com niveis latentes (dominance_inverse()): os desvios
+  # dos animais e os efeitos de subclasse estao no mesmo vetor, e ordenar os dois juntos
+  # punha pares "pai x mae" no meio do ranking dos animais (medido no exemplo 13.1 de Mrode
+  # e Pocrnic: "3 x 4" em quarto lugar). A coluna `type` os separa e os animais vem primeiro.
+  tipo <- tipo_por_linha(fit, g, out$id, ef, trait)
+  if (is.null(tipo)) return(out[order(out$ebv, decreasing = TRUE), , drop = FALSE])
+  k <- if (is.null(ef)) 1L else 2L
+  out <- data.frame(out[seq_len(k)], type = tipo, out[-seq_len(k)], row.names = NULL,
+                    stringsAsFactors = FALSE)
+  out[order(match(tipo, c("animal", "subclass", "ancestral")), -out$ebv), , drop = FALSE]
+}
+
+# O tipo ("animal", "subclass", "ancestral") de cada linha de solutions(), pelo termo e pelo
+# nivel, de k_level_type. NULL quando o grupo nao tem termo com tipos, ou algum nivel fica
+# sem tipo (um ajuste que nao se deixa ler).
+tipo_por_linha <- function(fit, g, ids, ef, trait) {
+  if (!length(fit$k_level_type)) return(NULL)
+  termos <- tryCatch(termos_do_grupo(fit, g), error = function(e) NULL)
+  nomes <- vapply(termos, function(t) t$nome, character(1))
+  if (!length(nomes) || !any(nomes %in% names(fit$k_level_type))) return(NULL)
+  termo <- if (is.null(ef)) rep(nomes[1], length(ids)) else ef
+  # no multicaracter sem trait= o nome e "nivel|caracter"
+  nivel <- if (eh_multicaracter(fit) && is.null(trait)) sub("[|][^|]*$", "", ids) else ids
+  tipo <- rep(NA_character_, length(ids))
+  for (tm in unique(termo)) {
+    k <- termo == tm
+    tipo[k] <- unname(fit$k_level_type[[tm]][nivel[k]])
+  }
+  if (anyNA(tipo)) NULL else tipo
 }
 
 # O efeito de cada posicao do vetor de EBV de um grupo, com o nome do componente: o termo

@@ -89,6 +89,10 @@ plot.breeding_fit <- function(x, limits = NULL, ...) {
     return(invisible(cv))
   }
   e <- ebv(x)
+  # numa precisao com niveis latentes (dominance_inverse()) so os animais: os efeitos de
+  # subclasse estao em outra escala de variancia e nao sao valores de animal
+  tp <- x$k_level_type[[names(x$ebv)[1]]]
+  if (!is.null(tp)) e <- e[names(e) %in% names(tp)[tp == "animal"]]
   graphics::hist(e, breaks = 40, col = "grey80", border = "white",
                  xlab = "breeding value", main = paste("EBV -", names(x$ebv)[1]), ...)
   graphics::abline(v = 0, lty = 2)

@@ -82,11 +82,29 @@ the generalized-inverse pattern of the multibreed partial matrices (Mrode &
 Pocrnic, 4th ed., p.243-244). An id absent from K altogether still excludes the
 record, as with an animal missing from the pedigree: a zero row is a declaration,
 an absence is a gap. Two kernel terms need \verb{nome=} to tell their components apart.
-The inversion of K is dense, so the declared route is for matrices of moderate
-size, the size of a genotyped set, not of a national pedigree.
+The inversion of K is dense, so \verb{K =} is for matrices of moderate size, the size of
+a genotyped set, not of a national pedigree.
+\code{kernel(id, Kinv = Q)} declares the PRECISION instead, \code{Q = K^-1}, and nothing is
+inverted: Q is the lower triangle in triplets, \code{list(i, j, x, n, id)} as
+\code{\link[=a_inverse]{a_inverse()}} returns (\code{i >= j}), or a dense matrix with the level ids as dimnames.
+It is the route of \code{\link[=dominance_inverse]{dominance_inverse()}}, the sparse inverse of the dominance matrix
+by sire x dam subclasses: \code{kernel(id, Kinv = dominance_inverse(ped))} has the
+component, -2logL, score and average information of
+\code{kernel(id, K = dominance_matrix(ped))} (what the tests check, and in which fitter,
+is on the page of \code{\link[=dominance_inverse]{dominance_inverse()}}), with the subclass levels as latent effects,
+so \code{\link[=ebv]{ebv()}} of the term returns one value per level, animals and pairs; the fit
+carries \code{k_level_type}, the type of each level by term (\code{"animal"}, \code{"subclass"},
+\code{"ancestral"}), to tell them apart, and \code{\link[=solutions]{solutions()}} adds a \code{type} column and lists
+the animals first. A record with an observed response of an animal that
+\code{dominance_inverse(animals = )} left out is refused, not dropped, and so is a record
+whose id is the label of a pair level. A dense \code{Kinv} follows the rules of a dense
+\code{K} (square, named, symmetric, finite); the range, the lower triangle and the
+finiteness of triplets are checked by the engine in one pass. Exactly one of \code{K}
+and \code{Kinv} is given.
 The marker arguments that take a value and not a column name, \verb{base =},
-\verb{dilution =}, \verb{K =} and the \verb{fixed =} of \code{kernel()} (which holds that term's variance
-at the value given), are evaluated in the environment of the formula, the one where
+\verb{dilution =}, \verb{K =}, \verb{Kinv =} and the \verb{fixed =} of \code{kernel()} (which holds that
+term's variance at the value given), are evaluated in the environment of the formula,
+the one where
 it was written. A grid over \code{d} run as
 \code{lapply(c(0, 0.5, 1), function(d) model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "pen", group = "g", dilution = d), data, ped))} finds its \code{d}, and
 so does a formula built in one function and fitted in another. The fit keeps in
@@ -203,7 +221,9 @@ step without \verb{apy_core =}, \code{k} is at least the number of genotyped ani
 at least the core size plus one. The fill of the pedigree itself can add to it, and
 in a small herd it dominates. With a \code{kernel()} term it carries \code{k_prior}, one
 vector per kernel term, named by term, holding the diagonal of the declared K by
-level: the prior variance \code{\link[=accuracy]{accuracy()}} divides the PEV by. In a single step it
+level: the prior variance \code{\link[=accuracy]{accuracy()}} divides the PEV by. With a
+\code{kernel(id, Kinv = dominance_inverse(ped))} term it also carries \code{k_level_type}, the
+type of each level by term (\code{"animal"}, \code{"subclass"}, \code{"ancestral"}). In a single step it
 carries \code{h_prior}, the diagonal of G* of each genotyped animal, named by animal, and
 \code{h_prior_row}, the row of that animal in the pedigree the fit built: the prior
 variance \code{\link[=accuracy]{accuracy()}} uses for a genotyped animal instead of 1 + F. The object holds

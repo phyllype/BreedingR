@@ -77,7 +77,54 @@ void imprime_theta(const std::vector<double>&, const std::vector<std::string>&,
                    const Modelo&);
 Csc a_inversa(const Pedigree&, const std::vector<double>&);
 
+// ---- dominancia.cpp
+// A precisao da dominancia aumentada por subclasses pai x mae (Hoeschele e VanRaden 1991, na
+// forma geral): niveis 0..n_q-1 sao os animais de Q, n_q.. os pares (subclasses cheias e, na
+// rota esparsa, os pares do fecho que sobreviveram a eliminacao). Ver dominancia.cpp.
+struct DominanciaInversa {
+  std::vector<std::size_t> animal;          // linha no pedigree de cada animal de Q
+  std::vector<std::int64_t> par_x, par_y;   // linhas do pedigree de cada par, x <= y
+  std::vector<char> par_cheio;              // e a subclasse de algum animal de Q
+  std::vector<double> priori_h;             // F_cc / 4, a variancia a priori do par
+  Csc q;                                    // triangulo inferior de Q
+  double logdet_k = 0.0;                    // log|K_aug| pela forma fechada
+  double logdet_qhh = 0.0;                  // log|Q_hh|
+  double logdet_d = 0.0;                    // log|D| = log|K_aug| + log|Q_hh|
+  int rota = 0;                             // 1 densa, 2 esparsa
+  std::size_t n_sub = 0, n_criados = 0, n_processados = 0;
+  bool fecho_abortado = false;
+  // soma de c_j^2 do fator das MME de referencia de cada rota, e o custo que a rota automatica
+  // compara (a parte esparsa pesando mais que a cauda densa; ver dominancia.cpp)
+  double flops_densa = std::numeric_limits<double>::quiet_NaN();
+  double flops_esparsa = std::numeric_limits<double>::quiet_NaN();
+  double custo_densa = std::numeric_limits<double>::quiet_NaN();
+  double custo_esparsa = std::numeric_limits<double>::quiet_NaN();
+  // segundos de relogio: fecho de pares, decisao da rota automatica e montagem de Q
+  double seg_fecho = 0.0, seg_decisao = 0.0, seg_montagem = 0.0;
+  // a decisao da rota automatica: o motivo (ver dominancia.cpp, Motivo), o trabalho da
+  // ordenacao da candidata esparsa e o teto dele, o pico estimado de montar Q pela densa e os
+  // triplos que cada rota monta no bloco de pares de Q (o que a saida M_MEMORIA compara)
+  int motivo = 0;
+  double trabalho_ordem = std::numeric_limits<double>::quiet_NaN();
+  double trabalho_densa = std::numeric_limits<double>::quiet_NaN();
+  double teto_trabalho = std::numeric_limits<double>::quiet_NaN();
+  double bytes_densa = std::numeric_limits<double>::quiet_NaN();
+  double entradas_densa = std::numeric_limits<double>::quiet_NaN();
+  double entradas_esparsa = std::numeric_limits<double>::quiet_NaN();
+};
+// em_q: um por animal do pedigree; rota 0 automatica, 1 densa, 2 esparsa
+DominanciaInversa dominancia_inversa(const Pedigree&, const std::vector<char>& em_q, int rota,
+                                     double max_pares);
+
 // ---- linalg.cpp
+// interrupcao do usuario como excecao C++, so fora de regiao paralela. NAO deriva de Erro de
+// proposito: varios lacos tratam um Erro de inversao como theta inadmissivel e seguem
+// (catch (const Erro&)), e ali a interrupcao seria engolida. A casca (GUARDA) pega toda
+// std::exception e a devolve ao R como erro.
+struct Interrompido : std::runtime_error {
+  Interrompido() : std::runtime_error("interrupted (Ctrl-C or a time limit)") {}
+};
+void checa_interrupcao();
 struct Simbolica {
   std::vector<std::int64_t> pai;
   std::vector<std::size_t> colptr;
@@ -138,7 +185,11 @@ Csc permuta_sim(const Csc&, const std::vector<std::size_t>&);
 const Csc& permuta_cache(const Csc&, CacheSimbolica& cs);
 // assinatura (FNV-1a) do padrao de uma CSC: dimensoes, colptr e linhas
 std::uint64_t assinatura_padrao(const Csc&);
-std::vector<std::size_t> grau_minimo(const Csc&);
+// teto > 0: desiste (devolve vazio) quando a soma parcial de c_j^2 da ordem passa dele;
+// teto_trabalho > 0: desiste quando as entradas de lista lidas passam dele. trabalho, se dado,
+// recebe as entradas lidas (a medida deterministica do custo da ordenacao)
+std::vector<std::size_t> grau_minimo(const Csc&, double teto = 0.0, double teto_trabalho = 0.0,
+                                     double* trabalho = nullptr);
 
 // ---- selinv.cpp
 struct SelInv {
@@ -165,8 +216,30 @@ SelInv inversa_seletiva(const Csc&, std::size_t);
 struct KernelDecl {
   std::vector<std::string> ids;
   Densa k;
+  // a PRECISAO declarada (kernel(id, Kinv =)): o triangulo inferior de K^-1, ja esparso. O
+  // caso que pede isto e a dominancia por subclasses (dominance_inverse()), em que a K
+  // densa nunca existe; a rota densa de cima fica intocada.
+  bool esparsa = false;
+  Csc kinv;
+  // escala de PARTIDA dos espelhos e do gibbs: a media geometrica dos autovalores da matriz
+  // que o usuario passaria como K. Na precisao aumentada da dominancia ela e a de D, nao a
+  // de K_aug (que tem os niveis de subclasse), e e o que faz kernel(Kinv =) partir do mesmo
+  // ponto de kernel(K = D). 0 = tirar do log|K^-1| como sempre.
+  double escala = 0.0;
+  // log|K^-1| dado pronto (o de dominance_inverse(), pela forma fechada), so aceito quando a
+  // assinatura dos triplos confere: poupa a ordenacao e a Cholesky de kinv_declarada. NaN =
+  // calcular pela Cholesky esparsa.
+  double logdet_kinv = std::numeric_limits<double>::quiet_NaN();
   bool vazia() const { return ids.empty(); }
 };
+
+// a escala de partida de um grupo declarado: a do KernelDecl quando veio, senao a media
+// geometrica dos autovalores de K, exp(-log|K^-1| / n), tirada do log-determinante guardado
+inline double escala_kernel(const std::vector<double>& esc, const std::vector<double>& ld,
+                            const std::vector<Csc>& kinv, std::size_t g) {
+  if (g < esc.size() && esc[g] > 0.0) return esc[g];
+  return std::exp(-ld[g] / static_cast<double>(kinv[g].ncol));
+}
 
 // ---- o desenho completo
 struct Desenho {
@@ -177,6 +250,7 @@ struct Desenho {
   std::vector<DesenhoTermo> aleatorios;
   std::vector<Csc> kinv;
   std::vector<double> kinv_logdet;
+  std::vector<double> kinv_escala;   // escala de partida por grupo (0 = do log-determinante)
   std::vector<double> y;
   std::vector<char> usa;
   std::size_t nlin = 0;
@@ -235,7 +309,7 @@ std::vector<DesenhoTermo> monta_aleatorios(const Modelo& m, const Tabela& t,
 void confere_covariancias_iid(const Modelo& m, const std::vector<DesenhoTermo>& aleatorios,
                               const std::vector<char>& usa);
 void kinv_declarada(const Modelo&, const Grupo&, const std::vector<KernelDecl>*,
-                    std::vector<Csc>&, std::vector<double>&);
+                    std::vector<Csc>&, std::vector<double>&, std::vector<double>&);
 Montado monta_mme(const Desenho&, const std::vector<double>&, CacheSimbolica* = nullptr);
 Densa cov_grupo(const Modelo&, const std::vector<double>&, std::size_t);
 
@@ -411,6 +485,8 @@ struct LanczosG {
 };
 LanczosG lanczos_g(const Genotipos& gt, const Densa& sondas, std::size_t passos, RelatorioG& rel);
 Densa a22_inversa(const Csc&, const std::vector<std::size_t>&);
+// A entre os animais dados (linhas do pedigree), por Colleau: uma coluna por thread, dono unico
+Densa a22_colleau(const Pedigree& p, const std::vector<std::size_t>& geno);
 Csc a22_inversa_esparsa(const Csc&, const std::vector<std::size_t>&);
 Densa ajusta_g_para_a22(const Densa&, const Densa&, double);
 Csc constroi_hinv(const Csc&, const std::vector<std::size_t>&, const Densa&, const Densa&);
@@ -466,6 +542,7 @@ struct GibbsSaida {
   std::size_t n_amostras = 0, ntheta = 0;
   std::vector<double> amostras;    // n_amostras x ntheta, por linha
   std::vector<double> media_loc, var_loc;
+  std::vector<double> partida;     // theta com que a cadeia comeca (a primeira iteracao)
   std::string mensagem;
 };
 // priori das variancias, a mesma em todo grupo e no residuo: 0 Jeffreys (1/s2, o padrao),
@@ -500,6 +577,7 @@ struct DesenhoMT {
   std::vector<DesenhoTermo> aleatorios;
   std::vector<Csc> kinv;
   std::vector<double> kinv_logdet;
+  std::vector<double> kinv_escala;   // escala de partida por grupo (0 = do log-determinante)
   Densa y;
   std::vector<char> usa;
   // obs[r*t + tau]: a caracteristica tau foi observada no registro r. Um registro pode
@@ -589,6 +667,7 @@ struct DesenhoAR {
   std::vector<DesenhoTermo> aleatorios;
   std::vector<Csc> kinv;
   std::vector<double> kinv_logdet;
+  std::vector<double> kinv_escala;   // escala de partida por grupo (0 = do log-determinante)
   Densa y;                          // nlin x t
   std::vector<char> usa;
   std::size_t nlin = 0;

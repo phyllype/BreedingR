@@ -527,7 +527,7 @@ static void colleau_aplica(const Pedigree& p, const Colleau& c, std::vector<doub
   }
 }
 
-static Densa a22_colleau(const Pedigree& p, const std::vector<std::size_t>& geno) {
+Densa a22_colleau(const Pedigree& p, const std::vector<std::size_t>& geno) {
   const std::size_t n = p.ids.size(), n2 = geno.size();
   const Colleau cl = prepara_colleau(p);
   Densa out(n2, n2);

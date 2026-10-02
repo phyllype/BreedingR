@@ -95,7 +95,8 @@ an object of class \code{breeding_fit_mt}; besides the fields of \code{\link[=mo
 fixed-effect solutions \code{b} come named \code{term=level|trait}, one entry per column of X
 and per trait. The parametrization note of \code{\link[=model]{model()}} applies: dropped columns are
 in \code{dropped_x} and only contrasts compare against a reference-level convention.
-\code{dense_block}, \code{h_prior}, \code{h_prior_row} and \code{k_prior} are as in \code{\link[=model]{model()}}.
+\code{dense_block}, \code{h_prior}, \code{h_prior_row}, \code{k_prior} and \code{k_level_type} are as in
+\code{\link[=model]{model()}}.
 }
 \description{
 Fits a multi-trait mixed model by AI-REML

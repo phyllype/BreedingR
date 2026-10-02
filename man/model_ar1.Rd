@@ -114,9 +114,10 @@ is never a result: a step that leaves the interval is rejected like any
 inadmissible theta. The fixed-effect solutions come in \code{b}, named \code{term=level}
 (with \verb{|trait} appended under \code{cbind()}); the parametrization note of \code{\link[=model]{model()}}
 applies -- dropped columns are in \code{dropped_x} and only contrasts compare against a
-reference-level convention. \code{dense_block}, \code{h_prior}, \code{h_prior_row} and \code{k_prior}
-are as in \code{\link[=model]{model()}}: in a single step, \code{\link[=accuracy]{accuracy()}} divides a genotyped animal by its
-diagonal of G* and not by 1 + F, and a \code{kernel()} level by its diagonal of K
+reference-level convention. \code{dense_block}, \code{h_prior}, \code{h_prior_row}, \code{k_prior} and
+\code{k_level_type} are as in \code{\link[=model]{model()}}: in a single step, \code{\link[=accuracy]{accuracy()}} divides a
+genotyped animal by its diagonal of G* and not by 1 + F, and a \code{kernel()} level by
+its diagonal of K
 }
 \description{
 Fits a model with AR(1)/CAR(1) residual by AI-REML

@@ -131,11 +131,13 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
     if (g.estrutura == Estrutura::Parentesco) {
       d.kinv.push_back(ainv);
       d.kinv_logdet.push_back(ld_ainv);
+      d.kinv_escala.push_back(0.0);
     } else if (g.estrutura == Estrutura::Declarada) {
-      kinv_declarada(m, g, kernels, d.kinv, d.kinv_logdet);
+      kinv_declarada(m, g, kernels, d.kinv, d.kinv_logdet, d.kinv_escala);
     } else {
       d.kinv.push_back(Csc());
       d.kinv_logdet.push_back(0.0);
+      d.kinv_escala.push_back(0.0);
     }
   }
 
@@ -284,9 +286,11 @@ static std::vector<double> partida_mt(const DesenhoMT& d) {
     // e o caminho e o mesmo. So a K declarada precisa disso; A tem diagonal ~1 e a
     // diagonal e I, e mexer nelas so deslocaria ajustes que ja estao certos.
     double esc = 1.0;
+    // Numa precisao aumentada (dominance_inverse()) a escala vem pronta no KernelDecl: a
+    // media geometrica dos autovalores de D, nao a de K_aug com os niveis de subclasse, para
+    // que kernel(Kinv =) parta do MESMO ponto de kernel(K = D).
     if (g.estrutura == Estrutura::Declarada && ig < d.kinv.size() && d.kinv[ig].ncol > 0) {
-      const double n = static_cast<double>(d.kinv[ig].ncol);
-      const double gm = std::exp(-d.kinv_logdet[ig] / n);
+      const double gm = escala_kernel(d.kinv_escala, d.kinv_logdet, d.kinv, ig);
       if (std::isfinite(gm) && gm > 0.0) esc = gm;
     }
     ig++;

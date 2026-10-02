@@ -8,6 +8,7 @@
 
 #include "mme.h"
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <unordered_map>
 
@@ -63,6 +64,36 @@ static SEXP csc_para_R(const br::Csc& m) {
   return out;
 }
 
+// ASSINATURA de uma precisao em triplos (FNV-1a sobre palavras de 64 bits: a dimensao, (i, j)
+// e os bits de x na ordem dos triplos, e por fim os bits do log|K|). Nao e criptografica: so
+// diz se os triplos e o log|K| que voltam num kernel(Kinv =) sao os que dominance_inverse()
+// devolveu, para que o log|K| pela forma fechada possa ser usado sem refatorar Q. Qualquer
+// mudanca, nos triplos (reordenacao inclusive) ou no log|K|, cai na Cholesky.
+struct Assinatura {
+  std::uint64_t h = 1469598103934665603ULL;
+  void palavra(std::uint64_t w) {
+    h ^= w;
+    h *= 1099511628211ULL;
+  }
+  void triplo(int i, int j, double x) {
+    std::uint64_t bx;
+    std::memcpy(&bx, &x, sizeof bx);
+    palavra((static_cast<std::uint64_t>(static_cast<std::uint32_t>(i)) << 32) |
+            static_cast<std::uint32_t>(j));
+    palavra(bx);
+  }
+  void real(double x) {
+    std::uint64_t bx;
+    std::memcpy(&bx, &x, sizeof bx);
+    palavra(bx);
+  }
+  std::string hex() const {
+    char b[24];
+    std::snprintf(b, sizeof b, "%016llx", static_cast<unsigned long long>(h));
+    return b;
+  }
+};
+
 // Converte a excecao do dominio em condicao do R.
 //
 // Variadica de proposito: chaves NAO protegem virgulas no preprocessador, so parenteses. Com
@@ -71,8 +102,10 @@ static SEXP csc_para_R(const br::Csc& m) {
 // versao deste arquivo.
 //
 // Rf_error faz longjmp, entao nada que precise de destrutor pode estar vivo quando ele
-// dispara: a mensagem e copiada para um buffer ANTES de sair do bloco try.
-#define GUARDA(...)                                                              char msg__[512];                                                               msg__[0] = 0;                                                                  try { __VA_ARGS__ }                                                            catch (const std::exception& e) {                                                std::snprintf(msg__, sizeof msg__, "%s", e.what());                          }                                                                              catch (...) { std::snprintf(msg__, sizeof msg__, "unknown error"); }       Rf_error("%s", msg__);
+// dispara: a mensagem e copiada para um buffer ANTES de sair do bloco try. 2048 e nao 512:
+// com ids de 36 caracteres (UUID) a recusa do Delta da dominancia saia cortada no meio do
+// remedio, que e a parte que importa.
+#define GUARDA(...)                                                              char msg__[2048];                                                               msg__[0] = 0;                                                                  try { __VA_ARGS__ }                                                            catch (const std::exception& e) {                                                std::snprintf(msg__, sizeof msg__, "%s", e.what());                          }                                                                              catch (...) { std::snprintf(msg__, sizeof msg__, "unknown error"); }       Rf_error("%s", msg__);
 
 static std::vector<std::string> textos(SEXP v, const char* quem) {
   if (TYPEOF(v) != STRSXP) Rf_error("%s: expected a text vector", quem);
@@ -339,6 +372,99 @@ SEXP R_a_inversa(SEXP id, SEXP pai, SEXP mae, SEXP mfx, SEXP gmx) {
   )
 }
 
+// A precisao aumentada da dominancia por subclasses (dominancia.cpp). Devolve os triplos do
+// triangulo inferior de Q (base 1) e o que o R precisa para nomear e documentar os niveis.
+SEXP R_dominancia_inversa(SEXP id, SEXP pai, SEXP mae, SEXP em_q, SEXP rota, SEXP max_pares) {
+  GUARDA(
+    auto i = textos(id, "id");
+    auto p = textos(pai, "sire");
+    auto m = textos(mae, "dam");
+    br::Pedigree ped = br::constroi_pedigree(i, p, m);
+    std::vector<std::string> quem = textos(em_q, "animals");
+    std::vector<char> flag(ped.ids.size(), quem.empty() ? 1 : 0);
+    if (!quem.empty()) {
+      std::unordered_map<std::string, std::size_t> pos;
+      for (std::size_t t = 0; t < ped.ids.size(); t++) pos.emplace(ped.ids[t], t);
+      for (const std::string& a : quem) {
+        auto it = pos.find(a);
+        if (it == pos.end())
+          throw br::Erro("animal '" + a + "' of animals = is not in the pedigree");
+        flag[it->second] = 1;
+      }
+    }
+    br::DominanciaInversa r = br::dominancia_inversa(ped, flag, Rf_asInteger(rota),
+                                                     Rf_asReal(max_pares));
+    SEXP tq = PROTECT(csc_para_R(r.q));
+    const R_xlen_t na = static_cast<R_xlen_t>(r.animal.size());
+    const R_xlen_t nh = static_cast<R_xlen_t>(r.par_x.size());
+    SEXP ids = PROTECT(Rf_allocVector(STRSXP, static_cast<R_xlen_t>(ped.ids.size())));
+    for (std::size_t t = 0; t < ped.ids.size(); t++)
+      SET_STRING_ELT(ids, static_cast<R_xlen_t>(t), Rf_mkChar(ped.ids[t].c_str()));
+    SEXP an = PROTECT(Rf_allocVector(INTSXP, na));
+    for (R_xlen_t t = 0; t < na; t++) INTEGER(an)[t] = static_cast<int>(r.animal[t]) + 1;
+    SEXP px = PROTECT(Rf_allocVector(INTSXP, nh));
+    SEXP py = PROTECT(Rf_allocVector(INTSXP, nh));
+    SEXP pc = PROTECT(Rf_allocVector(LGLSXP, nh));
+    SEXP ph = PROTECT(Rf_allocVector(REALSXP, nh));
+    for (R_xlen_t t = 0; t < nh; t++) {
+      INTEGER(px)[t] = static_cast<int>(r.par_x[t]) + 1;
+      INTEGER(py)[t] = static_cast<int>(r.par_y[t]) + 1;
+      LOGICAL(pc)[t] = r.par_cheio[t] ? 1 : 0;
+      REAL(ph)[t] = r.priori_h[t];
+    }
+    SEXP num = PROTECT(Rf_allocVector(REALSXP, 21));
+    REAL(num)[0] = r.logdet_k;
+    REAL(num)[1] = r.logdet_qhh;
+    REAL(num)[2] = r.logdet_d;
+    REAL(num)[3] = static_cast<double>(r.rota);
+    REAL(num)[4] = static_cast<double>(r.n_sub);
+    REAL(num)[5] = static_cast<double>(r.n_criados);
+    REAL(num)[6] = static_cast<double>(r.n_processados);
+    REAL(num)[7] = r.flops_densa;
+    REAL(num)[8] = r.flops_esparsa;
+    REAL(num)[9] = r.custo_densa;
+    REAL(num)[10] = r.custo_esparsa;
+    REAL(num)[11] = r.seg_fecho;
+    REAL(num)[12] = r.seg_decisao;
+    REAL(num)[13] = r.seg_montagem;
+    REAL(num)[14] = static_cast<double>(r.motivo);
+    REAL(num)[15] = r.trabalho_ordem;
+    REAL(num)[16] = r.teto_trabalho;
+    REAL(num)[17] = r.bytes_densa;
+    REAL(num)[18] = r.entradas_densa;
+    REAL(num)[19] = r.entradas_esparsa;
+    REAL(num)[20] = r.trabalho_densa;
+    Assinatura as;
+    {
+      const R_xlen_t nz = XLENGTH(VECTOR_ELT(tq, 2));
+      const int* qi = INTEGER(VECTOR_ELT(tq, 0));
+      const int* qj = INTEGER(VECTOR_ELT(tq, 1));
+      const double* qx = REAL(VECTOR_ELT(tq, 2));
+      as.palavra(static_cast<std::uint64_t>(r.q.ncol));
+      for (R_xlen_t t = 0; t < nz; t++) as.triplo(qi[t], qj[t], qx[t]);
+      as.real(r.logdet_k);
+    }
+    const char* campos[] = {"q", "pedigree_id", "animal_row", "pair_x", "pair_y", "pair_full",
+                            "pair_prior", "num", "aborted", "signature"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 10));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 10));
+    for (int q = 0; q < 10; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    SET_VECTOR_ELT(out, 0, tq);
+    SET_VECTOR_ELT(out, 1, ids);
+    SET_VECTOR_ELT(out, 2, an);
+    SET_VECTOR_ELT(out, 3, px);
+    SET_VECTOR_ELT(out, 4, py);
+    SET_VECTOR_ELT(out, 5, pc);
+    SET_VECTOR_ELT(out, 6, ph);
+    SET_VECTOR_ELT(out, 7, num);
+    SET_VECTOR_ELT(out, 8, Rf_ScalarLogical(r.fecho_abortado ? 1 : 0));
+    SET_VECTOR_ELT(out, 9, Rf_mkString(as.hex().c_str()));
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(10);
+    return out;
+  )
+}
+
 // Inversa de uma simetrica positiva-definida, pela Cholesky em bloco.
 SEXP R_inv_pd(SEXP m) {
   GUARDA(
@@ -575,6 +701,15 @@ static br::Tabela tabela_do_R(SEXP dados, SEXP nomes) {
 // Kernels declarados (kernel(id, K=)): lista PARALELA aos termos, NULL para termo comum e
 // list(ids, K) para termo kernel. A matriz cruza como Densa (o R guarda por COLUNA e a
 // Densa por LINHA), e a validacao de forma acontece aqui, antes de qualquer conta.
+//
+// A PRECISAO declarada (kernel(id, Kinv=)) cruza como list(ids, NULL, i, j, x, escala,
+// logdet, assinatura, ...): os triplos base 1 do triangulo INFERIOR de K^-1 (i >= j, a
+// convencao de a_inverse()), a escala de partida (0 ou NA = tirar do log|K^-1|), o log|K|
+// pela forma fechada (NA = nenhum) e a assinatura dos triplos que o acompanha ("" = nenhuma).
+// O log|K| so e aceito se a assinatura dos triplos recebidos for a mesma. Duplicados se
+// somam, como no A^-1. Os triplos de dominance_inverse() ja vem ordenados por coluna e linha,
+// e entao a Csc e montada direto, sem as copias de trabalho de de_triplos (36 bytes por
+// entrada a menos no pico de um ajuste).
 static std::vector<br::KernelDecl> kernels_do_R(SEXP kern) {
   std::vector<br::KernelDecl> out;
   if (Rf_isNull(kern)) return out;
@@ -584,6 +719,83 @@ static std::vector<br::KernelDecl> kernels_do_R(SEXP kern) {
   for (R_xlen_t k = 0; k < nt; k++) {
     SEXP e = VECTOR_ELT(kern, k);
     if (Rf_isNull(e)) continue;
+    if (TYPEOF(e) == VECSXP && XLENGTH(e) >= 8 && Rf_isNull(VECTOR_ELT(e, 1))) {
+      auto ids = textos(VECTOR_ELT(e, 0), "kernel ids");
+      SEXP ti = VECTOR_ELT(e, 2), tj = VECTOR_ELT(e, 3), tx = VECTOR_ELT(e, 4);
+      SEXP te = VECTOR_ELT(e, 5), tl = VECTOR_ELT(e, 6), ts = VECTOR_ELT(e, 7);
+      const int termo = (int) k + 1;
+      if (TYPEOF(ti) != INTSXP || TYPEOF(tj) != INTSXP || TYPEOF(tx) != REALSXP ||
+          TYPEOF(te) != REALSXP || XLENGTH(te) != 1 || TYPEOF(tl) != REALSXP ||
+          XLENGTH(tl) != 1 || TYPEOF(ts) != STRSXP || XLENGTH(ts) != 1)
+        throw br::Erro("kernel of term " + std::to_string(termo) + ": expected list(ids, NULL, "
+                       "i, j, x, scale, logdet, signature)");
+      const R_xlen_t nz = XLENGTH(tx);
+      if (XLENGTH(ti) != nz || XLENGTH(tj) != nz)
+        throw br::Erro("kernel of term " + std::to_string(termo) + ": i, j and x of Kinv with "
+                       "different lengths");
+      const std::size_t nk = ids.size();
+      const int* pi = INTEGER(ti);
+      const int* pj = INTEGER(tj);
+      const double* px = REAL(tx);
+      // uma passada: confere, assina e ve se ja esta em ordem de coluna e linha sem repetir
+      Assinatura as;
+      as.palavra(static_cast<std::uint64_t>(nk));
+      bool em_ordem = true;
+      int ai = 0, aj = 0;
+      for (R_xlen_t t = 0; t < nz; t++) {
+        const int a = pi[t], b = pj[t];
+        if (a == NA_INTEGER || b == NA_INTEGER || a < 1 || b < 1 ||
+            (std::size_t) a > nk || (std::size_t) b > nk)
+          throw br::Erro("kernel of term " + std::to_string(termo) + ": a Kinv triplet outside "
+                         "the " + std::to_string(nk) + " x " + std::to_string(nk) + " matrix");
+        if (a < b)
+          throw br::Erro("kernel of term " + std::to_string(termo) + ": Kinv triplets must be "
+                         "the lower triangle, i >= j (the convention of a_inverse()); entry (" +
+                         std::to_string(a) + ", " + std::to_string(b) + ") is above the diagonal");
+        if (!std::isfinite(px[t]))
+          throw br::Erro("kernel of term " + std::to_string(termo) + ": Kinv has a non-finite "
+                         "value");
+        if (em_ordem && t > 0 && !(b > aj || (b == aj && a > ai))) em_ordem = false;
+        ai = a;
+        aj = b;
+        as.triplo(a, b, px[t]);
+      }
+      br::KernelDecl& kd = out[(std::size_t) k];
+      kd.esparsa = true;
+      if (em_ordem) {
+        br::Csc c(nk, nk);
+        c.linha.resize(static_cast<std::size_t>(nz));
+        c.valor.resize(static_cast<std::size_t>(nz));
+        for (R_xlen_t t = 0; t < nz; t++) {
+          c.colptr[static_cast<std::size_t>(pj[t])]++;
+          c.linha[static_cast<std::size_t>(t)] = static_cast<std::uint32_t>(pi[t] - 1);
+          c.valor[static_cast<std::size_t>(t)] = px[t];
+        }
+        for (std::size_t q = 0; q < nk; q++) c.colptr[q + 1] += c.colptr[q];
+        kd.kinv = std::move(c);
+      } else {
+        std::vector<std::uint32_t> li, cj;
+        std::vector<double> v;
+        li.reserve(static_cast<std::size_t>(nz));
+        cj.reserve(static_cast<std::size_t>(nz));
+        v.reserve(static_cast<std::size_t>(nz));
+        for (R_xlen_t t = 0; t < nz; t++) {
+          li.push_back(static_cast<std::uint32_t>(pi[t] - 1));
+          cj.push_back(static_cast<std::uint32_t>(pj[t] - 1));
+          v.push_back(px[t]);
+        }
+        kd.kinv = br::de_triplos(nk, nk, li, cj, v);
+      }
+      const double esc = REAL(te)[0];
+      kd.escala = (std::isfinite(esc) && esc > 0.0) ? esc : 0.0;
+      const double ld = REAL(tl)[0];
+      as.real(ld);
+      if (std::isfinite(ld) && STRING_ELT(ts, 0) != NA_STRING &&
+          as.hex() == CHAR(STRING_ELT(ts, 0)))
+        kd.logdet_kinv = -ld;
+      kd.ids = std::move(ids);
+      continue;
+    }
     if (TYPEOF(e) != VECSXP || XLENGTH(e) != 2)
       Rf_error("kernel of term %d: expected list(ids, K)", (int) k + 1);
     auto ids = textos(VECTOR_ELT(e, 0), "kernel ids");
@@ -676,6 +888,9 @@ SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     std::vector<br::KernelDecl> ks = kernels_do_R(kern);
     br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw,
                                       ks.empty() ? nullptr : &ks);
+    // os kernels ja estao no desenho (a K^-1 de cada grupo vai em d.kinv): a copia de
+    // entrada sai aqui, antes das MME e do fator, e nao fica no pico do ajuste
+    std::vector<br::KernelDecl>().swap(ks);
     std::vector<double> th(REAL(theta), REAL(theta) + XLENGTH(theta));
     if (th.size() != m.ntheta) Rf_error("theta with %d entries; the layout asks for %d",
                                         (int) th.size(), (int) m.ntheta);
@@ -742,11 +957,15 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     std::vector<br::KernelDecl> ks = kernels_do_R(kern);
     br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw,
                                       ks.empty() ? nullptr : &ks);
+    // os kernels ja estao no desenho (a K^-1 de cada grupo vai em d.kinv): a copia de
+    // entrada sai aqui, antes das MME e do fator, e nao fica no pico do ajuste
+    std::vector<br::KernelDecl>().swap(ks);
     // so quando os componentes andam: em maxiter = 0 e n_em = 0 o theta e dado
     if (Rf_asInteger(maxiter) > 0 || Rf_asInteger(n_em) > 0)
       br::confere_covariancias_iid(d.modelo, d.aleatorios, d.usa);
 
-    std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk,                                           &diag_h_geno, &linha_h_geno);
+    std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk,
+                                           &diag_h_geno, &linha_h_geno);
 
     std::vector<double> th0;
     if (XLENGTH(inicio) > 0) {
@@ -941,6 +1160,9 @@ SEXP R_avaliar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     std::vector<std::string> alv = textos(alvos, "traits");
     std::vector<br::KernelDecl> kd = kernels_do_R(kern);
     br::DesenhoMT d = br::monta_desenho_mt(m, alv, t, pp, &kd);
+    // os kernels ja estao no desenho (a K^-1 de cada grupo vai em d.kinv): a copia de
+    // entrada sai aqui, antes das MME e do fator, e nao fica no pico do ajuste
+    std::vector<br::KernelDecl>().swap(kd);
     std::vector<double> th(REAL(theta), REAL(theta) + XLENGTH(theta));
     if (th.size() != d.modelo.ntheta)
       Rf_error("theta with %d entries; the layout asks for %d", (int) th.size(),
@@ -994,6 +1216,9 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     std::vector<std::string> alv = textos(alvos, "traits");
     std::vector<br::KernelDecl> kd = kernels_do_R(kern);
     br::DesenhoMT d = br::monta_desenho_mt(m, alv, t, pp, &kd);
+    // os kernels ja estao no desenho (a K^-1 de cada grupo vai em d.kinv): a copia de
+    // entrada sai aqui, antes das MME e do fator, e nao fica no pico do ajuste
+    std::vector<br::KernelDecl>().swap(kd);
     if (Rf_asInteger(maxiter) > 0)
       br::confere_covariancias_iid(d.modelo, d.aleatorios, d.usa);
 
@@ -1151,6 +1376,9 @@ SEXP R_avaliar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     br::DesenhoAR d = br::monta_desenho_ar1(m, alv, t, pp,
                                             CHAR(STRING_ELT(sujeito, 0)),
                                             CHAR(STRING_ELT(tempo, 0)), &kd);
+    // os kernels ja estao no desenho (a K^-1 de cada grupo vai em d.kinv): a copia de
+    // entrada sai aqui, antes das MME e do fator, e nao fica no pico do ajuste
+    std::vector<br::KernelDecl>().swap(kd);
     std::vector<double> th(REAL(theta), REAL(theta) + XLENGTH(theta));
     if (th.size() != d.modelo.ntheta)
       Rf_error("theta with %d entries; the layout asks for %d", (int) th.size(),
@@ -1201,6 +1429,9 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     br::DesenhoAR d = br::monta_desenho_ar1(m, alv, t, pp,
                                             CHAR(STRING_ELT(sujeito, 0)),
                                             CHAR(STRING_ELT(tempo, 0)), &kd);
+    // os kernels ja estao no desenho (a K^-1 de cada grupo vai em d.kinv): a copia de
+    // entrada sai aqui, antes das MME e do fator, e nao fica no pico do ajuste
+    std::vector<br::KernelDecl>().swap(kd);
     if (Rf_asInteger(maxiter) > 0)
       br::confere_covariancias_iid(d.modelo, d.aleatorios, d.usa);
 
@@ -1351,6 +1582,9 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
     }
     std::vector<br::KernelDecl> kd = kernels_do_R(kern);
     br::Desenho d = br::monta_desenho(m, t, pp, nullptr, kd.empty() ? nullptr : &kd);
+    // os kernels ja estao no desenho (a K^-1 de cada grupo vai em d.kinv): a copia de
+    // entrada sai aqui, antes das MME e do fator, e nao fica no pico do ajuste
+    std::vector<br::KernelDecl>().swap(kd);
     // a cadeia amostra os componentes, salvo com theta_fixed =
     if (XLENGTH(theta_fixo) == 0) br::confere_covariancias_iid(d.modelo, d.aleatorios, d.usa);
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
@@ -1434,11 +1668,14 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
     for (std::size_t k = 0; k < d.saiu_x.size(); k++)
       SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
 
+    SEXP part = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) S.partida.size()));
+    for (std::size_t k = 0; k < S.partida.size(); k++) REAL(part)[k] = S.partida[k];
+    if (S.partida.size() == S.ntheta) Rf_setAttrib(part, R_NamesSymbol, Rf_duplicate(nms_t));
     const char* campos[] = {"samples", "names", "ebv", "ebv_sd", "message", "n_used",
-                            "b", "b_sd", "dropped_x", "dense_block"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 10));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 10));
-    for (int q = 0; q < 10; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "b", "b_sd", "dropped_x", "dense_block", "start"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 11));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 11));
+    for (int q = 0; q < 11; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     SET_VECTOR_ELT(out, 9, sexp_bloco_denso(S.bloco_denso, S.colunas_fator));
     SET_VECTOR_ELT(out, 0, amostras);
     SET_VECTOR_ELT(out, 1, nms_t);
@@ -1449,8 +1686,9 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
     SET_VECTOR_ELT(out, 6, bfix);
     SET_VECTOR_ELT(out, 7, bsd);
     SET_VECTOR_ELT(out, 8, saiu);
+    SET_VECTOR_ELT(out, 10, part);
     Rf_setAttrib(out, R_NamesSymbol, nms);
-    UNPROTECT(11);
+    UNPROTECT(12);
     return out;
   )
 }
@@ -1864,6 +2102,7 @@ SEXP R_threads(SEXP n, SEXP lapack) {
 static const R_CallMethodDef metodos[] = {
   {"R_pedigree",   (DL_FUNC) &R_pedigree,   5},
   {"R_a_inversa",  (DL_FUNC) &R_a_inversa,  5},
+  {"R_dominancia_inversa", (DL_FUNC) &R_dominancia_inversa, 6},
   {"R_h_inversa",  (DL_FUNC) &R_h_inversa, 10},
   {"R_inv_pd",       (DL_FUNC) &R_inv_pd,       1},
   {"R_chol_esparsa", (DL_FUNC) &R_chol_esparsa, 5},

@@ -61,6 +61,12 @@ fit carries. With \code{K = dominance_matrix(ped)} on an inbred pedigree the dia
 inbred pedigree with a sire-daughter mating: 0.7282 where the right value is 0.6426
 for the animals with F = 0.25). A K with a non-unit diagonal (a G with a ridge, a
 scaled matrix) is divided by that diagonal.
+\item a \code{kernel(id, Kinv = )} term: the diagonal of \code{K = Kinv^-1}. From
+\code{\link[=dominance_inverse]{dominance_inverse()}} it comes ready in \code{prior}, 1 for an animal and \code{F_cc / 4} for a
+sire x dam pair, so the animals get the same accuracy as with
+\code{kernel(K = dominance_matrix(ped))}; for any other precision it is read from the
+selective inverse of Kinv after the fit, one more factorization of Kinv (if that
+fails, the fit is kept with a warning and the term has no accuracy).
 \item a relationship term given its own inverse with \verb{k_inverse =} in \code{\link[=model_threshold]{model_threshold()}}
 or \code{\link[=model_survival]{model_survival()}}: the diagonal of K, read from the selective inverse of the
 declared K^-1 when the fit is built. An \code{\link[=h_inverse]{h_inverse()}} passed there follows the

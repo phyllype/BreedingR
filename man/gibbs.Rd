@@ -122,8 +122,9 @@ samples matrix (kept iterations x parameters), posterior \code{mean} and \code{s
 effective sample sizes, Geweke z, and the posterior mean/sd of every random effect
 (\code{ebv}, \code{ebv_sd}), and of every fixed effect (\code{b}, \code{b_sd}, named \code{term=level} as in
 \code{\link[=model]{model()}}, whose parametrization note applies: dropped columns are in \code{dropped_x}
-and only contrasts compare against a reference-level convention), and
-\code{dense_block} as in \code{\link[=model]{model()}}
+and only contrasts compare against a reference-level convention), \code{dense_block}
+and \code{k_level_type} as in \code{\link[=model]{model()}}, and \code{start}, the components the chain starts
+from (the first chain's, with several)
 }
 \description{
 Gibbs sampler for a single-trait mixed model

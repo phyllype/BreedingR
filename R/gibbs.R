@@ -75,8 +75,9 @@
 #'   effective sample sizes, Geweke z, and the posterior mean/sd of every random effect
 #'   (`ebv`, `ebv_sd`), and of every fixed effect (`b`, `b_sd`, named `term=level` as in
 #'   [model()], whose parametrization note applies: dropped columns are in `dropped_x`
-#'   and only contrasts compare against a reference-level convention), and
-#'   `dense_block` as in [model()]
+#'   and only contrasts compare against a reference-level convention), `dense_block`
+#'   and `k_level_type` as in [model()], and `start`, the components the chain starts
+#'   from (the first chain's, with several)
 #' @param verbose print the chain as it runs, the iteration count every so often, so a
 #'   long chain is a progress report instead of silence. Defaults to interactive(),
 #'   live in a session and quiet in scripts and checks. Every fitter also honors Ctrl+C now
@@ -165,7 +166,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # a cadeia roda num trabalhador PSOCK, e uma formula escrita no ambiente global chega la
   # apontando para o global DO TRABALHADOR, onde o K nao existe (medido: "object 'Kp' not
   # found" com chains = 2, cores = 2). Avaliado uma vez, tambem nao se refaz por cadeia.
-  kern <- monta_kernels(terms, environment(formula))
+  kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
   t0 <- proc.time()[["elapsed"]]
   # uma cadeia: com semente propria quando ha varias (sorteada do gerador de quem chama,
   # entao set.seed() governa tudo e a ordem de execucao nao muda nada)
@@ -236,6 +237,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   r$formula <- formula_resolvida(formula, terms)
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
+  r$k_level_type <- tipos_kernels(terms, kern)
   structure(r, class = "breeding_gibbs")
 }
 

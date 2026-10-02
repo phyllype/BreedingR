@@ -59,9 +59,10 @@
 #'   inadmissible theta. The fixed-effect solutions come in `b`, named `term=level`
 #'   (with `|trait` appended under `cbind()`); the parametrization note of [model()]
 #'   applies -- dropped columns are in `dropped_x` and only contrasts compare against a
-#'   reference-level convention. `dense_block`, `h_prior`, `h_prior_row` and `k_prior`
-#'   are as in [model()]: in a single step, [accuracy()] divides a genotyped animal by its
-#'   diagonal of G* and not by 1 + F, and a `kernel()` level by its diagonal of K
+#'   reference-level convention. `dense_block`, `h_prior`, `h_prior_row`, `k_prior` and
+#'   `k_level_type` are as in [model()]: in a single step, [accuracy()] divides a
+#'   genotyped animal by its diagonal of G* and not by 1 + F, and a `kernel()` level by
+#'   its diagonal of K
 #' @param verbose print the fit as it walks: one line per AI iteration with the
 #'   -2logL and the relative step, so a long fit is a progress report instead of
 #'   silence. The relative step is half of the convergence criterion; the Newton
@@ -126,7 +127,7 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
 
-  kern <- monta_kernels(terms, environment(formula))
+  kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_ajustar_ar1,
@@ -166,6 +167,7 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
   r$trait <- trait
   # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
   r$k_prior <- priori_kernels(terms, kern)
+  r$k_level_type <- tipos_kernels(terms, kern)
   structure(r, class = "breeding_fit_ar1")
 }
 
@@ -223,7 +225,7 @@ eval_internal_ar1 <- function(formula, data, pedigree = NULL, subject, time, the
              rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
-             monta_kernels(terms, environment(formula)),
+             monta_kernels(terms, environment(formula), data, trait, missing_code),
              vapply(terms, function(t) t$dilution, numeric(1)))
 }
 

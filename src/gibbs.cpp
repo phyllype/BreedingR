@@ -135,13 +135,17 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
   const std::size_t ntheta = d.modelo.ntheta;
   // partida: var(y) repartida, como no REML; num grupo de K DECLARADA a parte dele e
   // dividida pela media geometrica dos autovalores de K (a mesma conta dos espelhos,
-  // multitrait2.cpp), o que torna a cadeia EQUIVARIANTE: com cK a partida cai por c.
+  // multitrait2.cpp), o que torna a cadeia EQUIVARIANTE: com cK a partida cai por c. Numa
+  // precisao aumentada (kernel(Kinv = dominance_inverse())) a escala vem pronta, a de D e
+  // nao a de K_aug, e a cadeia parte do mesmo ponto de kernel(K = D). As prioris agem em
+  // sigma2 e nao dependem de K: a posteriori e a mesma, so a partida e a mistura (com os
+  // niveis de subclasse latentes a mais) mudam.
   std::vector<double> theta = partida(d);
   for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
     const Grupo& gr = d.modelo.grupos[g];
     if (gr.estrutura != Estrutura::Declarada || g >= d.kinv.size() || d.kinv[g].ncol == 0)
       continue;
-    const double gm = std::exp(-d.kinv_logdet[g] / static_cast<double>(d.kinv[g].ncol));
+    const double gm = escala_kernel(d.kinv_escala, d.kinv_logdet, d.kinv, g);
     if (std::isfinite(gm) && gm > 0.0)
       for (std::size_t i = 0; i < gr.dim; i++) theta[gr.theta_idx(i, i)] /= gm;
   }
@@ -153,6 +157,9 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
   // kernel(fixed = v): o componente preso comeca no valor pedido e nao e amostrado
   for (std::size_t k = 0; k < ntheta; k++)
     if (d.modelo.preso(k)) theta[k] = d.modelo.theta_fixo[k];
+  // a partida vai no resultado: e o que confere que uma precisao declarada parte do mesmo
+  // ponto da K densa equivalente
+  S.partida = theta;
   if (priori.tipo == 2)
     for (const Grupo& gr : d.modelo.grupos)
       if (gr.dim > 1)

@@ -41,11 +41,31 @@ void reduz_kernels(const Modelo& m, const std::vector<KernelDecl>*& kernels,
                    std::vector<KernelDecl>& kern_red,
                    std::vector<std::unordered_set<std::string> >& kern_nulos) {
   if (!kernels) return;
+  kern_nulos.assign(kernels->size(), std::unordered_set<std::string>());
+  // A COPIA so quando alguma K densa tem linha nula a tirar. Copiar sempre duplicava toda K
+  // e toda precisao declarada (a Csc de uma Kinv de dezenas de milhoes de entradas inclusive)
+  // so para olhar as linhas, e quase nunca ha o que tirar.
+  bool reduz = false;
+  for (std::size_t k = 0; k < kernels->size() && !reduz; k++) {
+    const KernelDecl& kd = (*kernels)[k];
+    if (kd.vazia() || kd.esparsa) continue;
+    const std::size_t nk = kd.ids.size();
+    if (kd.k.nlin != nk || kd.k.ncol != nk) continue;
+    for (std::size_t i = 0; i < nk && !reduz; i++) {
+      bool zera = true;
+      for (std::size_t j = 0; j < nk && zera; j++)
+        if (kd.k.at(i, j) != 0.0) zera = false;
+      // a diagonal zero com covariancias nao nulas e erro, e o laco de baixo o declara
+      if (zera || kd.k.at(i, i) == 0.0) reduz = true;
+    }
+  }
+  if (!reduz) return;
   kern_red = *kernels;
-  kern_nulos.assign(kern_red.size(), std::unordered_set<std::string>());
   for (std::size_t k = 0; k < kern_red.size(); k++) {
     KernelDecl& kd = kern_red[k];
-    if (kd.vazia()) continue;
+    // uma PRECISAO declarada (Kinv) nao tem linha nula a reduzir: uma linha zero numa K^-1
+    // seria variancia infinita, e a Cholesky de kinv_declarada a recusa
+    if (kd.vazia() || kd.esparsa) continue;
     const std::size_t nk = kd.ids.size();
     if (kd.k.nlin != nk || kd.k.ncol != nk) continue;  // shape falha adiante, com erro
     std::vector<char> nulo(nk, 0);
@@ -332,11 +352,13 @@ void confere_covariancias_iid(const Modelo& m, const std::vector<DesenhoTermo>& 
 // positividade e da mesma convencao de triangulo, divergindo com o tempo.
 void kinv_declarada(const Modelo& mo, const Grupo& g,
                     const std::vector<KernelDecl>* kernels,
-                    std::vector<Csc>& kinv, std::vector<double>& kinv_logdet) {
+                    std::vector<Csc>& kinv, std::vector<double>& kinv_logdet,
+                    std::vector<double>& kinv_escala) {
         // K DECLARADA (kernel): a matriz veio pronta do usuario, D de dominancia, G_AA de
         // epistasia, uma parcial por raca. A inversao aqui e DENSA de proposito: a K
-        // declarada tem o tamanho do problema que o usuario montou, e a rota esparsa para D
-        // de pedigree grande (Hoeschele & VanRaden 1991) segue por fazer.
+        // declarada tem o tamanho do problema que o usuario montou. A rota esparsa e a da
+        // PRECISAO declarada (kernel(id, Kinv =)), que chega pronta, como a da dominancia
+        // por subclasses (Hoeschele e VanRaden 1991) de dominance_inverse().
         if (!kernels)
           throw Erro("a kernel() term declares its own covariance matrix, and this fitting "
                      "route does not carry it: kernel() reaches model(), model_mt() and "
@@ -356,13 +378,56 @@ void kinv_declarada(const Modelo& mo, const Grupo& g,
             throw Erro("term '" + nome_do(tk) +
                        "' is declared kernel and no K reached the engine");
           const KernelDecl& c = (*kernels)[tk];
+          // a MESMA matriz em todo termo do grupo: os ids e, conforme a entrada, a K densa ou
+          // a K^-1 esparsa inteira (padrao e valores). Com a entrada esparsa a K densa e vazia
+          // nos dois termos, e comparar so ela deixaria passar duas Kinv diferentes.
           if (!kd) kd = &c;
-          else if (kd->ids != c.ids || kd->k.dados != c.k.dados)
+          else if (kd->ids != c.ids || kd->esparsa != c.esparsa ||
+                   kd->k.dados != c.k.dados || kd->kinv.colptr != c.kinv.colptr ||
+                   kd->kinv.linha != c.kinv.linha || kd->kinv.valor != c.kinv.valor)
             throw Erro("group '" + g.nome + "' has kernel() terms with different K: the "
                        "penalty of a group is a single kron(C, K); give the terms the same "
                        "K or separate groups");
         }
         const std::size_t nk = kd->ids.size();
+        if (kd->esparsa) {
+          // PRECISAO DECLARADA: a K^-1 ja e a penalidade. So falta log|K^-1|, pela mesma
+          // Cholesky esparsa das MME, com a mesma folga relativa da rota densa: pivo^2 abaixo
+          // de 1e-12 da maior diagonal e singular para todos os efeitos.
+          const Csc& ki = kd->kinv;
+          if (ki.nlin != nk || ki.ncol != nk)
+            throw Erro("kernel Kinv of " + std::to_string(ki.nlin) + " x " +
+                       std::to_string(ki.ncol) + " for " + std::to_string(nk) + " ids");
+          // log|K^-1| PRONTO: o de dominance_inverse(), pela forma fechada, aceito em
+          // kernels_do_R so quando a assinatura dos triplos confere. Poupa uma ordenacao e uma
+          // Cholesky de Q inteira por ajuste (medido: 38 s numa Q de 20 mil niveis de uma
+          // rota esparsa de leitegadas) e as duas copias de Q que elas pedem. A positividade
+          // vem da construcao (todo Delta > 0, F positiva-definida).
+          if (std::isfinite(kd->logdet_kinv)) {
+            kinv.push_back(ki);
+            kinv_logdet.push_back(kd->logdet_kinv);
+            kinv_escala.push_back(kd->escala);
+            return;
+          }
+          const std::vector<std::size_t> perm = grau_minimo(ki);
+          const Csc pa = permuta_sim(ki, perm);
+          const Simbolica sb = simbolica(pa);
+          Csc L;
+          const bool pd = cholesky(pa, sb, L);
+          double piv_min = std::numeric_limits<double>::infinity(), dmax = 0.0;
+          for (std::size_t j = 0; pd && j < nk; j++) {
+            const double ljj = L.valor[L.colptr[j]];
+            piv_min = std::min(piv_min, ljj * ljj);
+            dmax = std::max(dmax, ki.get(j, j));
+          }
+          if (!pd || !(piv_min > 1e-12 * dmax))
+            throw Erro("the Kinv of term '" + nome_do(g.termos[0]) + "' is not "
+                       "positive-definite" + std::string(pd ? " (numerically singular)" : ""));
+          kinv.push_back(ki);
+          kinv_logdet.push_back(logdet(L));
+          kinv_escala.push_back(kd->escala);
+          return;
+        }
         if (kd->k.nlin != nk || kd->k.ncol != nk)
           throw Erro("kernel K of " + std::to_string(kd->k.nlin) + " x " +
                      std::to_string(kd->k.ncol) + " for " + std::to_string(nk) + " ids");
@@ -399,6 +464,7 @@ void kinv_declarada(const Modelo& mo, const Grupo& g,
         kinv.push_back(de_triplos(nk, nk, li, cj, v));
         // o campo guarda log|K^-1|, e |K^-1| = 1/|K|
         kinv_logdet.push_back(-ldk);
+        kinv_escala.push_back(kd->escala);
 }
 
 void imprime_theta(const std::vector<double>& th, const std::vector<std::string>& nomes,
@@ -861,11 +927,13 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
     if (g.estrutura == Estrutura::Parentesco) {
       d.kinv.push_back(ainv);
       d.kinv_logdet.push_back(ld_ainv);
+      d.kinv_escala.push_back(0.0);
     } else if (g.estrutura == Estrutura::Declarada) {
-      kinv_declarada(m, g, kernels, d.kinv, d.kinv_logdet);
+      kinv_declarada(m, g, kernels, d.kinv, d.kinv_logdet, d.kinv_escala);
     } else {
       d.kinv.push_back(Csc());
       d.kinv_logdet.push_back(0.0);
+      d.kinv_escala.push_back(0.0);
     }
   }
 

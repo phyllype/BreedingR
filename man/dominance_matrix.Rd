@@ -22,10 +22,12 @@ the pedigree the off-diagonals are the classic approximation, not an exact ident
 }
 \details{
 The matrix is DENSE and is built from the full tabular A, so this is for pedigrees of
-moderate size, the toy and research scale where dominance is actually estimated, not
-a national evaluation. The family-structured inverse of Hoeschele & VanRaden (1991),
-which the book itself flags as probably superseded by the genomic D (p.230), is not
-implemented.
+moderate size. For a large pedigree use \code{\link[=dominance_inverse]{dominance_inverse()}}, the sparse inverse of
+the same D by sire x dam subclasses (Hoeschele & VanRaden, 1991, generalized to
+inbreeding and overlapping generations), which enters the model as
+\code{kernel(id, Kinv = dominance_inverse(ped))} with the same likelihood as
+\code{kernel(id, K = dominance_matrix(ped))} whenever that representation exists (see
+its page).
 }
 \examples{
 ped <- data.frame(animal = c("1", "2", "3", "4"),
