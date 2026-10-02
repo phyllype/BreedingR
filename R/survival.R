@@ -61,13 +61,55 @@
 #' `lambda` is the same parameter as the intercept (`intercept = rho * log(lambda)`,
 #' Eqn 16.3): estimating it adds the intercept column, giving it fixes the baseline
 #' and removes the intercept, so the reference classes sit at risk 1 -- the convention
-#' of Example 16.1, which fixes `rho = 1` and `lambda = 1`. The frailty variance
-#' `sigma2` is estimated by maximizing the Laplace approximation of the marginal
-#' likelihood -- the frailty is integrated at its conditional mode, the fixed effects
-#' and `rho` are profiled -- because the marginal has no closed form here and the
-#' package's AI-REML machinery needs a Gaussian residual this model does not have.
-#' Give `sigma2=` to skip that (the book's route: its example takes the variance as
-#' known).
+#' of Example 16.1, which fixes `rho = 1` and `lambda = 1`. The frailty components are
+#' estimated as the MAXIMUM of the Laplace approximation of the marginal likelihood
+#' (the frailties are integrated at their conditional mode, the fixed effects and `rho`
+#' are profiled), the very `marginal_loglik` the fit reports, because the marginal has
+#' no closed form here and the package's AI-REML machinery needs a Gaussian residual
+#' this model does not have: [stats::optimize()] in the log of the variance when there
+#' is one component, Nelder-Mead and Newton steps on a numerical Hessian (log variances,
+#' inverse hyperbolic tangent of the correlations) when there are several. As in
+#' [model_threshold()], a correlation at or near +-1 is profiled instead of given a
+#' delta-method standard error, a variance the data do not tell apart from zero (the
+#' -2logL at 1e-6 within 0.01 of its value at the estimate) is held at its estimate
+#' without a standard error, a curvature that is singular in some combination of the
+#' components withholds the standard errors that depend on it and keeps the others, an
+#' inner fit that does not converge counts as an inadmissible point, and an `indirect()`
+#' term whose pens all hold one animal is refused. Give `sigma2=` to skip the estimation
+#' (the book's route: its example takes the variance as known). There is no residual
+#' variance, so neither [h2()] nor [t2()] has a denominator here. MEASURED BIAS, at
+#' prototype scale only (2329 records, one per animal, 40% censored, 8 replicates;
+#' `validation/indirect_threshold_survival_recovery.R`): the direct frailty variance ran
+#' low, 0.195 (SE 0.016) against 0.25 without `indirect()` and 0.207 (SE 0.015) with it,
+#' so the indirect term added no bias of its own (paired +0.012, SE 0.014).
+#'
+#' SEVERAL FRAILTY TERMS AND INDIRECT EFFECTS. The linear predictor takes any number of
+#' random terms, as in [model()]: a sire and a herd-year frailty, or indirect genetic
+#' effects on the log-hazard of animals kept in groups,
+#' `animal(id, group = "g") + indirect(id, pen = "pen", group = "g", dilution = d)`,
+#' where record i receives `(n_i - 1)^(-d) sum_j a_S,j` over its distinct pen mates and
+#' the direct and indirect frailties share one 2x2 matrix. (Ellen et al. 2010 reached
+#' this model in two steps, a survival analysis and then a linear associative model,
+#' because the survival software of the time took no associative effect.) The pen is
+#' labelled as the engine labels it, and a pen that is NA, NaN, Inf, blank text or the
+#' text "NaN" is refused with its row. Add `random(pen)` for the frailty shared by the
+#' pen; left out, it is absorbed by the indirect variance. A frailty other than
+#' `indirect()` belongs to the subject, so with elementary records an animal that moves
+#' to another pen cannot carry a `random(pen)` frailty (refused), while its indirect
+#' effect follows it into both pens. With elementary records, `mates = "all"` (the
+#' default) keeps every animal that was ever in the pen as a mate on every piece, culled
+#' and dead ones included, with the dilution of the whole pen. That is the choice the
+#' literature supports: Ask et al. (2020; pigs, daily gain) found that omitting culled
+#' animals, or weighting their indirect effects by the time they spent in the pen,
+#' reduced predictive ability, and Brinker et al. (2015; laying hens) found that making
+#' the indirect effect of a mate stop at its death reduced EBV accuracy compared with an
+#' analysis of survival time. `mates = "present"` is that time-dependent alternative:
+#' each piece keeps only the mates with a piece of their own that overlaps it, and the
+#' dilution uses their number (this weight is the package's choice, the group-size
+#' dilution of Bijma 2010 applied to the mates present; it is not taken from Brinker et
+#' al.). With it, cut the records where the composition of the pen changes, so that each
+#' piece has one set of mates: a mate whose last piece ends at t is absent from a piece
+#' that starts at t, since pieces are `(entry, stop]`.
 #'
 #' NO IMPLICIT INTERCEPT unless `lambda` is estimated, and the FIRST level of every
 #' fixed class factor is dropped (solution zero), as the book does. Levels come in
@@ -76,15 +118,17 @@
 #' level, and `exp(a)` the frailty of the animal -- POSITIVE means MORE risk of
 #' failure, so a good animal has a negative solution.
 #'
-#' @param formula fixed class effects, `cov()` covariates, and exactly ONE random term
-#'   among `animal()`, `sire()` and `random()` -- the frailty. `rn()`, `indirect()`,
-#'   `pe()`, `kernel()` and `group=` are not available here (`k_inverse=` is the door
-#'   for a relationship matrix the pedigree cannot build). The left-hand side is the
-#'   time column, strictly positive.
+#' @param formula fixed class effects, `cov()` covariates, and one or more random terms
+#'   among `animal()`, `sire()`, `random()` and `indirect()` -- the frailties -- with
+#'   `group =` to put several in one covariance matrix. `rn()`, `kernel()`, `nested =`
+#'   and `sire(mgs =)` are not available here (`k_inverse=` is the door for a
+#'   relationship matrix the pedigree cannot build). The left-hand side is the time
+#'   column, strictly positive.
 #' @param data data.frame with the columns referenced. Records with a missing time or
-#'   a missing censoring indicator are dropped and counted.
-#' @param pedigree data.frame animal, sire, dam; required with `animal()` or `sire()`
-#'   unless `k_inverse` is given
+#'   a missing censoring indicator are dropped and counted; they still count as pen
+#'   mates of `indirect()`.
+#' @param pedigree data.frame animal, sire, dam; required with `animal()`, `sire()` or
+#'   `indirect()` unless `k_inverse` is given
 #' @param censor MANDATORY: the censoring indicator, as a column name or a vector --
 #'   1 (or TRUE) for a complete record, 0 (or FALSE) for a right-censored one. If no
 #'   record is censored, say so explicitly with a column of ones.
@@ -96,45 +140,81 @@
 #'   intercept; a positive number fixes the baseline and drops the intercept
 #'   (`lambda = 1` reproduces the book's parametrization, reference classes at
 #'   risk 1)
-#' @param sigma2 the frailty variance: `NULL` (default) estimates it by Laplace;
-#'   a positive number takes it as GIVEN (Example 16.1 publishes its solutions under
-#'   `sigma2 = 0.4` -- see the note in the gate file about the misprinted 20)
-#' @param k_inverse the inverse of the relationship matrix for the frailty term,
-#'   replacing the `A^-1` built from `pedigree`: either triplets
-#'   `list(i, j, x, n, id)` as [a_inverse()] returns, or a dense symmetric matrix
-#'   with the ids as `dimnames`
+#' @param sigma2 the frailty components: `NULL` (default) estimates them by Laplace;
+#'   numbers take them as GIVEN, in the order of [model()] (`fit$theta` names them:
+#'   covariance groups first, the lower triangle of each by columns, then the terms
+#'   without a group), which with a single frailty is its variance (Example 16.1
+#'   publishes its solutions under `sigma2 = 0.4` -- see the note in the gate file
+#'   about the misprinted 20)
+#' @param k_inverse the inverse of the relationship matrix for the relationship terms,
+#'   replacing the `A^-1` built from `pedigree` (every relationship term uses it):
+#'   either triplets `list(i, j, x, n, id)` as [a_inverse()] returns, or a dense
+#'   symmetric matrix with the ids as `dimnames`
 #' @param maxiter maximum Newton iterations per inner fit
 #' @param tol RELATIVE tolerance on the full solution vector,
 #'   `sqrt(sum(delta^2) / sum(sol^2))`, same convention as the other fitters
-#' @param verbose print one line per Newton iteration, and one per variance
-#'   evaluation when `sigma2` is being estimated
+#' @param verbose print one line per Newton iteration, and one per evaluation of the
+#'   Laplace -2logL when the components are being estimated
 #' @param genotypes,blend,apy_core,vecchia_k single step, as in [model()]: the frailty
 #'   of a relationship term gets the `H^-1` of [h_inverse()] instead of `A^-1`
 #' @param entry column with the start of each elementary record (`0` for the first
 #'   piece of a subject observed from time zero); NULL means every row starts at 0
 #' @param subject column with the subject of each elementary record; required with
-#'   `entry`. The frailty level must be the same in every piece of a subject
+#'   `entry`. The level of every frailty term other than `indirect()` must be the same
+#'   in every piece of a subject (so `random(pen)` refuses an animal that changes pen)
 #' @param gaps `"error"` (default) refuses a gap between two pieces of a subject;
 #'   `"allow"` accepts it as time out of observation, in which no risk is counted
+#' @param mates `indirect()` with elementary records: `"all"` (default) counts every
+#'   animal that was in the pen as a mate on every piece; `"present"` counts on each
+#'   piece only the mates with a piece overlapping it, and dilutes by their number
+#' @param start the starting point of the estimation when there is more than one
+#'   component, in the order of `sigma2`; by default 0.1 for every variance and 0 for
+#'   every covariance. A single component is searched on the whole interval
+#'   `[1e-6, 1e4]` and takes none: `start=` is then refused, as it is with `sigma2=`
+#' @param max_evals with more than one component estimated, the maximum number of
+#'   Nelder-Mead evaluations of the Laplace -2logL, and again at each point of a
+#'   correlation profile. It does not bound the Newton polish, the boundary check (one
+#'   evaluation per variance), the standard errors or the number of profile points;
+#'   `n_evals` reports the total. Refused with `sigma2=` and
+#'   with a single component, which [stats::optimize()] finds without such a bound
+#' @param tol_estimate tolerance of the estimation: the interval width of
+#'   [stats::optimize()] on the log of the variance for one component, and the largest
+#'   Newton step (log variances and atanh correlations) that still moves the estimate
+#'   for several. Refused with `sigma2=`
+#' @param profile `TRUE` (default) profiles a correlation near +-1; `FALSE` skips the
+#'   profile and only withholds its standard error. Refused with `sigma2=` and when no
+#'   correlation is estimated
 #' @return an object of class `breeding_fit_surv`: `rho`, `lambda` (with
-#'   `se_log_rho` when `rho` was estimated), `theta` (the frailty variance, with an
-#'   `se` from the curvature of the Laplace profile when it was estimated), `b` and
-#'   `se_b` (named `term=level`, log relative risks), `ebv` and `pev` per the frailty
-#'   term (log-frailty scale; [ebv()] works, and `exp(ebv())` is the RRS of the
-#'   book's table), `n_censored`, `loglik_joint` (the penalized joint log-likelihood
-#'   at the mode), `marginal_loglik` (the Laplace value, when computed), the
-#'   convergence fields of every fitter, and [predict()] for relative risks and
-#'   survival probabilities `S(t)` -- the book's p.292 numbers. With `k_inverse =` it
-#'   carries `k_prior`, the diagonal of the declared K named by level, which
-#'   [accuracy()] divides the PEV by in place of 1 + F; with `genotypes =` or
-#'   `k_inverse = h_inverse(...)` it carries `h_prior` and `h_prior_row` as in [model()]
-#'   instead. A fit with `k_inverse =` made before `k_prior` existed has neither, and
-#'   [accuracy()] then divides it by 1 + F of the pedigree given: refit it.
+#'   `se_log_rho` when `rho` was estimated), `theta` (the frailty components, with an
+#'   `se` from the curvature of the Laplace -2logL when they were estimated), `b` and
+#'   `se_b` (named `term=level`, log relative risks), `ebv` and `pev` per covariance
+#'   group as in [model()] (log-frailty scale; [ebv()] works, and `exp(ebv())` is the
+#'   RRS of the book's table), `n_censored`, `loglik_joint` (the penalized joint
+#'   log-likelihood at the mode), `marginal_loglik` (the Laplace value), the
+#'   convergence fields of every fitter, `vcov` (the delta-method covariance of `theta`,
+#'   NA for a component without a standard error) when the components were estimated
+#'   and at least one has a standard error, `profile` when a correlation was profiled, and
+#'   [predict()] for relative risks and survival probabilities `S(t)` -- the book's
+#'   p.292 numbers. With `k_inverse =` it carries `k_prior`, the diagonal of the
+#'   declared K named by level, which [accuracy()] divides the PEV by in place of
+#'   1 + F; with `genotypes =` or `k_inverse = h_inverse(...)` it carries `h_prior` and
+#'   `h_prior_row` as in [model()] instead. A fit with `k_inverse =` made before
+#'   `k_prior` existed has neither, and [accuracy()] then divides it by 1 + F of the
+#'   pedigree given: refit it.
 #' @references Kachman, S.D. (1999) Applications in survival analysis. J. Anim. Sci.
 #'   77 (suppl. 2), 147-153. Ducrocq, V. (1997) Survival analysis, a statistical tool
 #'   for longevity data. 48th Annual Meeting of the EAAP, Vienna. Mrode, R.A. &
 #'   Pocrnic, I. (2023) Linear Models for the Prediction of the Genetic Merit of
 #'   Animals, 4th ed., chapter 16.
+#'   Ellen, E.D., Ducrocq, V., Ducro, B.J., Veerkamp, R.F. & Bijma, P. (2010) Genetic
+#'   parameters for social effects on survival in cannibalistic layers. Genet. Sel.
+#'   Evol. 42, 27. Brinker, T., Ellen, E.D., Veerkamp, R.F. & Bijma, P. (2015)
+#'   Predicting direct and indirect breeding values for survival time in laying hens
+#'   using repeated measures. Genet. Sel. Evol. 47, 75. Ask, B., Christensen, O.F.,
+#'   Heidaritabar, M., Madsen, P. & Nielsen, H.M. (2020) The predictive ability of
+#'   indirect genetic models is reduced when culled animals are omitted from the data.
+#'   Genet. Sel. Evol. 52, 8. Bijma, P. (2010) Multilevel selection 4: modeling the
+#'   relationship of indirect genetic effects and group size. Genetics 186, 1029-1031.
 #' @examples
 #' # Example 16.1 of Mrode & Pocrnic (data on p.284, solutions on p.291): length of
 #' # productive life of 12 cows in 2 herds, 4 of them censored, animal frailty with
@@ -162,8 +242,17 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
                            k_inverse = NULL, maxiter = 200L, tol = 1e-8,
                            verbose = interactive(), entry = NULL, subject = NULL,
                            gaps = c("error", "allow"), genotypes = NULL, blend = 0.05,
-                           apy_core = NULL, vecchia_k = NULL) {
+                           apy_core = NULL, vecchia_k = NULL, mates = c("all", "present"),
+                           start = NULL, max_evals = 500L, tol_estimate = 1e-6,
+                           profile = TRUE) {
   gaps <- match.arg(gaps)
+  mates <- match.arg(mates)
+  confere_controles(is.null(sigma2),
+                    c("start", "max_evals", "tol_estimate", "profile")[
+                      c(!is.null(start), !missing(max_evals), !missing(tol_estimate),
+                        !missing(profile))],
+                    "sigma2= gives them, so there is nothing to estimate", max_evals,
+                    tol_estimate, profile)
   hinv <- hinv_para_motor(pedigree, genotypes, blend, apy_core, vecchia_k, k_inverse)
   if (!is.null(hinv)) k_inverse <- hinv
   t0 <- proc.time()[["elapsed"]]
@@ -181,34 +270,24 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
 
   terms <- decompoe_formula(formula[[3]], environment(formula))
   if (!length(terms)) stop("the formula declares no effect")
-  for (tm in terms) {
-    if (tm$estrutura == 3L)
-      stop("kernel() is not available in the survival model: pass k_inverse= to give ",
-           "the frailty term its own K^-1 instead")
-    if (nzchar(tm$base))
-      stop("rn() is not available in the survival model; a reaction norm on the ",
-           "log-hazard scale is outside this fitter")
-    if (tm$social)
-      stop("indirect() is not available in the survival model")
-    if (nzchar(tm$group))
-      stop("group= is not available in the survival model: the frailty is one term ",
-           "with one variance")
-  }
+  recusa_termos_r(terms, "the survival model")
   aleat <- Filter(function(tm) tm$estrutura != 0L, terms)
-  if (length(aleat) != 1L)
-    stop("the survival model takes exactly ONE random term -- the frailty: ",
-         if (length(aleat)) "it has more than one" else
-           "add animal(), sire() or random()")
-  rel <- aleat[[1]]$estrutura == 2L
-  if (rel && is.null(pedigree) && is.null(k_inverse))
-    stop("the frailty term has a relationship (animal or sire) and neither a ",
+  if (!length(aleat))
+    stop("the survival model needs at least one random term -- the frailty: ",
+         "add animal(), sire() or random()")
+  rel <- Filter(function(tm) tm$estrutura == 2L, aleat)
+  if (length(rel) && is.null(pedigree) && is.null(k_inverse))
+    stop("a frailty term has a relationship (animal, sire or indirect) and neither a ",
          "pedigree nor a k_inverse was given")
-  if (!is.null(k_inverse) && !rel)
+  if (!is.null(k_inverse) && !length(rel))
     stop("k_inverse replaces the A^-1 of a relationship term; the frailty here is ",
          "iid -- use animal() or sire() if the levels are related")
+  social <- any(vapply(aleat, function(tm) isTRUE(tm$social), logical(1)))
+  if (mates == "present" && !social)
+    stop("mates = \"present\" says which pen mates count on each piece: it needs an ",
+         "indirect() term")
 
-  used <- unique(c(trait, vapply(terms, function(tm) tm$column, character(1))))
-  falta <- setdiff(used, names(data))
+  falta <- setdiff(colunas_usadas(trait, terms), names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
 
   tv <- as.double(data[[trait]])
@@ -239,6 +318,9 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
       stop("subject must name the column that identifies each subject")
     rotulo_motor(data[[subject]])
   }
+  # o intervalo de TODAS as linhas, para o modo "present" saber quando cada companheiro
+  # esteve na baia (um companheiro sem fenotipo tambem precisa do seu)
+  intervalo <- if (mates == "present") list(entry = ev, stop = tv) else NULL
 
   keep <- !is.na(tv) & !is.na(qv) & !is.na(ev) & !is.na(sv)
   n_dropped <- sum(!keep)
@@ -250,7 +332,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
          "small positive value on the scale of the data.")
   intervalos <- valida_intervalos(ev, tv, qv, sv, gaps)
 
-  for (par in c("rho", "lambda", "sigma2")) {
+  for (par in c("rho", "lambda")) {
     v <- get(par)
     if (!is.null(v) && (!is.numeric(v) || length(v) != 1L || !is.finite(v) || v <= 0))
       stop(par, " must be NULL (estimate it) or one positive number")
@@ -260,16 +342,31 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   X <- fx$X
   est_lam <- is.null(lambda)
   if (est_lam) X <- cbind(intercept = 1, X)
-  z <- monta_z_limiar(aleat, data, pedigree, k_inverse, keep)[[1]]
-  # a fragilidade e do SUJEITO: um nivel que muda dentro dele seria uma fragilidade
-  # dependente do tempo, que este modelo nao tem
-  muda <- tapply(z$idx, sv, function(v) length(unique(v)) > 1L)
-  if (any(muda))
-    stop(sum(muda), " subject(s) change the level of the frailty term '", z$column,
-         "' between elementary records (", paste(utils::head(names(muda)[muda], 3),
-         collapse = ", "), "): the frailty belongs to the subject")
+  al <- prepara_aleatorios(aleat, data, pedigree, k_inverse, keep, intervalo)
+  escalar <- al$ntheta == length(al$slots)
+  if (!is.null(sigma2) &&
+      (!is.numeric(sigma2) || length(sigma2) != al$ntheta || any(!is.finite(sigma2)) ||
+       (escalar && any(sigma2 <= 0))))
+    stop("sigma2 must be NULL (estimate) or the ", al$ntheta, " component(s) ",
+         paste(al$nomes_theta, collapse = ", "),
+         if (escalar) ", each one positive" else ", in this order")
+  # a fragilidade de um termo comum e do SUJEITO: um nivel que muda dentro dele seria uma
+  # fragilidade dependente do tempo, que este modelo nao tem. O indirect() fica de fora: no
+  # modo "present" os companheiros mudam entre os trechos de proposito
+  for (sl in al$slots) if (!sl$social) {
+    muda <- tapply(sl$idx, sv, function(v) length(unique(v)) > 1L)
+    if (any(muda))
+      stop(sum(muda), " subject(s) change the level of the frailty term '", sl$column,
+           "' between elementary records (", paste(utils::head(names(muda)[muda], 3),
+           collapse = ", "), "): the frailty belongs to the subject")
+  }
 
   n <- length(tv); p <- ncol(X)
+  qs <- vapply(al$slots, function(sl) sl$q, integer(1))
+  offs <- p + c(0L, cumsum(qs))[seq_along(qs)]
+  nal <- sum(qs); Nu <- p + nal
+  pares <- prepara_blocos(al$slots, n)
+  ldk_tot <- sum(vapply(al$grupos, function(g) g$dim * g$ld_k, numeric(1)))
   # s absorbs a GIVEN lambda into the timescale: (lambda t)^rho = exp(rho * s).
   # With lambda estimated, s = log(t) and the intercept carries rho * log(lambda).
   s <- log(tv) + if (est_lam) 0 else log(lambda)
@@ -286,51 +383,83 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
     list(A = e2 - e1, B = rs2 * e2 - rs1 * e1,
          Cc = rs2^2 * e2 + rs2 * e2 - rs1^2 * e1 - rs1 * e1, rs2 = rs2)
   }
-  logdet_ainv <- sparse_chol(list(i = z$pi, j = z$pj, x = z$px, n = z$q))$logdet
+  parte <- function(u) lapply(seq_along(qs), function(k) u[offs[k] + seq_len(qs[k])])
+  eta_de <- function(u)
+    (if (p) drop(X %*% u[seq_len(p)]) else numeric(n)) + z_u_todos(al$slots, parte(u), n)
+  # o sistema de Newton: so o bloco das fragilidades (so_aleat, para o Laplace) ou o
+  # inteiro (b e fragilidades). Mesma ordem de montagem de antes num modelo de um termo.
+  monta_h <- function(mu, Gs, so_aleat = FALSE) {
+    ti <- list(); tj <- list(); tx <- list()
+    poe <- function(i, j, x) {
+      k <- length(ti) + 1L
+      ti[[k]] <<- as.integer(i); tj[[k]] <<- as.integer(j); tx[[k]] <<- as.double(x)
+    }
+    base <- if (so_aleat) p else 0L
+    if (p && !so_aleat) {
+      XtRX <- crossprod(X, mu * X)
+      baixo <- which(lower.tri(XtRX, diag = TRUE), arr.ind = TRUE)
+      poe(baixo[, 1], baixo[, 2], XtRX[baixo])
+    }
+    for (k in seq_along(al$slots)) {
+      sl <- al$slots[[k]]; o <- offs[k] - base
+      g <- al$grupos[[sl$grupo]]
+      if (p && !so_aleat) {
+        ZRX <- zt_mat(sl, mu * X)
+        nz <- which(ZRX != 0, arr.ind = TRUE)
+        if (nrow(nz)) poe(o + nz[, 1], nz[, 2], ZRX[nz])
+      }
+      bl <- bloco_ztwz(al$slots, pares, k, k, mu, o, o)
+      if (!is.null(bl)) poe(bl$i, bl$j, bl$x)
+      if (g$dim == 1L) poe(o + g$pi, o + g$pj, g$px / Gs[[sl$grupo]][1, 1])
+      if (k > 1L) for (k2 in seq_len(k - 1L)) {
+        bl <- bloco_ztwz(al$slots, pares, k, k2, mu, o, offs[k2] - base)
+        if (!is.null(bl)) poe(bl$i, bl$j, bl$x)
+      }
+    }
+    for (g in seq_along(al$grupos)) if (al$grupos[[g]]$dim > 1L) {
+      pg <- pen_grupo(al$grupos[[g]], solve(Gs[[g]]), offs - base)
+      poe(pg$i, pg$j, pg$x)
+    }
+    list(i = unlist(ti), j = unlist(tj), x = unlist(tx), n = Nu - base)
+  }
 
   # ---- the inner Newton, shared by the given-variance and the Laplace paths.
-  # u = (b, a); r = log(rho) joins as one extra coordinate through the Schur
+  # u = (b, a_1, ..., a_S); r = log(rho) joins as one extra coordinate through the Schur
   # complement of the (always positive-definite) u-block, so every solve stays
   # sparse and PD. A step that does not improve the joint log-likelihood is halved.
-  u_quente <- c(rep(0.1, p + z$q), if (is.null(rho)) 0 else log(rho))
-  ajusta <- function(s2) {
-    u <- u_quente[seq_len(p + z$q)]
-    r <- u_quente[p + z$q + 1L]
+  u_ini <- c(rep(0.1, Nu), if (is.null(rho)) 0 else log(rho))
+  ajusta <- function(Gs, quente = u_ini) {
+    u <- quente[seq_len(Nu)]
+    r <- quente[Nu + 1L]
     lpen <- function(u, r) {
       rh <- exp(r)
-      eta <- (if (p) drop(X %*% u[seq_len(p)]) else numeric(n)) + u[p + z$idx]
-      a <- u[p + seq_len(z$q)]
-      sum(qv * (r + rh * s - logt + eta) - exp(eta) * pecas_a(rh)$A) -
-        z$q / 2 * log(s2) - sum(a * tri_matvec(z$pi, z$pj, z$px, a)) / (2 * s2)
+      us <- parte(u)
+      eta <- (if (p) drop(X %*% u[seq_len(p)]) else numeric(n)) + z_u_todos(al$slots, us, n)
+      L <- sum(qv * (r + rh * s - logt + eta) - exp(eta) * pecas_a(rh)$A)
+      for (g in seq_along(al$grupos)) {
+        gr <- al$grupos[[g]]
+        if (gr$dim == 1L) {
+          a <- us[[gr$s]]
+          L <- L - gr$q / 2 * log(Gs[[g]][1, 1]) -
+            sum(a * tri_matvec(gr$pi, gr$pj, gr$px, a)) / (2 * Gs[[g]][1, 1])
+        } else {
+          L <- L - 0.5 * (termo_priori(gr, Gs[[g]], us) + gr$dim * gr$ld_k)
+        }
+      }
+      L
     }
     L0 <- lpen(u, r)
-    it <- 0L; crit <- Inf; preso <- FALSE; C <- NULL; den <- NA_real_
+    it <- 0L; crit <- Inf; preso <- FALSE; C <- NULL; den <- NA_real_; passo_preso <- NA_real_
     while (crit > tol && it < maxiter) {
       it <- it + 1L
       rh <- exp(r)
-      eta <- (if (p) drop(X %*% u[seq_len(p)]) else numeric(n)) + u[p + z$idx]
-      a <- u[p + seq_len(z$q)]
+      eta <- eta_de(u)
       pa <- pecas_a(rh)
       mu <- exp(eta) * pa$A
       gu <- c(if (p) drop(crossprod(X, qv - mu)) else numeric(0),
-              soma_por_nivel(qv - mu, z$idx, z$q) -
-                tri_matvec(z$pi, z$pj, z$px, a) / s2)
-      ti <- list(); tj <- list(); tx <- list()
-      poe <- function(i, j, x) {
-        k <- length(ti) + 1L
-        ti[[k]] <<- as.integer(i); tj[[k]] <<- as.integer(j); tx[[k]] <<- as.double(x)
-      }
-      if (p) {
-        XtRX <- crossprod(X, mu * X)
-        baixo <- which(lower.tri(XtRX, diag = TRUE), arr.ind = TRUE)
-        poe(baixo[, 1], baixo[, 2], XtRX[baixo])
-        ZRX <- soma_por_nivel(mu * X, z$idx, z$q)
-        nz <- which(ZRX != 0, arr.ind = TRUE)
-        if (nrow(nz)) poe(p + nz[, 1], nz[, 2], ZRX[nz])
-      }
-      poe(p + seq_len(z$q), p + seq_len(z$q), soma_por_nivel(mu, z$idx, z$q))
-      poe(p + z$pi, p + z$pj, z$px / s2)
-      C <- list(i = unlist(ti), j = unlist(tj), x = unlist(tx), n = p + z$q)
+              unlist(Map(function(sl, pens) zt_vec(sl, qv - mu) - pens, al$slots,
+                         pen_u(al, Gs, parte(u)))))
+      C <- monta_h(mu, Gs)
       du <- tryCatch(sparse_solve(C, gu), error = function(e)
         stop("the survival system is not solvable at iteration ", it, " (",
              conditionMessage(e), "): this usually means a fixed-effect level whose ",
@@ -339,16 +468,16 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
       dr <- 0
       if (is.null(rho)) {
         eB <- exp(eta) * pa$B
-        gr <- sum(qv * (1 + pa$rs2)) - sum(eB)
+        g_r <- sum(qv * (1 + pa$rs2)) - sum(eB)
         hur <- c(if (p) drop(crossprod(X, eB)) else numeric(0),
-                 soma_por_nivel(eB, z$idx, z$q))
+                 unlist(lapply(al$slots, function(sl) zt_vec(sl, eB))))
         crr <- sum(exp(eta) * pa$Cc) - sum(qv * pa$rs2)
         yv <- sparse_solve(C, hur)
         den <- crr - sum(hur * yv)
         if (den > 1e-10) {
-          dr <- (gr - sum(hur * du)) / den
+          dr <- (g_r - sum(hur * du)) / den
           du <- du - yv * dr
-        } else dr <- gr / max(crr, 1e-8)      # fallback when the border degenerates
+        } else dr <- g_r / max(crr, 1e-8)    # fallback when the border degenerates
       }
       passo <- 1
       repeat {
@@ -357,7 +486,12 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
         passo <- passo / 2
         if (passo < 2^-30) { preso <- TRUE; break }
       }
-      if (preso) break
+      if (preso) {
+        # o tamanho relativo do passo de Newton recusado: minusculo, o ponto ja e a moda e
+        # so o arredondamento de L impede a melhora
+        passo_preso <- sqrt((sum(du^2) + dr^2) / max(sum(u^2) + r^2, .Machine$double.eps))
+        break
+      }
       u <- u + passo * du; r <- r + passo * dr
       L0 <- lpen(u, r)
       crit <- sqrt(passo^2 * (sum(du^2) + dr^2) /
@@ -365,44 +499,75 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
       if (isTRUE(verbose))
         cat(sprintf("it %d  relDelta %.3e  joint loglik %.6f\n", it, crit, L0))
     }
-    u_quente <<- c(u, r)
-    # Laplace: integrate the frailty at its conditional mode; profile the rest
-    rh <- exp(r)
-    eta <- (if (p) drop(X %*% u[seq_len(p)]) else numeric(n)) + u[p + z$idx]
-    mu <- exp(eta) * pecas_a(rh)$A
-    Ha <- list(i = c(seq_len(z$q), z$pi), j = c(seq_len(z$q), z$pj),
-               x = c(soma_por_nivel(mu, z$idx, z$q), z$px / s2), n = z$q)
-    lmarg <- L0 - 0.5 * sparse_chol(Ha)$logdet + z$q / 2 * log(2 * pi) +
-      0.5 * logdet_ainv - z$q / 2 * log(2 * pi)   # the A^-1 constant, made explicit
+    # Laplace: integrate the frailties at their conditional mode; profile the rest
+    mu <- exp(eta_de(u)) * pecas_a(exp(r))$A
+    Ha <- monta_h(mu, Gs, so_aleat = TRUE)
+    lmarg <- L0 - 0.5 * sparse_chol(Ha)$logdet + nal / 2 * log(2 * pi) +
+      0.5 * ldk_tot - nal / 2 * log(2 * pi)   # the K^-1 constant, made explicit
     list(u = u, r = r, it = it, crit = crit, converged = crit <= tol && !preso,
-         preso = preso, loglik = L0, lmarg = lmarg, C = C, den = den)
+         preso = preso, passo_preso = passo_preso, loglik = L0, lmarg = lmarg, C = C,
+         den = den)
   }
 
-  # ---- the frailty variance: given, or the Laplace profile maximized in log(sigma2)
-  se_s2 <- NA_real_
-  if (is.null(sigma2)) {
-    alvo <- function(ls2) {
-      v <- ajusta(exp(ls2))$lmarg
-      if (isTRUE(verbose))
-        cat(sprintf("  sigma2 %.6g  marginal loglik %.6f\n", exp(ls2), v))
-      -v
+  # ---- the frailty components: given, or the minimum of the Laplace -2logL
+  estimou <- is.null(sigma2)
+  est <- NULL
+  quente <- u_ini
+  if (estimou) {
+    recusa_indireto_vazio(al)
+    recusa_controles_sem_uso(al$grupos, !missing(max_evals), !missing(profile))
+    # partida quente do ultimo ajuste que convergiu; o ajuste final parte do MELHOR ponto
+    # avaliado (o minimo reportado). Um ajuste interno que nao converge, ou que para sem
+    # passo que melhore longe da moda, nao da o Laplace do ponto: e erro, o ponto e
+    # inadmissivel. Parar sem passo que melhore com o passo de Newton abaixo de 1e-6
+    # relativo e chegar a moda ate o arredondamento de L, e vale.
+    melhor <- Inf
+    avalia <- function(Gs) {
+      a <- ajusta(Gs, u_quente)
+      if (!a$converged && a$preso && a$passo_preso >= 1e-6)
+        stop("the damped Newton stopped where no step improves the joint (relDelta ",
+             format(a$crit, digits = 3), ")", call. = FALSE)
+      if (!a$converged && !a$preso)
+        erro_nao_convergiu(paste0("the Newton did not converge in maxiter = ", maxiter,
+                                  " iteration(s) (relDelta ", format(a$crit, digits = 3),
+                                  ")"))
+      u_quente <<- c(a$u, a$r)
+      if (-2 * a$lmarg < melhor) { melhor <<- -2 * a$lmarg; quente <<- u_quente }
+      -2 * a$lmarg
     }
-    op <- stats::optimize(alvo, interval = c(log(1e-6), log(1e4)), tol = 1e-5)
-    sigma2 <- exp(op$minimum)
-    h <- 0.05                                  # curvature of the profile, for an SE
-    d2 <- ((-alvo(op$minimum + h)) - 2 * (-op$objective) + (-alvo(op$minimum - h))) / h^2
-    if (is.finite(d2) && d2 < 0) se_s2 <- sigma2 * sqrt(-1 / d2)
-    estimou_s2 <- TRUE
-  } else estimou_s2 <- FALSE
-  f <- ajusta(sigma2)
+    u_quente <- u_ini
+    if (al$ntheta == 1L) {
+      if (!is.null(start))
+        stop("start= is the starting point of the search over several components; a ",
+             "single frailty variance is searched over the whole interval [1e-6, 1e4] ",
+             "and takes none", call. = FALSE)
+      # um componente: a busca de sempre, em log(sigma2) no intervalo inteiro
+      est <- estima_por_laplace(avalia, al$grupos, list(matrix(1)), al$nomes_theta,
+                                tol = tol_estimate, verbose = verbose,
+                                profile_r = if (profile) "auto" else "withhold",
+                                intervalo_1d = c(log(1e-6), log(1e4)), h_se = 0.05)
+    } else {
+      st <- if (is.null(start)) theta_de_G(lapply(al$grupos, function(g) diag(0.1, g$dim)))
+            else as.double(start)
+      if (length(st) != al$ntheta)
+        stop("start must give the ", al$ntheta, " component(s) ",
+             paste(al$nomes_theta, collapse = ", "))
+      est <- estima_por_laplace(avalia, al$grupos, G_de_theta(st, al$grupos),
+                                al$nomes_theta, max_evals, tol_estimate, verbose,
+                                profile_r = if (profile) "auto" else "withhold")
+    }
+    Gs <- est$Gs
+  } else {
+    Gs <- G_de_theta(as.double(sigma2), al$grupos, "sigma2")
+  }
+  f <- ajusta(Gs, quente)
 
   b <- if (p) stats::setNames(f$u[seq_len(p)], colnames(X))
        else stats::setNames(numeric(0), character(0))
-  a <- stats::setNames(f$u[p + seq_len(z$q)], z$ids)
   rho_est <- exp(f$r)
   lambda_est <- if (est_lam) exp(unname(b["intercept"]) / rho_est) else lambda
 
-  se_tudo <- rep(NA_real_, p + z$q)
+  se_tudo <- rep(NA_real_, Nu)
   si <- tryCatch(selected_inverse(f$C), error = function(e) NULL)
   if (!is.null(si)) {
     diag_ <- si$i == si$j
@@ -410,8 +575,9 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   }
 
   mensagens <- c(
-    if (estimou_s2 && sigma2 < 1e-5)
-      "the frailty variance went to the lower boundary: these data carry no signal for a frailty term",
+    if (estimou) est$avisos,
+    if (estimou && !est$ok)
+      paste0("the frailty components", sub("^ -- ", ": ", texto_motivo(est$motivo))),
     if (f$preso)
       "stopped where no damped Newton step improves the joint log-likelihood",
     if (intervalos$n_truncados > 0)
@@ -423,37 +589,40 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
       paste0(intervalos$n_lacunas, " gap(s) between the elementary records of a subject ",
              "(gaps = \"allow\"): no risk is counted inside them"),
     paste0("solutions are log relative risks (exp gives the RRS); PEV and standard ",
-           "errors are conditional on rho, lambda and sigma2"))
+           "errors are conditional on rho, lambda and the frailty components"))
 
-  nome_theta <- paste0("var(", z$nome, ")")
+  theta <- stats::setNames(theta_de_G(Gs), al$nomes_theta)
   fit_s <- structure(list(
     trait = trait,
     rho = rho_est, lambda = lambda_est,
-    rho_given = !is.null(rho), lambda_given = !est_lam, sigma2_given = !estimou_s2,
+    rho_given = !is.null(rho), lambda_given = !est_lam, sigma2_given = !estimou,
     se_log_rho = if (is.null(rho) && is.finite(f$den) && f$den > 0)
       sqrt(1 / f$den) else NA_real_,
-    theta = stats::setNames(sigma2, nome_theta),
-    se = stats::setNames(se_s2, nome_theta),
+    theta = theta,
+    se = if (estimou) est$se else stats::setNames(rep(NA_real_, al$ntheta), al$nomes_theta),
+    vcov = if (estimou) est$vcov,
     b = b,
     se_b = if (p) stats::setNames(se_tudo[seq_len(p)], colnames(X)) else NULL,
     dropped_x = fx$dropped,
-    ebv = stats::setNames(list(a), z$nome),
-    pev = stats::setNames(list(stats::setNames(se_tudo[p + seq_len(z$q)]^2, z$ids)),
-                          z$nome),
-    converged = f$converged, iters = f$it, reldelta = f$crit,
+    ebv = por_grupo(al, parte(f$u)),
+    pev = por_grupo(al, parte(se_tudo^2)),
+    converged = f$converged && (!estimou || est$ok), iters = f$it, reldelta = f$crit,
     n_used = n, n_censored = intervalos$n_censurados, n_dropped = n_dropped,
     n_subjects = intervalos$n_sujeitos,
-    n_columns = p + z$q,
+    n_columns = Nu,
     loglik_joint = f$loglik, marginal_loglik = f$lmarg,
+    n_evals = if (estimou) est$n_evals else NULL,
+    profile = if (estimou && length(est$perfis)) lapply(est$perfis, function(pf)
+      list(r = pf$r, interval = pf$intervalo, profile = pf$perfil)) else NULL,
     message = paste(mensagens, collapse = "; "),
     metafounders = NULL, gamma = NULL,
-    formula = formula, type = "weibull",
-    design = list(fixed = fx$info,
-                  random = list(list(nome = z$nome, column = z$column, ids = z$ids))),
+    formula = formula_resolvida(formula, terms), type = "weibull", mates = mates,
+    design = list(fixed = fx$info, random = design_aleatorio(al)),
     seconds = proc.time()[["elapsed"]] - t0
   ), class = "breeding_fit_surv")
-  anota_k_inverse(anota_hinv(fit_s, hinv), k_inverse, hinv, aleat)
+  anota_k_inverse(anota_hinv(fit_s, hinv), k_inverse, hinv, rel)
 }
+
 
 # ------------------------------------------------------------------ methods
 
@@ -476,15 +645,10 @@ print.breeding_fit_surv <- function(x, ...) {
       ",  Laplace marginal ", format(x$marginal_loglik, digits = 8), "\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  mostra_componentes(tabela_componentes(x$theta, x$se, sem_share = paste0(
-    "share left blank: the frailty model has no residual variance, so there is ",
-    "no phenotypic variance to divide by on this scale")))
-  if (!x$sigma2_given) cat("  (frailty variance by Laplace, se from the profile curvature)\n")
-  mostra_fixos(x$b, x$dropped_x,
-               nota = if (x$lambda_given)
-                 "no intercept: lambda given, reference classes at risk 1; every class factor zeroes its first level"
-               else
-                 "the intercept is rho*log(lambda); every class factor zeroes its first level")
+  mostra_componentes(tabela_componentes(x$theta, x$se, sem_share = nota_share(x)))
+  if (!x$sigma2_given)
+    cat("  (frailty components by Laplace, se from the curvature of its -2logL)\n")
+  mostra_fixos(x$b, x$dropped_x, nota = nota_fixos(x))
   invisible(x)
 }
 
@@ -499,14 +663,20 @@ coef.breeding_fit_surv <- function(object, effects = c("components", "fixed"), .
 #' intercept -- the relative risk against the baseline, the RRS of the book's tables
 #' (p.291): above 1 is more risk of failure. `type = "survival"` returns
 #' `S(t) = exp(-(lambda t)^rho * exp(d))` (Eqn 16.4), the probability of still being
-#' alive at `time` -- the book's p.292 numbers -- using the full predictor, intercept
-#' included. A reference level contributes zero; a level absent from the fit's data is
-#' an error, not a silent zero.
+#' alive at `time` -- the book's p.292 numbers -- with the `lambda` of the fit, given or
+#' estimated, so the intercept `rho * log(lambda)` is included (earlier versions left
+#' an ESTIMATED lambda out of `S(t)`). A reference level contributes zero; a level absent
+#' from the fit's data is an error, not a silent zero. An `indirect()` term contributes
+#' `(n - 1)^(-d) sum_j a_S,j` over the pen mates of the row IN `newdata`: the pen column
+#' must be there (otherwise the prediction is refused), and the mates are the distinct
+#' animals of that pen among the rows of `newdata`, counted with the static rule
+#' (`mates = "all"`) whatever the fit used.
 #'
 #' @param object result of [model_survival()]
-#' @param newdata data.frame with the fixed and random columns of the formula. The
-#'   random column may hold any animal of the pedigree (a sire without a record
-#'   included) -- that is how the book computes the percentage of live daughters.
+#' @param newdata data.frame with the fixed and random columns of the formula and the pen
+#'   column of every `indirect()` term. The random column may hold any animal of the
+#'   pedigree (a sire without a record included) -- that is how the book computes the
+#'   percentage of live daughters.
 #' @param time survival mode only: the time (one number, or one per row of `newdata`)
 #'   at which to evaluate `S(t)`
 #' @param entry survival mode only: the time (one number, or one per row) the animal is
@@ -545,17 +715,7 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
       d[tem] <- d[tem] + object$b[nomes[tem]]
     }
   }
-  for (info in object$design$random) {
-    if (!info$column %in% names(newdata))
-      stop("no column '", info$column, "' in newdata")
-    valores <- rotulo_motor(newdata[[info$column]])
-    idx <- match(valores, info$ids)
-    if (anyNA(idx))
-      stop("level(s) of '", info$column, "' unknown to the fit: ",
-           paste(unique(valores[is.na(idx)]), collapse = ", "))
-    d <- d + object$ebv[[info$nome]][idx]
-  }
-  d <- unname(d)
+  d <- unname(d + parte_aleatoria_newdata(object, newdata))
   if (type == "risk") return(exp(d))
   if (is.null(time))
     stop("type = \"survival\" needs time=: S(t) is a function of the age asked about")
@@ -563,9 +723,12 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
   if (length(time) == 1L) time <- rep(time, n)
   if (length(time) != n || any(!is.finite(time)) || any(time <= 0))
     stop("time must be one positive number, or one per row of newdata")
-  # the intercept, when estimated, is already rho*log(lambda) inside d; with lambda
-  # given it enters here through (lambda t)^rho
-  acumula <- function(t) if (object$lambda_given) (object$lambda * t)^object$rho else t^object$rho
+  # O intercepto (rho*log(lambda), quando lambda foi estimado) nao esta em d: design$fixed
+  # nao tem entrada para ele, e o risco relativo do livro e sem ele. Na sobrevivencia ele
+  # entra aqui, pela forma de Eqn 16.4: (lambda t)^rho = t^rho exp(intercepto), com o
+  # lambda do ajuste, dado ou estimado. Antes, com lambda estimado, a base era t^rho e o
+  # intercepto ficava de fora (medido: 6.0e-161 onde a conta e 0.227).
+  acumula <- function(t) (object$lambda * t)^object$rho
   base <- acumula(time)
   if (!is.null(entry)) {
     entry <- as.double(entry)

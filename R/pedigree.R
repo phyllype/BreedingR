@@ -574,7 +574,10 @@ anota_k_inverse <- function(fit, k_inverse, hinv, rel) {
   d <- si$i == si$j
   kd <- rep(NA_real_, ki$n)
   kd[si$i[d]] <- si$x[d]
-  fit$k_prior <- stats::setNames(list(stats::setNames(kd, ki$id)), rel[[1]]$nome)
+  # a mesma K vale para todo termo de parentesco (animal e indirect() de um grupo dividem
+  # os niveis), entao cada um leva a diagonal pelo seu nome
+  fit$k_prior <- stats::setNames(rep(list(stats::setNames(kd, ki$id)), length(rel)),
+                                 vapply(rel, function(t) t$nome, character(1)))
   fit
 }
 

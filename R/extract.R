@@ -229,7 +229,15 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0) {
 #' add. With pens of different sizes, give the sizes as a vector and read one row per
 #' size, or give the average size, the convention of the literature.
 #'
-#' @param fit result of [model()] or [model_mt()] with an `indirect()` term
+#' On a [model_threshold()] fit the numbers are on the liability scale, with the
+#' residual fixed at 1 in the denominator; with pens of unequal size and an environmental
+#' effect of the mates that residual is a convention rather than the variance of every
+#' record (the limit declared in [model_threshold()]). A [model_survival()] fit is
+#' refused: the frailty model has no residual variance, so there is no phenotypic
+#' variance on the log-hazard scale to divide by.
+#'
+#' @param fit result of [model()], [model_mt()] or [model_threshold()] with an
+#'   `indirect()` term
 #' @param n group size, one number or a vector of sizes
 #' @param r average additive relationship between group mates (0 for unrelated mates)
 #' @param trait for a multi-trait fit, which trait; all of them by default
@@ -247,6 +255,12 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0) {
 #' @seealso [h2()], [se_function()]
 #' @export
 t2 <- function(fit, n, r = 0, trait = NULL) {
+  # a fragilidade nao tem residuo: a soma dos componentes nao e variancia fenotipica de
+  # coisa nenhuma, e o T2 sairia um numero sem sentido
+  if (inherits(fit, "breeding_fit_surv"))
+    stop("the frailty model of model_survival() has no residual variance, so there is no ",
+         "phenotypic variance on the log-hazard scale for T2 or h2_direct to divide by",
+         call. = FALSE)
   ige <- bloco_indireto(fit)
   if (is.null(ige)) stop("this fit has no indirect() term: T2 is the heritability, use h2()")
   if (!is.numeric(n) || any(!is.finite(n)) || any(n < 1))
@@ -360,9 +374,9 @@ resumo_comum <- function(object, titulo, extra = list()) {
                 converged = object$converged,
                 components = tabela_componentes(object$theta, object$se,
                                                 indireto = tem_indireto(object),
-                                                sem_share = if (inherits(object, "breeding_fit_surv"))
-                                                  "share left blank: no residual variance in the frailty model"),
-                fixed = object$b, dropped_x = object$dropped_x),
+                                                sem_share = nota_share(object)),
+                fixed = object$b, dropped_x = object$dropped_x,
+                nota_fixos = nota_fixos(object), nota_se = nota_se(object)),
            extra)
   structure(out, class = "summary.breeding_fit")
 }

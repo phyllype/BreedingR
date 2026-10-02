@@ -271,9 +271,13 @@ test_that("model_threshold() refuses what it cannot do, in words", {
   expect_error(model_threshold(score ~ rn(sire, base = "b") + sire(sire), data = d,
                                pedigree = ped_15_1, start = c(1, 1)),
                "rn\\(\\) is not available")
-  expect_error(model_threshold(score ~ herd + sire(sire, group = "g"), data = d,
-                               pedigree = ped_15_1, start = 1),
-               "group=")
+  # group= is taken, but a group cannot mix a relationship term with an iid one
+  expect_error(model_threshold(score ~ sire(sire, group = "g") + random(herd, group = "g"),
+                               data = d, pedigree = ped_15_1, start = c(1, 0, 1)),
+               "mixes structures")
+  expect_error(model_threshold(score ~ herd + random(sire, nested = "herd"), data = d,
+                               start = 1),
+               "nested= is not available")
   expect_error(model_threshold(score ~ herd + sire(sire), data = d,
                                pedigree = ped_15_1, start = c(1, 2)),
                "one positive variance per random term")
@@ -333,4 +337,21 @@ test_that("Mrode Example 15.2: predict() gives the p.281 probabilities, and PEV 
   expect_equal(unname(fit$pev$sire[paste0(1:6, "|bw")]), c11, tolerance = 1e-8)
   expect_equal(unname(fit$pev$sire[paste0(1:6, "|cd")]),
                c22 + fit$b_regression^2 * c11 + 2 * fit$b_regression * c21, tolerance = 1e-8)
+})
+
+test_that("Example 15.1 with estimate = TRUE: var(sire) at its boundary, held, no SE", {
+  # 51 records on four related sires carry no signal for var(sire): the minimum of the
+  # Laplace -2logL is at the boundary (the EM of earlier versions stopped at 0.0185 without
+  # converging). The variance is held there and its standard error withheld, since a
+  # delta-method SE means nothing at the boundary, with the reason in the message.
+  f <- model_threshold(score ~ herd + sex + sire(sire), data = dado_15_1(),
+                       pedigree = ped_15_1, start = 1/19, estimate = TRUE, verbose = FALSE)
+  expect_lt(f$theta[["var(sire)"]], 1e-5)
+  expect_true(is.na(f$se[["var(sire)"]]))
+  expect_match(f$message, "var(sire) went to the lower boundary", fixed = TRUE)
+  # the -2logL only rises away from the boundary
+  lap <- function(v) model_threshold(score ~ herd + sex + sire(sire), data = dado_15_1(),
+                                     pedigree = ped_15_1, start = v, verbose = FALSE)$neg2logl
+  expect_gt(lap(1e-3), f$neg2logl)
+  expect_gt(lap(1/19), lap(1e-3))
 })

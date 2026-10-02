@@ -14,8 +14,8 @@
 \arguments{
 \item{object}{result of \code{\link[=model_threshold]{model_threshold()}}}
 
-\item{newdata}{data.frame with the fixed and random columns of the formula (and, for
-the joint fit, the quantitative trait)}
+\item{newdata}{data.frame with the fixed and random columns of the formula, the pen
+column of every \code{indirect()} term (and, for the joint fit, the quantitative trait)}
 
 \item{type}{\code{"probability"} (default) for the n x m matrix of category
 probabilities (joint fit: the probability of the larger binary value),
@@ -33,7 +33,11 @@ The product the book actually delivers (p.272-273): for each row of \code{newdat
 probability of response in each category, \code{F(t_k - a) - F(t_(k-1) - a)} with
 \verb{a = x'b + z'u} at that row's levels. A level dropped from the design (a reference
 level, or a dropped dependent column) contributes zero; a level absent from the
-fit's data is an error, not a silent zero.
+fit's data is an error, not a silent zero. An \code{indirect()} term contributes
+\verb{(n - 1)^(-d) sum_j u_S,j} over the pen mates of the row IN \code{newdata}: the pen column
+must be there (otherwise the prediction is refused), the mates are the distinct
+animals of that pen among the rows of \code{newdata}, counted with the same rule as the
+fit, and every one of them must be a level of the fit.
 In the joint fit (Foulley et al. 1983) the binary liability is conditional on the
 quantitative trait, and the probability is the book's Eqn 15.25:
 \verb{P(y2 = 1 | x, y1) = F(x't + nu + b1 (y1 - mean(y1)))}, with \code{b1} the residual

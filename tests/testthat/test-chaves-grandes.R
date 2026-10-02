@@ -100,6 +100,35 @@ test_that("model_threshold() ajusta dois termos de 50000 niveis cada", {
                tolerance = 1e-6)
 })
 
+test_that("os pares do bloco social (prepara_pares) nao formam chave nenhuma", {
+  # Um termo social em triplos (linha, nivel, peso) e um termo indice, os dois com 60000
+  # niveis: a chave (a - 1) q + b do par passaria de .Machine$integer.max. A referencia soma
+  # Z_s' W Z_i e o triangulo inferior de Z_s' W Z_s entrada a entrada num laco.
+  q <- 60000L
+  w <- c(1, 2, 3, 4)
+  soc <- list(q = q, r = c(1L, 1L, 2L, 3L, 3L, 4L),
+              c = c(60000L, 59999L, 1L, 60000L, 2L, 59999L), v = c(0.5, 0.5, 1, 0.25, 0.25, 2))
+  ind <- list(q = q, idx = c(60000L, 3L, 59999L, 60000L), r = 1:4,
+              c = c(60000L, 3L, 59999L, 60000L), v = rep(1, 4))
+  expect_gt((max(soc$c) - 1) * q + max(ind$idx), .Machine$integer.max)
+  slots <- list(ind, soc)
+  pares <- BreedingR:::prepara_blocos(slots, length(w))
+  confere <- function(bl, a, b, mesmo) {
+    ref <- numeric(0)
+    for (i in seq_along(w)) for (k in which(a$r == i)) for (l in which(b$r == i)) {
+      if (mesmo && a$c[k] < b$c[l]) next
+      ch <- paste(a$c[k], b$c[l])
+      ref[ch] <- (if (is.na(ref[ch])) 0 else ref[ch]) + w[i] * a$v[k] * b$v[l]
+    }
+    expect_false(anyNA(c(bl$i, bl$j, bl$x)))
+    got <- stats::setNames(bl$x, paste(bl$i, bl$j))
+    expect_setequal(names(got), names(ref))
+    expect_equal(unname(got[names(ref)]), unname(ref), tolerance = 1e-15)
+  }
+  confere(BreedingR:::bloco_ztwz(slots, pares, 2L, 1L, w, 0L, 0L), soc, ind, FALSE)
+  confere(BreedingR:::bloco_ztwz(slots, pares, 2L, 2L, w, 0L, 0L), soc, soc, TRUE)
+})
+
 test_that("survival_split() compara os tempos de mudanca exatamente", {
   # a chave paste(sujeito, tempo) usava 15 digitos e juntava 3 e 3 + 4e-15
   expect_identical(paste(1L, 3, sep = "_"), paste(1L, 3 + 4e-15, sep = "_"))

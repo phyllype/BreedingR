@@ -7,7 +7,8 @@
 t2(fit, n, r = 0, trait = NULL)
 }
 \arguments{
-\item{fit}{result of \code{\link[=model]{model()}} or \code{\link[=model_mt]{model_mt()}} with an \code{indirect()} term}
+\item{fit}{result of \code{\link[=model]{model()}}, \code{\link[=model_mt]{model_mt()}} or \code{\link[=model_threshold]{model_threshold()}} with an
+\code{indirect()} term}
 
 \item{n}{group size, one number or a vector of sizes}
 
@@ -43,6 +44,13 @@ component whose diagonal is not 1; its contribution to the phenotypic variance i
 \code{mean(diag(K))} times the component, which this function does not know and does not
 add. With pens of different sizes, give the sizes as a vector and read one row per
 size, or give the average size, the convention of the literature.
+
+On a \code{\link[=model_threshold]{model_threshold()}} fit the numbers are on the liability scale, with the
+residual fixed at 1 in the denominator; with pens of unequal size and an environmental
+effect of the mates that residual is a convention rather than the variance of every
+record (the limit declared in \code{\link[=model_threshold]{model_threshold()}}). A \code{\link[=model_survival]{model_survival()}} fit is
+refused: the frailty model has no residual variance, so there is no phenotypic
+variance on the log-hazard scale to divide by.
 }
 \references{
 Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
