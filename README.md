@@ -30,8 +30,11 @@ packageVersion("BreedingR")   # the examples here need 0.4.0.9000
 The CI installs the package both ways from GitHub on every push and runs the quick start
 below with the installed copy.
 
-Restart R before reinstalling when an older BreedingR is loaded: Windows keeps its DLL
-locked and the install stops with "Permission denied", leaving the old version in place.
+To replace an older version, first close every R session that has loaded BreedingR
+(RStudio included: quit it, or restart R and do not call `library(BreedingR)`), then run
+the install before anything else. Windows keeps the DLL of a loaded package locked, and
+the install stops with "cannot remove earlier installation, is it in use?" or "Permission
+denied", leaving the old version in place.
 
 ## What it does
 
