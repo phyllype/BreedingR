@@ -49,10 +49,31 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::rcmdcheck
+          extra-packages: any::rcmdcheck, any::remotes
           needs: check
 
       - uses: r-lib/actions/check-r-package@v2
         with:
           upload-snapshots: true
           build_args: 'c("--no-manual")'
+
+      # O codigo da documentacao contra o pacote instalado: cada funcao e cada argumento
+      # citados no README, no SKILL e nas vinhetas existem, e o quick start roda inteiro.
+      - name: Check the documented code
+        if: matrix.config.os == 'ubuntu-latest' && matrix.config.r == 'release'
+        shell: bash
+        run: |
+          R CMD INSTALL .
+          Rscript tools/check_docs.R .
+
+      # As duas instrucoes de instalacao do README, como um usuario as roda, do commit deste
+      # push; o quick start roda de novo com cada copia instalada.
+      - name: Install the way the README says
+        if: matrix.config.os == 'ubuntu-latest' && matrix.config.r == 'release'
+        shell: bash
+        run: |
+          mkdir -p /tmp/lib-tarball /tmp/lib-remotes
+          Rscript -e 'install.packages("https://github.com/${{ github.repository }}/archive/${{ github.sha }}.tar.gz", repos = NULL, type = "source", lib = "/tmp/lib-tarball")'
+          Rscript -e 'remotes::install_github("${{ github.repository }}@${{ github.sha }}", lib = "/tmp/lib-remotes", upgrade = "never")'
+          Rscript tools/check_docs.R . /tmp/lib-tarball
+          Rscript tools/check_docs.R . /tmp/lib-remotes

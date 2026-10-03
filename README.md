@@ -14,11 +14,24 @@ package itself, in `src/`, and `R CMD INSTALL` compiles them. No separate binary
 service, no run-time dependency.
 
 ```r
-remotes::install_github("phyllype/BreedingR")   # requires Rtools on Windows
-# or, from a clone:
-install.packages(".", repos = NULL, type = "source")
+# straight from GitHub with base R only; it compiles, so Windows needs Rtools and macOS
+# the Xcode command-line tools
+install.packages("https://github.com/phyllype/BreedingR/archive/refs/heads/main.tar.gz",
+                 repos = NULL, type = "source")
+# or with remotes, installed first with install.packages("remotes")
+remotes::install_github("phyllype/BreedingR")
+# or from a local clone, giving the folder that holds DESCRIPTION
+install.packages("C:/path/to/BreedingR", repos = NULL, type = "source")
+
 library(BreedingR)
+packageVersion("BreedingR")   # the examples here need 0.4.0.9000
 ```
+
+The CI installs the package both ways from GitHub on every push and runs the quick start
+below with the installed copy.
+
+Restart R before reinstalling when an older BreedingR is loaded: Windows keeps its DLL
+locked and the install stops with "Permission denied", leaving the old version in place.
 
 ## What it does
 
@@ -133,8 +146,8 @@ And around the fit: `solutions()`, `h2()`, `t2()`, `ebv()`, `accuracy()`, `rg()`
 **Where to read next.** Start with *Your first evaluation*, which goes from two files on
 disk to breeding values you can act on, and assumes nothing about this package. After
 that: *Theory and practice* walks a full evaluation in order, explaining each matrix, each
-algorithm and each iteration alongside the code that runs it; *Hands-on* works through 54
-of the 64 exported functions, step by step; *Contest models* derives the
+algorithm and each iteration alongside the code that runs it; *Hands-on* works through 66
+of the 71 exported functions, step by step; *Contest models* derives the
 competitive-ability estimators from the group multinomial, one identity at a time.
 [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
 
@@ -345,8 +358,8 @@ the data and names the term each shape asks for (and the trap it guards against)
 claims go through `benchmark_fit()`, which replicates at least three times and checks
 the runs returned identical numbers: the package's own timing rule as a tool.
 
-The full map of the 64 functions, grouped by kinship, is in
-[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 54 of them,
+The full map of the 71 functions, grouped by kinship, is in
+[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 66 of them,
 step by step on data simulated in the document itself, is the vignette
 `vignettes/hands-on.Rmd` (every chunk runs at build time, so it cannot rot). The theory
 behind `apy_core=` (why APY works and what the Mendelian residual means) is in
