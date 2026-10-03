@@ -73,7 +73,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p /tmp/lib-tarball /tmp/lib-remotes
-          Rscript -e 'install.packages("https://github.com/${{ github.repository }}/archive/${{ github.sha }}.tar.gz", repos = NULL, type = "source", lib = "/tmp/lib-tarball")'
+          Rscript -e 'f <- file.path(tempdir(), "BreedingR.tar.gz"); download.file("https://github.com/${{ github.repository }}/archive/${{ github.sha }}.tar.gz", f, mode = "wb"); install.packages(f, repos = NULL, type = "source", lib = "/tmp/lib-tarball")'
           Rscript -e 'remotes::install_github("${{ github.repository }}@${{ github.sha }}", lib = "/tmp/lib-remotes", upgrade = "never")'
           Rscript tools/check_docs.R . /tmp/lib-tarball
           Rscript tools/check_docs.R . /tmp/lib-remotes

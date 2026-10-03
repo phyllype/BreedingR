@@ -15,9 +15,12 @@ service, no run-time dependency.
 
 ```r
 # straight from GitHub with base R only; it compiles, so Windows needs Rtools and macOS
-# the Xcode command-line tools
-install.packages("https://github.com/phyllype/BreedingR/archive/refs/heads/main.tar.gz",
-                 repos = NULL, type = "source")
+# the Xcode command-line tools. Downloading first keeps RStudio from trying to read the
+# URL as a local file (harmless "tar.exe: Error opening archive" warnings otherwise).
+f <- file.path(tempdir(), "BreedingR.tar.gz")
+download.file("https://github.com/phyllype/BreedingR/archive/refs/heads/main.tar.gz", f,
+              mode = "wb")
+install.packages(f, repos = NULL, type = "source")
 # or with remotes, installed first with install.packages("remotes")
 remotes::install_github("phyllype/BreedingR")
 # or from a local clone, giving the folder that holds DESCRIPTION
