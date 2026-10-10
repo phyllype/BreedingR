@@ -17,7 +17,9 @@ is refused the same way}
 
 \item{labels}{row and column names for the returned matrix, one per record; defaults to
 the record position. These are the levels the \code{\link[=kernel]{kernel()}} term will match on, so they
-must be the same values as the column named in the formula}
+must be the same values as the column named in the formula; a missing label (\code{NA},
+\code{NaN}, \code{Inf}, \code{-Inf}, blank text or the text "NaN") is refused with its row, as in a
+level column of \code{\link[=model]{model()}}}
 
 \item{dilution}{the same \code{d} as in \code{indirect(dilution = d)}: each mate's social
 environmental deviation enters with weight \code{(n - 1)^(-d)}, so the block of a pen

@@ -357,8 +357,9 @@ residuals.breeding_fit_thr <- function(object, data, type = c("surrogate", "pear
          "linear predictor of each record", call. = FALSE)
   y <- data[[object$trait]]
   if (is.null(y)) stop("no column '", object$trait, "' in the data", call. = FALSE)
-  usa <- !is.na(y)
-  if (!is.null(missing_code)) usa <- usa & !(as.character(y) == as.character(missing_code))
+  # a observacao ausente pela regra do ajuste (observacao_ausente(), a de prepara_limiar):
+  # o texto vazio, o texto "NaN" e o Inf saem do ajuste e saem daqui tambem
+  usa <- !observacao_ausente(y, missing_code)
   if (sum(usa) != object$n_used)
     stop(sum(usa), " record(s) with an observed trait in the data against ", object$n_used,
          " in the fit: pass the data (and missing_code) of the fit", call. = FALSE)
@@ -484,11 +485,14 @@ prepara_nulos <- function(fit, data, pedigree, genotypes, cadeia = FALSE) {
     if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
   })
   mc <- fit$missing_code
-  # o probit do gibbs() ajusta o 0/1 da categoria de cima, como ele mesmo converteu
+  # o probit do gibbs() ajusta o 0/1 da categoria de cima, como ele mesmo converteu: a mesma
+  # coluna convertida (lst) e a mesma regra da observacao ausente (observacao_ausente(),
+  # R/indirect.R). Com a regra antiga (so NA e missing_code) o texto vazio, o texto "NaN" e o
+  # Inf, que o gibbs() tira do ajuste, entravam aqui como a classe 0, e o desenho remontado
+  # usava mais registros que a cadeia
   if (identical(fit$family, "probit")) {
-    v <- data[[trait]]
-    obs <- !is.na(v)
-    if (!is.null(mc)) obs <- obs & as.character(v) != as.character(mc)
+    v <- lst[[trait]]
+    obs <- !observacao_ausente(v, mc)
     lst[[trait]] <- ifelse(obs, as.double(v == fit$binary_levels[2]), NA_real_)
   }
   ped_id <- ped_sire <- ped_dam <- character(0)

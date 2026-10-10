@@ -5,7 +5,8 @@
 # sao governadas por set.seed() e dao o MESMO resultado em serie e em paralelo (as sementes
 # saem do gerador de quem chama, antes de qualquer execucao); (3) com theta fixo a media
 # juntada das cadeias reproduz o BLUP e a variancia juntada a PEV, como na cadeia unica; (4)
-# chains = 1 nao toca no gerador fora da propria cadeia.
+# chains = 1 nao toca no gerador fora da propria cadeia; (5) uma cadeia real mais curta fica
+# fora das amostras, das medias e dos residuos, e residual_diagnostics() confere o resto.
 
 simula_c <- function(n = 150, seed = 5, va = 0.5) {
   set.seed(seed)
@@ -81,5 +82,45 @@ test_that("chains = 1 nao sorteia sementes: o gerador anda so pela propria cadei
              chains = 1L, verbose = FALSE)
   expect_identical(a$samples, b$samples)
   expect_identical(stats::runif(1), depois_a)
-  expect_null(a$rhat)
+  # com uma cadeia o rhat existe: e o R-hat dividido das duas metades dela
+  expect_null(a$chain_samples)
+  expect_equal(unname(a$rhat), unname(apply(a$samples, 2, rhat)))
+})
+
+test_that("uma cadeia real que guarda menos amostras fica fora de tudo, residuos inclusive", {
+  # gibbs.cpp para a cadeia com theta inadmissivel ou C sem Cholesky e devolve as amostras
+  # ate ali. Aqui a cadeia 2 roda o motor de verdade com 100 iteracoes a menos, que da a
+  # mesma forma (40 de 60 amostras, medias e residuos dessas 40): junta_cadeias() tem de
+  # deixa-la fora das amostras, de b, de ebv, do residuo medio e dos sorteios pivotais, e
+  # residual_diagnostics() remonta W E[loc] dos dados e confere contra o ajustado juntado
+  z <- simula_c(n = 80)
+  curta <- function(cadeia, sementes, cores) {
+    e <- environment(cadeia)
+    n0 <- e$n_iter
+    lapply(seq_along(sementes), function(k) {
+      if (k == 2L) {
+        e$n_iter <- n0 - 100L
+        on.exit(e$n_iter <- n0)
+      }
+      cadeia(sementes[k])
+    })
+  }
+  set.seed(23)
+  g <- with_mocked_bindings(
+    gibbs(y ~ cg + animal(id), z$d, z$ped, n_iter = 400L, burnin = 100L, thin = 5L,
+          chains = 3L, residual_draws = 5L, verbose = FALSE),
+    roda_cadeias = curta, .package = "BreedingR")
+  expect_identical(g$n_iter, 400L)
+  expect_identical(g$chain_n, c(60L, 40L, 60L))
+  expect_identical(g$chains_used, c(1L, 3L))
+  expect_identical(unname(g$samples),
+                   unname(rbind(g$chain_samples[[1]], g$chain_samples[[3]])))
+  expect_match(g$message, "chain(s) 2 stopped early (40 of 60 kept samples)", fixed = TRUE)
+  expect_equal(unname(g$b), unname(rowMeans(g$chain_b[, c(1L, 3L)])), tolerance = 1e-12)
+  expect_equal(unname(g$ebv$animal), unname(rowMeans(g$chain_ebv$animal[, c(1L, 3L)])),
+               tolerance = 1e-12)
+  expect_identical(ncol(g$pdm_residuals), 10L)
+  dg <- residual_diagnostics(g, z$d, z$ped, nsim = 19L, seed = 24)
+  expect_identical(dg$draws, 10L)
+  expect_identical(dg$n_used, nrow(z$d))
 })

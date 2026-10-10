@@ -26,12 +26,16 @@ most once per environment); \code{NA} is a missing record}
 
 \item{traits}{names of the trait columns (wide form), or the single trait column (long)}
 
-\item{id}{name of the animal column}
+\item{id}{name of the animal column. A missing id (\code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank
+text or the text "NaN") is refused on every row, as a level column of \code{\link[=model]{model()}}; an
+id that is present but not among the genotyped animals leaves its record, counted in
+\code{dropped}}
 
 \item{genotypes}{\code{list(ids, m)} with dosages 0/1/2 (\code{NA} imputed by the marker mean)}
 
 \item{environment}{name of the environment column for the long form: each level becomes
-a trait}
+a trait. A missing environment is refused on every row, by the same rule as \code{id}:
+it would become one more trait, or its records would vanish uncounted}
 
 \item{cov_structure}{\code{"unstructured"}, \code{"hcs"} or \code{"xfa"}}
 

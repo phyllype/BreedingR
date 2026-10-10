@@ -125,6 +125,30 @@ static std::vector<std::string> textos(SEXP v, const char* quem) {
   return out;
 }
 
+// Uma lista de vetores numericos (os otimos univariados que model_mt() e model_ar1() ajustam
+// para a partida padrao). Vazia quando nao e uma lista de doubles: a partida automatica
+// fica, sem erro, porque a partida e uma conveniencia e nao o modelo.
+static std::vector<std::vector<double> > vetores_do_R(SEXP v) {
+  std::vector<std::vector<double> > out;
+  if (TYPEOF(v) != VECSXP) return out;
+  for (R_xlen_t k = 0; k < XLENGTH(v); k++) {
+    SEXP e = VECTOR_ELT(v, k);
+    if (TYPEOF(e) != REALSXP) return {};
+    out.emplace_back(REAL(e), REAL(e) + XLENGTH(e));
+  }
+  return out;
+}
+
+// a partida do ajuste multicaracter / AR(1), nomeada como theta; vazia quando o ajuste
+// parou antes dela
+static SEXP sexp_partida(const std::vector<double>& p, SEXP nomes) {
+  SEXP v = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) p.size()));
+  for (std::size_t k = 0; k < p.size(); k++) REAL(v)[k] = p[k];
+  if ((R_xlen_t) p.size() == XLENGTH(nomes)) Rf_setAttrib(v, R_NamesSymbol, Rf_duplicate(nomes));
+  UNPROTECT(1);
+  return v;
+}
+
 // A flag de pedigree pai / avo materno viaja como ATRIBUTO "mgs" do vetor de maes, posto
 // por colunas_pedigree() no R. Assim os onze pontos que constroem o pedigree a recebem sem
 // mudar assinatura nenhuma, e um vetor sem o atributo e o pedigree pai/mae de sempre.
@@ -1254,7 +1278,7 @@ SEXP R_avaliar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
 SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEXP tcov,
                   SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                   SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP maxiter,
-                  SEXP tol, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start, SEXP tdil) {
+                  SEXP tol, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start, SEXP tdil, SEXP uni) {
   GUARDA(
     SEXP alvo1 = PROTECT(Rf_mkString(CHAR(STRING_ELT(alvos, 0))));
     br::Modelo m = modelo_do_R(alvo1, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
@@ -1290,6 +1314,13 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     if (!th0.empty() && th0.size() != d.modelo.ntheta)
       Rf_error("start with %d entries; the layout asks for %d", (int) th0.size(),
                (int) d.modelo.ntheta);
+    // A PARTIDA PADRAO a partir dos otimos univariados que o R ajustou (model_mt(), sem
+    // start=): vazia quando algum vetor nao casa com o layout, e ai fica a automatica
+    std::string partida_de = th0.empty() ? "var(y)" : "start=";
+    if (th0.empty() && XLENGTH(uni) > 0) {
+      th0 = br::partida_univariados_mt(d, vetores_do_R(uni));
+      if (!th0.empty()) partida_de = "univariate fits";
+    }
     br::AjusteMT r = br::ajusta_mt(d, th0.empty() ? nullptr : &th0,
                                    (std::size_t) Rf_asInteger(maxiter), Rf_asReal(tol),
                                   Rf_asLogical(verb) == TRUE);
@@ -1398,11 +1429,20 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
                             "message", "n_used", "n_columns", "ebv", "pev", "b",
                             "dropped_x", "newton_dec", "dense_block", "h_prior",
                             "h_prior_row", "residual", "fitted", "fitted_fixed",
-                            "resid_var", "used"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 22));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 22));
-    for (int q = 0; q < 22; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "resid_var", "used", "start_from", "dropped_x_reason", "start"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 25));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 25));
+    for (int q = 0; q < 25; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     poe_residuos(out, 17, res, d.usa, d.alvos);
+    SET_VECTOR_ELT(out, 22, Rf_mkString(partida_de.c_str()));
+    SET_VECTOR_ELT(out, 24, sexp_partida(r.partida, nms_t));
+    {
+      SEXP mot = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_motivo.size()));
+      for (std::size_t k = 0; k < d.saiu_motivo.size(); k++)
+        SET_STRING_ELT(mot, (R_xlen_t) k, Rf_mkChar(d.saiu_motivo[k].c_str()));
+      SET_VECTOR_ELT(out, 23, mot);
+      UNPROTECT(1);
+    }
     SET_VECTOR_ELT(out, 15, sexp_priori_h(diag_h_geno, linha_h_geno, ped));
     SET_VECTOR_ELT(out, 16, sexp_linha_h(linha_h_geno));
     SET_VECTOR_ELT(out, 14, sexp_bloco_denso(r.bloco_denso, r.colunas_fator));
@@ -1485,7 +1525,7 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
                    SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                    SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP sujeito,
                    SEXP tempo, SEXP maxiter, SEXP tol, SEXP gid, SEXP gm, SEXP mistura,
-                   SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start, SEXP tdil) {
+                   SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start, SEXP tdil, SEXP uni) {
   GUARDA(
     SEXP alvo1 = PROTECT(Rf_mkString(CHAR(STRING_ELT(alvo, 0))));
     br::Modelo m = modelo_do_R(alvo1, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
@@ -1521,6 +1561,13 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     if (!th0.empty() && th0.size() != d.modelo.ntheta)
       Rf_error("start with %d entries; the layout asks for %d", (int) th0.size(),
                (int) d.modelo.ntheta);
+    // a partida padrao a partir dos otimos univariados AR(1) que o R ajustou (cbind() sem
+    // start=); vazia quando nao casa, e ai fica a automatica
+    std::string partida_de = th0.empty() ? "var(y)" : "start=";
+    if (th0.empty() && XLENGTH(uni) > 0) {
+      th0 = br::partida_univariados_ar1(d, vetores_do_R(uni));
+      if (!th0.empty()) partida_de = "univariate fits";
+    }
     br::AjusteMT r = br::ajusta_ar1(d, th0.empty() ? nullptr : &th0,
                                     (std::size_t) Rf_asInteger(maxiter), Rf_asReal(tol),
                                    Rf_asLogical(verb) == TRUE);
@@ -1627,10 +1674,11 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
                             "message", "n_used", "n_columns", "n_subjects", "ebv", "pev",
                             "b", "dropped_x", "newton_dec", "dense_block", "h_prior",
                             "h_prior_row", "residual", "fitted", "fitted_fixed",
-                            "resid_var", "used", "subject_index", "time"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 25));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 25));
-    for (int q = 0; q < 25; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "resid_var", "used", "subject_index", "time", "start_from",
+                            "start", "dropped_x_reason"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 28));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 28));
+    for (int q = 0; q < 28; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     poe_residuos(out, 18, res, d.usa, d.alvos);
     {
       SEXP sj = PROTECT(Rf_allocVector(INTSXP, (R_xlen_t) d.nlin));
@@ -1647,6 +1695,15 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
       SET_VECTOR_ELT(out, 23, sj);
       SET_VECTOR_ELT(out, 24, tp);
       UNPROTECT(2);
+    }
+    SET_VECTOR_ELT(out, 25, Rf_mkString(partida_de.c_str()));
+    SET_VECTOR_ELT(out, 26, sexp_partida(r.partida, nms_t));
+    {
+      SEXP mot = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_motivo.size()));
+      for (std::size_t k = 0; k < d.saiu_motivo.size(); k++)
+        SET_STRING_ELT(mot, (R_xlen_t) k, Rf_mkChar(d.saiu_motivo[k].c_str()));
+      SET_VECTOR_ELT(out, 27, mot);
+      UNPROTECT(1);
     }
     SET_VECTOR_ELT(out, 16, sexp_priori_h(diag_h_geno, linha_h_geno, ped));
     SET_VECTOR_ELT(out, 17, sexp_linha_h(linha_h_geno));
@@ -2857,9 +2914,9 @@ static const R_CallMethodDef metodos[] = {
   {"R_ajustar",      (DL_FUNC) &R_ajustar,     32},
   {"R_a22_inversa",  (DL_FUNC) &R_a22_inversa,  4},
   {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  22},
-  {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  29},
+  {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  30},
   {"R_avaliar_ar1",  (DL_FUNC) &R_avaliar_ar1, 24},
-  {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 31},
+  {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 32},
   {"R_residuos_prepara",     (DL_FUNC) &R_residuos_prepara,     31},
   {"R_residuos_prepara_ar1", (DL_FUNC) &R_residuos_prepara_ar1, 30},
   {"R_residuos_lote",        (DL_FUNC) &R_residuos_lote,         4},

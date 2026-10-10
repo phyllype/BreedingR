@@ -2,6 +2,201 @@
 
 ## New
 
+* `residuals()` and `fitted()` for `model()`, `model_ar1()`, `model_mt()` and `gibbs()`
+  fits. The fit stores the conditional residual `y - X b - Z u`, the fitted values
+  `X b + Z u` and `X b` and, in `model()`, the leverage `h_ii` of each record in the mixed
+  model equations (Hodges 1998), read from the factor and selective inverse of the PEV
+  step at no extra factorization; `model_ar1()` and `model_mt()` compute theirs (and
+  `resid_var`, the variance of each residual) with one more assembly and factorization at
+  the final components, about one more REML iteration, and keep the fit with `NA`
+  residuals if that pass fails. The variance of a residual is not `s2e`:
+  `s2e (1 - h_ii) / w_i` averaged 0.35 s2e in contemporary groups of two and 0.69 s2e in
+  groups of forty on a simulated animal model with h2 = 0.4, and moves with h2 and the
+  layout, so `type = "standardized"` divides by it (a record with `1 - h_ii < 1e-8`, a
+  group of one record, is `NA`). `"marginal"`, `"pearson"` and, for `model_ar1()`, the
+  `"normalized"` innovations are there too (with several traits a missing cell is
+  conditioned out by a Kalman filter, so the next record is not lost). A `gibbs()` chain
+  returns the posterior means (`"conditional"`, `"marginal"`; `fitted()` on the liability
+  scale for the probit); with several chains they pool the chains that ran to the end, the
+  same chains as `b` and `ebv`. Threshold (ordinal mode) and survival fits get plug-in
+  residuals (surrogate and Pearson; Cox-Snell, martingale, deviance and randomized quantile),
+  descriptive and not calibrated. `residuals(fit, data)` of those fits and
+  `residual_diagnostics()` rebuild the records by the fit's own rule for a missing trait,
+  so blank text, the text "NaN" and `Inf` in a categorical trait are missing there too.
+* `residual_diagnostics()`: homoscedasticity by class (the contemporary group by default),
+  against the fitted fixed part and against covariates, normality, and the within-subject
+  lag 1 of repeated records (the lag 2 of the innovations for `model_ar1()`), each with an
+  effect size and a p-value from a parametric bootstrap under the fitted model, because the
+  residuals of an animal model are dependent: on simulated homoscedastic data,
+  Fligner-Killeen and Brown-Forsythe with asymptotic p rejected 1.000 with contemporary
+  groups of two records and 0.000 with groups of three to six. The primary dispersion check
+  is a Bartlett-type ratio on squared Fligner-Killeen rank scores, and when the error shows
+  excess kurtosis (a pre-test at 5%) the replicates draw a t error matched to it. Measured
+  type I (1000 data sets per cell, five stored layouts of 600 to 2400 records, normal and
+  t5 errors): `dispersion` 0.045 to 0.064, `koenker` 0.040 to 0.067 except against the
+  fitted fixed part with t5 errors and groups of two to four records (0.094, liberal),
+  `normality` 0.051 to 0.059 with normal errors
+  (`validation/residual_diagnostics_calibration.R`). Next to the tests, without a bootstrap
+  p: the largest standardized residuals with a Bonferroni p, the leverage and a generalized
+  Cook distance, and the standardized breeding values `u / sqrt(s2 K_jj - PEV)`, with the
+  `K_jj` the mixed model equations used (`H_ii` for every animal of a single step),
+  summarized by mean `z^2`, skewness and kurtosis. For `model()` and `model_ar1()` the
+  design is rebuilt and factorized once and checked against the fit (the data, solved in
+  that factor, must give the fit's residuals: other data, another pedigree or other
+  genotypes stop there), and the replicates come in batches whose statistics are kept and
+  the replicates dropped, so memory does not grow with `nsim`. `p_adjusted` is Holm's over
+  the primary checks. A `gibbs()` chain is diagnosed by pivotal discrepancy measures
+  (Johnson 2007; Yuan and Johnson 2012) on stored draws of its realized residual,
+  `residual_draws = 20` by default; its data and level names are checked against the
+  chain, but its pedigree and genotypes are not (they enter only its standardized breeding
+  values, which are approximate). Not available for `model_mt()`, a multi-trait
+  `model_ar1()`, threshold and survival fits. Not yet validated on real data.
+* `mcmc_diagnostics()`: convergence diagnostics for the chains of `gibbs()`, or for any
+  draws: a matrix iterations x chains, an array iterations x chains x parameters, a list of
+  chains, a draws object of the posterior package, or an `mcmc` / `mcmc.list` of coda.
+  - One row per component, plus the heritability and the correlations computed draw by
+    draw. Each row has the rank-normalized split R-hat, bulk and folded; bulk- and
+    tail-ESS, and the Monte Carlo standard errors of the mean, sd and quantiles (Vehtari et
+    al. 2021); the Pareto k-hat of the tails (Vehtari et al. 2024), with the MCSE of the
+    mean left blank above 0.5; autocorrelations at lags 1, 10 and 50; the Geweke (1992) z
+    and the Heidelberger-Welch (1983) test, combined over the chains, with the spectral
+    density at zero estimated in the final window only (on log or ranks when the draws are
+    heavy-tailed, see `start_scale`); and how far the chains disagree in location and in
+    scale.
+  - Across components, the multivariate ESS of Vats, Flegal & Jones (2019), by lugsail
+    batch means over the chains, and the multivariate PSRF of Brooks & Gelman (1998) with
+    their factor (1 + 1/M).
+  - With two or more chains, the R-hat of every breeding value and fixed effect, flagged
+    against a limit that grows with the number of levels and with the autocorrelation time
+    of the slowest component. Levels of a group with two effects are named with the effect,
+    "F016 (maternal)".
+  - A verdict, `ok`, `run longer`, `burn-in too short`, `not mixed` or `chain stopped`,
+    with every reason listed.
+  - `gibbs()` runs it and keeps it in `$diagnostics`. `print()` and `summary()` show R-hat,
+    bulk- and tail-ESS, MCSE and status per row, and end with the verdict and the notes.
+
+  Gates (`tests/testthat/test-gibbs-diagnostics.R`):
+  - R-hat, the bulk, tail, mean and basic ESS, and the MCSE of the mean, sd and quantiles
+    equal posterior 1.7.0 to 1e-10 on 18 sets of draws, among them odd numbers of draws
+    and 6 to 11 draws per chain, both for the functions and through the table. The Pareto
+    k-hat matches to 1e-8 on the 10 sets with 21 or more draws per chain. With 29 or fewer
+    draws in all, or with both tails constant, `khat` is `NA` where posterior returns
+    `-Inf` (no fit in either); neither exceeds 0.5, so the verdict and the MCSE columns do
+    not change.
+  - The mPSRF equals `coda::gelman.diag()` when M = p, and the Brooks-Gelman formula when
+    not.
+  - The multivariate ESS of a VAR(1) is within 3% of its analytic value with the lugsail
+    correction, and 5% high without it.
+
+  Calibration (`validation/mcmc_diagnostics_calibration.R`):
+  - Stationary Gaussian AR(1) chains with 200 to 600 bulk draws per chain (200 replicates
+    per setting): never `not mixed`, and `burn-in too short` at most 2% of the time, with
+    1, 2, 4 or 8 chains.
+  - 10 to 26 bulk draws per chain: never `not mixed`. Without the ESS floor, the
+    disagreement rules would say so 12.5% to 61% of the time, and 37% to 97% counting the
+    isolated chain.
+  - One of 4 chains shifted 0.5 and 1 posterior sd: `not mixed` 83% and 100%.
+  - A start 50 sd away with no burn-in: `burn-in too short` 100% with 4 chains and 86%
+    with one, where R-hat passed 1.01 in 2% of the 4-chain runs.
+  - Stationary heavy-tailed draws (inverse gamma with Pareto k 0.5 to 0.83, an AR(1)
+    copula, t with 1.5 df; 400 replicates): `burn-in too short` at most 2.2%, against 6.5%
+    to 15% for the same tests on the raw scale.
+  - 50 000 levels at an autocorrelation time of 5: the largest location R-hat passed 1.01
+    in 95% of converged runs. The limit flagged none in 40 when given the true largest time
+    + 2 as ceiling, and found a level with one chain shifted 0.5 posterior sd 90% of the
+    time.
+  - The ceiling a fit computes, the slowest row + 2, was checked on 860 simulated animals
+    in three models. Largest level time over the slowest row's: 0.17 for the animal model,
+    0.33 for direct-maternal (chains far from mixed), 0.20 for a two-coefficient reaction
+    norm.
+
+  Scale (`validation/mcmc_diagnostics_scale.R`, 1 thread): on a `gibbs()` of 4 chains x
+  5000 kept draws over 20 000 levels of an iid effect (40 000 records), the diagnostics
+  take 0.22 to 0.23 s (3 runs). Ten seeds gave `ok` with no level flagged. The levels there
+  mix almost as independent draws, so this measures cost and false alarms, not the location
+  rule nor an animal model.
+* `posterior::as_draws_array()`, `posterior::as_draws()` and `coda::as.mcmc.list()` take a
+  `gibbs()` fit, using the chains that ran to the end. This opens the rest of both
+  packages, such as `posterior::rstar()` or `coda::raftery.diag()`. Both packages are
+  suggested, not required.
+* `snp_effects()` reads from the fit what it used: the blend, the APY core, `vecchia_k`,
+  and the metafounders with their Gamma (`model()` now stores `genomic = list(blend,
+  vecchia_k)` in single-step fits). It backsolves with the same `G*^-1` the fit used:
+  - APY: the APY inverse applied to the breeding values, with no n x n matrix;
+  - exact: one n x n matrix, factored in place;
+  - Vecchia: the fit's own dense pipeline, about three n x n matrices;
+  - metafounders: the G05 backsolve, `a = (1 - w) (M - 1)' G*^-1 u / (m / 2)`.
+
+  The dense A^-1 of the whole pedigree that the R version built is gone. Before any n x n
+  work, the G* rebuilt from `pedigree` and `genotypes` is checked against the diagonal
+  stored in the fit. With `vecchia_k`, the genotypes must come in the fit's row order.
+  Gates: the result equals G*^-1 u read back from the exported H^-1 within 1e-9, with
+  ungenotyped ancestors, on each route (exact, APY, Vecchia) with and without
+  metafounders, and, on the exact route, on a sire / maternal-grandsire pedigree. The APY
+  route also matches an APY inverse built densely in R. With metafounders the result
+  equals the marker effects of `snp_blup()` at the same theta within 1e-9. The previous R
+  version agrees within 1e-9. `attr(, "freq")` keeps the marker names.
+* The fixed-effect design is sparse. `model()`, `model_mt()`, `model_ar1()` and `gibbs()`
+  built X dense: n x p on the whole table, again on the used rows, once more inside the
+  Gram-Schmidt that found its rank (each orthogonalised column kept as an n-vector), and
+  again in the final X. That came to about 5 n p doubles and O(n p^2) time in one thread:
+  4.95 GB for one `model(maxiter = 0)` on 209 646 records with 675 fixed columns. X is now
+  kept by rows, one entry per record and fixed term. Its rank comes from a Cholesky of X'X
+  in column order. A column that this step cannot decide reliably goes to an explicit
+  residual (corrected semi-normal equations), and every decision there is certified: a
+  residual at or below the threshold drops the column, and one with at most 1e-3 of itself
+  left in the span keeps it. If a decision cannot be certified, the whole rank falls back
+  to the previous Gram-Schmidt, run column by column without a dense X. That takes a
+  column that nearly collinear columns before it span only with very large coefficients,
+  such as x1, a near copy x2 = x1 + 1e-8 z, and then x1 + 1e8 (x2 - x1). Unscaled
+  polynomial covariates and near copies on their own stay on the sparse route (tested to
+  degree 8 on covariates with means from 1 000 to 2.46 million, and copies within 1e-4 to
+  1e-9). The criterion is unchanged: a column goes when its distance to the columns kept
+  before it is below 1e-9 of its norm, so the last column of a dependent set goes. The rank
+  never exceeds the number of records.
+
+  `dropped_x` is the same as before on every fit of the test files other than this
+  change's own (compared before the choice of the `model_mt()` reference level listed
+  under Fixed, which changes some drops of a multi-trait fit). In that file the previous
+  build kept more fixed columns than records in a
+  few small designs (6 of 40 seeds of a 10-record `model()` loop, and a `model_mt()` trait
+  on 9 records); the new rank does not. On 1 324 adversarial random designs `dropped_x` is
+  also the same, except in 23 where the previous Gram-Schmidt kept a dependent column: more
+  columns than records, or a column within 1e-9 of the span that its rounding let through.
+  The new rank drops that column. Where the fallback runs, the result is the previous
+  Gram-Schmidt's, rounding included, except that it never keeps more columns than records:
+  it keeps the first columns the previous one kept, up to the number of records.
+
+  Measured on simulated data, 3 isolated processes each, with `dropped_x` checked against
+  the levels counted in the table (`validation/fixed_design_memory.R`):
+  - 200 000 records, 701 candidate fixed columns (a 680-level contemporary group, two
+    classes, two covariates and a nested one): `model(maxiter = 0)` peaks at 259-267 MB of
+    working set (362-363 MB committed) in 2.6-4.2 s, depending on machine load. The fixed
+    part is 145-153 MB of working set and 232 MB committed (three sets of 3 replicates).
+  - 628 857 records: 617 MB of working set, 1.06 GB committed, 8.2 s. The fixed part is
+    286 MB of working set and 675 MB committed.
+  - 20 000 records: the previous build took 496 MB and 6.5-7.1 s for what now takes 33 MB
+    and 0.3 s.
+
+  The rank keeps a dense triangular factor of p(p + 1)/2 doubles for p kept columns, with
+  O(p^3) work in one thread: about 0.4 GB and 4.5 minutes with 10 000 fixed columns (one
+  run). The factor is sized before that work for the candidate columns with an entry on the
+  used records (or the records, if fewer), dependent ones included. The fit stops with a
+  message when that size passes 4 GB, or when the dense fallback would need more than 4 GB.
+
+  `model_threshold()` and `model_survival()` build their fixed design sparse too, one block
+  per term. Their rank uses the same engine route with the relative criterion of `qr()`
+  (1e-7). Their products sum in the order of R's reference BLAS, so with that BLAS the
+  fits are the same bit for bit. Five Fisher iterations of a threshold model with 689
+  fixed columns on 20 000 records went from 645 MB and 49-53 s to 93 MB and 0.65 s.
+  Weighted fits no longer rescan every random-effect incidence once per weighted record.
+
+  The identity with the previous build was checked on Windows with R's reference BLAS,
+  using `validation/fixed_design_identity.R`, before the changes to `model()`,
+  `model_mt()` and `model_ar1()` listed under Fixed (the -2logL from the residuals, the
+  per-trait walk, the new start). Across the test files (all but the file of this change),
+  the 3 085 values returned by 24 fitting and accessor functions are identical bit for
+  bit. These include -2logL, theta, b, EBV, PEV, `dropped_x`, residuals and fitted values.
 * Genotypes are read where they are. `genotypes$m` may be a double, integer or raw matrix
   (raw: 1 byte per genotype, 5 for missing, the BLUPF90 code), and the engine reads the R
   object directly, by blocks of markers, instead of copying it into a double matrix of its
@@ -410,8 +605,362 @@
   `br_threads(lapack = TRUE)` hands the dense inverses and products to R's
   BLAS and LAPACK, for an optimized multithreaded BLAS.
 
+## Breaking changes
+
+* Data that used to fit now stop. Every fitter refuses a missing label in a column that
+  gives a level, and a missing value in a covariate. A missing label is NA, NaN, Inf,
+  -Inf, blank text or the text "NaN"; a missing value is NA, NaN, Inf or -Inf. The check
+  runs on every row, so blank cells in a class, id, subject, pen, environment or covariate
+  column must be dropped or filled before the fit (the entries under Fixed say what they
+  used to become). Rows whose trait is missing are checked too, and three cases that fitted at
+  commit f2c0d69 (n_used 47 of 48) now stop:
+  - a blank label on a row with a missing trait stops every fitter, `model()` included.
+    Before, the every-row rule held only in the engine fitters, and only for numeric `NA`,
+    `NaN` and `Inf`;
+  - `model_threshold()` and `model_survival()` now refuse any missing level or covariate
+    on a row with a missing trait, which they used to accept: a text `NA` in `cg`, a blank
+    `lote`, an `NA` in `cov(x)`. They checked only the rows with an observation;
+  - the engine fitters now refuse a missing covariate value on a row with a missing trait,
+    a row they used to fit correctly because it left the fit anyway. The reason is one
+    rule for every column the model reads: one data frame is accepted or refused alike by
+    every fitter, although the rows that enter differ between them (`model_mt()` keeps a
+    row with any trait observed, `model_ar1()` also drops a row without time, and a row
+    without a phenotype is still a pen mate of `indirect()`).
+* In `model_threshold()` (both modes) and `gibbs(family = "probit")`, blank text, the text
+  "NaN" or a numeric `Inf` in the categorical trait is now a missing observation. The
+  record drops, so `n_used` and the categories change for such data.
+* `model_threshold()` and `model_survival()` refuse a factor or text column in `cov()`.
+  Their `predict()` methods refuse a factor or a missing covariate in `newdata`. Before, a
+  factor was read by its codes 1, 2, ...
+* `weights` given as text or a factor are refused.
+* Error texts changed. Code that matches them needs the new forms:
+  - "NA in the text column 'cg' at row 6: drop those rows or fill them" in the R fitters
+    (was "missing value(s) in fixed effect 'cg'" or "in random term");
+  - "Inf or -Inf in the column 'g'" (was "Inf");
+  - "weights: NA or Inf in the weight column 'w' in 2 row(s), the first at row 4".
+* `snp_effects(blend =)` now defaults to `NULL`, and a value different from the fit's is
+  refused. A fit made before this version has no `fit$genomic` and must be refitted.
+
 ## Fixed
 
+* Blank text and the text "NaN" in a level column were levels of their own, in silence.
+  The rule that already stopped the pen of `indirect()` now covers every column that gives
+  a level: a fixed class, the id of a random or relationship term, the class of a nested
+  covariate, the subject of `model_ar1()` and `model_survival()`, the id and the
+  environment of `pegs()`, and the labels of `associative_matrix()`.
+  - Blank text is what `read.csv()` and `data.table::fread()` give for an empty cell of a
+    text column; spaces, tabs and line breaks alone count as blank. "NaN" is what
+    `factor()` makes of a numeric `NaN`.
+  - What it did at f2c0d69: with "" in two rows of `random(lote)`, -2logL was
+    54.430335165401253, bit for bit the value of a level named "BRANCO" in those rows. A
+    blank `cg` gave the column "cg=" (in `model_threshold()`, the reference class). A blank
+    id of `animal()` left the fit like an id outside the pedigree (n_used 46 of 48).
+  - Every fitter now stops with the term, the column, the number of such rows and the
+    first of them, on every row.
+  - The texts "NA", "Inf", "-Inf", "nan" and "0" remain level names, since they may be
+    real ones.
+  - In the maternal-grandsire column of `sire(mgs =)`, blank text is the unknown
+    grandsire, like "0". A single space " " used to stop with "maternal grandsire ' ' is
+    not in the level set". The text "NaN" there is refused.
+* A covariate with a missing value left the model without a word.
+  - What it did at f2c0d69: `cov(x)` with one `NA` in 48 rows became NaN and left through
+    the rank check (`dropped_x` "x=x"). The fit had the -2logL of the model without
+    `cov(x)`, 50.430239486919447, with `n_used` 48. A nested covariate lost only that
+    row's class ("x=c1"). `random(g, base = "phi1")` with one `NA` gave -2logL 0. `Inf` did
+    the same as `NA`, and `model_mt()` and `gibbs()` dropped the covariate too.
+  - `NA`, `NaN`, `Inf` and `-Inf` in `cov()` (nested or not) and in the columns of
+    `base =` now stop every fitter with the term, the column, the count and the first row,
+    on every row. `model_threshold()` and `model_survival()` apply the same rule in R.
+* `model_ar1(subject =)`: an `NA` subject joined those rows into one subject "nan", and
+  blank text into a subject "". The AR(1) then ran between records of different animals:
+  10 subjects with 2 rows `NA` gave `n_subjects` 11. A missing subject is now refused like
+  a level column, in `model_ar1()`, `eval_internal_ar1()` and the `cbind()` form.
+* `model_survival(subject =)` follows the same rule. Before, an `NA` subject dropped its
+  pieces, counted only in `n_dropped`. Blank text joined the pieces of two animals into one
+  history, which stopped with "3 overlap(s) between elementary records of a subject ()".
+* `associative_matrix(labels =)` accepted an `NA` label: the row was named NA and was
+  refused only later in the fit, as "kernel ids: there is NA". It also accepted blank
+  labels, a row that no record can match, in silence. A missing label is now refused with
+  its row.
+* `pegs()` made a blank environment one more trait (`n_records` 2 39 39). An `NA`
+  environment dropped its records uncounted (`dropped` 0), and a blank or `NA` id was
+  counted as a record without genotypes. The id and the environment now follow the
+  level-column rule.
+* The categorical trait of `model_threshold()` and of `gibbs(family = "probit")` turned
+  missing values into categories. Blank text became the LOWEST category: same thresholds
+  and -2logL (133.23306961590686) as a category "0" in those rows. The text "NaN" and the
+  factor of a `NaN` became the highest, and a numeric `Inf` a category "Inf". In the joint
+  mode a blank binary was a third value, and an `Inf` quantitative record entered the fit.
+  These are now missing observations: the record drops and is counted.
+* `model_threshold()` and `model_survival()` read a factor in `cov()` by its codes. Their
+  `predict()` methods did the same with a factor in `newdata` and gave another prediction,
+  in silence. The joint mode returned `NA` for a missing covariate in `newdata`. All of
+  these are now refused, with "column 'x' is text and was requested as numeric" or the
+  missing-value message.
+* `predict()` in the joint mode without a class factor stopped with "no column '' in
+  newdata". It now uses the intercept.
+* The rule in R compares bytes, as the engine does. It used `trimws()`, which stopped on a
+  label that `read.csv()` read from a latin1 file without `fileEncoding`: "input string k
+  is invalid UTF-8", with no term, column or row. This hit the R fitters,
+  `competition_strength()` and `indirect_residual()`.
+* `qc_phenotypes(classes =)` returns `missing_labels`: per class column, the number of rows
+  with a missing label that every fitter refuses. Those rows no longer count as a class in
+  `small_classes`.
+* Weights: a text or factor column is refused instead of being read as codes. `NA`, `Inf`
+  or a weight <= 0 is reported with the column, the count and the first row.
+* `?model` states the rule once ("only the observation may be missing"), with the
+  conventions of the field:
+  - ASReml stops on a missing explanatory value unless `!MVINCLUDE` or `!MVREMOVE` is
+    declared; asreml-R defaults to `na.method(x = "fail")`.
+  - A BLUPF90 class code 0 becomes one level "0" here.
+  - `missing_code`, like `OPTION missing` in BLUPF90, marks the observation only: a
+    covariate holding -999 is fitted as the number -999.
+
+  Gates: `tests/testthat/test-rotulo-ausente.R`. Every case has an arm that runs the same
+  data with a real label in place of the missing one and checks the number the missing one
+  gave at f2c0d69. One battery of values runs through both implementations of the rule,
+  the engine's and R's.
+* `model_mt()` and `model_ar1()` no longer certify a covariance boundary that the step
+  merely stopped at. Their step freezes a boundary block whose curvature has collapsed,
+  whatever the sign of the score, and the certificate left that block out of the Newton
+  decrement. On real data two bivariate fits came out `converged = TRUE` 46.8 and 16.3
+  -2logL units above the interior optimum. A certificate with a block at a boundary now
+  has to pass four checks on the likelihood itself:
+  - the Karush-Kuhn-Tucker condition: points inside the cone along the negative
+    eigenvectors of the block's gradient matrix, with the step length of the quadratic
+    model of the average information, and as a fallback each Cholesky diagonal raised to
+    0.1%, 1% and 10% of its scale;
+  - the boundary face: the coordinates of the block that move along it, by central
+    differences of the -2logL (step 1e-2 in log-Cholesky), in a joint Newton step with the
+    free components;
+  - a second walk from inside the cone, within the same `maxiter`, for every fit that ends
+    with a block at a boundary: each such block made diagonal, its variances at least 10%
+    of the `var(y)` start;
+  - after a certificate passes, a polish at the boundary: the face step again, and for a
+    trait whose variance sits at the floor the same point with its covariances at zero,
+    accepted while each lowers the -2logL by more than 1e-5 and the new point still
+    certifies.
+
+  A point that lowers the -2logL by more than 1e-4 sends the walk there, or refuses the
+  certificate when the walk cannot move (at `maxiter`, after 10 re-entries into the cone or
+  20 moves along the face). The polish never turns a certified fit into an uncertified one
+  and never raises the -2logL.
+  - Simulated starts at r = +-(1 - 7.5e-7), which the previous build certified 5.2 to 5.5
+    units above the optimum in `model_mt()` and 15.0 above in `model_ar1()`, now reach it;
+    with `maxiter = 20` the same start ends `converged = FALSE`. Of 48 starts with one
+    litter variance at 1e-12 (seeds 1 to 12), the previous build certified 17 points above
+    the optimum, the KKT check alone 6 (0.0056 to 4.73 units above), and with the second
+    walk none.
+  - At a boundary optimum the certified point depended on the path, because the face it
+    rests on is flat. Before the polish, in sweeps over four starts per data set (the
+    default, `var(y)` and two at the wall), 5 of 368 certified fits were 1.0e-4 to 3.9e-4
+    above the best of their four starts, 4 of them among the 96 `model_mt()` fits with the
+    genetic block at r = -1. In a separate search over 24 bivariate data sets (48 fits,
+    the two default starts each), the two default starts of a bivariate AR(1) with a
+    genetic variance at the floor certified points 6.7e-4 apart. With the polish, no
+    certified point of the sweeps is more than 9.4e-5 above the best of its four starts and
+    no verdict changes, and that AR(1) pair comes within 1e-5. One known case remains: in
+    the same search, a `model_mt()` fit with two blocks at a boundary certifies two points
+    1.7e-4 apart. The sweeps and the search ran during development and are not kept in
+    `validation/`. The 562 fits of the test suite are bit for bit the same with and without
+    the polish.
+  - These are searches, not a proof. A better point that none of the checks reaches still
+    passes.
+  - `model()` keeps its check by the sign of the score: its step never freezes a component
+    whose score points inward.
+* `model_mt()` and `model_ar1()` walk on each trait divided by the power of two just above
+  its standard deviation, and evaluate the result in the original units.
+  - The walk no longer reads the unit of a trait. The relative floor of the step, the
+    curvature-collapse test, `relDelta` and the slacks of the EM rescue all used to compare
+    numbers in different units.
+  - On simulated data the previous build certified a point 4.70 -2logL units above the
+    optimum, with theta 19% off, for y1 times 1000. For y1 times 1e-4 it stopped without a
+    certificate 133.7 units above.
+  - Now the estimates agree up to the scale factors (1e-5) and the -2logL up to the
+    Jacobian `2 (n - p) log c` (1e-9); at 24 000 records, 3e-8 and 1.8e-9 for y1 times
+    0.01. A power-of-two factor gives the same fit bit for bit.
+  - Components resting at a boundary are the exception. They sit on a flat face and can
+    move along it when the data round differently: 0.4% and 0.6% with ten components at a
+    covariance boundary, the -2logL equal within 2.5e-5 after the Jacobian.
+  - On real data, a boundary estimate had moved 0.66% and the -2logL 0.011 under a
+    rescaling of one trait. That case was not rerun with this version.
+* The SINGULAR verdict and the standard errors no longer depend on the unit of `y` in
+  `model_ar1()` and `model_mt()`. The eigenvalue cut is taken on the average information
+  scaled by the exact standard deviation of each trait (the factor `s_a s_b` per
+  component, 1 for `rho`).
+  - On real data, 5 of 10 univariate `model_ar1()` fits said SINGULAR with 3 or 4 NaN
+    standard errors in the recorded unit. None did after dividing `y` by 100.
+  - `y`, `100 y` and `1e4 y` now give the same verdict, the same standard errors up to the
+    factor and the same standard error of `rho`, for any factor and not only powers of
+    two. At 21 000 records the standard errors agree to 8.2e-7.
+  - A component with no information at all is still flagged. A correlation form of the
+    matrix, tried first, normalized it away (diagonal 3.1e-31, standard error 9.6e15, no
+    warning).
+  - `model()` is unchanged here, since all its components share the unit of `y^2`.
+* `model()`: the variance floor of the step is now 1e-10 of the variance of `y`, fixed for
+  the whole walk.
+  - It was 1e-10 of `max(1, s2e)`. In the user's unit that held the floor at 1e-10
+    whenever the residual variance was below 1.
+  - With `y` times 1e-5 a permanent-environment variance stuck on that floor, and the fit
+    was declared converged with the additive variance 14% low. With 1e-6 it stopped 1.685
+    -2logL units above the optimum.
+  - Now `y` times 1e-6, 1e-8 and 1e6 give the same estimates to 1e-11.
+  - A variance at the zero boundary is now reported at 1e-10 var(y) instead of 1e-10.
+* The REML -2logL of `model()`, `model_ar1()` and `model_mt()` is formed from the
+  residuals, `e'R^-1 e + u'G^-1 u`. It used to be `y'R^-1 y - b'r`, which subtracts two
+  numbers of order n (mean y)^2 and lost digits when a constant was added to `y`.
+  - At fixed components on simulated data, the previous build changed by 1.1e-8 (relative)
+    for y + 1000 standard deviations and by up to 1.1e-6 for y + 1e4. The rho = 0 collapse
+    of `model_ar1()` onto `model()` was off by 7.9e-7 at 1e4.
+  - All of them now agree to 3e-14, and to 6e-15 at 21 000 and 24 000 records
+    (`validation/unit_shift_start_scale.R`).
+  - On real data the collapse had been off by 9e-6.
+  - Degenerate fits whose residual variance goes to about 1e-10 or below now report a
+    different -2logL, because the old value was the cancellation. In
+    `test-mf-genomico.R` (`model_ar1()` on three identical copies of `y`) the previous build
+    reported -15090; its own components evaluate to -5629.87 with the residual form.
+* The default start of `model_mt()`, and of `model_ar1()` with `cbind()`, is now the
+  univariate optimum of each trait with every covariance between traits at zero, the start
+  one builds by hand in BLUPF90 or ASReml.
+  - Evidence: on real data, with the engine before the per-trait standardization and the
+    boundary checks above, a bivariate CAR(1) from the `var(y)` start walked to r = -1 and
+    r = +1. It stopped 41.3 units above the optimum that the univariate start reached in 6
+    iterations. That case has not been rerun with this version.
+  - With the current engine no simulated case is known where the `var(y)` start fails:
+    over 24 bivariate data sets in four designs (`model_mt()` and `model_ar1()`, trait
+    scales up to 100 apart, litter and permanent-environment correlations up to 0.95) both
+    starts certified, at most 1.8e-4 -2logL units apart. The default therefore rests on the
+    one real case.
+  - The univariate fits run to their own optimum whatever `maxiter` is, with the APY core
+    already resolved. A variance they leave at the zero boundary starts at 1% of the
+    `var(y)` start.
+  - When the fit from that start stalls without a certificate before `maxiter`, the
+    `var(y)` start is fitted as well. The lower -2logL is returned, except that a certified
+    fit wins when the other is within 2e-4.
+  - `start_from` says which start was used and `start` where the walk left from.
+    `start = ` still takes any start.
+  - Cost, 3 replicates where both starts reach the same optimum
+    (`validation/unit_shift_start_scale.R`, a machine shared with other jobs): an interior
+    `model_mt()` with 24 000 records 22.3 to 24.1 s against 14.8 to 21.8 s; a litter
+    variance at zero 45.8 to 50.4 s against 41.8 to 48.8 s; a bivariate CAR(1) with 21 000
+    records 9.6 to 11.1 s against 5.2 to 6.7 s. On the median that is 1.6, 1.1 and 1.8
+    times; an earlier rerun on the same machine measured up to 1.9 times.
+* `maxiter = 0` evaluates the start and returns `converged = FALSE` in `model()`,
+  `model_mt()` and `model_ar1()`: an evaluation is not a convergence. In `model()` this is
+  a change: from a start at the optimum, with `n_em = 0`, it used to return
+  `converged = TRUE`, with the message "converged by the Newton decrement while the
+  components were still moving (relDelta 0)". `model_mt()` and `model_ar1()` returned
+  `TRUE` as well.
+  - `model()` says when the evaluated point was moved by `n_em` EM rounds.
+  - The exit where no damped step and no EM step improves the likelihood now says so in
+    English, with the iteration and the Newton decrement. In `model_mt()` and
+    `model_ar1()` it used to show an internal Portuguese string behind "stopped at 300
+    iteration(s)", in fits that had stopped at the 9th and 13th, and there this exit never
+    certifies. `model()` now names the iteration too.
+  - A start beyond the floors of the step, such as a correlation within about 1e-6 of
+    +-1, is raised to them before the walk in `model_mt()` and `model_ar1()`. There the
+    sparse -2logL was 0.0028 to 51 units below the dense V form, and the fit stopped at its
+    first iteration.
+* `model_mt()` chooses the reference level of a class among the levels with records of
+  every trait.
+  - A drop for one trait (`term=level|trait`) is therefore a level with no record of that
+    trait.
+  - `dropped_x_reason`, also returned by `model_ar1()`, gives the reason of each drop: "no
+    record", "aliased", "no record of y2" or "aliased within y2".
+  - The previous build named the empty level `CG=x`, without the trait, and dropped a level
+    that had records as `CG=y|trait`.
+  - Rank, likelihood and breeding values do not change.
+* Effect of the changes above on the 507 fits of `model()`, `model_mt()` and `model_ar1()`
+  in the test suite, measured on their own branch (before the sparse fixed design and the
+  residuals joined it) against the build at f2c0d69 (`test-indirect-jacobiano.R` is left out of the pairing because its number of fits
+  changed, 49 to 55, see the last point):
+  - The 271 interior optima keep their -2logL (largest relative change 1.9e-9). 25 of them
+    move theta by more than 1e-6 along flat ridges; the largest moves are a `rho` of
+    `test-ar1.R` from -0.000285 to -0.000358 (the -2logL 1.4e-7 lower) and 6.4% in a
+    covariance the data barely identify in `test-indireto-identificabilidade.R`.
+  - Of the 39 boundary fits, 6 move the -2logL by more than 1e-8 relative: 4 go lower, by
+    2.1e-6 to 2.3e-5 (among them the h2 = 0 design of `test-fixed-solutions.R`); 1 goes
+    higher, by 1.6e-5, in `test-multitrait.R`; and 1 is the degenerate smoke fixture of
+    `test-mf-genomico.R` above (rho -> 1 with the residual variance -> 0), -15090 before
+    and -6460 now, both said converged.
+  - 7 fits that stopped without a certificate now converge: 3 in `test-apy-auto.R` (300
+    iterations to 10), 3 in `test-extracao.R` (`model_mt()` with `maxiter = 8`, the -2logL
+    0.058 lower) and 1 in `test-indireto-identificabilidade.R` (a flat ridge at 300). 2
+    fits with `maxiter = 0` go from `TRUE` to `FALSE`: a `model()` fit in
+    `test-indirect-dilution.R` and a `model_mt()` fit in `test-mt-celula-vazia.R`.
+  - 188 fits converge in neither version. 178 of them run `maxiter` from 0 to 5 to read a
+    layout or a message, and their -2logL moves with the new start. The other 10 run 6 or
+    300 iterations:
+    - 6 in `test-associativo-covariancia.R`. In two alias-design `model()` fits (seed 2)
+      the walk now stops at iteration 12, where no step improves, 0.0167 above the point
+      the previous build reached in 300 iterations. The previous engine also stalls from
+      that point (the -2logL there carries noise of about 3e-7 near r = 1), so this is a
+      path change from the new variance floor. Of the other 4, two end 0.0164 above the
+      previous build at 300 iterations and two are unchanged.
+    - 3 in `test-indirect-dilution.R`, degenerate fits whose previous -2logL (-115.4 and
+      -1965.1) was lost digits; they now report -2.66 and -2.34 at 300 iterations.
+    - 1 in `test-extracao.R` (`maxiter = 6`), unchanged.
+  - In an exactly flat profile of `indirect_residual()` (`test-indirect-jacobiano.R`,
+    -2logL 244.464 for every k from 0 to 5) the tie now resolves to k = 1 instead of 0.764.
+* `geweke_z()` divided the difference of the window means by their iid variances.
+  - On a stationary AR(1) chain of 1800 draws it rejected at the 5% level 25%, 63% and 87%
+    of the time at lag-one autocorrelation 0.5, 0.9 and 0.98 (1000 replicates).
+  - On the four chains of a converged `gibbs()` of 860 animals it gave z = -4.12, 4.93,
+    2.56 and -6.01 for `var(animal)`.
+  - It now uses the spectral density at zero (Geyer's initial monotone sequence),
+    estimated in the final window only, and combines the chains. On the same run the
+    combined z is -0.09.
+  - `gibbs()$geweke` looked at the first chain only; it is now the combined z.
+  - The `|z| < 4` check in test-gibbs.R had hidden this.
+* With several chains, `gibbs()$ess` was the sum of the per-chain ESS, which cannot see
+  chains that disagree. With one of 4 AR(1) chains shifted 2 sd, the sum was 1303 where the
+  multi-chain bulk-ESS is 10.0 (100 replicates). It is now the bulk-ESS of Vehtari et al.
+  (2021).
+* `ess()` is now Geyer's initial monotone sequence on FFT autocovariances, as
+  `posterior::ess_basic(split = FALSE)`, and takes a matrix of chains. The previous
+  estimator (positive pairs of `acf()`, no monotone step) agreed in the median. On single
+  chains of 2000 draws, 10% differed by more than 5% to 8%, and the worst by 24% to 39%
+  (200 chains per autocorrelation).
+* `rhat()` folded `|x - median|` after splitting the chains, with the median of the
+  halves; posterior folds first. With an odd number of draws they differed in 18% of the
+  runs of 4 chains of 21 draws, by up to 2.4%.
+* A chain of `gibbs(chains =)` that stopped early (an inadmissible theta or a failed
+  Cholesky inside the chain) kept fewer draws. `cbind()` recycled it silently in `rhat`,
+  and the pooled locations averaged it in. Now:
+  - only the chains that ran to the end are pooled and diagnosed (the longest alone if
+    none did), and the residuals and fitted values of the fit come from the same chains;
+  - the verdict says `chain stopped`;
+  - `chain_n`, `chains_used` and `chain_messages` say what each chain did.
+* `gibbs()` with several chains: the pooled `ebv_sd` and `b_sd` are now the sd of all draws
+  stacked (denominator N - 1). They were the root of the mean within-chain variance plus
+  the population variance of the chain means, larger by about (M - 1) / (2 M n) for M
+  chains of n draws (0.07% for 3 chains of 500). `ebv` and `b` do not change.
+* `gibbs()` with one chain returned no `rhat`; it is now the split R-hat of the chain's two
+  halves.
+* `gibbs()` accepted `thin = 0`, which crashed R, and non-integer `n_iter`, `burnin` and
+  `thin`; these are refused now.
+* `validation/gibbs_harville.R` takes the Monte Carlo error of the means from
+  `mcse_mean`; the z against the quadrature is unchanged (0.15 and 0.08).
+* DESCRIPTION declared `testthat (>= 3.0.0)`, but the tests use `expect_no_warning()`
+  (testthat 3.1.5) and `local_mocked_bindings()` (3.1.7); the bound is now 3.1.7.
+  `posterior` and `coda` join Suggests.
+* `estimate_gamma(method = "pseudo_em")` failed with "not positive-definite" when a
+  metafounder had no genotyped descendant. As documented, its row and column are now zero,
+  and the rest of Gamma equals the estimate without that metafounder (gate: 1e-10, for a
+  metafounder that is only declared and for one whose descendants are all ungenotyped).
+* `snp_effects()` with a marker that has every genotype missing stopped with "missing
+  value where TRUE/FALSE needed". The marker is now left out, as it is in the fit.
+* A genotype list whose `ids` and rows of `m` differ in number is now refused with the
+  same message in every function that takes genotypes ("genotypes$ids has N
+  identifier(s) for M row(s) of genotypes$m"). Before:
+  - `genomic_inbreeding()` with fewer identifiers than rows returned F under the wrong
+    animals' names: each name moved down one row, and the last one was `NA`.
+  - `apy_core_select()` chose a core from the mismatched list.
+  - `g_matrix()`, `g_dominance()`, `estimate_gamma()` and `snp_effects()`, and
+    `genomic_inbreeding()` with more identifiers than rows, stopped with base R errors
+    that did not name the cause ("non-conformable arguments", "length of 'dimnames'",
+    "'names' attribute").
+  - `h_inverse()` and `model()` already refused it, with a different message.
 * `predict.breeding_fit_surv(type = "survival")` with an ESTIMATED `lambda` left the
   intercept `rho * log(lambda)` out of `S(t)` (it used `t^rho` in place of
   `(lambda t)^rho`): on the simulated sire data of test-mrode-cap16.R (seed 42), sire 1 at time 30, 6.0e-161
@@ -645,6 +1194,39 @@
 
 ## Performance
 
+* `genomic_inbreeding()`, `g_dominance()`, `estimate_gamma()` and `snp_effects()` now run
+  in the engine. They read the genotype matrix where it is (double, integer, or raw with 5
+  as missing), with no conversion or copy.
+  - `genomic_inbreeding()` gives the same numbers bit for bit.
+  - `g_dominance()` sums the allele frequencies in double, as `g_matrix()` does, so D and G
+    use the same p. It agrees with the previous version within 1e-12 relative, on fixtures
+    up to 1100 animals and 4500 markers.
+  - `g_matrix()` and `g_dominance()` write the n x n result straight into the R matrix,
+    allocated as a vector with `dim`, so the 46 340-animal limit no longer applies. That
+    path is correct by construction but has not been run, because it needs about 17 GB.
+  - In `estimate_gamma()`, the gene fractions come from the engine. `A22^-1 X` uses one
+    sparse factorization of the non-genotyped block for all columns, and keeps the
+    symbolic analysis across pseudo-EM iterations. `method = "ml"` no longer forms the
+    dense `A22^-1` or `Z Z'`: its summaries come from Schur solves on blocks of 32 markers.
+  - Agreement with the previous version: pseudo-EM and GLS within 1e-10, with the same
+    iteration count. ML summaries within 1e-12 relative, and gamma within 1e-6 (the
+    resolution of `optimize()`).
+  - Measurements: simulated raw matrices, 4 threads, median of 3, peak private memory
+    above the session (`validation/genomic_ports_memory.R`). Timings are indicative,
+    because the machine was shared. At 3000 x 3000 (pedigree of 4650, two non-genotyped
+    generations), before -> after: F 145 MB, 0.12 s -> 1 MB, 0.02 s; D 238 MB, 10 s ->
+    128 MB, 0.8 s; pseudo-EM, 10 iterations, 197 MB -> 8 MB; GLS 198 MB -> 5 MB; ML
+    277 MB, 6.4 s -> 7 MB, 0.08 s; exact backsolve 592 MB, 52 s -> 129 MB, 1 s.
+  - At 10 000 x 20 000: D takes 0.98 GB and 72 s; the exact backsolve takes 0.99 GB and
+    84 s.
+  - At 20 000 x 20 000, on a pedigree of 31 000 animals with only two non-genotyped
+    generations: F under 1 MB; pseudo-EM 124 MB, 1.0 s per iteration; GLS 112 MB, 1.5 s;
+    ML 109 MB, 13 s; the APY backsolve with a core of 1000, measured on a stub fit (random
+    breeding values), 393 MB, 32 s. The previous versions were not run at 20 000.
+  - The cost of `estimate_gamma()` grows with the depth of the non-genotyped pedigree.
+    With 4000 genotyped animals and 1000 markers, a pedigree of 20 200 animals with 16
+    non-genotyped generations takes 8.4 s per pseudo-EM iteration, against 0.02 s with 2
+    generations.
 * The traces of the AI-REML score, `tr(K^-1 C^uu)` read from the selected inverse, run in
   parallel over the columns of `K^-1`, with the partial sums added in column order (the same
   result with any number of threads); `W'W` is assembled once per fit, and each evaluation

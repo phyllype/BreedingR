@@ -260,7 +260,12 @@ test_that("APY in the multi with core = all reproduces the exact single step ide
   fa <- model_mt(cbind(p1, p2) ~ animal(id), d, ped, genotypes = list(ids = gids, m = m),
                    apy_core = gids)
   expect_equal(fa$neg2logl, fe$neg2logl, tolerance = 1e-8)
-  # three components rest at a covariance boundary here: on that flat ridge a 1e-16
-  # difference in H^-1 moves the fitted theta by ~5e-6 with the same -2logL to 1e-11
-  expect_equal(fa$theta, fe$theta, tolerance = 1e-4)
+  # the genetic block walks through r = 1 and three components rest at a covariance
+  # boundary, on a flat ridge: 14 certified random starts within 4e-7 -2logL units of the
+  # best spread theta by up to 2.9e-4, and the exact and APY fits (both within 2e-7 of the
+  # best, the same -2logL to 1.5e-9) end 6e-4 apart: the two walks part at iteration 5,
+  # where the genetic block is at r = 1 and the step treats a block at the boundary
+  # differently. The H^-1 above is the identity under test; theta is compared at the
+  # resolution of the ridge
+  expect_equal(fa$theta, fe$theta, tolerance = 2e-3)
 })

@@ -39,7 +39,10 @@ parameter}
 
 \item{pedigree}{data.frame animal, sire, dam}
 
-\item{subject}{column identifying the subject (typically the animal)}
+\item{subject}{column identifying the subject (typically the animal). A missing
+subject, \code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or the text "NaN", is refused on
+every row with the column, the number of such rows and the first of them, as a
+level column in \code{\link[=model]{model()}}: those rows would form one series}
 
 \item{time}{numeric time column; two records of the SAME subject at the SAME time
 are a declared error: with AR(1) the time identifies the record, and simultaneous
@@ -68,20 +71,38 @@ with \code{apy_core}}
 
 \item{start}{starting values for the components, in the order the fit reports
 them. Use it to warm-start from a submodel, or to check that the optimum does
-not depend on where the search began. Without it the start comes from \code{var(y)},
-divided by the geometric mean of a declared kernel's eigenvalues so that the
-same model with \code{K} and with \code{c * K} starts at equivalent points.}
+not depend on where the search began. Without it, under \code{cbind()}, the start is
+the univariate AR(1) optimum of each trait (\code{model_ar1()} with the same right-hand
+side, one trait at a time, run to its own convergence), every covariance
+between traits at zero and \code{rho} the mean of the univariate ones; a variance that
+a univariate fit left at the zero boundary starts at 1\% of the \code{var(y)} start, the
+rule of \code{\link[=model_mt]{model_mt()}}, where the evidence for this default and its measured cost
+are. With one trait, when a univariate fit fails, or with \code{maxiter = 0}, the start
+comes from \code{var(y)}, divided by the geometric mean of a declared kernel's
+eigenvalues so that the same model with \code{K} and with \code{c * K} starts at equivalent
+points. When the fit from the univariate start stops short of \code{maxiter} without
+certifying an optimum, the \code{var(y)} start is fitted as well and the better of the
+two is returned, as in \code{\link[=model_mt]{model_mt()}}. Which start was used is in \code{start_from}.}
 
 \item{maxiter}{maximum number of iterations; a fit that hits the ceiling says so in
-\code{message} and how to raise it}
+\code{message} and how to raise it; the univariate fits of the default start are not
+bound by it, as in \code{\link[=model_mt]{model_mt()}}. \code{maxiter = 0} evaluates the start and reports
+\code{converged = FALSE}, as \code{\link[=model]{model()}} does: an evaluation is not a convergence}
 
 \item{tol}{relative tolerance on the components, sqrt(sum delta^2 / sum theta^2);
 see the BLUPF90 scale note in \code{\link[=model]{model()}}. The Newton decrement g' AI^-1 g is
 computed at the final point and reported in \code{newton_dec} (components resting at a
-covariance boundary excluded), and, as in \code{\link[=model]{model()}}, \code{converged} requires it under
-2e-4: the step walks in log-Cholesky coordinates, so it cannot jam against a
-boundary. At \code{maxiter} with the decrement already under the tolerance the fit is
-declared converged and \code{message} says the likelihood is flat along some direction}
+covariance boundary excluded, after the checks on the likelihood, the second walk
+from inside the cone and the polish at a boundary described under \code{tol} in
+\code{\link[=model_mt]{model_mt()}}), and, as in \code{\link[=model]{model()}}, \code{converged} requires it under 2e-4: the step
+walks in log-Cholesky coordinates, so it cannot jam against a boundary. At
+\code{maxiter} with the decrement already under the tolerance and those checks passed,
+the fit is declared converged and \code{message} says the likelihood is flat along some
+direction. A stop where no damped step and no EM step improves the likelihood is
+never certified: \code{message} gives the iteration and the decrement. The checks cover
+covariance blocks only: with one trait, a fit where \code{rho} goes to 1 and the residual
+variance to its floor (records repeated within a subject) can still be certified on
+an unbounded ridge, with the SINGULAR warning}
 
 \item{metafounders}{labels of unknown-parent groups; a parent with one of these
 labels needs no line of its own (any OTHER cited-without-line parent is still a
@@ -124,7 +145,19 @@ factorization and selective inverse at the final components, at the end of every
 \code{h_prior_row}, \code{k_prior} and
 \code{k_level_type} are as in \code{\link[=model]{model()}}: in a single step, \code{\link[=accuracy]{accuracy()}} divides a
 genotyped animal by its diagonal of G* and not by 1 + F, and a \code{kernel()} level by
-its diagonal of K
+its diagonal of K. \code{start_from} is "univariate fits", "start=" or "var(y)", and
+\code{start} the start the walk left from, named like \code{theta} (a start beyond the floors
+of the step is raised to them first, as in \code{\link[=model_mt]{model_mt()}}). \code{dropped_x_reason},
+parallel to \code{dropped_x}, says "no record" or "aliased" (a reference level or a
+collinear column); a level with no record of one trait stops the fit with an error
+that names it. The
+walk runs on each trait divided by the power of two just above its standard
+deviation, an exact rescaling in floating point (the variances have
+units and \code{rho} has none, so even with one trait the step criterion and the
+singularity check used to depend on the unit of \code{y}), the singularity verdict is
+taken on the information matrix in those units, and the result is evaluated
+back in the original units: \code{y} and \code{100 * y} give the same verdict, standard
+errors scaled by 100^2 and the same standard error of \code{rho}
 }
 \description{
 Fits a model with AR(1)/CAR(1) residual by AI-REML

@@ -126,7 +126,10 @@
 #'   column, strictly positive.
 #' @param data data.frame with the columns referenced. Records with a missing time or
 #'   a missing censoring indicator are dropped and counted; they still count as pen
-#'   mates of `indirect()`.
+#'   mates of `indirect()`. A missing level (`NA`, `NaN`, `Inf`, `-Inf`, blank text or
+#'   the text "NaN") or a missing covariate value is refused on every row, with the same
+#'   rule and message as in [model()]; a factor or text column in `cov()` is refused
+#'   rather than read as its codes.
 #' @param pedigree data.frame animal, sire, dam; required with `animal()`, `sire()` or
 #'   `indirect()` unless `k_inverse` is given
 #' @param censor MANDATORY: the censoring indicator, as a column name or a vector --
@@ -161,7 +164,10 @@
 #'   piece of a subject observed from time zero); NULL means every row starts at 0
 #' @param subject column with the subject of each elementary record; required with
 #'   `entry`. The level of every frailty term other than `indirect()` must be the same
-#'   in every piece of a subject (so `random(pen)` refuses an animal that changes pen)
+#'   in every piece of a subject (so `random(pen)` refuses an animal that changes pen).
+#'   A missing subject (`NA`, `NaN`, `Inf`, `-Inf`, blank text or the text "NaN") is
+#'   refused on every row, as the subject of [model_ar1()]: those pieces would form one
+#'   history
 #' @param gaps `"error"` (default) refuses a gap between two pieces of a subject;
 #'   `"allow"` accepts it as time out of observation, in which no risk is counted
 #' @param mates `indirect()` with elementary records: `"all"` (default) counts every
@@ -316,6 +322,13 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   sv <- if (is.null(subject)) rotulo_motor(seq_len(nrow(data))) else {
     if (!is.character(subject) || length(subject) != 1L || !subject %in% names(data))
       stop("subject must name the column that identifies each subject")
+    # o sujeito AUSENTE e recusado em toda linha, como o de model_ar1(). Medido em f2c0d69:
+    # o NA tirava a linha, so contada em n_dropped, e o texto vazio de dois animais juntava
+    # os trechos deles numa historia so, que parava em "3 overlap(s) between elementary
+    # records of a subject ()", sem o nome nem a linha
+    nivel_ausente(data[[subject]], "", subject, "subject",
+                  paste0("a record without a subject belongs to no known series, and those ",
+                         "rows would form one series; drop those rows or fill them"))
     rotulo_motor(data[[subject]])
   }
   # o intervalo de TODAS as linhas, para o modo "present" saber quando cada companheiro
@@ -701,9 +714,8 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
       stop("no column '", info$column, "' in newdata")
     col <- newdata[[info$column]]
     if (info$covariavel) {
-      v <- as.double(col)
-      if (any(!is.finite(v))) stop("non-finite value(s) in covariate '", info$column, "'")
-      d <- d + v * (if (info$nome %in% names(object$b)) object$b[[info$nome]] else 0)
+      d <- d + covariavel_newdata(col, info) *
+        (if (info$nome %in% names(object$b)) object$b[[info$nome]] else 0)
     } else {
       valores <- rotulo_motor(col)
       fora <- setdiff(unique(valores), info$niveis)

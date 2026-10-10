@@ -25,14 +25,27 @@ Anderson, E., Bai, Z., Bischof, C., Blackford, S., Demmel, J., Dongarra, J., Du 
 J., Greenbaum, A., Hammarling, S., McKenney, A. & Sorensen, D. (1999). *LAPACK Users'
 Guide*, 3rd ed. SIAM, Philadelphia.
 
+Anderson, T.W. & Darling, D.A. (1952). Asymptotic theory of certain "goodness of fit"
+criteria based on stochastic processes. *Annals of Mathematical Statistics* 23:193-212.
+
 Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect genetic
 effects and group size. *Genetics* 186:1029-1031.
 
 Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 quantitative genetics of inheritance and response to selection. *Genetics* 175:277-288.
 
+Box, G.E.P. & Pierce, D.A. (1970). Distribution of residual autocorrelations in
+autoregressive-integrated moving average time series models. *Journal of the American
+Statistical Association* 65:1509-1526.
+
 Bradley, R.A. & Terry, M.E. (1952). Rank analysis of incomplete block designs: I. The
 method of paired comparisons. *Biometrika* 39:324-345.
+
+Brooks, S.P. & Gelman, A. (1998). General methods for monitoring convergence of
+iterative simulations. *Journal of Computational and Graphical Statistics* 7:434-455.
+
+Brown, M.B. & Forsythe, A.B. (1974). Robust tests for the equality of variances.
+*Journal of the American Statistical Association* 69:364-367.
 
 Buttari, A., Langou, J., Kurzak, J. & Dongarra, J. (2009). A class of parallel tiled
 linear algebra algorithms for multicore architectures. *Parallel Computing* 35:38-53.
@@ -44,12 +57,19 @@ animal models with competition effects. *Journal of Animal Breeding and Genetics
 Christensen, O.F. & Lund, M.S. (2010). Genomic prediction when some animals are not
 genotyped. *Genetics Selection Evolution* 42:2.
 
+Christensen, R., Pearson, L.M. & Johnson, W. (1992). Case-deletion diagnostics for mixed
+models. *Technometrics* 34:38-45.
+
 Colleau, J.J. (2002). An indirect approach to the extensive calculation of relationship
 coefficients. *Genetics Selection Evolution* 34:409-421.
 
 Cockerham, C.C. (1954). An extension of the concept of partitioning hereditary variance
 for analysis of covariances among relatives when epistasis is present. *Genetics*
 39:859-882.
+
+Conover, W.J., Johnson, M.E. & Johnson, M.M. (1981). A comparative study of tests for
+homogeneity of variances, with applications to the outer continental shelf bidding data.
+*Technometrics* 23:351-361.
 
 Dempster, A.P., Laird, N.M. & Rubin, D.B. (1977). Maximum likelihood from incomplete
 data via the EM algorithm. *Journal of the Royal Statistical Society, Series B* 39:1-38.
@@ -85,6 +105,9 @@ values. *Genetics Selection Evolution* 38:601-615.
 Gelman, A. (2006). Prior distributions for variance parameters in hierarchical models.
 *Bayesian Analysis* 1:515-534.
 
+Gelman, A., Meng, X.-L. & Stern, H. (1996). Posterior predictive assessment of model
+fitness via realized discrepancies. *Statistica Sinica* 6:733-807.
+
 Gelman, A. & Rubin, D.B. (1992). Inference from iterative simulation using multiple
 sequences. *Statistical Science* 7:457-472.
 
@@ -113,11 +136,20 @@ Griffing, B. (1967). Selection in reference to biological groups. I. Individual 
 group selection applied to populations of unordered groups. *Australian Journal of
 Biological Sciences* 20:127-140.
 
+Gu, C.C., Lakatos, E. & Hamis, S. (2026). The MCMC convergence graph: a diagnostic for
+multimodal posteriors. arXiv:2609.37352 (preprint).
+
+Gupta, K. & Vats, D. (2020). Estimating Monte Carlo variance from multiple Markov chains.
+arXiv:2007.04229.
+
 Harville, D.A. (1974). Bayesian inference for variance components using only error
 contrasts. *Biometrika* 61:383-385.
 
 Hayes, J.F. & Hill, W.G. (1981). Modification of estimates of parameters in the
 construction of genetic selection indices ('bending'). *Biometrics* 37:483-493.
+
+Heidelberger, P. & Welch, P.D. (1983). Simulation run length control in the presence of
+an initial transient. *Operations Research* 31:1109-1144.
 
 Henderson, C.R. (1950). Estimation of genetic parameters (abstract). *Annals of
 Mathematical Statistics* 21:309-310.
@@ -128,9 +160,18 @@ model. *Biometrics* 31:423-447.
 Henderson, C.R. (1976). A simple method for computing the inverse of a numerator
 relationship matrix used in prediction of breeding values. *Biometrics* 32:69-83.
 
+Hilden-Minton, J.A. (1995). *Multilevel Diagnostics for Mixed and Hierarchical Linear
+Models*. PhD dissertation, University of California, Los Angeles.
+
+Hill, W.G. (1984). On selection among groups with heterogeneous variance. *Animal
+Production* 39:473-477.
+
 Hobert, J.P. & Casella, G. (1996). The effect of improper priors on Gibbs sampling in
 hierarchical linear mixed models. *Journal of the American Statistical Association*
 91:1461-1473.
+
+Hodges, J.S. (1998). Some algebra and geometry for hierarchical models, applied to
+diagnostics. *Journal of the Royal Statistical Society, Series B* 60:497-536.
 
 Hoeschele, I. & VanRaden, P.M. (1991). Rapid inversion of dominance relationship
 matrices for noninbred populations by including sire by dam subclass effects. *Journal
@@ -139,11 +180,17 @@ of Dairy Science* 74:557-569.
 Hunter, D.R. (2004). MM algorithms for generalized Bradley-Terry models. *Annals of
 Statistics* 32:384-406.
 
+Johnson, V.E. (2007). Bayesian model assessment using pivotal quantities. *Bayesian
+Analysis* 2:719-734.
+
 Kachman, S.D. (1999). Applications in survival analysis. *Journal of Animal Science*
 77(suppl. 2):147-153.
 
 Kirkpatrick, M., Lofsvold, D. & Bulmer, M. (1990). Analysis of the inheritance,
 selection and evolution of growth trajectories. *Genetics* 124:979-993.
+
+Koenker, R. (1981). A note on studentizing a test for heteroscedasticity. *Journal of
+Econometrics* 17:107-112.
 
 Legarra, A., Bermann, M., Mei, Q. & Christensen, O.F. (2024a). Redefining and
 interpreting genomic relationships of metafounders. *Genetics Selection Evolution* 56:34.
@@ -160,8 +207,26 @@ population relationships. *Genetics* 200:455-468.
 Levenberg, K. (1944). A method for the solution of certain non-linear problems in least
 squares. *Quarterly of Applied Mathematics* 2:164-168.
 
+Li, L., Wu, T. & Feng, C. (2021). Model diagnostics for censored regression via
+randomized survival probabilities. *Statistics in Medicine* 40:1482-1497.
+
+Li, W., Cook, D., Tanaka, E. & VanderPlas, S. (2024). A plot is worth a thousand tests:
+assessing residual diagnostics with the lineup protocol. *Journal of Computational and
+Graphical Statistics*.
+
+Liu, D. & Zhang, H. (2018). Residuals and diagnostics for ordinal regression models: a
+surrogate approach. *Journal of the American Statistical Association* 113:845-854.
+
+Liu, J.S., Wong, W.H. & Kong, A. (1994). Covariance structure of the Gibbs sampler with
+applications to the comparisons of estimators and augmentation schemes. *Biometrika*
+81:27-40.
+
 Liu, Z., Goddard, M.E., Reinhardt, F. & Reents, R. (2014). A single-step genomic model
 with direct estimation of marker effects. *Journal of Dairy Science* 97:5833-5850.
+
+Loy, A. & Hofmann, H. (2015). Are you normal? The problem of confounded residual
+structures in hierarchical linear models. *Journal of Computational and Graphical
+Statistics* 24:1191-1209.
 
 Luce, R.D. (1959). *Individual Choice Behavior: A Theoretical Analysis*. Wiley, New
 York.
@@ -201,6 +266,9 @@ National Academy of Sciences, Washington DC.
 Patterson, H.D. & Thompson, R. (1971). Recovery of inter-block information when block
 sizes are unequal. *Biometrika* 58:545-554.
 
+Pinheiro, J.C. & Bates, D.M. (2000). *Mixed-Effects Models in S and S-PLUS*. Springer, New
+York.
+
 Plackett, R.L. (1975). The analysis of permutations. *Applied Statistics* 24:193-202.
 
 Pocrnic, I., Lourenco, D.A.L., Masuda, Y., Legarra, A. & Misztal, I. (2016). The
@@ -217,6 +285,9 @@ Applied to Livestock Production*, Guelph, 18:443-446.
 Schafer, F., Katzfuss, M. & Owhadi, H. (2021). Sparse Cholesky factorization by
 Kullback-Leibler minimization. *SIAM Journal on Scientific Computing* 43:A2019-A2046.
 
+Schutzenmeister, A. & Piepho, H.-P. (2012). Residual analysis of linear mixed models using
+a simulation approach. *Computational Statistics and Data Analysis* 56:1405-1416.
+
 Sorensen, D.A., Andersen, S., Gianola, D. & Korsgaard, I. (1995). Bayesian inference in
 threshold models using Gibbs sampling. *Genetics Selection Evolution* 27:229-249.
 
@@ -226,6 +297,9 @@ Conference*, 63-69.
 
 Tempelman, R.J. (1998). Generalized linear mixed models in dairy cattle breeding.
 *Journal of Dairy Science* 81:1428-1444.
+
+Therneau, T.M., Grambsch, P.M. & Fleming, T.R. (1990). Martingale-based residuals for
+survival models. *Biometrika* 77:147-160.
 
 Tukey, J.W. (1977). *Exploratory Data Analysis*. Addison-Wesley, Reading, MA.
 
@@ -243,12 +317,24 @@ Varadhan, R. & Roland, C. (2008). Simple and globally convergent methods for
 accelerating the convergence of any EM algorithm. *Scandinavian Journal of Statistics*
 35:335-353.
 
+Vats, D. & Flegal, J.M. (2022). Lugsail lag windows for estimating time-average
+covariance matrices. *Biometrika* 109:735-750.
+
+Vats, D., Flegal, J.M. & Jones, G.L. (2019). Multivariate output analysis for Markov
+chain Monte Carlo. *Biometrika* 106:321-337.
+
+Vats, D. & Knudson, C. (2021). Revisiting the Gelman-Rubin diagnostic. *Statistical
+Science* 36:518-529.
+
 Vecchia, A.V. (1988). Estimation and model identification for continuous spatial
 processes. *Journal of the Royal Statistical Society, Series B* 50:297-312.
 
 Vehtari, A., Gelman, A., Simpson, D., Carpenter, B. & Burkner, P.-C. (2021).
 Rank-normalization, folding, and localization: an improved R-hat for assessing convergence
 of MCMC. *Bayesian Analysis* 16:667-718.
+
+Vehtari, A., Simpson, D., Gelman, A., Yao, Y. & Gabry, J. (2024). Pareto smoothed
+importance sampling. *Journal of Machine Learning Research* 25(72):1-58.
 
 Vitezica, Z.G., Varona, L. & Legarra, A. (2013). On the additive and dominant variance
 and covariance of individuals within the genomic selection scope. *Genetics*
@@ -281,6 +367,12 @@ Wright, S. (1922). Coefficients of inbreeding and relationship. *American Natura
 Xavier, A. & Habier, D. (2022). A new approach fits multivariate genomic prediction
 models efficiently. *Genetics Selection Evolution* 54:45.
 
+Yuan, Y. & Johnson, V.E. (2012). Goodness-of-fit diagnostics for Bayesian hierarchical
+models. *Biometrics* 68:156-164.
+
+Zhang, J. & Stephens, M.A. (2009). A new and efficient estimation method for the
+generalized Pareto distribution. *Technometrics* 51:316-325.
+
 ## Surveyed, not implemented
 
 Read for methods the package does not implement.
@@ -292,6 +384,9 @@ Bermann, M. et al. (2022). Reliabilities from block sparse inversion of the APY 
 *Journal of Animal Science* 100:skab353; and the 2024 comparison of approximation
 algorithms, 102:skae195.
 
+Boichard, D., Bonaiti, B., Barbat, A. & Mattalia, S. (1995). Three methods to validate
+the estimation of genetic trend for dairy cattle. *Journal of Dairy Science* 78:431-437.
+
 Chen, Y., Epperly, E.N., Tropp, J.A. & Webber, R.J. (2024). Randomly pivoted Cholesky.
 *Communications on Pure and Applied Mathematics*, doi 10.1002/cpa.22234.
 
@@ -301,6 +396,13 @@ in stochastic trace estimation. *SIMAX*, arXiv:2301.07825.
 Schafer, F. et al. Greedy conditional selection for Vecchia approximations,
 arXiv:2307.11648; correlation-based selection, arXiv:2112.14591.
 
+Tyriseva, A.-M., Fikse, W.F., Mantysaari, E.A., Jakobsen, J., Aamand, G.P., Durr, J. &
+Lidauer, M.H. (2018). Validation of consistency of Mendelian sampling variance. *Journal of
+Dairy Science* 101:2187-2198.
+
 Vandenplas, J. et al. (2020). Computational strategies for the preconditioned conjugate
 gradient applied to ssSNPBLUP. *Genetics Selection Evolution* 52:24,
 doi 10.1186/s12711-020-00543-9.
+
+Wang, T., Merkle, E.C., Anguera, J.A. & Turner, B.M. (2021). Score-based tests for
+detecting heterogeneity in linear mixed models. *Behavior Research Methods* 53:216-231.

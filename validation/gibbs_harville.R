@@ -9,7 +9,6 @@
 #
 # Uso: Rscript validation/gibbs_harville.R [n_iter] [threads]. Simulado; nenhum dado real.
 args <- commandArgs(TRUE)
-n_iter <- if (length(args) >= 1) as.integer(args[1]) else 60000L
 suppressMessages(library(BreedingR))
 br_threads(if (length(args) >= 2) as.integer(args[2]) else 1L)
 
@@ -41,12 +40,14 @@ quad <- c(quad, va_sd = sqrt(sum(w * (va_g[row(w)] - quad[["va_mean"]])^2)),
 cat(sprintf("massa na borda da grade (va maximo): %.2e\n", sum(w[nrow(w), ])))
 
 set.seed(3)
-g <- gibbs(y ~ cg + animal(id), dados, ped, n_iter = n_iter, burnin = 2000L, thin = 5L,
-           prior = "flat", chains = 4L, verbose = FALSE)
+g <- gibbs(y ~ cg + animal(id), dados, ped,
+           n_iter = if (length(args) >= 1) as.integer(args[1]) else 60000L, burnin = 2000L,
+           thin = 5L, prior = "flat", chains = 4L, verbose = FALSE)
 cad <- c(va_mean = g$mean[["var(animal)"]], ve_mean = g$mean[["var(residual)"]],
          va_sd = g$sd[["var(animal)"]], ve_sd = g$sd[["var(residual)"]])
-ep_mc <- c(va = g$sd[["var(animal)"]] / sqrt(g$ess[["var(animal)"]]),
-           ve = g$sd[["var(residual)"]] / sqrt(g$ess[["var(residual)"]]))
+# o erro de Monte Carlo da media e a mcse_mean de mcmc_diagnostics() (Vehtari et al. 2021, a
+# ESS da media nas cadeias juntas); antes era sd / sqrt(soma das ESS por cadeia)
+ep_mc <- stats::setNames(g$diagnostics$table$mcse_mean[1:2], c("va", "ve"))
 print(rbind(quadratura = quad, gibbs = cad), digits = 4)
 cat(sprintf("erro de Monte Carlo das medias: va %.4f, ve %.4f; rhat %s\n", ep_mc[["va"]],
             ep_mc[["ve"]], paste(round(g$rhat, 4), collapse = " ")))

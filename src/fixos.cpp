@@ -433,6 +433,72 @@ void posto_esparso(const Csc& x, const std::vector<char>& ativa, double tol,
   if (info) *info = conta;
 }
 
+// A REFERENCIA GLOBAL ENTRE OS NIVEIS COM REGISTRO DE CADA CARACTERISTICA (o racional esta em
+// monta_desenho_mt, src/multitrait2.cpp). O posto derruba a ULTIMA coluna de cada dependencia,
+// entao a ordem dele decide qual nivel vira a referencia: o intercepto fica na frente, depois
+// as colunas sem registro em alguma caracteristica, depois as completas, cada grupo na ordem
+// do modelo. A coluna e completa quando tem um nao-zero numa linha usada com a caracteristica
+// observada, em toda caracteristica. Sem nenhum nivel incompleto a ordem e a de sempre. O
+// posto roda na rota esparsa sobre uma copia de X com as colunas nessa ordem (a reserva densa
+// tambem le essa copia, da coluna 0 em diante), e fica e sai voltam na numeracao original,
+// crescentes; motivo recebe, por coluna de sai e na ordem dela, "no record" (nenhum nao-zero
+// nas linhas usadas) ou "aliased".
+void posto_referencia_completa(const FixosCandidatos& fx, const std::vector<char>& usa,
+                               const std::vector<char>& obs, std::size_t t, double tol,
+                               std::vector<std::size_t>& fica, std::vector<std::size_t>& sai,
+                               std::vector<std::string>& motivo) {
+  const Csc& x = fx.x;
+  const std::size_t p = x.ncol;
+  fica.clear();
+  sai.clear();
+  motivo.clear();
+  if (p == 0) return;
+  std::vector<std::size_t> ordem;
+  {
+    std::vector<char> completa(p, 1);
+    for (std::size_t j = 0; j < p; j++)
+      for (std::size_t tau = 0; tau < t && completa[j]; tau++) {
+        bool tem = false;
+        for (std::size_t k = x.colptr[j]; k < x.colptr[j + 1]; k++) {
+          const std::size_t r = x.linha[k];
+          if (usa[r] && obs[r * t + tau] && x.valor[k] != 0.0) { tem = true; break; }
+        }
+        if (!tem) completa[j] = 0;
+      }
+    ordem.push_back(0);
+    for (std::size_t j = 1; j < p; j++) if (!completa[j]) ordem.push_back(j);
+    for (std::size_t j = 1; j < p; j++) if (completa[j]) ordem.push_back(j);
+  }
+  Csc xo(x.nlin, p);
+  std::vector<std::string> nomes_o;
+  nomes_o.reserve(p);
+  xo.linha.reserve(x.nnz());
+  xo.valor.reserve(x.nnz());
+  for (std::size_t jo = 0; jo < p; jo++) {
+    const std::size_t j = ordem[jo];
+    for (std::size_t k = x.colptr[j]; k < x.colptr[j + 1]; k++) {
+      xo.linha.push_back(x.linha[k]);
+      xo.valor.push_back(x.valor[k]);
+    }
+    xo.colptr[jo + 1] = xo.linha.size();
+    nomes_o.push_back(j < fx.nomes.size() ? fx.nomes[j] : std::string());
+  }
+  {
+    std::vector<std::size_t> fica_o, sai_o;
+    posto_esparso(xo, usa, tol, fica_o, sai_o, false, nullptr, &nomes_o);
+    for (std::size_t jo : fica_o) fica.push_back(ordem[jo]);
+    for (std::size_t jo : sai_o) sai.push_back(ordem[jo]);
+    std::sort(fica.begin(), fica.end());
+    std::sort(sai.begin(), sai.end());
+  }
+  for (std::size_t j : sai) {
+    bool vazia = true;
+    for (std::size_t k = x.colptr[j]; k < x.colptr[j + 1]; k++)
+      if (usa[x.linha[k]] && x.valor[k] != 0.0) { vazia = false; break; }
+    motivo.push_back(vazia ? "no record" : "aliased");
+  }
+}
+
 Csr fixas_por_linha(const Csc& x, const std::vector<std::size_t>& fica) {
   Csr out;
   out.nlin = x.nlin;

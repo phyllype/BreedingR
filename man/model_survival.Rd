@@ -40,7 +40,10 @@ column, strictly positive.}
 
 \item{data}{data.frame with the columns referenced. Records with a missing time or
 a missing censoring indicator are dropped and counted; they still count as pen
-mates of \code{indirect()}.}
+mates of \code{indirect()}. A missing level (\code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or
+the text "NaN") or a missing covariate value is refused on every row, with the same
+rule and message as in \code{\link[=model]{model()}}; a factor or text column in \code{cov()} is refused
+rather than read as its codes.}
 
 \item{pedigree}{data.frame animal, sire, dam; required with \code{animal()}, \code{sire()} or
 \code{indirect()} unless \code{k_inverse} is given}
@@ -84,7 +87,10 @@ piece of a subject observed from time zero); NULL means every row starts at 0}
 
 \item{subject}{column with the subject of each elementary record; required with
 \code{entry}. The level of every frailty term other than \code{indirect()} must be the same
-in every piece of a subject (so \code{random(pen)} refuses an animal that changes pen)}
+in every piece of a subject (so \code{random(pen)} refuses an animal that changes pen).
+A missing subject (\code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or the text "NaN") is
+refused on every row, as the subject of \code{\link[=model_ar1]{model_ar1()}}: those pieces would form one
+history}
 
 \item{gaps}{\code{"error"} (default) refuses a gap between two pieces of a subject;
 \code{"allow"} accepts it as time out of observation, in which no risk is counted}

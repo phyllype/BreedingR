@@ -7,6 +7,7 @@
 #include <R_ext/Print.h>
 #include <R_ext/Utils.h>
 #include <cstdio>
+#include <cstdlib>
 #include <unordered_map>
 #include <algorithm>
 
@@ -54,6 +55,18 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   // inadmissivel". Agora sai, e a mensagem conta quantas.
   for (std::size_t i = 0; i < d.nlin; i++)
     if (d.usa[i] && !std::isfinite(d.tempo[i])) { d.usa[i] = 0; d.n_sem_tempo++; }
+  // SUJEITO AUSENTE e ERRO, pela regra da coluna de nivel (rotulos_ausentes, em modelo.cpp),
+  // em toda linha. O sujeito e o rotulo que junta os registros numa serie, e o NA numerico
+  // virava o sujeito "nan" (o texto vazio, o sujeito ""): as linhas sem sujeito formavam UMA
+  // serie, com o AR(1) correndo entre registros de animais diferentes. Medido em f2c0d69: 10
+  // sujeitos com 2 linhas NA davam n_subjects 11, sem aviso.
+  {
+    const std::string falta = rotulos_ausentes(tab, col_sujeito);
+    if (!falta.empty())
+      throw Erro("subject: " + falta + ": a record without a subject belongs to no known "
+                 "series, and those rows would form one series; drop those rows or fill "
+                 "them");
+  }
   std::vector<std::string> suj = tab.rotulos(col_sujeito);
 
   const bool precisa_ped = [&]{
@@ -122,8 +135,17 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   // matriz de coeficientes ganha coluna VAZIA, e a Cholesky morre com "nao
   // positiva-definida" tres passos longe da causa. Medindo o posto onde o modelo de fato
   // vive, a coluna sai como dependente e e REPORTADA em dropped_x.
+  // a referencia global entre os niveis com registro de cada caracteristica, como no
+  // model_mt() (o racional esta em monta_desenho_mt): aqui um par sem registro e recusado,
+  // e a recusa passa a nomear o nivel que de fato nao tem registro, e nao um vizinho dele
+  // que virou a referencia daquela caracteristica. Com t = 1, ou sem nivel incompleto, a
+  // ordem e a de sempre. O posto e o esparso (posto_referencia_completa, fixos.cpp).
   std::vector<std::size_t> fica, sai;
-  posto_esparso(fx.x, d.usa, 1e-9, fica, sai, false, nullptr, &fx.nomes);
+  {
+    std::vector<std::string> motivo;
+    posto_referencia_completa(fx, d.usa, d.obs, t, 1e-9, fica, sai, motivo);
+    d.saiu_motivo = std::move(motivo);
+  }
   d.x = fixas_por_linha(fx.x, fica);
   for (std::size_t j : fica) d.nomes_x.push_back(fx.nomes[j]);
   for (std::size_t j : sai) d.saiu_x.push_back(fx.nomes[j]);
@@ -296,16 +318,12 @@ std::vector<std::string> nomes_theta_ar1(const DesenhoAR& d) {
   return out;
 }
 
-AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::size_t maxiter,
-                    double tol, bool verboso) {
-  AjusteMT R;
+// A partida automatica: variancias de var(y) por caracteristica, R0 diagonal, e o rho
+// deslocado de zero (o racional esta no corpo).
+static std::vector<double> partida_ar1(const DesenhoAR& d) {
   const std::size_t t = d.t;
-  // partida: start= do usuario, ou variancias de var(y) por caracteristica, R0 diagonal,
-  // rho = 0
   std::vector<double> theta(d.modelo.ntheta, 0.0);
-  if (theta0) {
-    theta = *theta0;
-  } else {
+  {
     std::vector<double> var_t(t, 1.0);
     for (std::size_t tau = 0; tau < t; tau++) {
       double soma = 0.0, soma2 = 0.0;
@@ -329,11 +347,11 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
         if (std::isfinite(gm) && gm > 0.0) esc = gm;
       }
       ig++;
-      const std::size_t por_t = g.dim / t;
-      for (std::size_t i = 0; i < g.dim; i++) {
-        const std::size_t tau = i / por_t;
-        theta[g.offset + (i * (2 * g.dim - i + 1)) / 2] = frac * var_t[tau] / esc;
-      }
+      // na ordem do layout, termo por fora (o mesmo conserto de partida_mt)
+      const std::vector<std::size_t> tr = traco_das_coordenadas(d.modelo, g, t);
+      for (std::size_t i = 0; i < g.dim; i++)
+        theta[g.offset + (i * (2 * g.dim - i + 1)) / 2] =
+            frac * var_t[i < tr.size() ? tr[i] : 0] / esc;
     }
     for (std::size_t tau = 0; tau < t; tau++) {
       const std::size_t k = d.offset_s2e + (tau * (2 * t - tau + 1)) / 2;
@@ -369,6 +387,87 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
     }
     theta[d.offset_rho] = rho0;
   }
+  return theta;
+}
+
+// Os otimos univariados AR(1) de cada caracteristica (layout do model_ar1() de uma:
+// grupos, var(residual), rho) viram a partida do multicaracter: grupos e R0 na diagonal por
+// caracteristica, covariancias entre caracteristicas zero, e o rho medio. A mesma regra de
+// fronteira do multicaracter (partida_univariados_mt): a variancia que o univariado deixou
+// abaixo de 1e-4 da partida automatica parte de 1% dela.
+std::vector<double> partida_univariados_ar1(const DesenhoAR& d,
+                                            const std::vector<std::vector<double> >& uni) {
+  const std::size_t t = d.t;
+  std::size_t n_u = 2;
+  for (const Grupo& g : d.modelo.grupos) {
+    const std::size_t du = g.dim / t;
+    n_u += du * (du + 1) / 2;
+  }
+  for (const std::vector<double>& u : uni)
+    if (u.size() != n_u) return {};
+  std::vector<double> theta(d.modelo.ntheta, 0.0);
+  if (!grupos_de_univariados(d.modelo, t, uni, theta)) return {};
+  double soma_rho = 0.0;
+  for (std::size_t tau = 0; tau < t; tau++) {
+    const double v = uni[tau][n_u - 2], r = uni[tau][n_u - 1];
+    if (!std::isfinite(v) || !(std::fabs(r) < 1.0)) return {};
+    theta[d.offset_s2e + (tau * (2 * t - tau + 1)) / 2] = v;
+    soma_rho += r;
+  }
+  theta[d.offset_rho] = soma_rho / static_cast<double>(t);
+  if (!d.tempo_inteiro && theta[d.offset_rho] < 0.0) return {};
+  const std::vector<double> auto_ = partida_ar1(d);
+  for (std::size_t k = 0; k < theta.size(); k++)
+    if (k != d.offset_rho && auto_[k] > 0.0 && theta[k] < 1e-4 * auto_[k])
+      theta[k] = 1e-2 * auto_[k];
+  return theta;
+}
+
+// A CAMINHADA do AR(1), de uma partida ate um veredito; ajusta_ar1 (no fim do arquivo) a
+// chama e, com um bloco na parede, explora de dentro do cone (explora_fronteira, aireml.cpp).
+// O gancho BREEDINGR_TESTE_SEM_PASSO e o do multicaracter (o racional esta em
+// multitrait2.cpp): recusa todo passo AI e todo EM, so para o portao do D2.
+// `it0`: as iteracoes ja gastas por uma caminhada anterior do mesmo ajuste (caminha_mt)
+static AjusteMT caminha_ar1(DesenhoAR& d, const std::vector<double>* theta0,
+                            std::size_t maxiter, double tol, bool verboso, std::size_t it0) {
+  AjusteMT R;
+  R.iters = it0;
+  const std::size_t t = d.t;
+  const bool sem_passo = std::getenv("BREEDINGR_TESTE_SEM_PASSO") != nullptr;
+  // PADRONIZACAO INTERNA POR CARACTERISTICA, a mesma do multicaracter (o racional e as
+  // medidas estao em ajusta_mt, src/multitrait2.cpp). Aqui ela pesa ate com t = 1: o rho nao
+  // tem unidade e as variancias tem, entao o relDelta, que soma os dois, e o corte da AI
+  // dependiam da unidade de y mesmo num ajuste de uma caracteristica.
+  std::vector<double> esc_exato;
+  const std::vector<double> esc = desvios_tracos(d.y, d.usa, d.obs, t, &esc_exato);
+  const std::vector<double> fator = fatores_escala(d.modelo, t, d.offset_s2e, esc);
+  // as unidades do corte de singularidade, com o desvio padrao exato (aviso_informacao)
+  const std::vector<double> fator_corte = fatores_escala(d.modelo, t, d.offset_s2e, esc_exato);
+  // -2logL original = padronizado + jac, jac = 2 soma_tau (n_tau - p) log s_tau com n_tau
+  // as celulas observadas e p as colunas de X (as colunas mv das celulas ausentes cancelam
+  // as proprias celulas): so para o TRACE
+  double jac = 0.0;
+  for (std::size_t tau = 0; tau < t; tau++) {
+    double n_tau = 0.0;
+    for (std::size_t i = 0; i < d.nlin; i++) if (d.usa[i] && d.obs[i * t + tau]) n_tau++;
+    jac += 2.0 * (n_tau - static_cast<double>(d.x.ncol)) * std::log(esc[tau]);
+  }
+  auto bruto = [&](const std::vector<double>& th) {
+    std::vector<double> o = th;
+    for (std::size_t k = 0; k < o.size() && k < fator.size(); k++) o[k] *= fator[k];
+    return o;
+  };
+  PadronizaY guarda(d.y, d.usa, d.obs, esc, t);
+  // partida: start= do usuario (em unidades originais, levado para as padronizadas), ou a
+  // automatica, que ja nasce nas padronizadas
+  std::vector<double> theta;
+  if (theta0) {
+    theta = *theta0;
+    for (std::size_t k = 0; k < theta.size() && k < fator.size(); k++) theta[k] /= fator[k];
+  } else {
+    theta = partida_ar1(d);
+  }
+  R.partida = bruto(theta);
 
   CacheSimbolica cs;
   AvaliacaoAR cur = avalia_ar1(d, theta, &cs);
@@ -415,6 +514,7 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
   // Ate 15 passos, contra os 50 do univariado, porque aqui cada avaliacao custa mais.
   auto resgate_em = [&](AvaliacaoAR& atual) -> bool {
     bool ganhou = false;
+    if (sem_passo) return false;
     for (int e = 0; e < 15; e++) {
       if (atual.em_theta.size() != d.modelo.ntheta) break;
       std::vector<double> ze;
@@ -446,20 +546,214 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
     }
     return ganhou;
   };
+  // o conjunto excluido do ultimo certificado, para a mensagem e para a exploracao
+  std::vector<char> parede_final;
   auto conta_parede = [&](const PassoZ& P) {
+    parede_final = P.na_parede;
     std::size_t n = 0;
     for (char c : P.na_parede) n += c;
     return n;
   };
+  // A SONDA DE KKT pela verossimilhanca, a mesma do multicaracter (o racional esta em
+  // candidatos_reentrada, src/aireml.cpp, e o uso em ajusta_mt, src/multitrait2.cpp)
+  int n_reentradas = 0;
+  double ganho_kkt = 0.0;   // quanto o melhor ponto da ultima sonda recusada baixava
+  // A SONDA DA FACE (sonda_face, aireml.cpp), depois da do cone: o certificado tira da conta
+  // o bloco inteiro na parede, e um ponto da face que nao e o otimo dela passava junto. Os
+  // movimentos sobre a face tem limite proprio, 20, porque cada um e um passo de Newton das
+  // diferencas finitas e o caminhante volta a andar depois dele.
+  int n_face = 0;
+  // a avaliacao em z das sondas da face: o -2logL e o score levado a z pelo Jacobiano
+  auto avalia_z = [&](const std::vector<double>& zc, double& v, std::vector<double>& gz) {
+    const std::size_t nt = d.modelo.ntheta;
+    const AvaliacaoAR av = avalia_ar1(d, theta_de_z(mz, nt, zc), &cs);
+    if (!av.ok) return false;
+    v = av.neg2logl;
+    const Densa J = jacobiano_z(mz, nt, zc);
+    gz.assign(nt, 0.0);
+    for (std::size_t m = 0; m < nt; m++)
+      for (std::size_t k = 0; k < nt; k++) gz[m] += J.at(k, m) * av.score[k];
+    return true;
+  };
+  auto sonda_da_face = [&](const PassoZ& P, bool pode_mover) -> Kkt {
+    const std::size_t nt = d.modelo.ntheta;
+    std::vector<double> zn;
+    double fn = 0.0;
+    if (!sonda_face(mz, nt, P, cur.neg2logl, avalia_z, zn, fn)) return Kkt::otimo;
+    if (!(fn < cur.neg2logl - tol_reentrada)) return Kkt::otimo;
+    ganho_kkt = cur.neg2logl - fn;
+    if (!pode_mover || n_face >= 20) return Kkt::limite;
+    const std::vector<double> cand = theta_de_z(mz, nt, zn);
+    AvaliacaoAR av = avalia_ar1(d, cand, &cs);
+    if (!av.ok) return Kkt::otimo;
+    double num = 0.0, den = 0.0;
+    for (std::size_t i = 0; i < cand.size(); i++) {
+      num += (cand[i] - theta[i]) * (cand[i] - theta[i]);
+      den += cand[i] * cand[i];
+    }
+    R.reldelta = std::sqrt(num / std::max(den, 1e-300));
+    if (verboso)
+      Rprintf("      along the boundary face: -2logL %.6f -> %.6f (the face was not at its "
+              "optimum)\n", cur.neg2logl + jac, av.neg2logl + jac);
+    theta = cand;
+    cur = std::move(av);
+    n_face++;
+    return Kkt::moveu;
+  };
+  // A LAPIDACAO DA FACE (o racional esta em tol_lapida, mme.h), so DEPOIS de um certificado
+  // aceito com algum bloco na parede: a cada rodada, primeiro o ponto com as covariancias de
+  // uma caracteristica no zero zeradas (descorrelada_na_parede, aireml.cpp), depois o passo de
+  // Newton da sonda da face; cada um entra se baixa o -2logL por mais que tol_lapida E o ponto
+  // novo ainda certifica (decremento dos livres abaixo de tol_dec, nas pecas do proprio
+  // ponto). O primeiro ponto que nao certifica fica de fora e o ajuste fica no ultimo que
+  // certificou: a lapidacao nunca troca um TRUE por um FALSE e nunca sobe o -2logL. Tentado
+  // antes e desfeito: deixar o caminhante andar depois de cada movimento de lapidacao. Na
+  // semente 10 (r12 = -0,25) da varredura da revisao, a partida de var(y) foi de TRUE 3,86e-4
+  // acima do melhor para FALSE 1,75e-5 acima: o passo AI levava a diagonal na parede de volta
+  // para cima do piso (L_22 / L_11 de 1e-3 a 5e-3), o bloco deixava de estar na parede, o
+  // score dele perto da singularidade entrava no decremento (0,008) e o caminhante estagnava.
+  auto lapida = [&](PassoZ& Pc) {
+    const std::size_t nt = d.modelo.ntheta;
+    // um candidato vale se baixa por mais que tol_lapida e o ponto novo ainda certifica
+    auto aceita = [&](const std::vector<double>& zn, const char* como) -> bool {
+      const std::vector<double> cand = theta_de_z(mz, nt, zn);
+      AvaliacaoAR av = avalia_ar1(d, cand, &cs);
+      if (!av.ok || !(av.neg2logl < cur.neg2logl - tol_lapida)) return false;
+      const std::vector<double> antes = theta;
+      theta = cand;   // pecas le o theta corrente
+      PassoZ Pn = pecas(av);
+      const double dn = Pn.ok ? decremento_z(Pn) : tol_dec;
+      if (!(dn < tol_dec)) {
+        theta = antes;
+        return false;
+      }
+      if (verboso)
+        Rprintf("      polishing at the boundary, %s: -2logL %.6f -> %.6f (inside the 1e-4 "
+                "slack; the new point still certifies)\n", como, cur.neg2logl + jac,
+                av.neg2logl + jac);
+      cur = std::move(av);
+      Pc = std::move(Pn);
+      R.decremento = dn;
+      return true;
+    };
+    for (int k = 0; k < max_lapidacoes; k++) {
+      const std::vector<double> zd = descorrelada_na_parede(mz, nt, Pc);
+      if (!zd.empty() && aceita(zd, "a trait at zero decorrelated")) continue;
+      std::vector<double> zn;
+      double fn = 0.0;
+      if (!sonda_face(mz, nt, Pc, cur.neg2logl, avalia_z, zn, fn)) return;
+      if (!(fn < cur.neg2logl - tol_lapida)) return;
+      if (!aceita(zn, "along the face")) return;
+    }
+  };
+  auto sonda_kkt = [&](const PassoZ& P, bool pode_mover) -> Kkt {
+    if (!P.ok) return Kkt::otimo;
+    bool alguma = false;
+    for (char c : P.na_parede) if (c) alguma = true;
+    if (!alguma) return Kkt::otimo;
+    const std::size_t nt = d.modelo.ntheta;
+    double esc_res = 0.0;
+    for (std::size_t tau = 0; tau < t; tau++)
+      esc_res += theta[d.offset_s2e + (tau * (2 * t - tau + 1)) / 2];
+    const CandidatosKKT cands = candidatos_reentrada(
+        mz, nt, P.zc, P.na_parede, std::max(1.0, esc_res / static_cast<double>(t)),
+        cur.score, cur.ai);
+    std::vector<double> z_melhor;
+    AvaliacaoAR av_melhor;
+    bool achou = false;
+    for (const std::vector<std::vector<double> >* lista : {&cands.direcionais, &cands.coordenadas}) {
+      for (const std::vector<double>& zc : *lista) {
+        AvaliacaoAR av = avalia_ar1(d, theta_de_z(mz, nt, zc), &cs);
+        if (!av.ok) continue;
+        if (!achou || av.neg2logl < av_melhor.neg2logl) {
+          achou = true;
+          z_melhor = zc;
+          av_melhor = std::move(av);
+        }
+      }
+      if (achou && av_melhor.neg2logl < cur.neg2logl - tol_reentrada) break;
+    }
+    if (!achou || !(av_melhor.neg2logl < cur.neg2logl - tol_reentrada))
+      return sonda_da_face(P, pode_mover);
+    ganho_kkt = cur.neg2logl - av_melhor.neg2logl;
+    if (!pode_mover || n_reentradas >= max_reentradas) return Kkt::limite;
+    const std::vector<double> cand = theta_de_z(mz, nt, z_melhor);
+    double num = 0.0, den = 0.0;
+    for (std::size_t i = 0; i < cand.size(); i++) {
+      num += (cand[i] - theta[i]) * (cand[i] - theta[i]);
+      den += cand[i] * cand[i];
+    }
+    R.reldelta = std::sqrt(num / std::max(den, 1e-300));
+    if (verboso)
+      Rprintf("      re-entry into the cone: -2logL %.6f -> %.6f (a component at the "
+              "boundary was not at a constrained optimum)\n", cur.neg2logl + jac,
+              av_melhor.neg2logl + jac);
+    theta = cand;
+    cur = std::move(av_melhor);
+    n_reentradas++;
+    return Kkt::moveu;
+  };
+  auto msg_limite = [&](const std::string& onde) {
+    char buf[96];
+    std::snprintf(buf, sizeof(buf), "%.3g", ganho_kkt);
+    return std::string("did NOT converge: ") + onde + " a component resting at a covariance "
+        "boundary is not at a constrained optimum (a point inside the cone or along the "
+        "boundary face lowers the -2logL by " + buf + "), and the walk had already moved "
+        "off it the most times allowed (" + std::to_string(max_reentradas) + " re-entries "
+        "into the cone, 20 moves along the face). Try a start= inside the cone, for example "
+        "the univariate fits with the covariances at zero";
+  };
+
+  // a partida alem dos pisos do passo vai para eles (o racional e a medida estao em
+  // ajusta_mt)
+  if (maxiter > 0) {
+    const PassoZ P0 = pecas(cur);
+    if (P0.ok) {
+      std::vector<double> z0 = P0.zc;
+      bool mudou = false;
+      for (std::size_t i = 0; i < z0.size(); i++)
+        if (z0[i] < P0.piso[i]) { z0[i] = P0.piso[i]; mudou = true; }
+      if (mudou) {
+        const std::vector<double> th0 = theta_de_z(mz, d.modelo.ntheta, z0);
+        AvaliacaoAR a0 = avalia_ar1(d, th0, &cs);
+        if (a0.ok) {
+          if (verboso)
+            Rprintf("start beyond the step floors, raised to them: -2logL %.6f -> %.6f\n",
+                    cur.neg2logl + jac, a0.neg2logl + jac);
+          theta = th0;
+          cur = std::move(a0);
+          R.partida = bruto(theta);
+        }
+      }
+    }
+  }
 
   double lambda = 1e-2;
   int parado = 0;         // iteracoes consecutivas aceitas SEM progresso real
-  for (std::size_t it = 1; it <= maxiter; it++) {
+  bool saiu_do_laco = false;   // o laco parou por um veredito, e nao por esgotar o maxiter
+  for (std::size_t it = it0 + 1; it <= maxiter; it++) {
     R.iters = it;
     R_CheckUserInterrupt();
     bool aceitou = false;
     const std::size_t ntz = d.modelo.ntheta;
-    const PassoZ P = pecas(cur);
+    PassoZ P = pecas(cur);
+    // o ponto corrente abaixo dos proprios pisos vai a eles antes do passo (o racional e a
+    // medida estao em caminha_mt, src/multitrait2.cpp)
+    if (P.ok) {
+      std::vector<double> z0 = P.zc;
+      bool abaixo = false;
+      for (std::size_t i = 0; i < z0.size(); i++)
+        if (z0[i] < P.piso[i]) { z0[i] = P.piso[i]; abaixo = true; }
+      if (abaixo) {
+        const std::vector<double> th0 = theta_de_z(mz, ntz, z0);
+        AvaliacaoAR a0 = avalia_ar1(d, th0, &cs);
+        if (a0.ok) {
+          theta = th0;
+          cur = std::move(a0);
+          P = pecas(cur);
+        }
+      }
+    }
     for (int tent = 0; tent < 30 && !aceitou; tent++) {
       Densa m2 = P.ok ? P.az : cur.ai;
       for (std::size_t i = 0; i < m2.nlin; i++) {
@@ -496,6 +790,7 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
         // rho fora de (-1, 1) ou R0 nao positiva-definida: passo rejeitado. Em z o rho
         // anda em atanh e nao ha como sair do intervalo, mas o caminho de resgate cru
         // ainda pode propor um theta inadmissivel.
+        if (sem_passo) continue;
         AvaliacaoAR prox = avalia_ar1(d, cand, &cs);
         if (!prox.ok || prox.neg2logl > cur.neg2logl + 1e-9) continue;
         double num = 0.0, den = 0.0;
@@ -514,11 +809,53 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
       }
       if (!aceitou) lambda *= 10.0;
     }
-    if (!aceitou) { R.mensagem = "nenhum passo amortecido melhorou a verossimilhanca"; break; }
+    if (!aceitou) {
+      // a causa de verdade, em ingles e com a iteracao (o racional esta em ajusta_mt): antes
+      // a string interna em portugues vazava e o bloco do maxiter dizia "stopped at 300
+      // iteration(s)" num ajuste parado na 9a
+      if (resgate_em(cur)) {
+        lambda = 1e-2;
+        parado = 0;
+        if (verboso)
+          Rprintf("      EM rescue: -2logL %.6f (no damped step improved)\n", cur.neg2logl + jac);
+        continue;
+      }
+      // a estagnacao nao certifica (o racional e a medida estao em ajusta_mt)
+      const PassoZ Pq = pecas(cur);
+      const Kkt kq = sonda_kkt(Pq, true);
+      if (kq == Kkt::moveu) {
+        lambda = 1e-2;
+        parado = 0;
+        continue;
+      }
+      saiu_do_laco = true;
+      na_fronteira = conta_parede(Pq);
+      R.decremento = decremento_z(Pq);
+      if (kq == Kkt::limite) {
+        R.mensagem = msg_limite("at iteration " + std::to_string(it) + " no damped step "
+                                "improved the likelihood, and");
+      } else {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%.3g", R.decremento);
+        R.mensagem = std::string("did NOT converge: at iteration ") + std::to_string(it) +
+            " no damped AI step (30 damping levels, three step lengths each) and no EM "
+            "step improved the likelihood, and the Newton decrement of the off-boundary "
+            "components is " + buf + (R.decremento < tol_dec
+              ? std::string(" (inside the 2e-4 tolerance, but a point no step can "
+                            "leave is not certified as an optimum). Try a different "
+                            "start=, and profile any component the message reports at a "
+                            "boundary")
+              : std::string(" (tolerance 2e-4 on the -2logL scale), so the point is a "
+                            "stall and not a certified optimum. Try a different start=, "
+                            "and profile any component the message reports at a "
+                            "boundary"));
+      }
+      break;
+    }
     if (verboso) {
       Rprintf("iter %3d  -2logL %.6f  relDelta %.3e\n",
-              (int) it, cur.neg2logl, R.reldelta);
-      imprime_theta(theta, nomes_theta_ar1(d), d.modelo);
+              (int) it, cur.neg2logl + jac, R.reldelta);
+      imprime_theta(bruto(theta), nomes_theta_ar1(d), d.modelo);
     }
     if (R.reldelta < tol || parado >= 2) {
       // O CERTIFICADO, nas mesmas coordenadas e sobre os mesmos pisos que o passo. Ele
@@ -533,13 +870,28 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
         lambda = 1e-2;
         parado = 0;
         if (verboso)
-          Rprintf("      EM rescue: -2logL %.6f (the AI step had stalled)\n", cur.neg2logl);
+          Rprintf("      EM rescue: -2logL %.6f (the AI step had stalled)\n", cur.neg2logl + jac);
         continue;
       }
-      const PassoZ Pc = pecas(cur);
+      PassoZ Pc = pecas(cur);
       na_fronteira = conta_parede(Pc);
       R.decremento = decremento_z(Pc);
       if (R.decremento < tol_dec) {
+        // o certificado so vale se nenhum bloco na parede melhora entrando no cone
+        const Kkt kc = sonda_kkt(Pc, true);
+        if (kc == Kkt::moveu) {
+          lambda = 1e-2;
+          parado = 0;
+          R.decremento = std::numeric_limits<double>::quiet_NaN();
+          continue;
+        }
+        saiu_do_laco = true;
+        if (kc == Kkt::limite) {
+          R.mensagem = msg_limite("the step had converged, but");
+          break;
+        }
+        lapida(Pc);
+        na_fronteira = conta_parede(Pc);
         R.convergiu = true;
         break;
       }
@@ -547,7 +899,14 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
       // "nada anda" passou a ser uma afirmacao mais forte: o passo AI travou E o EM
       // tambem nao move. Um EM bem sucedido reinicia o amortecimento, e o passo AI precisa
       // de espaco para retomar do ponto novo antes de o laco declarar estagnacao.
+      const Kkt kp = parado >= 25 ? sonda_kkt(Pc, true) : Kkt::otimo;
+      if (kp == Kkt::moveu) {
+        lambda = 1e-2;
+        parado = 0;
+        continue;
+      }
       if (parado >= 25) {
+        saiu_do_laco = true;
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%.3g", R.decremento);
         R.mensagem = std::string("did NOT converge: the step stopped making progress, ") +
@@ -564,6 +923,21 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
     const PassoZ Pf = pecas(cur);
     na_fronteira = conta_parede(Pf);
     R.decremento = decremento_z(Pf);
+  }
+  // a crista plana no fim do orcamento tambem passa pela sonda de KKT, sem mover (o
+  // racional esta em ajusta_mt)
+  const bool crista = !R.convergiu && !saiu_do_laco && maxiter > 0 && R.iters >= maxiter &&
+                      R.decremento < tol_dec;
+  const Kkt k_crista = crista ? sonda_kkt(pecas(cur), false) : Kkt::otimo;
+  // de volta as unidades originais: y restaurado bit a bit e a avaliacao final no theta
+  // reescalado (o racional esta em ajusta_mt)
+  guarda.restaura();
+  theta = bruto(theta);
+  bool final_ok = true;
+  {
+    AvaliacaoAR fin = avalia_ar1(d, theta, &cs);
+    if (fin.ok) cur = std::move(fin);
+    else final_ok = false;
   }
   // EXCLUSAO POR LISTA, dita em voz alta. Um registro com qualquer caracteristica ausente
   // sai inteiro desta rota, e junto pode sair um ponto do meio da serie de um sujeito. O
@@ -588,18 +962,31 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
         "points out of the cone by construction, so its gradient never vanishes and the "
         "certificate is CONDITIONAL on the pinning; read those components with care";
   R.se.assign(d.modelo.ntheta, std::nan(""));
-  try {
-    Densa inv = inv_geral(cur.ai);
-    for (std::size_t k = 0; k < d.modelo.ntheta; k++) {
-      const double v = 2.0 * inv.at(k, k);
-      if (v > 0.0) R.se[k] = std::sqrt(v);
-    }
-  } catch (const Erro&) {}
+  if (final_ok)
+    try {
+      Densa inv = inv_geral(cur.ai);
+      for (std::size_t k = 0; k < d.modelo.ntheta; k++) {
+        const double v = 2.0 * inv.at(k, k);
+        if (v > 0.0) R.se[k] = std::sqrt(v);
+      }
+    } catch (const Erro&) {}
 
   // o mesmo veredicto do model() (aireml.cpp): esgotado o maxiter com o decremento de
   // Newton ja abaixo da tolerancia, o que se tem e uma crista plana, e nao um ajuste
-  // que pede mais iteracoes. Aqui ele ainda dizia "Raise maxiter".
-  if (!R.convergiu && R.iters >= maxiter && R.decremento < tol_dec) {
+  // que pede mais iteracoes. Aqui ele ainda dizia "Raise maxiter". So quando o laco andou
+  // ate o fim (com maxiter = 0 uma avaliacao no start= nao e convergencia, o model() ja dizia
+  // FALSE) e a sonda de KKT nao achou ponto melhor dentro do cone.
+  if (crista && k_crista == Kkt::limite) {
+    char buf[320];
+    std::snprintf(buf, sizeof(buf), " (relDelta %.3g, Newton decrement %.3g): a component "
+                  "resting at a covariance boundary is not at a constrained optimum, a point "
+                  "inside the cone or along the boundary face lowers the -2logL by %.3g", R.reldelta, R.decremento,
+                  ganho_kkt);
+    R.mensagem = "stopped at " + std::to_string(maxiter) + " iteration(s) without a "
+        "certified optimum" + buf + ". Raise maxiter=" +
+        (R.mensagem.empty() ? std::string() : "; " + R.mensagem);
+  }
+  if (crista && k_crista == Kkt::otimo) {
     R.convergiu = true;
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%.3g", R.reldelta);
@@ -613,9 +1000,17 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
   // o diagnostico de nao convergencia sai sempre que nenhum outro motivo de falha foi
   // escrito, e vai NA FRENTE das notas informativas (exclusao por lista, fronteira, tempo
   // ausente). Antes so saia com a mensagem vazia, e qualquer nota o escondia.
-  if (!R.convergiu && R.mensagem.find("did NOT converge") == std::string::npos &&
-      R.mensagem.find("INADMISSIBLE") == std::string::npos &&
-      R.mensagem.find("SINGULAR at the starting") == std::string::npos) {
+  if (!R.convergiu && maxiter == 0) {
+    // uma avaliacao, nao um ajuste: dito como tal
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "maxiter = 0: no iteration was run, so the components "
+                  "are the start evaluated, not estimated; the Newton decrement there is "
+                  "%.3g", R.decremento);
+    R.mensagem = std::string(buf) + (R.mensagem.empty() ? std::string() : "; " + R.mensagem);
+  } else if (!R.convergiu && R.iters >= maxiter &&
+             R.mensagem.find("did NOT converge") == std::string::npos &&
+             R.mensagem.find("stopped at ") != 0) {
+    // o teto de verdade: so aqui o ajuste parou POR causa do maxiter
     char buf[128];
     std::snprintf(buf, sizeof(buf), " (relDelta %.3g, Newton decrement %.3g against the "
                   "2e-4 tolerance)", R.reldelta, R.decremento);
@@ -627,16 +1022,40 @@ AjusteMT ajusta_ar1(const DesenhoAR& d, const std::vector<double>* theta0, std::
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
         std::to_string(cur.fora_do_padrao) + " value(s) read outside the sparsity pattern of the factor: the result is NOT reliable";
 
+  if (verboso)
+    Rprintf("%s at iter %d, -2logL %.6f\n", R.convergiu ? "converged" : "STOPPED",
+            (int) R.iters, final_ok ? cur.neg2logl : cur.neg2logl + jac);
   R.theta = theta;
-  R.neg2logl = cur.neg2logl;
-  R.solucao = cur.solucao;
-  R.pev = cur.pev;
   R.fora_do_padrao = cur.fora_do_padrao;
-  if (cur.ok) {
-    const std::string av = aviso_informacao(cur.ai, nomes_theta_ar1(d), &R.se);
+  R.na_parede = parede_final;
+  R.parou = saiu_do_laco && !R.convergiu;
+  if (final_ok) {
+    R.neg2logl = cur.neg2logl;
+    R.solucao = cur.solucao;
+    R.pev = cur.pev;
+    const std::string av = aviso_informacao(cur.ai, nomes_theta_ar1(d), &R.se, &fator_corte);
     if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
+  } else {
+    R.neg2logl = cur.neg2logl + jac;
+    R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
+        "the final evaluation in the original units failed, so the solutions are not "
+        "reported";
   }
   return R;
+}
+
+AjusteMT ajusta_ar1(DesenhoAR& d, const std::vector<double>* theta0, std::size_t maxiter,
+                    double tol, bool verboso) {
+  AjusteMT R = caminha_ar1(d, theta0, maxiter, tol, verboso, 0);
+  MapaZ mz;
+  for (const Grupo& gr : d.modelo.grupos) mz.blocos.push_back(std::make_pair(gr.offset, gr.dim));
+  mz.blocos.push_back(std::make_pair(d.offset_s2e, d.t));
+  mz.correlacoes.push_back(d.offset_rho);
+  // a partida de var(y) em unidades ORIGINAIS: y ja voltou da padronizacao
+  return explora_fronteira(std::move(R), mz, partida_ar1(d), maxiter,
+                           [&](const std::vector<double>& th0, std::size_t it0) {
+                             return caminha_ar1(d, &th0, maxiter, tol, verboso, it0);
+                           }, verboso);
 }
 
 }  // namespace br

@@ -54,7 +54,12 @@ test_that("the full chain lands where REML lands on well-informed data", {
   g <- gibbs(y ~ cg + animal(id), s$dados, s$ped, n_iter = 6000, burnin = 1000, thin = 5)
   expect_lt(abs(g$mean[["var(animal)"]] - f$theta[["var(animal)"]]), 0.2)
   expect_lt(abs(g$mean[["var(residual)"]] - f$theta[["var(residual)"]]), 0.2)
-  expect_true(all(abs(g$geweke) < 4, na.rm = TRUE))
+  # o |z| < 4 que estava aqui mascarava o Geweke com variancia iid (z de -4 a 6 em cadeias
+  # estacionarias). Este |z| < 3 tambem NAO pega aquele Geweke nesta cadeia (thin 5, pouca
+  # autocorrelacao): quem pega e test-gibbs-diagnostics.R (tipo I por phi e poder do
+  # combinado). Aqui so: uma cadeia que chegou onde o REML chega nao sai acusada de burn-in
+  expect_lt(max(abs(g$geweke)), 3)
+  expect_false(g$diagnostics$verdict %in% c("burn-in too short", "chain stopped"))
 })
 
 test_that("set.seed makes the chain deterministic", {

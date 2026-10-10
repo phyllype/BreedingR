@@ -152,6 +152,31 @@ struct Tabela {
   std::vector<double> numerico(const std::string& n) const;
 };
 
+// ROTULO AUSENTE numa coluna que da nivel (classe fixa, id de termo aleatorio, classe de
+// aninhamento, avo materno, baia de indirect(), sujeito do AR(1)). Uma regra so, a mesma de
+// tipos_rotulo_ausente()/sem_rotulo() (R/indirect.R), que os ajustadores em R, pegs() e
+// associative_matrix() usam, com os mesmos nomes de tipo nas mensagens:
+//   coluna numerica: NA ou NaN ("NA"), Inf ("Inf"), -Inf ("-Inf");
+//   coluna textual (e fator, que cruza como texto): texto vazio depois de tirar espacos,
+//   tabulacoes e quebras de linha ("blank text"), e o texto "NaN" que factor() e
+//   as.character() fazem de um NaN numerico. O NA textual ja para em tabela_do_R.
+// Os textos "NA" e "Inf" ficam de fora: podem ser o nome de uma classe de verdade. A
+// comparacao e por bytes, entao vale para texto em qualquer codificacao.
+// `branco_e_codigo` tira o texto vazio da conta: e a coluna do avo materno, onde o vazio e o
+// avo DESCONHECIDO, como o pai vazio no pedigree. `onde` troca "the column '<c>'" na
+// mensagem (a baia de indirect() diz "the pen column '<c>' of indirect()"). Devolve "" quando
+// toda linha tem rotulo (ou a coluna nao existe, e quem chama para no erro de sempre); senao
+// o comeco da mensagem, "<o que> in the column '<c>' in n row(s), the first at row k".
+std::string rotulos_ausentes(const Tabela& t, const std::string& col,
+                             bool branco_e_codigo = false, const std::string& onde = "");
+// VALOR AUSENTE numa coluna numerica que entra como valor (covariavel, coluna da base): NA,
+// NaN, Inf e -Inf, no mesmo formato e com os mesmos nomes, com `papel` no lugar de "column"
+// ("the covariate column 'x'"). Coluna textual devolve "": Tabela::numerico a recusa.
+std::string valores_ausentes(const Tabela& t, const std::string& col,
+                             const std::string& papel = "column");
+// o texto em branco: vazio depois de tirar espacos, tabulacoes e quebras de linha
+bool texto_em_branco(const std::string& s);
+
 // A matriz de incidencia de um termo, com os niveis que a geraram.
 struct DesenhoTermo {
   std::size_t termo = 0;
@@ -168,7 +193,9 @@ struct DesenhoTermo {
 // os ids do pedigree num termo com parentesco, os ids da K (ja reduzida) num kernel(), e a
 // uniao ordenada dos rotulos num grupo sem estrutura de varios termos (monta_aleatorios, em
 // mme.cpp). Nulo deixa os niveis virem dos proprios dados, na ordem em que aparecem: o termo
-// fixo e o termo iid de grupo proprio. Recusa NA, NaN e Inf na coluna que da o nivel.
+// fixo e o termo iid de grupo proprio. Recusa o rotulo ausente (rotulos_ausentes) na coluna
+// que da o nivel e o valor nao finito (valores_ausentes) na covariavel e na base, em TODA
+// linha.
 DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
                          const std::vector<std::string>* niveis_fixos);
 
@@ -183,7 +210,9 @@ void posto_completo(const Densa& x, double tol, std::vector<std::size_t>& fica,
 // As colunas candidatas de X: o intercepto e cada termo fixo expandido, na ordem do modelo,
 // com os nomes "termo=nivel". Por coluna (CSC nlin x p), com os MESMOS nao-zeros do desenho
 // denso de antes: uma classe poe um 1 por linha, a covariavel aninhada o valor no nivel da
-// linha, a covariavel simples os seus valores nao nulos (um NaN incluido: o posto o derruba).
+// linha, a covariavel simples os seus valores nao nulos. Um valor nao finito numa covariavel
+// nao chega aqui: monta_termo o recusa em toda linha (valores_ausentes); o posto ainda
+// derruba a coluna com NaN ou Inf que lhe chegue por outra via (R_posto_fixo).
 struct FixosCandidatos {
   Csc x;
   std::vector<std::string> nomes;
@@ -211,6 +240,15 @@ void posto_esparso(const Csc& x, const std::vector<char>& ativa, double tol,
                    std::vector<std::size_t>& fica, std::vector<std::size_t>& sai,
                    bool relativo = false, PostoInfo* info = nullptr,
                    const std::vector<std::string>* nomes = nullptr);
+// O posto dos desenhos multicaracter (model_mt(), model_ar1()): o de posto_esparso numa ordem
+// em que as colunas com registro em TODAS as caracteristicas vem depois das incompletas (o
+// intercepto na frente), para a referencia que cai ser um nivel completo sempre que existe um.
+// obs e a mascara linha * t + caracteristica das celulas observadas. fica e sai na numeracao
+// de fx.x, crescentes; motivo, por coluna de sai, "no record" ou "aliased" (ver fixos.cpp).
+void posto_referencia_completa(const FixosCandidatos& fx, const std::vector<char>& usa,
+                               const std::vector<char>& obs, std::size_t t, double tol,
+                               std::vector<std::size_t>& fica, std::vector<std::size_t>& sai,
+                               std::vector<std::string>& motivo);
 // X so com as colunas que ficam, por linhas (a forma que os desenhos guardam)
 Csr fixas_por_linha(const Csc& x, const std::vector<std::size_t>& fica);
 // a mesma matriz por colunas, para o posto por caracteristica dos desenhos multicaracter

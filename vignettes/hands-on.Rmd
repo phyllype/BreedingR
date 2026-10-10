@@ -12,12 +12,14 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 set.seed(2026)
 ```
 
-Fifty-four of the sixty-four exported functions, exercised in the order of a real
-workflow, on data simulated in the document itself. The ten left out (the inference
+Fifty-eight of the seventy-three exported functions, exercised in the order of a real
+workflow, on data simulated in the document itself. The fifteen left out (the inference
 helpers `se_function()` and `profile_theta()`, `qc_phenotypes()`,
-`competition_strength()`, `h_inverse()`, `g_epistasis_ad()`, `g_epistasis_dd()`,
-`g_epistasis_order()`, and the `_mt`/`_ar1` twins of `eval_internal()`) are documented
-on their own help pages and exercised by the test suite. Each chunk runs at build time, so this walkthrough
+`competition_strength()`, `h_inverse()`, `read_blupf90_snp()`, `estimate_gamma()`,
+`dominance_inverse()`, `g_epistasis_ad()`, `g_epistasis_dd()`, `g_epistasis_order()`,
+`residual_diagnostics()`, `mcmc_diagnostics()`, and the `_mt`/`_ar1` twins of
+`eval_internal()`) are documented on their own help pages and exercised by the test
+suite. Each chunk runs at build time, so this walkthrough
 cannot drift away from the code. The companion vignette ("from data to breeding value")
 tells the story; this one is the tool bench.
 

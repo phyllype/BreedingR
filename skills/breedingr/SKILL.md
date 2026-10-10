@@ -75,8 +75,14 @@ model_survival(stop ~ herd + dz + animal(cow), d, ped, censor = "q",
 `gibbs()` takes `prior = "jeffreys"` (the default), `"flat"`, `"uniform_sd"` or a proper
 `c(df =, scale =)`, and `chains = k, cores = c` for independent chains (seeds drawn from R's
 generator, so `set.seed()` governs all of them and series and parallel agree); the
-result pools the chains and reports `rhat` (rank-normalized split R-hat, Vehtari et al.
-2021; above 1.01 means not mixed), also available alone as `rhat()`. `model_threshold(estimate = TRUE)` runs LOW for a binary trait with few
+result pools the chains that ran to the end and carries `mcmc_diagnostics()` in
+`$diagnostics` (`fit$rhat`, `fit$ess` and `fit$geweke` are its `rhat`, `ess_bulk` and
+`geweke_z` columns for the components), and `print()` and `summary()` end with the
+verdict: `ok`, `run longer`, `burn-in too short`, `not mixed` or `chain stopped`. An R-hat
+above 1.01 alone is not `not mixed`: at low ESS converged chains exceed it too (R-hat^2 is
+about 1 + 2M/ESS), so `not mixed` needs chains apart beyond their autocorrelation with at
+least 100 bulk draws in the weakest chain. With one chain only its
+two halves are compared; run `chains = 4` for the between-chain checks. `model_threshold(estimate = TRUE)` runs LOW for a binary trait with few
 records per level of the random effect (Tempelman 1998); `gibbs(family = "probit")` is the
 unbiased route there. With `indirect()` the Laplace components of a threshold trait ran lower
 still at prototype scale (paired s2D -0.03 against the direct-only fit at 2329 records), and
@@ -145,6 +151,10 @@ suggest_model(d, "y", "id", time = "day")        # names the terms the shape ask
 # 2. quality control, both sides, and it REPORTS what it removed
 q <- qc_phenotypes(d, "y", missing_code = -999, classes = c("cg","pen"))
 g <- qc_genotypes(M, min_call_rate = 0.9, min_maf = 0.01, hwe_p = 1e-7)
+# q$missing_labels: rows with a missing class label (NA, NaN, Inf, blank text, "NaN");
+# every fitter refuses them on ANY row, as it refuses NA/Inf in cov() and base=.
+# missing_code is the trait's code only: a covariate holding -999 is fitted as -999,
+# so set it to NA first.
 
 # 3. pedigree
 p  <- pedigree(ped)          # topological order + Meuwissen-Luo (1992) inbreeding
@@ -289,8 +299,11 @@ decrement is the other half. Ctrl+C interrupts any fitter.
 | a variance pinned at ~0 | the effect is not identifiable from this design; the fit freezes it at the boundary and optimizes the rest conditional on that, and says so in the message |
 | `theta INADMISSIBLE` | starting covariance not positive-definite, or a group with a correlation forced to +/-1 |
 | a correlation of exactly -1 | a compositional phenotype, see the contest model above |
-| fixed columns in `dropped_x` | linear dependence, including levels whose records are all missing |
-| `CG=5\|y1` in `dropped_x` | `model_mt()`: that level has no record for that trait, and the pair (column, trait) drops |
+| fixed columns in `dropped_x` | linear dependence, including levels whose records are all missing; in `model_mt()` and `model_ar1()`, `dropped_x_reason` says which ("no record", "aliased") |
+| `CG=5\|y1` in `dropped_x` | `model_mt()`: that level has no record for that trait, and the pair (column, trait) drops (`dropped_x_reason` "no record of y1"; "aliased within y1" is a column collinear inside that trait). The class reference is chosen among the levels with records of every trait |
+| `did NOT converge: ... a component resting at a covariance boundary is not at a constrained optimum` | `model_mt()`/`model_ar1()`: a point inside the cone or along the boundary face lowers the -2logL, and the walk had already moved off the boundary the most times allowed (10 re-entries into the cone, 20 moves along the face); pass a `start=` inside the cone, as the message says. When `maxiter` runs out at such a point the message is instead "stopped at ... iteration(s) without a certified optimum ... Raise maxiter=" |
+| "a second walk from inside the cone" in the message | a fit that ended with a block at a covariance boundary was walked again from inside the cone; the message says whether that walk found a lower point and by how much |
+| `start_from = "var(y)"` and "the univariate start was also tried" in the message | the univariate start stalled without a certificate before `maxiter`, so the `var(y)` start was fitted too and won; the message gives the -2logL the univariate start ended at, and `fit$neg2logl` is the returned one. When the univariate start wins, `start_from` stays "univariate fits" and the message says "the var(y) start was also tried" |
 | h2 = 1 with residual 0 | rows were replicated to fake weights; use `weights =` |
 | `SINGULAR` in the message | the data do not separate the named components: their SEs are NaN and the point depends on `start=`; `pe(id)` with one record per animal, or indirect effects in pens of one size built from full-sib families (pens of different sizes, or relatives across pens, separate them) |
 | converged at `maxiter` and the message says the likelihood is flat | a flat ridge (`model()`, `model_mt()`, `model_ar1()`): the decrement is under tolerance and more iterations will not choose a point; read the SEs and the correlation of the components |
@@ -327,5 +340,5 @@ scale.
 ## Where the theory is
 
 The vignette *Theory and practice* walks an evaluation in order, explaining each matrix
-and algorithm beside the code that runs it. *Hands-on* works through 54 of the 64
+and algorithm beside the code that runs it. *Hands-on* works through 58 of the 73
 exported functions. `FUNCTIONS.md` maps the surface; the README carries the references.

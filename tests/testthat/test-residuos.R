@@ -1126,3 +1126,100 @@ test_that("print: no level passing min_reliability prints no NaN", {
   expect_false(any(grepl("NaN", txt)))
   expect_true(any(grepl("pass min_reliability", txt)))
 })
+
+test_that("several chains: the residuals pool the same chains, with the same weights, as b and ebv", {
+  # junta_cadeias() deixa de fora a cadeia que parou cedo (gibbs.cpp para com theta
+  # inadmissivel); o residuo medio, os ajustados e os sorteios pivotais tem de sair das MESMAS
+  # cadeias que b e ebv, senao W E[loc] remontado dos dados (a guarda do desenho de
+  # residual_diagnostics()) deixa de bater com o fitted guardado
+  set.seed(31)
+  n <- 6
+  faz <- function(k, m) {
+    s <- matrix(stats::rnorm(2 * k, m), k, 2)
+    list(samples = s, ebv = list(animal = c(a = mean(s[, 1]), b = mean(s[, 2]))),
+         ebv_sd = list(animal = c(a = stats::sd(s[, 1]), b = stats::sd(s[, 2]))),
+         b = c(intercept = mean(s[, 1])), b_sd = c(intercept = stats::sd(s[, 1])),
+         residual = stats::rnorm(n, m), fitted = stats::rnorm(n, m),
+         fitted_fixed = stats::rnorm(n, m),
+         pdm_residuals = matrix(stats::rnorm(n * 3, m), n, 3),
+         message = "", names = c("var(animal)", "var(residual)"))
+  }
+  rs <- list(faz(50, 0), faz(12, 5), faz(50, 1))
+  j <- BreedingR:::junta_cadeias(rs, 50L)
+  expect_identical(j$chains_used, c(1L, 3L))
+  for (campo in c("residual", "fitted", "fitted_fixed"))
+    expect_equal(j[[campo]], (rs[[1]][[campo]] + rs[[3]][[campo]]) / 2, tolerance = 1e-14)
+  expect_identical(j$pdm_residuals, cbind(rs[[1]]$pdm_residuals, rs[[3]]$pdm_residuals))
+  # a mesma conta das localizacoes: o ajustado medio e linear nas medias que b e ebv juntam
+  expect_equal(j$b[["intercept"]], (rs[[1]]$b + rs[[3]]$b)[["intercept"]] / 2,
+               tolerance = 1e-14)
+  # sem cadeia completa, a mais longa sozinha
+  rs2 <- list(faz(20, 0), faz(30, 2))
+  j2 <- BreedingR:::junta_cadeias(rs2, 50L)
+  expect_identical(j2$chains_used, 2L)
+  expect_equal(j2$residual, rs2[[2]]$residual, tolerance = 1e-15)
+  expect_identical(j2$pdm_residuals, rs2[[2]]$pdm_residuals)
+})
+
+test_that("a blank, 'NaN' or Inf trait is missing in the residuals as in the fit (probit, threshold)", {
+  # gibbs(family = "probit") e model_threshold() tiram do ajuste a observacao ausente pela
+  # regra de observacao_ausente() (NA, NaN, Inf, -Inf, texto vazio, o texto "NaN",
+  # missing_code); residual_diagnostics() e residuals() remontam os registros pela MESMA
+  # regra. Com a regra antiga (so NA e missing_code) nas duas copias de R/residuals.R, os
+  # mesmos dados do ajuste paravam com "the rebuilt design uses other records than the fit
+  # (80 against 78)" e "300 record(s) with an observed trait in the data against 298 in
+  # the fit". Aqui o texto vazio e o "NaN", ou o Inf e o -Inf, tem de dar o resultado do NA
+  ped <- rd_ped(80, nfilhos = 80L)
+  d <- rd_dados(81, ped, tam = c(3, 4, 6))
+  d$b <- ifelse(d$y > stats::median(d$y), "sim", "nao")
+  fora <- c(5L, 17L)
+  cadeia <- function(dd) {
+    set.seed(82)
+    gibbs(b ~ cg + cov(x) + animal(id), dd, ped, family = "probit", n_iter = 300L,
+          burnin = 50L, thin = 5L, residual_draws = 5L, verbose = FALSE)
+  }
+  d_na <- d
+  d_na$b[fora] <- NA
+  g_na <- cadeia(d_na)
+  dg_na <- residual_diagnostics(g_na, d_na, ped, nsim = 19L, seed = 83)
+  expect_identical(dg_na$n_used, nrow(d) - 2L)
+  d_txt <- d
+  d_txt$b[fora] <- c("", "NaN")
+  d_num <- d
+  d_num$b <- as.double(d$b == "sim")
+  d_num$b[fora] <- c(Inf, -Inf)
+  for (dd in list(d_txt, d_num)) {
+    g <- cadeia(dd)
+    expect_identical(g$n_used, g_na$n_used)
+    expect_identical(g$residual, g_na$residual)
+    dg <- residual_diagnostics(g, dd, ped, nsim = 19L, seed = 83)
+    expect_identical(unclass(dg), unclass(dg_na))
+  }
+  # o limiar: residuals() conta os registros observados pela regra de prepara_limiar()
+  set.seed(39)
+  n <- 300
+  dt <- data.frame(cg = sample(c("a", "b", "c"), n, TRUE),
+                   id = sprintf("s%02d", sample(1:30, n, TRUE)), stringsAsFactors = FALSE)
+  eta <- c(a = 0, b = 0.4, c = -0.3)[dt$cg] +
+    stats::rnorm(30, 0, 0.5)[match(dt$id, sprintf("s%02d", 1:30))]
+  dt$y <- cut(eta + stats::rnorm(n), c(-Inf, -0.5, 0.6, Inf), labels = FALSE)
+  dt_na <- dt
+  dt_na$y[fora] <- NA
+  ft_na <- model_threshold(y ~ cg + random(id), dt_na, start = 0.25, verbose = FALSE)
+  r_na <- residuals(ft_na, dt_na, seed = 1)
+  p_na <- residuals(ft_na, dt_na, type = "pearson")
+  expect_true(all(is.na(r_na[fora])) && all(is.na(p_na[fora, ])))
+  dt_txt <- dt
+  dt_txt$y <- as.character(dt$y)
+  dt_txt$y[fora] <- c("", "NaN")
+  dt_num <- dt
+  dt_num$y <- as.double(dt$y)
+  dt_num$y[fora] <- c(Inf, -Inf)
+  for (dd in list(dt_txt, dt_num)) {
+    ft <- model_threshold(y ~ cg + random(id), dd, start = 0.25, verbose = FALSE)
+    expect_identical(ft$n_used, ft_na$n_used)
+    expect_identical(as.character(ft$categories), as.character(ft_na$categories))
+    expect_identical(residuals(ft, dd, seed = 1), r_na)
+    expect_identical(residuals(ft, dd, type = "pearson"), p_na)
+  }
+})

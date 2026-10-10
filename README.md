@@ -136,7 +136,7 @@ Relationships and genomics are arguments, not different programs.
 | the single-step H-inverse, as triplets | `h_inverse()` |
 | the single step without ever forming G | `snp_blup()` |
 | many environments of one trait, fast, from markers | `pegs()` (residuals uncorrelated across environments) |
-| marker effects from a single-step fit | `snp_effects()` |
+| marker effects from a single-step fit | `snp_effects()`, with the blend, APY core, Vecchia k and metafounders read from the fit |
 | G, dominance, epistasis to any order | `g_matrix()`, `g_dominance()`, `g_epistasis_ad/dd/order()` |
 | dominance by pedigree, dense or as a sparse inverse by sire x dam subclasses | `dominance_matrix()`, `dominance_inverse()` |
 | multibreed partial matrices | `partial_a()` |
@@ -147,13 +147,14 @@ And around the fit: `solutions()`, `h2()`, `t2()`, `ebv()`, `accuracy()`, `rg()`
 `h2_liability()`, `selection_index()`, `rank_drift()`, `profile_theta()`, `se_function()`,
 `qc_genotypes()`, `qc_phenotypes()`, `read_plink()`, `describe()`, `thi()`, `heat_load()`,
 `fst()`, `roh()`, `simulate_breeding()`, `mc_study()`, `suggest_model()`,
-`benchmark_fit()`, `ess()`, `geweke_z()`, `rhat()`.
+`benchmark_fit()`, `residual_diagnostics()`, `mcmc_diagnostics()`, `ess()`, `geweke_z()`,
+`rhat()`.
 
 **Where to read next.** Start with *Your first evaluation*, which goes from two files on
 disk to breeding values you can act on, and assumes nothing about this package. After
 that: *Theory and practice* walks a full evaluation in order, explaining each matrix, each
-algorithm and each iteration alongside the code that runs it; *Hands-on* works through 66
-of the 71 exported functions, step by step; *Contest models* derives the
+algorithm and each iteration alongside the code that runs it; *Hands-on* works through 58
+of the 73 exported functions, step by step; *Contest models* derives the
 competitive-ability estimators from the group multinomial, one identity at a time.
 [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
 
@@ -201,6 +202,22 @@ saying so. `qc_genotypes()` filters markers by call rate, minor allele frequency
 Hardy-Weinberg equilibrium, and reports how many each filter removed. `describe()` shows
 the data before a model touches it, and `suggest_model()` reads its shape and names the
 terms it calls for.
+
+Only the observation may be missing. Some columns give a level: a class, the id of a
+random or relationship term, a nested class, the maternal grandsire, the pen of
+`indirect()`, the subject of `model_ar1()` and `model_survival()`, and the id and
+environment of `pegs()`. They may not hold `NA`, `NaN`, `Inf`, `-Inf`, blank text (an
+empty cell of a text column, as `read.csv()` reads it) or the text "NaN"; in the
+maternal-grandsire column of `sire(mgs =)` blank text is the unknown grandsire, like "0",
+and only the other values stop the fit. A covariate of
+`cov()` or `base =` may not hold `NA`, `NaN`, `Inf` or `-Inf`. Every fitter checks every
+row, including rows whose trait is missing, and stops with the term, the column, the count
+and the first row, so missing rows are never grouped into one shared level and a covariate
+never leaves the model in silence. `qc_phenotypes(classes =)` counts the missing labels
+before the fit, in `missing_labels`. `missing_code` marks the trait only, as
+`OPTION missing` does in BLUPF90: a covariate holding -999 (an unknown age in a BLUPF90
+data file) is fitted as the number -999, and a BLUPF90 class code 0 is one level "0" here.
+Turn those cells into `NA` before the fit, and the fit names them.
 
 ## What it fits
 
@@ -327,7 +344,8 @@ model(y ~ herd + kernel(id, K = pa$K[["A"]], nome = "uA") +
 model(y ~ cg + animal(id), d, ped, metafounders = c("L1", "L2"),
       gamma = matrix(c(0.7, 0.2, 0.2, 0.6), 2, 2))
 
-# marker effects backsolved from the single-step fit
+# marker effects backsolved from a single-step fit f (model(..., genotypes =)); blend,
+# APY core, Vecchia k and metafounders are read from f
 snp_effects(f, ped, genotypes = list(ids = gids, m = M))
 
 # the single step WITHOUT G: markers as equations (ssSNPBLUP; Liu et al., 2014), conjugate gradients,
@@ -348,7 +366,12 @@ indirect-effect model, with delta-method standard errors), `ebv()`, `accuracy()`
 level: `1 + F`, the diagonal of `G*` for a genotyped animal in a single step, `K[i, i]` for a
 `kernel()` term or a declared `k_inverse =`, the prior carried in the fit for
 `kernel(Kinv =)` (1 for an animal, `F_cc / 4` for a subclass of `dominance_inverse()`), 1 for
-an iid term), `h2_curve()` and
+an iid term), `residuals()` and `fitted()` (conditional, standardized by the leverage,
+marginal, Pearson and the AR innovations), `residual_diagnostics()` (homoscedasticity by
+contemporary group, fitted fixed part and covariate, normality and within-animal serial
+correlation, each with an effect size and a parametric-bootstrap p-value, or a pivotal
+one for a `gibbs()` chain; next to them the largest standardized residuals with a
+Bonferroni p and a summary of the standardized breeding values), `h2_curve()` and
 `plot()` for the reaction norm, `indirect_residual()` for the pen-size residual of the
 associative model, `var(e_i) = s2_ED + (n_i - 1)^(1 - 2d) s2_ES` with `d` taken from the
 `indirect()` term (`d = 0` is the book's `(n_i - 1) s2_ES`), by profile REML over exact
@@ -364,8 +387,8 @@ the data and names the term each shape asks for (and the trap it guards against)
 claims go through `benchmark_fit()`, which replicates at least three times and checks
 the runs returned identical numbers: the package's own timing rule as a tool.
 
-The full map of the 71 functions, grouped by kinship, is in
-[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 66 of them,
+The full map of the 73 functions, grouped by kinship, is in
+[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 58 of them,
 step by step on data simulated in the document itself, is the vignette
 `vignettes/hands-on.Rmd` (every chunk runs at build time, so it cannot rot). The theory
 behind `apy_core=` (why APY works and what the Mendelian residual means) is in
@@ -423,17 +446,22 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | threshold and survival, estimated components | the estimate is the minimum of the Laplace -2logL the fit reports: no point of a grid around it in any optimizer coordinate is lower, a second start and an independent `optimize()` land on it; a variance the data do not tell apart from zero is held at its minimum without an SE while the other SEs stay exact; 80 sires with 50 daughters each, binary, planted 0.15: mean 0.161 (SE 0.007) over 10 replicates (`validation/indirect_threshold_survival_recovery.R touro`) |
 | `indirect()` in `model_threshold()` and `model_survival()` | exactness on 105 to 296 records: the incidence built in R == the engine's (Gaussian BLUP against `model()`); mode, system, PEV and Laplace with a direct-indirect group and `random(pen)` against dense references written from the definition with Z from a loop of their own (1e-8 or better); the correlation near +-1 profiled. Recovery at prototype scale only (2329 records, 8 replicates), and the declared gates FAIL: the threshold components run LOW, more with the indirect term than without (paired s2D -0.031, SE 0.007); the Weibull components run low with one record per animal, equally with and without it. Nothing at >= 20k records |
 | Gibbs, probit and kernel() | with the components held, the posterior mean tracks the threshold-model mode (probit) and the `model()` BLUP (kernel); `K = I` == `random(id)`, the same chain |
-| Gibbs, the whole chain | with flat priors the posterior of the components is the REML likelihood (Harville, 1974): four chains match a 2-D quadrature of the -2logL at z = 0.15 and 0.08 (`validation/gibbs_harville.R`); `rhat()` near 1 on iid chains, above 1.01 on shifted or rescaled ones; serial and parallel chains identical |
+| Gibbs, the whole chain | with flat priors the posterior of the components is the REML likelihood (Harville, 1974): four chains match a 2-D quadrature of the -2logL at z = 0.15 and 0.08 (`validation/gibbs_harville.R`); `mcmc_diagnostics()` equals posterior 1.7.0 to 1e-10 (R-hat, bulk/tail ESS, MCSE), and its verdict is calibrated on simulated chains: never `not mixed` on stationary ones; `not mixed` 83% and 100% of the time with one of 4 chains shifted 0.5 and 1 sd; `burn-in too short` every time for a 50 sd start with 4 chains (`validation/mcmc_diagnostics_calibration.R`). At 20 000 levels and 4 chains the diagnostics take 0.22 to 0.23 s (3 runs; `validation/mcmc_diagnostics_scale.R`, iid levels); serial and parallel chains identical |
 | threads | the tiled tail, the dense inverses, the products and the selected inverse against `chol()`, `solve()` and the formulas; the same bits with 1 and 4 threads, and the whole suite passes at both |
 | metafounders with genotypes | H(Gamma) rebuilt from the dense A(Gamma) and G05 at 1e-8; `kernel(K = H)` == `genotypes=`; `snp_blup()` == `model()` at the same theta; 20 simulated replicates of two bases reduce the trend bias from -0.141 to -0.081 (`validation/hgamma_recovery.R`) |
-| `estimate_gamma()` | one pseudo-EM step is the metafounder block of H(Gamma) built densely; GLS shows its published bias; `"ml"` against the identity A(gamma) = (1 - gamma/2) A + gamma 11' and the maximum of the dense likelihood |
+| `estimate_gamma()` | one pseudo-EM step is the metafounder block of H(Gamma) built densely; GLS shows its published bias; `"ml"` against the identity A(gamma) = (1 - gamma/2) A + gamma 11' and the maximum of the dense likelihood; the engine version against the previous R version: pseudo-EM and GLS within 1e-10 with the same iteration count, with genotypes in the last generation only, with genotyped parents and with every animal genotyped; ML summaries within 1e-12 and gamma within 1e-6 with A22^-1 dense, sparse and with no non-genotyped animal; A22^-1 X with 70 columns against the dense A22; a metafounder with no genotyped descendant gives the Gamma of the problem without it |
+| `snp_effects()` | G*^-1 u read back from the exported H^-1, ((H^-1 - A^-1) u)_g + A22^-1 u_g, with ungenotyped ancestors, on each route (exact, APY, Vecchia) with and without metafounders, and, on the exact route, on a sire / maternal-grandsire pedigree; APY also against the APY inverse built densely in R; with metafounders, the marker effects of `snp_blup()` at the same theta; the previous R version within 1e-9; 1 vs 4 threads identical; a different blend, other genotypes and reordered rows under Vecchia are refused |
 | A22 by Colleau, the sparse Schur | H^-1 against the formula with A22 from the dense A, with inbreeding and with a sire-MGS pedigree; `a22_inverse()` against `solve()`; the APY route with core = everyone gives the exact H^-1 to 1e-12; with two metafounders and a full Gamma, core = everyone gives the exact H(Gamma) to 1e-10 and a partial core the APY inverse written in R on the dense G* to 1e-8 |
 | `pegs()` | at fixed variances the exact multivariate ridge, a dense `mk x mk` solve; the structures are identities where they must be; recovery with 2000 animals x 2000 markers x 3 traits; the Julia reference gives the same numbers on the same data |
 | `sire(sire, mgs =)` | -2logL and BLUP against the dense GLS with the incidence built by hand |
 | `indirect(dilution =)` in the siblings | the bivariate with no between-trait covariance == the sum of the univariate `model()` fits with the same d; AR(1) at rho = 0 == `model()`; the Gibbs chain with fixed components == the diluted BLUP |
 | `snp_blup()`, any structure | the dense single-step solve built in R with `H^-1` from `G*` without the affine step: breeding values and marker effects to 1e-6 of their SD with one animal term, direct-maternal in one group, direct and maternal in separate groups, a reaction norm and direct-indirect, the latter also with `dilution = 0.7` in pens of 1 to 7, with mates without a phenotype and a repeated record; `rpg` near 1 falls back to the pedigree BLUP; a planted QTL comes out on top |
-| genotype storage | double, integer and raw matrices give the same G, H^-1 (exact and APY), APY core (both routes), genomic F and D, fit and ssSNPBLUP, bit for bit, with missing values in the matrix; `read_blupf90_snp()` returns the matrix that was written, subsets by id |
+| genotype storage | double, integer and raw matrices give the same G, H^-1 (exact and APY), APY core (both routes), genomic F and D, Gamma (pseudo-EM, GLS, ML), fit, backsolved SNP effects (exact and APY) and ssSNPBLUP, bit for bit, with missing values in the matrix; `read_blupf90_snp()` returns the matrix that was written, subsets by id; F, D and G are also checked past one band of 1024 animals and two blocks of 2048 markers, D against the previous version and G against R's tcrossprod, through the tiles and dsyrk |
 | `survival_split()` | the subject and change tables reproduce hand-built elementary records exactly, with the same fit; `S(t \| e) S(e) = S(t)` |
+| residuals, leverage, `residual_diagnostics()` | the dense `R P y`, GLS fixed part and `diag(R P R)` in plain R for `model()` (weights, pe, rn, mgs, indirect, kernel, single step), `model_ar1()` (rho of either sign) and `model_mt()`; the closed-form Cook distance against the refit without the record; `Var(u^) = s2 H - PEV` for genotyped and non-genotyped animals; type I of the bootstrap p measured in five simulated layouts of 600 to 2400 records, and of the pivotal p of a `gibbs()` chain in 640 records (`validation/residual_diagnostics_calibration.R`). Not validated on real data |
+| fixed-effect design (sparse) | the sparse rank keeps the columns of the dense Gram-Schmidt it replaced on 150 random designs (crossed, nested and disconnected classes, levels with no used record, collinear and nested covariates, weights), on edge columns (tiny, NaN, Inf, nearly collinear), and on unscaled polynomials and near copies. In near-singular designs every decision is certified or the rank falls back to that Gram-Schmidt, and it never keeps more columns than records. `dropped_x` of `model()` (with and without weights), `model_mt()` (per trait) and `model_ar1()` equals a dense reference rebuilt in R. The threshold and survival fitters drop what `qr()` drops and fit the reduced model. The bits are the same with 1 and 4 threads. With the rest of the engine unchanged, a check found the results bit-identical to the dense build over the 3 085 values returned by the fits of every test file but this change's own (`validation/fixed_design_identity.R`). Scale (memory, not exactness): 200 000 records x 701 candidate columns, fixed part 145-153 MB of peak working set (232 MB committed), three sets of 3 replicates, with `dropped_x` checked against the table (`validation/fixed_design_memory.R`) |
+| missing labels and values | the rule has two implementations, the engine's and R's. One battery of values (numeric `NA`, `NaN`, `Inf`, `-Inf`; blank, tab and line-break text, " NaN ") gives the same types, the same count and the same first row through both, in every fitter. A missing trait drops only its record, with the -2logL of the data without that row |
+| unit, shift and boundaries in `model_mt()` and `model_ar1()` | `y`, `100 y` and `1e4 y` give the same SINGULAR verdict and the same standard errors up to the factor in all three fitters; one trait in other units gives the same fit up to the scale factors and the Jacobian; a constant added to `y` leaves the REML -2logL alone; a covariance boundary that is not the optimum is not certified, and a certified point on a flat face is polished to the face optimum (`tests/testthat/test-unidade-partida-fronteira.R`). At 21 000 records the standard errors of a `model_ar1()` fit agree to 8.2e-7 between `y` and `100 y`, and at 21 000 and 24 000 records the -2logL agrees to 6e-15 (relative) under a shift of up to 1000 standard deviations (`validation/unit_shift_start_scale.R`). In simulated sweeps of 368 fits from four starts per data set, run during development and not kept in `validation/`, no certified point sits more than 9.4e-5 above the best of its starts, and one known pair of starts still certifies points 1.7e-4 apart. The real fits that motivated the change were not rerun |
 
 The tests in `tests/testthat` run these comparisons on every build, so a change that
 breaks one of the identities cannot pass quietly. `simulate_breeding()` is what they are
@@ -703,19 +731,50 @@ component pinned there points out of the cone by construction and its gradient n
 vanishes; when that happens the message says how many were excluded, and the
 certification is conditional on that pinning.
 
-Two endings get their own verdict in `model()`, `model_mt()` and `model_ar1()`. When
-`maxiter` runs out with the Newton decrement already under tolerance, the likelihood is
-flat along some direction: the fit returns `converged = TRUE` and says so, because more
-iterations would not choose a point on that ridge. When the average information is
-singular at the end, the message says SINGULAR and names the components the data do not
-separate; their standard errors are NaN, the reported point depends on `start=`, and only
-combinations of them are estimable. That is the design speaking, the identifiability
-question Cantet and Cappa (2008) raise for the indirect-effect model, and the answer is
-more information, a simpler model, or a component held fixed.
+In `model()` a component at its floor is excluded only when the score pushes it out of
+the cone. In `model_mt()` and `model_ar1()` the step freezes a boundary block whatever the
+sign, so the certificate is checked on the likelihood: points inside the cone along the
+negative eigenvectors of the block's gradient, steps along the boundary face by finite
+differences, and a second walk from inside the cone. A point that lowers the -2logL by
+more than 1e-4 sends the walk there, or refuses the certificate when the walk cannot move.
+Without those checks a real bivariate fit had been certified 46.8 units above its interior
+optimum. A boundary face is flat, so a certified point is then polished along it while
+each step gains more than 1e-5 and the point still certifies. In simulated sweeps of 368
+fits from four starts per data set (run during development, not kept in `validation/`),
+every certified point then came within 9.4e-5 of the best of its starts, and in a
+separate search one pair of starts still certified points 1.7e-4 apart.
 
-Fits start from `var(y)` by default, so a run does not inherit a neighbour's answer by
-accident. Two adjustments in `model_mt()` and `model_ar1()` keep that default meaning the
-same thing when the model is written differently. The share of a term whose covariance is
+Two endings get their own verdict in `model()`, `model_mt()` and `model_ar1()`. When
+`maxiter` runs out with the Newton decrement already under tolerance (and, in
+`model_mt()` and `model_ar1()`, the boundary checks passed), the likelihood is flat along
+some direction: the fit returns `converged = TRUE` and says so, because more iterations
+would not choose a point on that ridge. When the average information is singular at the
+end, the message says SINGULAR and names the components the data do not separate; their
+standard errors are NaN, the reported point depends on `start=`, and only combinations of
+them are estimable. That is the design speaking, the identifiability question Cantet and
+Cappa (2008) raise for the indirect-effect model, and the answer is more information, a
+simpler model, or a component held fixed. In `model_mt()` and `model_ar1()`, a stop where
+no damped step and no EM step improves the likelihood is never a certificate: the message
+gives the iteration and the decrement. `maxiter = 0` evaluates the start and reports
+`converged = FALSE` in all three fitters.
+
+`model()` starts from `var(y)`, so a run does not inherit a neighbour's answer by
+accident. `model_mt()`, and `model_ar1()` with `cbind()`, start from the univariate
+optimum of each trait with every covariance between traits at zero, the start one builds
+by hand in BLUPF90 or ASReml. On real data a bivariate CAR(1) from `var(y)` had walked to
+r = -1 and r = +1 and stopped 41.3 -2logL units above the optimum the univariate start
+reached in 6 iterations. That was measured before the walk was standardized per trait and
+before the boundary checks above, and with the current engine no simulated case is known
+where the `var(y)` start fails. A variance that a univariate fit left at zero starts at 1%
+of the `var(y)` start, and the univariate fits run to their own optimum whatever
+`maxiter` is. When the fit from that start stalls without a certificate, the `var(y)`
+start is fitted too, and `start_from` says which start the returned fit used. The default
+rests on that one real case, and the univariate fits cost time: at 21 000 and 24 000
+records, 1.1 to 1.8 times the `var(y)` start on the median of 3 runs when both reach the
+same optimum (`validation/unit_shift_start_scale.R`). The `var(y)`
+start, still used with one trait, with `maxiter = 0` and as the fallback, carries two
+adjustments that keep it meaning the same thing when the model is written differently.
+The share of a term whose covariance is
 user-supplied is divided by the geometric mean of that matrix's eigenvalues, so the same
 model with `K` and with `c * K` starts at equivalent points; without it, `c = 25` used to
 land 146 units of -2logL away from `c = 1`, reporting convergence in both. And the AR(1)
@@ -724,6 +783,18 @@ written in days or in weeks starts at the same place; `rho = 0` is a stationary 
 that parameterisation whenever no two times differ by exactly 1, which used to return
 `rho = 0` with `converged = TRUE`. `model()` carries neither adjustment and does not need
 them: measured on the same cell, it reaches the same optimum from either scaling of `K`.
+
+The multi-trait and AR(1) fitters walk on each trait divided by the power of two just
+above its standard deviation, and report in the original units. Neither the walk, nor the
+singularity verdict, nor the standard errors depend on the unit a trait is recorded in.
+`y1` and `0.01 * y1` give the same estimates up to the scale factors and the same -2logL
+up to the Jacobian, and a power-of-two factor gives the same fit bit for bit. Components
+resting at a boundary are the exception: when the data round differently they can move
+along the flat face they rest on (up to 0.6% measured, with the -2logL equal within
+2.5e-5 after the Jacobian).
+`model()` gets the same invariance from a variance floor proportional to the variance of
+`y`. The -2logL is formed from the residuals, so a constant added to `y` leaves it
+unchanged to 3e-14 (relative).
 
 When you do want a different start, `start=` takes one in `model()`, `model_mt()` and
 `model_ar1()` alike: to warm-start from a submodel, or to check that the optimum does not

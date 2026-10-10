@@ -11,6 +11,7 @@
 #include <unordered_set>
 #include "modelo.h"
 
+#include <functional>
 #include <limits>
 #include <memory>
 
@@ -205,9 +206,12 @@ std::size_t bloco_denso_final(const Csc&);
 // o mesmo numero lido do padrao simbolico, antes de fatorar: quantas colunas finais de L
 // sao completamente cheias. E o k do custo k^3 de cada fatoracao.
 std::size_t bloco_denso_simbolico(const Simbolica&);
-// aviso de matriz de informacao singular, com os componentes que o dado nao separa
+// aviso de matriz de informacao singular, com os componentes que o dado nao separa. `fator`
+// (opcional) e a unidade de cada componente (s_a s_b com s o desvio padrao EXATO de cada
+// caracteristica; 1 para o rho): o corte e feito na AI dessas unidades, F AI F (aireml.cpp)
 std::string aviso_informacao(const Densa& ai, const std::vector<std::string>& nomes,
-                             std::vector<double>* se = nullptr);
+                             std::vector<double>* se = nullptr,
+                             const std::vector<double>* fator = nullptr);
 SelInv inversa_seletiva(const Csc&, std::size_t);
 
 // Uma matriz de covariancia DECLARADA pelo usuario (kernel(id, K=)): os ids que nomeiam
@@ -348,6 +352,66 @@ double decremento_z(const PassoZ& P);
 
 void pisos_z(const MapaZ& mp, const std::vector<double>& z, double escala_residual,
              std::vector<double>& piso, std::vector<char>& relativo);
+// A SONDA DE KKT pela verossimilhanca (o racional esta em aireml.cpp): pontos dentro do
+// cone para cada bloco com coordenada na parede. `direcionais` seguem o autovetor de
+// autovalor negativo da matriz do gradiente do bloco (a direcao C + e ww' que baixa o
+// -2logL em primeira ordem), com o comprimento do modelo quadratico da AI; `coordenadas`
+// levantam cada diagonal de Cholesky na parede, e o bloco inteiro descorrelacionado, a
+// fracoes da escala. Tudo em z. Quem chama avalia, primeiro as direcionais, e so aceita o
+// que baixa o -2logL por mais que tol_reentrada.
+struct CandidatosKKT {
+  std::vector<std::vector<double> > direcionais, coordenadas;
+};
+CandidatosKKT candidatos_reentrada(const MapaZ& mp, std::size_t ntheta,
+                                   const std::vector<double>& z,
+                                   const std::vector<char>& parede, double escala,
+                                   const std::vector<double>& score, const Densa& ai);
+// A SONDA DA FACE (o racional esta em aireml.cpp): diferencas finitas do -2logL nas
+// coordenadas dos blocos na parede que andam sobre a face, o score do resto nos mesmos
+// pontos, e o passo de Newton conjunto. `f(z, valor, gradiente_z)` avalia num z (false se
+// inadmissivel); true, com o melhor ponto e o valor dele, quando algum ponto baixa o -2logL
+// (por qualquer margem: quem chama compara o ganho com tol_lapida e tol_reentrada).
+bool sonda_face(const MapaZ& mp, std::size_t ntheta, const PassoZ& P, double f0,
+                const std::function<bool(const std::vector<double>&, double&,
+                                         std::vector<double>&)>& f,
+                std::vector<double>& z_novo, double& f_novo);
+// o candidato descorrelacionado da lapidacao (o racional esta em aireml.cpp): as covariancias
+// de cada caracteristica cuja variancia marginal no bloco esta no piso, em zero; em z e nos
+// pisos de P, ou vazio quando nao ha caracteristica assim
+std::vector<double> descorrelada_na_parede(const MapaZ& mp, std::size_t ntheta,
+                                           const PassoZ& P);
+// o veredito da sonda: nenhum ponto melhora (o otimo restrito passa), o caminhante foi
+// levado para dentro do cone, ou um ponto melhora e nao houve como seguir (o limite de
+// reentradas, ou o fim do orcamento de iteracoes): ai o certificado e recusado
+enum class Kkt { otimo, moveu, limite };
+// A FOLGA DA REENTRADA: ganho minimo, em unidades de -2logL, para um ponto de reentrada
+// derrubar o certificado. Metade da tolerancia do decremento (2e-4 ~ duas vezes o gap).
+constexpr double tol_reentrada = 1e-4;
+// A LAPIDACAO DA FACE: depois de um certificado aceito com algum bloco na parede, o ponto
+// descorrelacionado de um caracter no zero (descorrelada_na_parede) e os passos de Newton da
+// sonda da face, enquanto cada um baixa o -2logL por mais que tol_lapida e o ponto novo ainda
+// certifica (ate max_lapidacoes rodadas; o ponto que nao certifica fica de fora e o ajuste
+// fica no ultimo que certificou). Sem isso o ponto certificado sobre uma face plana
+// dependia do caminho: na revisao do item ar1real, model_mt com o bloco genetico em r = -1
+// (sim_ninhadas, sementes 1 a 12, quatro partidas cada), 4 de 96 ajustes certificavam de
+// 1,0e-4 a 3,9e-4 acima do melhor das quatro partidas, e um model_ar1 bivariado com uma
+// variancia genetica no zero, 6,7e-4. Na semente 10 (r12 = -0,25, partida de var(y)) a sonda
+// achava menos que 1e-4, abaixo da folga da reentrada, e o ajuste certificava 3,86e-4 acima;
+// o segmento ate o melhor ponto desce monotonico depois de 1% do caminho. O piso de 1e-5
+// fica acima do ruido do -2logL esparso perto da singularidade (3e-7 em r ~ 1, e 2,8e-6
+// abaixo da forma V densa no canto mais mal condicionado medido, condicao ~1e11), para que
+// a lapidacao nao persiga o arredondamento. Medido com ela, nas mesmas varreduras (368
+// ajustes, quatro partidas por dado): nenhum certificado mais que 9,4e-5 acima do melhor, os
+// 562 ajustes da suite identicos bit a bit, nenhum veredito trocado; o par AR(1) a 9,3e-6 (com
+// o candidato descorrelacionado, descorrelada_na_parede). Sobra um caso conhecido, 1,7e-4: um
+// model_mt com o bloco genetico em r ~ +1 e a diagonal condicional congelada pela curvatura
+// LONGE do piso, que a sonda da face nao olha; abrir a lapidacao a esses blocos foi tentado e
+// nao ajudou (1,72e-4 para 1,80e-4).
+constexpr double tol_lapida = 1e-5;
+constexpr int max_lapidacoes = 10;
+// quantas reentradas um ajuste aceita, para que nenhum vai e volta vire laco; esgotado o
+// limite a sonda continua avaliando, e um ponto que ainda melhora recusa o certificado
+constexpr int max_reentradas = 10;
 
 bool chol_pequena(const Densa&, Densa&);
 
@@ -707,6 +771,9 @@ struct DesenhoMT {
   Csr x;   // por registro, como no Desenho
   std::vector<std::string> nomes_x;
   std::vector<std::string> saiu_x;
+  // o motivo de cada queda, paralelo a saiu_x: "no record" / "aliased" para a coluna global,
+  // "no record of <caracter>" / "aliased within <caracter>" para o par (coluna, caracter)
+  std::vector<std::string> saiu_motivo;
   std::vector<DesenhoTermo> aleatorios;
   std::vector<Csc> kinv;
   std::vector<double> kinv_logdet;
@@ -772,11 +839,77 @@ struct AjusteMT {
   double neg2logl = 0.0;
   std::vector<double> theta, se, solucao;
   std::vector<double> pev;   // diagonal de C^-1 no otimo, ja em unidades absolutas
+  // a partida de onde a caminhada saiu, em unidades originais: o start= do usuario, a dos
+  // univariados ou a automatica (para conferir, e para repetir o ajuste)
+  std::vector<double> partida;
   std::string mensagem;
   std::size_t fora_do_padrao = 0;
+  // o conjunto que o ultimo certificado excluiu (PassoZ::na_parede, indexado como theta) e se
+  // a caminhada parou por um veredito sem certificar (estagnacao ou limite de reentradas),
+  // e nao pelo teto de iteracoes: o que a exploracao da fronteira le
+  std::vector<char> na_parede;
+  bool parou = false;
 };
-AjusteMT ajusta_mt(const DesenhoMT&, const std::vector<double>*, std::size_t, double,
+// A EXPLORACAO DA FRONTEIRA (o racional e as medidas estao em aireml.cpp): depois de uma
+// caminhada que certificou, ou parou antes do teto, com algum bloco de covariancia na
+// parede, uma segunda caminhada parte de dentro do cone, com cada bloco na parede
+// descorrelacionado e as variancias dele em pelo menos 10% da partida de var(y) (`auto_`,
+// em unidades originais), e volta o melhor dos dois. `caminha(start, maxiter)` e a
+// caminhada do ajustador, com o orcamento que sobrou.
+AjusteMT explora_fronteira(AjusteMT R, const MapaZ& mp, const std::vector<double>& auto_,
+                           std::size_t maxiter,
+                           const std::function<AjusteMT(const std::vector<double>&,
+                                                        std::size_t)>& caminha,
+                           bool verboso);
+// O desenho entra por referencia NAO constante: o ajuste padroniza y por caracteristica no
+// lugar durante a caminhada e devolve os valores originais, bit a bit, antes de sair (o
+// racional esta em multitrait2.cpp).
+AjusteMT ajusta_mt(DesenhoMT&, const std::vector<double>*, std::size_t, double,
                    bool = false);
+// A partida padrao do multicaracter quando o R manda os otimos univariados de cada
+// caracteristica (uni[tau] no layout do model() de uma caracteristica): grupos e residuo na
+// diagonal por caracteristica, covariancias entre caracteristicas zero. Vazio quando algum
+// vetor nao tem o tamanho do layout univariado ou nao e finito.
+std::vector<double> partida_univariados_mt(const DesenhoMT&,
+                                           const std::vector<std::vector<double> >& uni);
+// o mesmo mapa por grupo, compartilhado pelo multicaracter e pelo AR(1); false quando algum
+// vetor nao casa com o layout
+bool grupos_de_univariados(const Modelo& m, std::size_t t,
+                           const std::vector<std::vector<double> >& uni,
+                           std::vector<double>& theta);
+// A padronizacao interna por caracteristica dos ajustadores multicaracter e AR(1)
+// (multitrait2.cpp): o desvio padrao de cada caracteristica nas celulas observadas, o fator
+// de cada componente (s_a s_b; 1 para o rho) e a guarda que divide y no lugar e o devolve
+// bit a bit (na saida normal por restaura(), em qualquer outra pelo destrutor).
+// `exatos`, quando dado, recebe o desvio padrao exato de cada caracteristica (1 sem
+// variacao): o do corte de singularidade, que tem de ser invariante a qualquer fator, e nao
+// so a potencias de 2 (o racional esta em aviso_informacao, aireml.cpp)
+std::vector<double> desvios_tracos(const Densa& y, const std::vector<char>& usa,
+                                   const std::vector<char>& obs, std::size_t t,
+                                   std::vector<double>* exatos = nullptr);
+std::vector<double> fatores_escala(const Modelo& m, std::size_t t, std::size_t off_residuo,
+                                   const std::vector<double>& esc);
+// a caracteristica de cada coordenada de um grupo expandido, na ordem do layout (termo por
+// fora, caracteristica, coeficiente por dentro); vazio quando a dimensao nao casa
+std::vector<std::size_t> traco_das_coordenadas(const Modelo& m, const Grupo& g, std::size_t t);
+struct PadronizaY {
+  Densa& y;
+  Densa original;
+  bool ativo = true;
+  PadronizaY(Densa& yy, const std::vector<char>& usa, const std::vector<char>& obs,
+             const std::vector<double>& esc, std::size_t t) : y(yy), original(yy) {
+    for (std::size_t i = 0; i < y.nlin; i++)
+      if (usa[i])
+        for (std::size_t tau = 0; tau < t; tau++)
+          if (obs[i * t + tau]) y.at(i, tau) /= esc[tau];
+  }
+  void restaura() {
+    if (!ativo) return;
+    y = original;
+    ativo = false;
+  }
+  ~PadronizaY() { restaura(); }
+};
 // passo unico na multi: o mesmo nucleo do uni, sobre os mesmos campos
 RelatorioG aplica_genomica(DesenhoMT&, const Pedigree&, const std::vector<std::string>&,
                            const Genotipos&, double, const std::vector<std::string>&,
@@ -797,6 +930,9 @@ struct DesenhoAR {
   Csr x;   // por registro, como no Desenho
   std::vector<std::string> nomes_x;
   std::vector<std::string> saiu_x;
+  // o motivo de cada queda, paralelo a saiu_x: "no record" ou "aliased" (aqui so ha queda
+  // global: um par (coluna, caracteristica) sem registro e recusado na montagem)
+  std::vector<std::string> saiu_motivo;
   std::vector<DesenhoTermo> aleatorios;
   std::vector<Csc> kinv;
   std::vector<double> kinv_logdet;
@@ -868,8 +1004,13 @@ DesenhoAR monta_desenho_ar1(Modelo, const std::vector<std::string>&, const Tabel
                             const Pedigree*, const std::string&, const std::string&,
                             const std::vector<KernelDecl>* = nullptr);
 std::vector<std::string> nomes_theta_ar1(const DesenhoAR&);
-AjusteMT ajusta_ar1(const DesenhoAR&, const std::vector<double>*, std::size_t, double,
+// por referencia nao constante pelo mesmo motivo de ajusta_mt (y padronizado no lugar)
+AjusteMT ajusta_ar1(DesenhoAR&, const std::vector<double>*, std::size_t, double,
                     bool = false);
+// a partida a partir dos otimos univariados AR(1) de cada caracteristica (layout do
+// model_ar1() de uma caracteristica: grupos, var(residual), rho): R0 diagonal e o rho medio
+std::vector<double> partida_univariados_ar1(const DesenhoAR&,
+                                            const std::vector<std::vector<double> >& uni);
 // passo unico no AR(1): o mesmo nucleo do uni, sobre os mesmos campos
 RelatorioG aplica_genomica(DesenhoAR&, const Pedigree&, const std::vector<std::string>&,
                            const Genotipos&, double, const std::vector<std::string>&,

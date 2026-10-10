@@ -50,20 +50,92 @@ with \code{apy_core}}
 
 \item{start}{starting values for the components, in the order the fit reports
 them. Use it to warm-start from a submodel, or to check that the optimum does
-not depend on where the search began. Without it the start comes from \code{var(y)},
-divided by the geometric mean of a declared kernel's eigenvalues so that the
-same model with \code{K} and with \code{c * K} starts at equivalent points.}
+not depend on where the search began. Without it the start is the univariate
+optimum of each trait (\code{\link[=model]{model()}} with the same right-hand side, one trait at a
+time, run to its own convergence whatever \code{maxiter} is) with every covariance
+between traits at zero, the start one would build by hand in BLUPF90 or ASReml. A variance that a
+univariate fit left at the zero boundary (below 1e-4 of the \code{var(y)} start) starts
+at 1\% of the \code{var(y)} start, so the walk does not begin on the wall; every other
+component starts where the univariate fit left it. The univariate fits cost one
+\code{\link[=model]{model()}} each. When any of them fails, or with \code{maxiter = 0}, the start falls back
+to \code{var(y)}, divided by the geometric mean of a declared kernel's eigenvalues so
+that the same model with \code{K} and with \code{c * K} starts at equivalent points. When the
+fit from the univariate start stops short of \code{maxiter} without certifying an
+optimum, the \code{var(y)} start is fitted as well, a second whole fit, and the better
+of the two is returned with the other named in \code{message}: the lower -2logL, unless
+only one of them certified and the other is within 2e-4 of it, and then the
+certified one. \code{seconds} counts both fits and \code{iters} is the one returned. Evidence
+for this default: on real data, with the engine of the time (before the walk was
+standardized per trait and before the second walk from inside the cone described
+under \code{tol}), a bivariate CAR(1) from the \code{var(y)} start walked to the r = -1 and
+r = +1 boundaries and stopped 41.3 -2logL units above the optimum that the
+univariate start reached in 6 iterations. With the current engine no simulated case
+is known where the \code{var(y)} start fails: over 24 bivariate data sets in four designs
+(\code{model_mt()} and \code{model_ar1()}, trait scales up to 100 apart, litter and
+permanent-environment correlations up to 0.95) both starts certified, at most
+1.8e-4 -2logL units apart (the boundary spread described under \code{tol}), and that
+real case has not been rerun. So this default rests on that one real case. Measured
+cost where both starts reach the same optimum, 3 replicates on a machine shared with
+other jobs (\code{validation/unit_shift_start_scale.R}): an interior \code{model_mt()} with
+24 000 records took 22.3 to 24.1 s against 14.8 to 21.8 s from \code{var(y)}, one with the
+litter variance of a trait at zero 45.8 to 50.4 s against 41.8 to 48.8 s (both pay
+the second walk described under \code{tol}, 16 iterations instead of 8), and a bivariate
+CAR(1) with 21 000 records 9.6 to 11.1 s against 5.2 to 6.7 s, medians 1.6, 1.1 and
+1.8 times. Which start was used is in \code{start_from}.}
 
 \item{maxiter}{maximum number of iterations; a fit that hits the ceiling says so in
-\code{message} and how to raise it}
+\code{message} and how to raise it. The univariate fits of the default start are not
+bound by it: the start is their optimum, so a small \code{maxiter} still pays for them;
+the second, \code{var(y)} fit runs only when the first stops short of \code{maxiter}.
+\code{maxiter = 0} evaluates the start and reports
+\code{converged = FALSE}: an evaluation is not a convergence}
 
 \item{tol}{relative tolerance on the components, sqrt(sum delta^2 / sum theta^2);
 see the BLUPF90 scale note in \code{\link[=model]{model()}}. The Newton decrement g' AI^-1 g is
 computed at the final point and reported in \code{newton_dec} (components resting at a
 covariance boundary excluded), and, as in \code{\link[=model]{model()}}, \code{converged} requires it under
 2e-4: the step walks in log-Cholesky coordinates, so it cannot jam against a
-boundary. At \code{maxiter} with the decrement already under the tolerance the fit is
-declared converged and \code{message} says the likelihood is flat along some direction}
+boundary. The step freezes a boundary block whose curvature has collapsed, and the
+decrement leaves out every component of a block resting at a boundary, so such a
+block is excluded only after checks on the likelihood itself. First the
+Karush-Kuhn-Tucker condition: points inside the cone along the negative
+eigenvectors of the block's gradient matrix, with the length of the quadratic model
+of the AI (and, as a fallback, each Cholesky diagonal raised to 0.1\%, 1\% and 10\% of
+its scale). Then the boundary face itself: the directions of the block that move
+along it, by central differences of the -2logL (step 1e-2 in log-Cholesky), with a
+joint Newton step together with the free components. A point that lowers the
+-2logL by more than 1e-4 sends the walk there, or refuses the certificate when the
+walk cannot move (at \code{maxiter}, after 10 re-entries into the cone or 20 moves along
+the face). Last, a fit that ends with a block at a boundary, certified or stopped
+short of \code{maxiter}, is walked again from inside the cone, within the same \code{maxiter}
+budget: each such block made diagonal with its variances at least 10\% of the
+\code{var(y)} start, the rest where the first walk left it. The second walk is returned
+when it lowers the -2logL by more than 1e-4, or certifies within 2e-4 of a first
+walk that did not, and \code{message} says what it found either way; a second round
+follows only when the second walk was lower by more than 1e-4. The second walk
+costs a whole walk more in every fit that ends at a boundary (measured at 24 000
+records with a litter variance at zero: 16 iterations instead of 8). Measured on real
+data before these checks: a covariance boundary 46.8 -2logL units above the interior
+optimum had been certified; on simulated starts at the boundary (48 fits) the KKT
+probe alone still certified 6 of them 0.0056 to 4.73 units above the optimum, and
+with the second walk none. A boundary face is flat, so the certified point then
+depended on the path: in sweeps of four starts per data set, up to 3.9e-4 -2logL
+units above the best of the four, and 6.7e-4 in a bivariate AR(1) with a genetic
+variance at its floor. A certified fit with a block at a boundary is therefore
+polished: for a trait whose variance sits at the floor, the same point with that
+trait's covariances at zero, and the Newton step along the face, each kept while it
+lowers the -2logL by more than 1e-5 and the new point still certifies, up to 10
+times. It never turns a certified fit into an uncertified one. Measured after it,
+in the same sweeps (368 fits, the default, the \code{var(y)} start and two starts at the
+wall per data set), no certified point was more than 9.4e-5 above the best of its
+four starts (5 were 1.0e-4 to 3.9e-4 above before); over 24 other data sets (48
+fits, the two default starts each) the AR(1) pair came within 1e-5, and one pair
+still certified points 1.7e-4 apart, a \code{model_mt()} fit with two blocks at a
+boundary. These are searches, not a proof. At \code{maxiter} with the decrement already
+under the tolerance and the checks passed, the fit is declared converged and
+\code{message} says the likelihood is flat along some direction. A stop
+where no damped step and no EM step improves the likelihood is never certified:
+\code{message} gives the iteration and the decrement}
 
 \item{metafounders}{labels of unknown-parent groups; a parent with one of these
 labels needs no line of its own (any OTHER cited-without-line parent is still a
@@ -95,8 +167,34 @@ an object of class \code{breeding_fit_mt}; besides the fields of \code{\link[=mo
 fixed-effect solutions \code{b} come named \code{term=level|trait}, one entry per column of X
 and per trait. The parametrization note of \code{\link[=model]{model()}} applies: dropped columns are
 in \code{dropped_x} and only contrasts compare against a reference-level convention.
+A column dropped for all traits is named \code{term=level}; one dropped for a single
+trait is \code{term=level|trait}. The reference level of a class is chosen among the
+levels with records of every trait whenever one exists, so a \verb{|trait} drop is a
+level with no record of that trait, and \code{dropped_x_reason}, parallel to
+\code{dropped_x}, says which case each drop is: "no record" or "aliased" (a reference
+level or a collinear column) for a column dropped for all traits, and "no record of
+y2" or "aliased within y2", with the trait's name, for one dropped for a single trait.
+\code{start_from} is "univariate fits", "start=" or "var(y)", and \code{start} the start the
+walk left from, named like \code{theta}: a start beyond the floors of the step (a
+Cholesky diagonal below 1e-3 of the largest in its block, a correlation within about
+1e-6 of +/-1) is raised to them first, because the walk cannot represent it and the
+likelihood there is evaluated with lost digits (measured: 0.0028 and 51.3 -2logL units
+below the dense V form at 1 - r^2 = 1e-12 and 1e-15, and the fit stopped at its first
+iteration); with \code{maxiter = 0} the start is evaluated as given.
 \code{dense_block}, \code{h_prior}, \code{h_prior_row}, \code{k_prior} and \code{k_level_type} are as in
-\code{\link[=model]{model()}}. \code{residual}, \code{fitted}, \code{fitted_fixed} and \code{resid_var} (the variance of
+\code{\link[=model]{model()}}. The walk runs on each trait divided by the power of two just above its
+standard deviation (an exact rescaling in floating point, so \code{y} and \code{1024 * y} give
+bit for bit the same fit) and the result is evaluated back in the original units, so
+a trait recorded in other units (y1 versus 0.01 y1) gives the same estimates up to
+the scale factors and the same -2logL up to the Jacobian \verb{2 (n - p) log(0.01)}, with
+\code{n} the records and \code{p} the fixed equations of that trait. The singularity verdict
+is taken on the information matrix in those standardized units. With a factor that
+is not a power of two the data themselves round differently: an interior optimum
+agrees to about 1e-6, but components resting at a boundary sit on a flat face of the
+likelihood and can move along it (measured: 0.4\% and 0.6\% for y2 times 0.01 and 1000
+in a two-term group with ten components at a covariance boundary, the -2logL equal
+to 2.5e-5 after the Jacobian).
+\code{residual}, \code{fitted}, \code{fitted_fixed} and \code{resid_var} (the variance of
 each residual) are matrices with one row per row of \code{data} and one column per trait,
 \code{NA} in a missing cell, read by \code{\link[=residuals.breeding_fit]{residuals.breeding_fit()}}. They come from one more
 assembly, factorization and selective inverse at the final components, at the end of

@@ -173,11 +173,19 @@ not a convenience but a requirement: in `A^-1` the mate-mate term arrives once p
 offspring, and a build where the last write wins would silently discard part of the
 matrix.
 
-The restricted likelihood, in the form the MME give:
+The restricted likelihood, from the MME:
 
 ```
--2logL = (n - p) log s2e + log|D| + log|C_s| + (y'y - sol'rhs) / s2e
+-2logL = (n - p) log s2e + log|D| + log|C_s| + (e'e + u'D^-1 u) / s2e
 ```
+
+`e = y - Xb - Zu` are the residuals at the MME solution. At that solution
+`e'e + u'D^-1 u` equals `y'y - sol'rhs`, the form the MME suggest, but the package forms
+it from the residuals. `y'y - sol'rhs` subtracts two numbers of the order of n (mean y)^2
+and inherits the error of the solution at first order. So a constant added to y, which the
+intercept absorbs and REML ignores, used to move the -2logL: 1.1e-8 relative at 1000
+standard deviations and 1.1e-6 at 1e4. The residual form is stationary in the solution and
+does not carry the mean.
 
 `D` is the covariance of the random effects of section 1, and it carries the same `s2e`
 scaling as `C_s`: per group the code accumulates `nl log|C_g / s2e| + dim log|K_g|`. With
@@ -284,11 +292,16 @@ right basin.
 `sqrt(sum(dtheta^2)/sum(theta^2)) < tol`, never on an absolute threshold on the score,
 whose norm grows with the number of records. A small step is not an optimum, though, so
 `converged` also requires the Newton decrement `g' AI^-1 g`, about twice the remaining gap
-in -2logL, to fall under 2e-4, components resting at a boundary excluded; it is reported
-as `newton_dec`. At `maxiter` with the decrement already under tolerance the likelihood
-is flat along some direction, and the fit declares convergence and says so. Standard
-errors come from the inverse of the AI matrix, `SE_k = sqrt(2 [AI^-1]_kk)`. When AI is
-singular at the end, the fit names the components involved and their standard errors
+in -2logL, to fall under 2e-4, components resting at a boundary excluded (in `model_mt()`
+and `model_ar1()`, after checks of the Karush-Kuhn-Tucker condition and of the boundary
+face on the likelihood, a second walk from inside the cone and a polish along the face);
+it is reported as `newton_dec`. At `maxiter` with the decrement already under tolerance
+the likelihood is flat along some direction, and the fit declares convergence and says
+so. Standard errors come from the inverse of the AI matrix, `SE_k = sqrt(2 [AI^-1]_kk)`.
+When AI is singular at the end (an eigenvalue below 1e-8 of the largest; in `model_mt()`
+and `model_ar1()` the matrix is first scaled by the standard deviation of each trait, so
+the verdict does not depend on the unit of a trait), the fit names the components
+involved and their standard errors
 are NaN: the data do not separate them, the reported point depends on `start=`, and only
 combinations are estimable (for the indirect-effect model, the identifiability question
 of Cantet and Cappa, 2008).

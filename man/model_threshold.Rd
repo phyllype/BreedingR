@@ -35,12 +35,18 @@ terms of a group share one set of levels: the relationship levels for
 \code{animal()}/\code{sire()}/\code{indirect()}, the union of the column labels for \code{random()}.
 \code{rn()}, \code{kernel()}, \verb{nested =} and \code{sire(mgs =)} are not available here.
 \code{cbind(quant, bin)} on the left-hand side switches to the joint analysis, which
-takes one relationship term and neither \code{indirect()} nor \verb{group =}.}
+takes one relationship term and neither \code{indirect()} nor \verb{group =}. A missing
+level (\code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or the text "NaN") or a missing
+covariate value is refused on every row, with the same rule and message as in
+\code{\link[=model]{model()}}; a factor or text column in \code{cov()} is refused rather than read as its
+codes.}
 
 \item{data}{data.frame with the columns referenced. The categorical trait can be
 integer codes, character or factor; categories are ordered by factor level order,
 or by sort order otherwise. In the joint mode the second trait must have exactly
-two values (the larger one is the "difficulty").}
+two values (the larger one is the "difficulty"). A missing observation (\code{NA},
+\code{NaN}, \code{Inf}, \code{-Inf}, blank text, the text "NaN" or \code{missing_code}) drops its
+record and is never a category, in either trait of the joint mode.}
 
 \item{pedigree}{data.frame animal, sire, dam; required with \code{animal()}, \code{sire()} or
 \code{indirect()} unless \code{k_inverse} is given}

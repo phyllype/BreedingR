@@ -356,20 +356,46 @@ test_that("with weights the rank is taken on the columns scaled by sqrt(w)", {
   expect_true("x2=x2" %in% fw$dropped_x)
 })
 
+# O que model_mt() derruba, pela referencia densa NA ORDEM DO POSTO DOS DESENHOS MULTICARACTER
+# (posto_referencia_completa, src/fixos.cpp): o intercepto, as colunas sem registro em alguma
+# caracteristica, depois as completas; o posto global nessa ordem e o por caracteristica na
+# ordem das colunas que ficaram.
+caem_mt <- function(X, d, tracos) {
+  usa <- Reduce(`|`, lapply(tracos, function(tr) !is.na(d[[tr]])))
+  completa <- vapply(seq_len(ncol(X)), function(j)
+    all(vapply(tracos, function(tr) any(usa & !is.na(d[[tr]]) & X[, j] != 0), logical(1))),
+    logical(1))
+  o <- c(1L, setdiff(which(!completa), 1L), setdiff(which(completa), 1L))
+  fica <- sort(o[posto(X[, o, drop = FALSE], usa)$dense])
+  Xk <- X[, fica, drop = FALSE]
+  por_traco <- unlist(lapply(tracos, function(tr)
+    paste0(caem(Xk, usa & !is.na(d[[tr]])), "|", tr)))
+  c(colnames(X)[-fica], por_traco[!grepl("^\\|", por_traco)])
+}
+
 test_that("model_mt() and model_ar1() drop what the dense reference drops", {
   d <- fixos_teste(4)
   X <- desenho_r(d, termos_teste)
-  f <- model_mt(cbind(y, y2) ~ cg + sexo + ordem + cov(idade) + cov(idade2) +
-                  cov(idade, nested = sexo, nome = isx) + random(lote), d,
-                maxiter = 0L, verbose = FALSE)
-  usa <- !is.na(d$y) | !is.na(d$y2)
-  fica <- posto(X, usa)$dense
-  Xk <- X[, fica, drop = FALSE]
-  por_traco <- unlist(lapply(c("y", "y2"), function(tr)
-    paste0(caem(Xk, usa & !is.na(d[[tr]])), "|", tr)))
-  esperado <- c(colnames(X)[-fica], por_traco[!grepl("^\\|", por_traco)])
-  expect_identical(f$dropped_x, esperado)
+  fm <- cbind(y, y2) ~ cg + sexo + ordem + cov(idade) + cov(idade2) +
+    cov(idade, nested = sexo, nome = isx) + random(lote)
+  f <- model_mt(fm, d, maxiter = 0L, verbose = FALSE)
+  expect_identical(f$dropped_x, caem_mt(X, d, c("y", "y2")))
   expect_true(all(c("cg=g08|y2", "cg=g09|y2") %in% f$dropped_x))
+  # o ultimo nivel do CG (a referencia na ordem das colunas) sem registro de y2: a rota
+  # esparsa na ordem do posto multicaracter tira um nivel COMPLETO como referencia global, e
+  # o nivel sem y2 cai so em y2, com o motivo. Na ordem das colunas a referencia densa
+  # derrubaria o proprio nivel vazio em y2, entao este caso separa as duas ordens.
+  d2 <- d
+  ultimo <- tail(unique(d2$cg[!is.na(d2$y)]), 1)
+  d2$y2[d2$cg == ultimo] <- NA
+  f2 <- model_mt(fm, d2, maxiter = 0L, verbose = FALSE)
+  esperado2 <- caem_mt(X, d2, c("y", "y2"))
+  expect_identical(f2$dropped_x, esperado2)
+  expect_false(paste0("cg=", ultimo) %in% f2$dropped_x)
+  expect_true(paste0("cg=", ultimo) %in% caem(X, !is.na(d2$y) | !is.na(d2$y2)))
+  expect_identical(f2$dropped_x_reason[f2$dropped_x == paste0("cg=", ultimo, "|y2")],
+                   "no record of y2")
+  expect_identical(length(f2$dropped_x_reason), length(f2$dropped_x))
   d$t <- ave(seq_len(nrow(d)), d$lote, FUN = seq_along)
   fa <- model_ar1(formula_teste, d, subject = "lote", time = "t", maxiter = 0L,
                   verbose = FALSE)
