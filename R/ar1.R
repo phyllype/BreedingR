@@ -59,7 +59,14 @@
 #'   inadmissible theta. The fixed-effect solutions come in `b`, named `term=level`
 #'   (with `|trait` appended under `cbind()`); the parametrization note of [model()]
 #'   applies -- dropped columns are in `dropped_x` and only contrasts compare against a
-#'   reference-level convention. `dense_block`, `h_prior`, `h_prior_row`, `k_prior` and
+#'   reference-level convention. `residual`, `fitted`, `fitted_fixed` and `resid_var`
+#'   (the variance of each residual) are matrices with one row per row of `data` and one
+#'   column per trait, `NA` where the record did not enter, with `used`, `subject_index`
+#'   and `time`; [residuals.breeding_fit()] reads them. They come from one more assembly,
+#'   factorization and selective inverse at the final components, at the end of every fit
+#'   (about the cost of one more REML iteration); if that pass fails, the fit is kept with
+#'   `NA` residuals and the reason in `message`. `dense_block`, `h_prior`,
+#'   `h_prior_row`, `k_prior` and
 #'   `k_level_type` are as in [model()]: in a single step, [accuracy()] divides a
 #'   genotyped animal by its diagonal of G* and not by 1 + F, and a `kernel()` level by
 #'   its diagonal of K
@@ -162,6 +169,13 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
   # if it were tolerated the F would come back on the gamma = 0 base.
   r$metafounders <- metafounders
   r$gamma <- gamma
+  # o que residual_diagnostics() precisa para remontar o MESMO desenho no bootstrap
+  r$missing_code <- missing_code
+  r$subject_column <- subject
+  r$time_column <- time
+  if (length(g$gid))
+    r$genomic <- list(blend = as.double(blend),
+                      vecchia_k = if (is.null(vecchia_k)) 0L else as.integer(vecchia_k))
   r$formula <- formula_resolvida(formula, terms)
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait

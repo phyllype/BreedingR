@@ -53,6 +53,11 @@
 #' row and column are zero, as gammaf90 does, and the singular Gamma goes through the
 #' pseudo-inverse of the fitters.
 #'
+#' The genotype matrix may be double, integer or raw and is read as it is, marker by
+#' marker. Nothing of size genotyped x genotyped is formed, not even for `"ml"`: its
+#' summaries come from sparse solves on the Schur complement of the non-genotyped block
+#' of `A^-1`, by blocks of markers.
+#'
 #' @param pedigree data.frame animal, sire, dam, with every unknown parent given as a
 #'   metafounder label
 #' @param genotypes list with `ids` and `m` (animals x markers, 0/1/2, no NA)
@@ -94,43 +99,39 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
          "every unknown parent is assigned to one of them")
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
-  gn <- genotipos_numericos(g$gm)
-  if (anyNA(gn))
+  # a matriz fica no tipo em que veio (double, integer ou raw): toda conta com ela e no C++,
+  # marcador a marcador, sem formar Z = M - 1 (que custava ~17 bytes por genotipo)
+  if (.Call(R_conta_ausentes, g$gm) > 0)
     stop("genotypes with NA: impute them first. Imputing by the mean inside the estimator ",
          "would shrink the variance of those markers and pull Gamma down")
-  Z <- gn - 1
-  s <- ncol(Z) / 2
+  n_marcadores <- ncol(g$gm)
+  s <- n_marcadores / 2
 
   # pedigree com os metafundadores como linhas-base; a ordem e a de a_inverse()
   p <- pedigree(pedigree, metafounders = mf, gamma = diag(0.5, q))
-  n <- nrow(p)
   o <- match(g$gid, p$id)
   if (anyNA(o)) stop("genotyped animal(s) without a line in the pedigree: ",
                      paste(utils::head(g$gid[is.na(o)], 5), collapse = ", "))
-  # fracoes de genes: q_mf = e_k, q_i = (q_pai + q_mae) / 2, em ordem topologica
-  Q <- matrix(0, n, q)
-  Q[cbind(match(mf, p$id), seq_len(q))] <- 1
-  for (i in seq_len(n)) {
-    if (p$id[i] %in% mf) next
-    Q[i, ] <- (Q[p$sire[i], ] + Q[p$dam[i], ]) / 2
-  }
-  Q2 <- Q[o, , drop = FALSE]
+  # fracoes de genes: q_mf = e_k, q_i = (q_pai + q_mae) / 2, em ordem topologica, no C++, no
+  # lugar do laco em R por linha do pedigree (o custo que domina num pedigree fundo nao e este,
+  # e o A22^-1 X)
+  Q2 <- .Call(R_fracoes_genes, p$sire, p$dam, match(mf, p$id), o)
   estimavel <- colSums(Q2) > 1e-10
+  # o pedigree classico (cada metafundador vira pai desconhecido), para o ML e o GLS
+  sire0 <- cp$sire; sire0[sire0 %in% mf] <- "0"
+  dam0 <- cp$dam; dam0[dam0 %in% mf] <- "0"
 
   if (method == "ml") {
     if (q != 1L)
       stop("method = 'ml' is the maximum likelihood for ONE metafounder; with more, use ",
            "'pseudo_em'")
-    classico <- pedigree
-    for (k in 2:3) {
-      v <- rotulo_motor(classico[[k]]); v[v %in% mf] <- "0"; classico[[k]] <- v
-    }
-    Bi <- a22_inverse(classico, match(g$gid, pedigree(classico)$id))
-    w <- rowSums(Bi)                                   # A22^-1 1
-    ss <- sum(w)
-    tt <- sum(Bi * tcrossprod(Z)) / s                  # tr(A22^-1 G)
-    rr <- sum(crossprod(Z, w)^2) / s                   # 1'A22^-1 G A22^-1 1
-    nn <- nrow(Z)
+    # s = 1'A22^-1 1, t = tr(A22^-1 G) e r = 1'A22^-1 G A22^-1 1 no C++, sem A22^-1 densa
+    # (ela pode ser 100% cheia) e sem Z Z': resolucoes de Schur por bloco de marcadores
+    r <- .Call(R_gamma_ml_resumos, cp$id, sire0, dam0, g$gid, g$gm)
+    ss <- r$ss
+    tt <- r$tt / s
+    rr <- r$rr / s
+    nn <- length(g$gid)
     ell <- function(gm) {
       a <- 1 - gm / 2
       -s * ((nn - 1) * log(a) + log(a + gm * ss) + tt / a - gm * rr / (a * (a + gm * ss)))
@@ -144,13 +145,11 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
                 se = if (isTRUE(d2 < 0)) 1 / sqrt(-d2) else NA_real_,
                 boundary = gm < 1e-6 || gm > 2 - 1e-6)
   } else if (method == "gls") {
-    classico <- pedigree
-    for (k in 2:3) {
-      v <- rotulo_motor(classico[[k]]); v[v %in% mf] <- "0"; classico[[k]] <- v
-    }
-    V0 <- a22inv_vezes(a_inverse(classico), g$gid, Q2[, estimavel, drop = FALSE])
-    mu <- solve(crossprod(Q2[, estimavel, drop = FALSE], V0), crossprod(V0, gn))
-    P <- matrix(0.5, ncol(Z), q)
+    V0 <- a22inv_vezes(cp$id, sire0, dam0, NULL, NULL, g$gid, Q2[, estimavel, drop = FALSE])
+    # V0' M (q x m) e o transposto de (M - 0)' V0, marcador a marcador no C++
+    mu <- solve(crossprod(Q2[, estimavel, drop = FALSE], V0),
+                t(.Call(R_genotipos_tv, g$gm, V0, 0)))
+    P <- matrix(0.5, n_marcadores, q)
     P[, estimavel] <- t(mu) / 2
     if (bounded) P <- pmin(pmax(P, 0), 1)
     G <- crossprod(2 * P - 1) / s
@@ -161,11 +160,21 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
     if (!all(dim(G) == q)) stop("start must be a ", q, " x ", q, " matrix")
     G[!estimavel, ] <- 0; G[, !estimavel] <- 0
     e <- which(estimavel)
+    # o Gamma de A^Gamma para V: um metafundador nao estimavel (nenhum genotipado descende
+    # dele) nao entra em A22^Gamma, mas com Gamma_kk = 0 a pseudo-inversa zera a precisao dele
+    # e o bloco nao genotipado de A^-1 fica singular. Para V ele leva Gamma_kk = 1: qualquer
+    # valor positivo da a mesma A22^Gamma. O Gamma devolvido segue com a linha e a coluna
+    # zeradas, como no gammaf90.
+    para_v <- function(G) {
+      G[!estimavel, ] <- 0; G[, !estimavel] <- 0
+      diag(G)[!estimavel] <- 1
+      G
+    }
     traco <- numeric(0); conv <- FALSE
     for (it in seq_len(maxiter)) {
-      V <- a22inv_vezes(a_inverse(pedigree, metafounders = mf, gamma = G), g$gid,
-                        Q2[, e, drop = FALSE])
-      ZV <- crossprod(Z, V)
+      V <- a22inv_vezes(cp$id, cp$sire, cp$dam, mf, para_v(G), g$gid, Q2[, e, drop = FALSE])
+      # Z'V com Z = M - 1, marcador a marcador no C++ (m x q)
+      ZV <- .Call(R_genotipos_tv, g$gm, V, 1)
       Ge <- G[e, e, drop = FALSE]
       novo <- Ge + Ge %*% (crossprod(ZV) / s - crossprod(Q2[, e, drop = FALSE], V)) %*% Ge
       novo <- (novo + t(novo)) / 2
@@ -177,11 +186,10 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
         stop("Gamma left the positive semi-definite cone at iteration ", it)
       if (delta < tol) { conv <- TRUE; break }
     }
-    V <- a22inv_vezes(a_inverse(pedigree, metafounders = mf, gamma = G), g$gid,
-                      Q2[, e, drop = FALSE])
+    V <- a22inv_vezes(cp$id, cp$sire, cp$dam, mf, para_v(G), g$gid, Q2[, e, drop = FALSE])
     # as frequencias da base implicitas: p = (Gamma V' Z + 1) / 2 (a "Opcao 3" do artigo)
-    P <- matrix(0.5, ncol(Z), q)
-    P[, e] <- t(G[e, e, drop = FALSE] %*% crossprod(V, Z) + 1) / 2
+    P <- matrix(0.5, n_marcadores, q)
+    P[, e] <- t(G[e, e, drop = FALSE] %*% t(.Call(R_genotipos_tv, g$gm, V, 1)) + 1) / 2
     out <- list(gamma = G, converged = conv, iterations = length(traco), trace = traco,
                 p_base = P)
   }
@@ -189,7 +197,7 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
   out$method <- method
   out$estimable <- stats::setNames(estimavel, mf)
   out$eigenvalues <- eigen(out$gamma, symmetric = TRUE, only.values = TRUE)$values
-  out$n_markers <- ncol(Z)
+  out$n_markers <- n_marcadores
   out$var_scale <- 1 + mean(diag(out$gamma)) / 2 - mean(out$gamma)
   if (any(diag(out$gamma) >= 2))
     warning("a diagonal entry of Gamma reached 2: the fitters refuse it (the Mendelian ",
@@ -213,36 +221,10 @@ print.br_gamma <- function(x, ...) {
   invisible(x)
 }
 
-# A22^-1 X sem formar A22: com B a A^-1 em triplos (ordem do pedigree) e o = genotipados,
-# A22^-1 X = B_oo X - B_ou B_uu^-1 B_uo X. Uma solucao esparsa por coluna de X.
-a22inv_vezes <- function(ai, gids, X) {
-  n <- ai$n
-  o <- match(gids, ai$id)
-  u <- setdiff(seq_len(n), o)
-  po <- integer(n); po[o] <- seq_along(o)
-  pu <- integer(n); pu[u] <- seq_along(u)
-  i <- ai$i; j <- ai$j; x <- ai$x
-  bloco <- function(li, lj) {
-    k <- (li[i] > 0 & lj[j] > 0)
-    k2 <- (li[j] > 0 & lj[i] > 0) & i != j
-    list(i = c(li[i[k]], li[j[k2]]), j = c(lj[j[k]], lj[i[k2]]), x = c(x[k], x[k2]))
-  }
-  boo <- bloco(po, po); buo <- bloco(pu, po); buu <- bloco(pu, pu)
-  vezes <- function(b, v, nr) {
-    out <- numeric(nr)
-    if (length(b$x)) { s <- rowsum(b$x * v[b$j], b$i); out[as.integer(rownames(s))] <- s[, 1] }
-    out
-  }
-  # bloco() ja devolve as duas metades dos blocos simetricos; para a Cholesky do uu so o
-  # triangulo de baixo
-  baixo_uu <- buu$i >= buu$j
-  uu <- list(i = buu$i[baixo_uu], j = buu$j[baixo_uu], x = buu$x[baixo_uu], n = length(u))
-  apply(X, 2, function(xc) {
-    t1 <- vezes(boo, xc, length(o))
-    if (!length(u)) return(t1)
-    w <- vezes(buo, xc, length(u))
-    z <- sparse_solve(uu, w)
-    ou <- list(i = buo$j, j = buo$i, x = buo$x)
-    t1 - vezes(ou, z, length(o))
-  })
+# A22^-1 X sem formar A22: com B a A^-1 (o pedigree como em a_inverse(), metafundadores e
+# Gamma opcionais) e o = genotipados, A22^-1 X = B_oo X - B_ou B_uu^-1 B_uo X, no C++ com UMA
+# fatoracao do bloco nao genotipado para as colunas todas de X.
+a22inv_vezes <- function(id, sire, dam, mf, gamma, gids, X) {
+  .Call(R_a22inv_vezes, id, sire, dam, if (is.null(mf)) character(0) else mf,
+        if (is.null(gamma)) numeric(0) else as.double(gamma), gids, X)
 }

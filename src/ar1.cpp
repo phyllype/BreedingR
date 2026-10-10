@@ -28,6 +28,7 @@
 #include "mme.h"
 #include <unordered_map>
 #include <algorithm>
+#include <R_ext/Random.h>
 
 namespace br {
 
@@ -909,8 +910,8 @@ double neg2logl_densa_V_ar1(const DesenhoAR& d, const std::vector<double>& theta
   for (std::size_t k = 0; k < Nr; k++)
     for (std::size_t a = 0; a < t; a++) {
       yc[k * t + a] = d.y.at(linhas[k], a);
-      for (std::size_t j = 0; j < d.x.ncol; j++)
-        Xc.at(k * t + a, j * t + a) = d.x.at(linhas[k], j);
+      for (std::size_t ex = d.x.linptr[linhas[k]]; ex < d.x.linptr[linhas[k] + 1]; ex++)
+        Xc.at(k * t + a, d.x.coluna[ex] * t + a) = d.x.valor[ex];
     }
   const std::size_t No = cel.size();
   Densa X(No, p);
@@ -949,6 +950,237 @@ double neg2logl_densa_V_ar1(const DesenhoAR& d, const std::vector<double>& theta
   for (std::size_t a = 0; a < p; a++)
     for (std::size_t b = 0; b < p; b++) quad += XtViy[a] * Xi.at(a, b) * XtViy[b];
   return ldV + ldX + (yViy - quad);
+}
+
+// ---------------------------------------------------------------- residuos no otimo
+//
+// As MME daqui estao em unidades absolutas (C = W'R^-1 W + G^-1), entao
+//   Var(e^_{r,tau}) = R0[tau,tau] - w_{r,tau}' C^-1 w_{r,tau}
+// com w_{r,tau} as entradas da linha r na caracteristica tau (lw). Os pares de uma linha
+// estao no clique do sujeito, que esta no padrao de C. Uma montagem e um fator a mais no fim
+// do ajuste, no theta final.
+ResiduosMT residuos_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
+  ResiduosMT S;
+  const std::size_t t = d.t;
+  S.t = t;
+  S.nlin = d.nlin;
+  if (theta.size() != d.modelo.ntheta) return S;
+  MontadoAR M = monta_mme_ar1(d, theta);
+  if (!M.ok) return S;
+  const std::vector<std::size_t> perm = grau_minimo(M.c);
+  const Csc pc = permuta_sim(M.c, perm);
+  const Simbolica sb = simbolica(pc);
+  Csc L;
+  if (!cholesky(pc, sb, L)) return S;
+  std::vector<double> pb(M.total);
+  for (std::size_t k = 0; k < M.total; k++) pb[k] = M.rhs[perm[k]];
+  const std::vector<double> px = resolve(L, pb);
+  std::vector<double> s(M.total);
+  for (std::size_t k = 0; k < M.total; k++) s[perm[k]] = px[k];
+  SelInv z = inversa_seletiva(L, 0);
+  std::vector<std::size_t> inv_perm(M.total);
+  for (std::size_t k = 0; k < M.total; k++) inv_perm[perm[k]] = k;
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  S.residuo.assign(d.nlin * t, nan);
+  S.ajustado.assign(d.nlin * t, nan);
+  S.ajustado_fixo.assign(d.nlin * t, nan);
+  S.variancia.assign(d.nlin * t, nan);
+  const std::size_t n_fixo = d.x.ncol * t;
+  for (std::size_t r = 0; r < d.nlin; r++) {
+    if (!d.usa[r]) continue;
+    for (std::size_t tau = 0; tau < t; tau++) {
+      if (!d.obs.empty() && !d.obs[r * t + tau]) continue;
+      double fa = 0.0, fx = 0.0, q = 0.0;
+      const auto& lr = d.lw[r];
+      for (std::size_t p = 0; p < lr.size(); p++) {
+        if (lr[p].trait != tau) continue;
+        const double v = lr[p].val * s[lr[p].col];
+        fa += v;
+        if (lr[p].col < n_fixo) fx += v;
+        for (std::size_t p2 = p; p2 < lr.size(); p2++) {
+          if (lr[p2].trait != tau) continue;
+          double c;
+          if (!z.get(inv_perm[lr[p].col], inv_perm[lr[p2].col], c)) { S.fora++; continue; }
+          q += (p == p2 ? 1.0 : 2.0) * lr[p].val * lr[p2].val * c;
+        }
+      }
+      S.ajustado[r * t + tau] = fa;
+      S.ajustado_fixo[r * t + tau] = fx;
+      S.residuo[r * t + tau] = d.y.at(r, tau) - fa;
+      S.variancia[r * t + tau] = M.r0.at(tau, tau) - q;
+    }
+  }
+  S.ok = true;
+  return S;
+}
+
+// Bootstrap parametrico do AR(1)/CAR(1) univariado com theta fixo, preparado uma vez: u*_g
+// como no model(), e* pela recorrencia do processo dentro do sujeito, e_1 = sd z,
+// e_k = r e_{k-1} + sd sqrt(1 - r^2) z com r = Gamma(t_k - t_{k-1}) (a convencao de sinal de
+// gamma_inv), y* = X b^ + Z u* + e*, e o residuo pelo mesmo fator de C em theta^. Unidades
+// absolutas. O preparo guarda o desenho, o fator, os elos r e a Gamma^-1 de cada sujeito.
+namespace {
+
+class PreparoAR : public PreparoNulos {
+ public:
+  DesenhoAR d;
+  std::vector<std::size_t> perm, usadas;
+  Csc L;
+  SorteioAleatorio SA;
+  std::vector<double> xb;
+  std::vector<std::vector<double>> elo;
+  std::vector<GammaInv> gis;
+  double s2e = 0.0;
+  std::size_t q_tot = 0;
+
+  // rhs = W' R^-1 y, R^-1 = Gamma^-1 / s2e por sujeito
+  void rhs_de(const std::vector<double>& ys, std::vector<double>& rhs) const {
+    std::fill(rhs.begin(), rhs.end(), 0.0);
+    for (std::size_t si = 0; si < d.sujeitos.size(); si++) {
+      const std::vector<std::size_t>& regs = d.sujeitos[si];
+      const GammaInv& gi = gis[si];
+      const std::size_t m = regs.size();
+      for (std::size_t k = 0; k < m; k++) {
+        double v = gi.diag[k] * ys[regs[k]];
+        if (k > 0) v += gi.sub[k - 1] * ys[regs[k - 1]];
+        if (k + 1 < m) v += gi.sub[k] * ys[regs[k + 1]];
+        v /= s2e;
+        for (const auto& en : d.lw[regs[k]]) rhs[en.col] += en.val * v;
+      }
+    }
+  }
+
+  NulosSaida lote(std::size_t nsim, bool com_u, double familia) override {
+    NulosSaida S;
+    const std::size_t nu = usadas.size(), n_fixo = d.x.ncol;
+    const double sd_e = std::sqrt(s2e);
+    S.n_usadas = nu;
+    S.nsim = nsim;
+    S.residuo.assign(nu * nsim, 0.0);
+    S.fixo.assign(nu * nsim, 0.0);
+    if (com_u) S.u.assign((q_tot - n_fixo) * nsim, 0.0);
+    std::vector<double> u(q_tot, 0.0), ys(d.nlin, 0.0), rhs(q_tot), pb(q_tot), s(q_tot);
+    GetRNGstate();
+    try {
+      for (std::size_t rep = 0; rep < nsim; rep++) {
+        checa_interrupcao();
+        sorteia_aleatorios(SA, u);
+        for (std::size_t si = 0; si < d.sujeitos.size(); si++) {
+          const std::vector<std::size_t>& regs = d.sujeitos[si];
+          double ant = 0.0;
+          for (std::size_t k = 0; k < regs.size(); k++) {
+            const double zk = erro_padrao(familia);
+            const double r = elo[si][k];
+            const double e = (k == 0) ? sd_e * zk : r * ant + sd_e * std::sqrt(1.0 - r * r) * zk;
+            ant = e;
+            const std::size_t i = regs[k];
+            double v = xb[i];
+            for (const auto& en : d.lw[i])
+              if (en.col >= n_fixo) v += en.val * u[en.col];
+            ys[i] = v + e;
+          }
+        }
+        rhs_de(ys, rhs);
+        for (std::size_t k = 0; k < q_tot; k++) pb[k] = rhs[perm[k]];
+        const std::vector<double> px = resolve(L, pb);
+        for (std::size_t k = 0; k < q_tot; k++) s[perm[k]] = px[k];
+        double* er = S.residuo.data() + rep * nu;
+        double* fr = S.fixo.data() + rep * nu;
+        for (std::size_t k = 0; k < nu; k++) {
+          const std::size_t i = usadas[k];
+          double fa = 0.0, fx = 0.0;
+          for (const auto& en : d.lw[i]) {
+            const double v = en.val * s[en.col];
+            fa += v;
+            if (en.col < n_fixo) fx += v;
+          }
+          er[k] = ys[i] - fa;
+          fr[k] = fx;
+        }
+        if (com_u)
+          for (std::size_t k = n_fixo; k < q_tot; k++)
+            S.u[rep * (q_tot - n_fixo) + (k - n_fixo)] = u[k];
+      }
+    } catch (...) {
+      PutRNGstate();
+      throw;
+    }
+    PutRNGstate();
+    return S;
+  }
+};
+
+}  // namespace
+
+std::unique_ptr<PreparoNulos> prepara_nulos_ar1(DesenhoAR&& d0, const std::vector<double>& theta,
+                                                const std::vector<double>& b) {
+  if (d0.t != 1)
+    throw Erro("the parametric bootstrap of a multi-trait AR(1) fit is not available yet: "
+               "diagnose each trait with its own model_ar1()");
+  std::unique_ptr<PreparoAR> P(new PreparoAR());
+  P->d = std::move(d0);
+  const DesenhoAR& d = P->d;
+  if (b.size() != d.x.ncol)
+    throw Erro("b with " + std::to_string(b.size()) + " entries for " +
+               std::to_string(d.x.ncol) + " fixed columns");
+  double rho = 0.0;
+  std::vector<std::size_t> offset_grupo;
+  {
+    MontadoAR M = monta_mme_ar1(d, theta);
+    if (!M.ok) throw Erro("theta INADMISSIBLE (s2e <= 0 or |rho| >= 1)");
+    P->perm = grau_minimo(M.c);
+    {
+      const Csc pc = permuta_sim(M.c, P->perm);
+      const Simbolica sb = simbolica(pc);
+      if (!cholesky(pc, sb, P->L))
+        throw Erro("the mixed model equations are not positive-definite");
+    }
+    offset_grupo = M.offset_grupo;
+    P->s2e = M.r0.at(0, 0);
+    rho = M.rho;
+    P->q_tot = M.total;
+    for (std::size_t i = 0; i < d.nlin; i++)
+      if (d.usa[i]) P->usadas.push_back(i);
+    // o residuo dos dados no fator de agora (o rhs da montagem e o W' R^-1 y dos dados)
+    std::vector<double> pb(M.total), s(M.total);
+    for (std::size_t k = 0; k < M.total; k++) pb[k] = M.rhs[P->perm[k]];
+    const std::vector<double> px = resolve(P->L, pb);
+    for (std::size_t k = 0; k < M.total; k++) s[P->perm[k]] = px[k];
+    P->residuo_dados.assign(P->usadas.size(), 0.0);
+    for (std::size_t k = 0; k < P->usadas.size(); k++) {
+      const std::size_t i = P->usadas[k];
+      double fa = 0.0;
+      for (const auto& en : d.lw[i]) fa += en.val * s[en.col];
+      P->residuo_dados[k] = d.y.at(i, 0) - fa;
+    }
+  }
+  // o sorteio (as K^-1 fatoradas) depois que C saiu de cena
+  P->SA = prepara_sorteio(d.modelo, d.kinv, d.aleatorios, theta, offset_grupo);
+  P->xb.assign(d.nlin, 0.0);
+  for (std::size_t i : P->usadas)
+    for (const auto& e : d.lw[i])
+      if (e.col < d.x.ncol) P->xb[i] += e.val * b[e.col];
+  // r de cada elo e o Gamma^-1 de cada sujeito, fixos em todas as replicas
+  P->elo.resize(d.sujeitos.size());
+  P->gis.resize(d.sujeitos.size());
+  for (std::size_t si = 0; si < d.sujeitos.size(); si++) {
+    const std::vector<std::size_t>& regs = d.sujeitos[si];
+    std::vector<double> ts;
+    for (std::size_t r : regs) ts.push_back(d.tempo[r]);
+    P->gis[si] = gamma_inv(ts, rho);
+    P->elo[si].assign(regs.size(), 0.0);
+    for (std::size_t k = 1; k < regs.size(); k++) {
+      const double dt = ts[k] - ts[k - 1];
+      P->elo[si][k] = std::pow(std::fabs(rho), dt) *
+                      ((rho < 0.0 && std::fmod(dt, 2.0) != 0.0) ? -1.0 : 1.0);
+    }
+  }
+  P->diag_k.resize(d.modelo.grupos.size());
+  for (std::size_t g = 0; g < d.modelo.grupos.size(); g++)
+    if (P->SA.lk[g].ncol > 0) P->diag_k[g] = diagonal_de_k(P->SA.lk[g], P->SA.perm_k[g]);
+  P->niveis = niveis_grupos(d);
+  P->usa = d.usa;
+  return std::unique_ptr<PreparoNulos>(P.release());
 }
 
 }  // namespace br

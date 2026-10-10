@@ -110,7 +110,7 @@ static double normal_truncada(double a, bool acima) {
 
 GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
                  std::size_t thin, bool loc_fixa, const std::vector<double>* theta_fixo,
-                 bool verboso, const PrioriGibbs& priori, bool probit) {
+                 bool verboso, const PrioriGibbs& priori, bool probit, std::size_t n_pdm) {
   GibbsSaida S;
   // PROBIT (Albert e Chib 1993; no melhoramento, Sorensen, Andersen, Gianola e Korsgaard
   // 1995): uma liability l_i ~ N(w_i' loc, 1) truncada em (0, inf) quando y = 1 e em
@@ -179,6 +179,22 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
   std::size_t total_cols = 0;
   std::vector<double> media_u, m2_u;   // Welford (1962) para media e variancia das localizacoes
 
+  // O residuo realizado da iteracao (e_s = y - W loc_s; no probit a liability nova menos
+  // W loc_s), a media dele nas amostras guardadas, e os sorteios das discrepancias pivotais:
+  // n_pdm amostras guardadas espacadas por igual, cada uma e_s / sqrt(s2e_s) com o s2e
+  // sorteado DEPOIS de loc_s, o par (loc_s, s2e_s) e um sorteio da posteriori conjunta
+  const std::size_t n_guardadas = n_iter > burnin ? (n_iter - burnin - 1) / thin + 1 : 0;
+  const std::size_t n_pdm_ef = std::min(n_pdm, n_guardadas);
+  std::vector<std::size_t> quais_pdm;
+  for (std::size_t k = 0; k < n_pdm_ef; k++)
+    quais_pdm.push_back(((2 * k + 1) * n_guardadas) / (2 * n_pdm_ef));
+  std::size_t prox_pdm = 0;
+  std::vector<std::size_t> usadas;
+  for (std::size_t r = 0; r < d.nlin; r++)
+    if (d.usa[r]) usadas.push_back(r);
+  std::vector<double> e_iter(d.nlin, 0.0), media_e(d.nlin, 0.0);
+  S.residuos_pdm.reserve(n_pdm_ef * usadas.size());
+
   for (std::size_t it = 0; it < n_iter; it++) {
     R_CheckUserInterrupt();
     if (verboso && n_iter >= 10 && (it + 1) % (n_iter / 10) == 0) {
@@ -225,7 +241,8 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
       for (std::size_t r = 0; r < d.nlin; r++) {
         if (!d.usa[r]) continue;
         double s = 0.0;
-        for (std::size_t j = 0; j < d.x.ncol; j++) s += d.x.at(r, j) * loc[j];
+        for (std::size_t e = d.x.linptr[r]; e < d.x.linptr[r + 1]; e++)
+          s += d.x.valor[e] * loc[d.x.coluna[e]];
         wl[r] = s;
       }
       std::size_t col0 = M.n_fixo;
@@ -247,11 +264,16 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
         const double e = d.y[r] - wl[r];
         ee += e * e;
         nreg++;
+        e_iter[r] = e;
       }
-      // probit: a liability nova, condicional as localizacoes, e o y da proxima rodada
+      // probit: a liability nova, condicional as localizacoes, e o y da proxima rodada; o
+      // residuo latente realizado e o dessa liability nova (o par com loc_s)
       if (probit)
         for (std::size_t r = 0; r < d.nlin; r++)
-          if (d.usa[r]) d_probit.y[r] = wl[r] + normal_truncada(-wl[r], y01[r] != 0);
+          if (d.usa[r]) {
+            d_probit.y[r] = wl[r] + normal_truncada(-wl[r], y01[r] != 0);
+            e_iter[r] = d_probit.y[r] - wl[r];
+          }
     }
     if (!loc_fixa && !probit) {
       const double gl = gl_priori(priori, nreg, 1);
@@ -327,6 +349,12 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
         media_u[k] += delta / na;
         m2_u[k] += delta * (loc[k] - media_u[k]);
       }
+      for (std::size_t r : usadas) media_e[r] += (e_iter[r] - media_e[r]) / na;
+      if (prox_pdm < quais_pdm.size() && quais_pdm[prox_pdm] == n_amostras - 1) {
+        const double sd = std::sqrt(theta[d.modelo.offset_residual]);
+        for (std::size_t r : usadas) S.residuos_pdm.push_back(e_iter[r] / sd);
+        prox_pdm++;
+      }
     }
   }
 
@@ -338,6 +366,36 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
   if (n_amostras > 1)
     for (std::size_t k = 0; k < total_cols; k++)
       S.var_loc[k] = m2_u[k] / static_cast<double>(n_amostras - 1);
+  S.media_residuo.assign(d.nlin, std::nan(""));
+  if (n_amostras > 0)
+    for (std::size_t r : usadas) S.media_residuo[r] = media_e[r];
+  S.n_pdm = prox_pdm;
+  // W E[loc] e X E[b], pela linearidade as medias a posteriori dos ajustados: as mesmas
+  // contas do passo 2, com a media das localizacoes no lugar do sorteio
+  S.ajustado.assign(d.nlin, std::nan(""));
+  S.ajustado_fixo.assign(d.nlin, std::nan(""));
+  if (n_amostras > 0 && total_cols > 0) {
+    for (std::size_t r : usadas) {
+      double s = 0.0;
+      for (std::size_t e = d.x.linptr[r]; e < d.x.linptr[r + 1]; e++)
+        s += d.x.valor[e] * media_u[d.x.coluna[e]];
+      S.ajustado_fixo[r] = s;
+      S.ajustado[r] = s;
+    }
+    std::size_t col0 = d.x.ncol;
+    for (std::size_t g = 0; g < n_grupos; g++)
+      for (std::size_t tm : d.modelo.grupos[g].termos)
+        for (const DesenhoTermo& a : d.aleatorios)
+          if (a.termo == tm) {
+            for (std::size_t c = 0; c < a.z.ncol; c++) {
+              const double bc = media_u[col0 + c];
+              if (bc == 0.0) continue;
+              for (std::size_t p = a.z.colptr[c]; p < a.z.colptr[c + 1]; p++)
+                if (d.usa[a.z.linha[p]]) S.ajustado[a.z.linha[p]] += a.z.valor[p] * bc;
+            }
+            col0 += a.z.ncol;
+          }
+  }
   S.ok = S.mensagem.empty();
   return S;
 }

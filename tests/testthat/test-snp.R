@@ -2,6 +2,20 @@
 # in |effect| with the right sign and magnitude (catches centering/scaling bugs, which
 # are the silent failure mode here); the reconstruction identity ties the R-side G*
 # pipeline to the definition; the error paths are declared.
+#
+# Depois da porta para o C++ (o retro-calculo le do ajuste a mistura, o nucleo APY, o k de
+# Vecchia e os metafundadores): (4) num pedigree com ancestrais NAO genotipados (A22 != I,
+# o que os fixtures de fundadores nao distinguem) a G*^-1 u da porta e a da H^-1 exportada,
+# ((H^-1 - A^-1) u)_g + A22^-1 u_g, com o b do ajuste afim refeito em R da A22 densa; o
+# mesmo com a H^-1 da APY e a de Vecchia, rota a rota, e a APY tambem contra a inversa APY
+# montada densa em R (Misztal et al. 2014), que nao passa pelo codigo da porta; (5) a versao
+# em R anterior (helper-legado-genotipos.R) por tolerancia; (6) com metafundadores, o modelo
+# de marcadores equivalente: snp_blup() no mesmo theta resolve u_g = (M - 1) g + polygenico e
+# da os mesmos g, a identidade densa da G05, e a H^-1 exportada em cada rota (exata, APY com
+# nucleo de um terco, Vecchia) com ancestrais nao genotipados; (7) o pedigree pai / avo
+# materno; (8) 1 e 4 threads bit a bit; (9) as recusas: mistura diferente da do ajuste,
+# outros genotipos, ajuste sem parte genomica, ids e linhas em numero diferente; (10) um
+# marcador sem genotipo observado sai, e os nomes acompanham efeitos e frequencias.
 
 simula_qtl <- function(n = 300, m = 400, qtl = 37, beta = 2.0, seed = 71) {
   set.seed(seed)
@@ -58,4 +72,311 @@ test_that("declared errors: wrong fit class and unknown genotyped ids", {
   expect_error(snp_effects(list(), s$ped, list(ids = s$id, m = s$gm)), "model")
   ids2 <- s$id; ids2[1] <- "ghost"
   expect_error(snp_effects(f, s$ped, list(ids = ids2, m = s$gm)), "without a level")
+})
+
+# pedigree de 3 geracoes, so os 200 mais novos genotipados (A22 != I), com ausentes
+pop_fundo <- function(seed = 5) {
+  s <- simulate_breeding(n_founders = 40, n_generations = 3, offspring_per_generation = 100,
+                         h2 = 0.3, n_markers = 600, seed = seed)
+  ids <- utils::tail(s$genotypes$ids, 200)
+  m <- s$genotypes$m[match(ids, s$genotypes$ids), ] + 0
+  set.seed(2)
+  m[sample(length(m), 150)] <- NA
+  list(s = s, ped = s$pedigree, gv = list(ids = ids, m = m))
+}
+
+# o retro-calculo refeito em R por outra rota: G*^-1 u pela H^-1 exportada (a do ajuste),
+# ((H^-1 - A^-1) u)_g + A22^-1 u_g, e o b do ajuste afim da A22 densa e da G em R
+retro_ref <- function(f, ped, gv, hinv, w) {
+  u <- ebv(f)[gv$ids]
+  Bi <- a22_inverse(ped, match(gv$ids, pedigree(ped)$id))
+  alfa <- drop((denso_trip(hinv) - denso_trip(a_inverse(ped)))[gv$ids, gv$ids] %*% u) +
+    drop(Bi %*% u)
+  A22 <- solve(Bi)
+  p <- colMeans(gv$m, na.rm = TRUE) / 2
+  ok <- is.finite(p) & p > 0 & p < 1
+  zc <- sweep(gv$m[, ok, drop = FALSE], 2, 2 * p[ok])
+  zc[is.na(zc)] <- 0
+  k <- 2 * sum(p[ok] * (1 - p[ok]))
+  G <- tcrossprod(zc) / k
+  lo <- lower.tri(G)
+  b <- (mean(diag(A22)) - mean(A22[lo])) / (mean(diag(G)) - mean(G[lo]))
+  drop(crossprod(zc, alfa)) / k * b * (1 - w)
+}
+
+test_that("A22 != I: a porta e a G*^-1 u da H^-1 exportada, e a versao em R anterior", {
+  z <- pop_fundo()
+  pd <- pedigree(z$ped)
+  A22 <- solve(a22_inverse(z$ped, match(z$gv$ids, pd$id)))
+  # o fixture distingue A22 de I (os de fundadores nao distinguem)
+  expect_gt(max(abs(A22 - diag(nrow(A22)))), 0.2)
+  f <- model(y ~ cg + animal(id), z$s$data, z$ped, genotypes = z$gv, blend = 0.05,
+             verbose = FALSE)
+  a <- snp_effects(f, z$ped, z$gv)
+  expect_identical(attr(a, "route"), "exact")
+  ref <- retro_ref(f, z$ped, z$gv, h_inverse(z$ped, z$gv, blend = 0.05), 0.05)
+  expect_lt(max(abs(unclass(a) - ref)) / max(abs(ref)), 1e-9)
+  leg <- legado$snp_effects(f, z$ped, z$gv, blend = 0.05)
+  expect_lt(max(abs(unclass(a) - unclass(leg))) / max(abs(leg)), 1e-9)
+  expect_identical(names(a), names(leg))
+  expect_equal(attr(a, "freq"), attr(leg, "freq"), tolerance = 1e-14)
+  expect_equal(attr(a, "denom"), attr(leg, "denom"), tolerance = 1e-14)
+})
+
+# tres geracoes, todos genotipados, 200 ausentes no meio
+populacao_snp_ausente <- function() {
+  s <- simulate_breeding(n_founders = 25, n_generations = 2, offspring_per_generation = 40,
+                         h2 = 0.4, n_markers = 300, seed = 11)
+  m <- s$genotypes$m + 0
+  set.seed(3)
+  m[sample(length(m), 200)] <- NA
+  list(d = s$data, ped = s$pedigree, gv = list(ids = s$genotypes$ids, m = m))
+}
+
+test_that("a versao em R anterior, por tolerancia, nos fixtures de fundadores e com ausentes", {
+  s <- simula_qtl(n = 120, m = 150)
+  z <- populacao_snp_ausente()
+  for (k in list(list(d = s$d, ped = s$ped, gv = list(ids = s$id, m = s$gm)), z)) {
+    f <- model(y ~ cg + animal(id), k$d, k$ped, genotypes = k$gv, verbose = FALSE)
+    a <- snp_effects(f, k$ped, k$gv)
+    leg <- legado$snp_effects(f, k$ped, k$gv, blend = 0.05)
+    expect_lt(max(abs(unclass(a) - unclass(leg))) / max(abs(leg)), 1e-9)
+  }
+})
+
+# G* densa em R, sem nada do C++ da porta: VanRaden com o ausente na media e o afim a A22, ou,
+# com metafundadores, a G05 de Legarra et al. (2015) sem afim; depois a mistura
+gstar_densa <- function(gv, A22, w, mf = FALSE) {
+  if (mf) {
+    mm <- gv$m
+    na <- which(is.na(mm), arr.ind = TRUE)
+    mm[na] <- colMeans(gv$m, na.rm = TRUE)[na[, 2]]
+    Z <- mm - 1
+    return(list(Gs = (1 - w) * tcrossprod(Z) / (ncol(Z) / 2) + w * A22, Z = Z,
+                k = ncol(Z) / 2, b = 1))
+  }
+  p <- colMeans(gv$m, na.rm = TRUE) / 2
+  ok <- is.finite(p) & p > 0 & p < 1
+  Z <- sweep(gv$m[, ok, drop = FALSE], 2, 2 * p[ok])
+  Z[is.na(Z)] <- 0
+  k <- 2 * sum(p[ok] * (1 - p[ok]))
+  G <- tcrossprod(Z) / k
+  lo <- lower.tri(G)
+  b <- (mean(diag(A22)) - mean(A22[lo])) / (mean(diag(G)) - mean(G[lo]))
+  list(Gs = (1 - w) * (mean(A22[lo]) - b * mean(G[lo]) + b * G) + w * A22, Z = Z, k = k, b = b)
+}
+
+# a inversa APY de G*, densa em R, pelos blocos de Misztal et al. (2014): nucleo c e jovens j,
+# P = Gcc^-1 Gcj e M = diag(g_jj - G_jc P_j)
+apy_densa <- function(Gs, nuc) {
+  jov <- setdiff(seq_len(nrow(Gs)), nuc)
+  Gcci <- solve(Gs[nuc, nuc])
+  P <- Gcci %*% Gs[nuc, jov]
+  Mi <- 1 / (diag(Gs)[jov] - colSums(Gs[nuc, jov] * P))
+  out <- matrix(0, nrow(Gs), nrow(Gs))
+  out[nuc, nuc] <- Gcci + P %*% (Mi * t(P))
+  out[nuc, jov] <- -sweep(P, 2, Mi, "*")
+  out[jov, nuc] <- t(out[nuc, jov])
+  out[jov, jov] <- diag(Mi, nrow = length(jov))
+  out
+}
+
+test_that("APY e Vecchia: o retro-calculo usa a inversa aproximada que o ajuste usou", {
+  z <- pop_fundo()
+  nuc <- z$gv$ids[seq(1, length(z$gv$ids), 3)]
+  A22 <- solve(a22_inverse(z$ped, match(z$gv$ids, pedigree(z$ped)$id)))
+  for (rota in c("apy", "vecchia")) {
+    arg <- if (rota == "apy") list(apy_core = nuc) else list(vecchia_k = 12L)
+    f <- do.call(model, c(list(y ~ cg + animal(id), z$s$data, z$ped, genotypes = z$gv,
+                               blend = 0.1, verbose = FALSE), arg))
+    a <- snp_effects(f, z$ped, z$gv)
+    expect_identical(attr(a, "route"), rota)
+    h <- do.call(h_inverse, c(list(z$ped, z$gv, blend = 0.1), arg))
+    ref <- retro_ref(f, z$ped, z$gv, h, 0.1)
+    expect_lt(max(abs(unclass(a) - ref)) / max(abs(ref)), 1e-9)
+    # e nao e o da inversa exata: o portao separa as rotas
+    ex <- retro_ref(f, z$ped, z$gv, h_inverse(z$ped, z$gv, blend = 0.1), 0.1)
+    expect_gt(max(abs(unclass(a) - ex)) / max(abs(ex)), 1e-4)
+    # a APY tambem contra a inversa APY densa em R (a H^-1 exportada usa o mesmo apy_gstar da
+    # porta; esta referencia nao)
+    if (rota == "apy") {
+      d <- gstar_densa(z$gv, A22, 0.1)
+      dens <- drop(crossprod(d$Z, apy_densa(d$Gs, match(nuc, z$gv$ids)) %*%
+                               ebv(f)[z$gv$ids])) * d$b * 0.9 / d$k
+      expect_lt(max(abs(unclass(a) - dens)) / max(abs(dens)), 1e-9)
+    }
+  }
+})
+
+test_that("metafundadores em cada rota, com ancestrais nao genotipados: a H^-1 exportada", {
+  sm <- simulate_breeding(n_founders = 20, n_generations = 3, offspring_per_generation = 50,
+                          h2 = 0.4, n_markers = 300, seed = 4)
+  ped <- sm$pedigree
+  ped$sire[ped$sire == "0"] <- "mf1"
+  ped$dam[ped$dam == "0"] <- "mf1"
+  ids <- utils::tail(sm$genotypes$ids, 110)
+  gm <- list(ids = ids, m = sm$genotypes$m[match(ids, sm$genotypes$ids), ] + 0)
+  set.seed(9)
+  gm$m[sample(length(gm$m), 60)] <- NA
+  nuc <- ids[seq(1, length(ids), 3)]
+  ai <- denso_trip(a_inverse(ped, metafounders = "mf1", gamma = 0.35))
+  A22 <- solve(ai)[ids, ids]
+  d <- gstar_densa(gm, A22, 0.1, mf = TRUE)
+  rotas <- list(exact = list(), apy = list(apy_core = nuc), vecchia = list(vecchia_k = 10L))
+  saidas <- list()
+  for (rota in names(rotas)) {
+    f <- do.call(model, c(list(y ~ cg + animal(id), sm$data, ped, genotypes = gm,
+                               metafounders = "mf1", gamma = 0.35, blend = 0.1,
+                               start = c(0.4, 0.8), maxiter = 0L, n_em = 0L, verbose = FALSE),
+                          rotas[[rota]]))
+    a <- snp_effects(f, ped, gm)
+    expect_identical(attr(a, "route"), rota)
+    u <- ebv(f)[ids]
+    h <- do.call(h_inverse, c(list(ped, gm, blend = 0.1, metafounders = "mf1", gamma = 0.35),
+                              rotas[[rota]]))
+    ref <- drop(crossprod(d$Z, drop((denso_trip(h) - ai)[ids, ids] %*% u) +
+                            drop(solve(A22, u)))) * 0.9 / d$k
+    expect_lt(max(abs(unclass(a) - ref)) / max(abs(ref)), 1e-9)
+    if (rota == "apy") {
+      dens <- drop(crossprod(d$Z, apy_densa(d$Gs, match(nuc, ids)) %*% u)) * 0.9 / d$k
+      expect_lt(max(abs(unclass(a) - dens)) / max(abs(dens)), 1e-9)
+    }
+    saidas[[rota]] <- as.vector(a)
+  }
+  # as rotas aproximadas nao sao a exata: o portao as separa
+  for (rota in c("apy", "vecchia"))
+    expect_gt(max(abs(saidas[[rota]] - saidas$exact)) / max(abs(saidas$exact)), 1e-4)
+})
+
+test_that("pedigree pai / avo materno: a G*^-1 u da H^-1 exportada", {
+  s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 60,
+                         h2 = 0.3, n_markers = 300, seed = 21)
+  pmgs <- s$pedigree
+  pmgs$mgs <- pmgs$sire[match(pmgs$dam, pmgs$id)]
+  pmgs$mgs[is.na(pmgs$mgs)] <- "0"
+  pm <- sire_mgs(pmgs[, c("id", "sire", "mgs")])
+  idg <- utils::tail(s$genotypes$ids, 100)
+  gg <- list(ids = idg, m = s$genotypes$m[match(idg, s$genotypes$ids), ] + 0)
+  f <- model(y ~ cg + animal(id), s$data, pm, genotypes = gg, verbose = FALSE)
+  a <- snp_effects(f, pm, gg)
+  ai <- denso_trip(a_inverse(pm))
+  A22 <- solve(ai)[idg, idg]
+  d <- gstar_densa(gg, A22, 0.05)
+  u <- ebv(f)[idg]
+  ref <- drop(crossprod(d$Z, drop((denso_trip(h_inverse(pm, gg)) - ai)[idg, idg] %*% u) +
+                          drop(solve(A22, u)))) * d$b * 0.95 / d$k
+  expect_lt(max(abs(unclass(a) - ref)) / max(abs(ref)), 1e-9)
+  # o mesmo quadro lido como pai / mae (o avo no lugar da mae) e outro pedigree: recusado
+  expect_error(snp_effects(f, stats::setNames(pmgs[, c("id", "sire", "mgs")],
+                                              c("id", "sire", "dam")), gg),
+               "not the one the fit used")
+})
+
+test_that("um marcador sem genotipo observado sai, e os nomes acompanham efeitos e frequencias", {
+  z <- pop_fundo()
+  gv <- z$gv
+  colnames(gv$m) <- sprintf("m%03d", seq_len(ncol(gv$m)))
+  gv$m[, 5] <- NA
+  f <- model(y ~ cg + animal(id), z$s$data, z$ped, genotypes = gv, verbose = FALSE)
+  a <- snp_effects(f, z$ped, gv)
+  expect_false(anyNA(a))
+  expect_false("m005" %in% names(a))
+  expect_identical(names(attr(a, "freq")), names(a))
+  # a coluna toda ausente nao entra em G nem nas frequencias: sem ela, o mesmo retro-calculo
+  expect_identical(snp_effects(f, z$ped, list(ids = gv$ids, m = gv$m[, -5])), a)
+  # e os nomes sao os da versao em R anterior (que nao aceitava a coluna toda ausente)
+  leg <- legado$snp_effects(f, z$ped, list(ids = gv$ids, m = gv$m[, -5]), blend = 0.05)
+  expect_identical(names(a), names(leg))
+  expect_identical(names(attr(a, "freq")), names(attr(leg, "freq")))
+})
+
+test_that("metafundadores: o modelo de marcadores equivalente (snp_blup) e a identidade da G05", {
+  sm <- simulate_breeding(n_founders = 20, n_generations = 2, offspring_per_generation = 40,
+                          h2 = 0.4, n_markers = 400, seed = 4)
+  ped <- sm$pedigree
+  ped$sire[ped$sire == "0"] <- "mf1"
+  ped$dam[ped$dam == "0"] <- "mf1"
+  gm <- list(ids = sm$genotypes$ids, m = sm$genotypes$m + 0)
+  set.seed(9)
+  gm$m[sample(length(gm$m), 100)] <- NA
+  th <- c(0.4, 0.8)
+  # u_g = (M - 1) g + polygenico, resolvido por gradientes conjugados no mesmo theta: os g sao
+  # a esperanca condicional que o retro-calculo tem de dar
+  sb <- snp_blup(y ~ cg + animal(id), sm$data, ped, genotypes = gm, theta = th, rpg = 0.05,
+                 metafounders = "mf1", gamma = 0.35, tol = 1e-13, maxiter = 5000L,
+                 verbose = FALSE)
+  expect_true(sb$converged)
+  f <- model(y ~ cg + animal(id), sm$data, ped, genotypes = gm, metafounders = "mf1",
+             gamma = 0.35, blend = 0.05, start = th, maxiter = 0L, n_em = 0L, verbose = FALSE)
+  a <- snp_effects(f, ped, gm)
+  expect_equal(as.vector(a), unname(sb$g), tolerance = 1e-9)
+  expect_equal(attr(a, "freq"), rep(0.5, ncol(gm$m)))
+  expect_equal(attr(a, "denom"), ncol(gm$m) / 2)
+  # a identidade densa: a = 0.95 (M - 1)' G*^-1 u / (m/2), G* = 0.95 G05 + 0.05 A(Gamma)22,
+  # com o ausente na media do marcador, como a G05 o le
+  A22 <- solve(denso_trip(a_inverse(ped, metafounders = "mf1", gamma = 0.35)))[gm$ids, gm$ids]
+  mm <- gm$m
+  na <- which(is.na(mm), arr.ind = TRUE)
+  mm[na] <- colMeans(gm$m, na.rm = TRUE)[na[, 2]]
+  Z <- mm - 1
+  Gs <- 0.95 * tcrossprod(Z) / (ncol(Z) / 2) + 0.05 * A22
+  ref <- drop(crossprod(Z, solve(Gs, ebv(f)[gm$ids]))) * 0.95 / (ncol(Z) / 2)
+  expect_equal(as.vector(a), unname(ref), tolerance = 1e-9)
+  # a APY com nucleo = todos e a propria inversa exata
+  fa <- model(y ~ cg + animal(id), sm$data, ped, genotypes = gm, metafounders = "mf1",
+              gamma = 0.35, blend = 0.05, apy_core = gm$ids, start = th, maxiter = 0L,
+              n_em = 0L, verbose = FALSE)
+  aa <- snp_effects(fa, ped, gm)
+  expect_identical(attr(aa, "route"), "apy")
+  expect_equal(as.vector(aa), as.vector(a), tolerance = 1e-10)
+})
+
+test_that("snp_effects: 1 e 4 threads dao o mesmo resultado bit a bit, nas tres rotas", {
+  z <- pop_fundo()
+  nuc <- z$gv$ids[seq(1, length(z$gv$ids), 3)]
+  fits <- list(
+    model(y ~ cg + animal(id), z$s$data, z$ped, genotypes = z$gv, verbose = FALSE),
+    model(y ~ cg + animal(id), z$s$data, z$ped, genotypes = z$gv, apy_core = nuc,
+          verbose = FALSE),
+    model(y ~ cg + animal(id), z$s$data, z$ped, genotypes = z$gv, vecchia_k = 12L,
+          verbose = FALSE))
+  antes <- br_threads()$threads
+  on.exit(br_threads(antes), add = TRUE)
+  roda <- function(nt) {
+    br_threads(nt)
+    lapply(fits, snp_effects, pedigree = z$ped, genotypes = z$gv)
+  }
+  expect_identical(roda(1L), roda(4L))
+})
+
+test_that("recusas: mistura diferente, outros genotipos, ajuste sem genomica ou sem o registro", {
+  z <- pop_fundo()
+  f <- model(y ~ cg + animal(id), z$s$data, z$ped, genotypes = z$gv, blend = 0.1,
+             verbose = FALSE)
+  expect_error(snp_effects(f, z$ped, z$gv, blend = 0.05), "differs from the blend the fit used")
+  expect_identical(snp_effects(f, z$ped, z$gv, blend = 0.1), snp_effects(f, z$ped, z$gv))
+  # outra matriz de genotipos (tres animais com a codificacao virada em 50 marcadores): a
+  # diagonal da G* refeita nao e a que o ajuste guardou
+  gv2 <- z$gv
+  gv2$m[1:3, 1:50] <- 2 - gv2$m[1:3, 1:50]
+  expect_error(snp_effects(f, z$ped, gv2), "not the one the fit used")
+  expect_error(snp_effects(f, z$ped, list(ids = z$gv$ids[-1], m = z$gv$m[-1, ])),
+               "not the ones of the fit")
+  # ids a menos que linhas: a recusa fala do que foi passado (antes: "non-conformable arrays")
+  expect_error(snp_effects(f, z$ped, list(ids = z$gv$ids[-1], m = z$gv$m)),
+               "199 identifier(s) for 200 row(s)", fixed = TRUE)
+  f0 <- model(y ~ cg + animal(id), z$s$data, z$ped, verbose = FALSE)
+  expect_error(snp_effects(f0, z$ped, z$gv), "no genomic part")
+  f$genomic <- NULL
+  expect_error(snp_effects(f, z$ped, z$gv), "older version")
+  # Vecchia: a vizinhanca segue a ordem das linhas, entao outra ordem (mesma diagonal de G*)
+  # e recusada; na rota exata a ordem nao muda a G* e o resultado e o mesmo
+  fv <- model(y ~ cg + animal(id), z$s$data, z$ped, genotypes = z$gv, vecchia_k = 12L,
+              verbose = FALSE)
+  o <- rev(seq_along(z$gv$ids))
+  gr <- list(ids = z$gv$ids[o], m = z$gv$m[o, ])
+  expect_error(snp_effects(fv, z$ped, gr), "row order of the fit")
+  fe <- model(y ~ cg + animal(id), z$s$data, z$ped, genotypes = z$gv, verbose = FALSE)
+  expect_equal(as.vector(snp_effects(fe, z$ped, gr)), as.vector(snp_effects(fe, z$ped, z$gv)),
+               tolerance = 1e-10)
 })

@@ -12,6 +12,7 @@
 #include "modelo.h"
 
 #include <limits>
+#include <memory>
 
 namespace br {
 
@@ -244,7 +245,9 @@ inline double escala_kernel(const std::vector<double>& esc, const std::vector<do
 // ---- o desenho completo
 struct Desenho {
   Modelo modelo;
-  Densa x;
+  // X dos efeitos fixos que ficaram, por linhas, em toda linha da tabela (as nao usadas com o
+  // valor sem peso): os mesmos nao-zeros do X denso de antes (fixos.cpp)
+  Csr x;
   std::vector<std::string> nomes_x;
   std::vector<std::string> saiu_x;
   std::vector<DesenhoTermo> aleatorios;
@@ -388,10 +391,88 @@ struct Ajuste {
   std::vector<double> vcov;  // 2 AI^-1, a covariancia amostral das componentes
   std::string mensagem;
   std::size_t fora_do_padrao = 0;
+  // Residuo condicional e^ = y~ - W~ s^ por linha da tabela, o ajustado condicional W~ s^,
+  // o ajustado fixo X~ b^ e a alavanca h_ii = w~_i' C_u^-1 w~_i, todos na escala ESCALADA
+  // por sqrt(w) (quem chama divide pelo sqrt(w) da linha) e NaN nas linhas que nao entram.
+  // Saem do MESMO fator do bloco final da PEV, entao residuo, alavanca e PEV ficam no mesmo
+  // theta. Var(e^_i) = s2e (1 - h_ii) / w_i. alavanca_fora conta pares (j, k) de uma linha
+  // lidos fora do padrao do fator (deveria ser zero: os pares de uma linha estao em W'W).
+  std::vector<double> residuo, ajustado, ajustado_fixo, alavanca;
+  std::size_t alavanca_fora = 0;
 };
 Desenho monta_desenho(const Modelo&, const Tabela&, const Pedigree*,
                       const std::vector<double>* = nullptr,
                       const std::vector<KernelDecl>* = nullptr);
+
+// ---- residuos.cpp
+// As entradas nao nulas de cada linha usada de W~ = [X~ Z~], em CSR, nas colunas globais das
+// MME do model() (X nas primeiras x.ncol, cada grupo a partir de offset_grupo, termos na
+// ordem do grupo). Linha nao usada fica vazia.
+struct LinhasW {
+  std::vector<std::size_t> ptr;
+  std::vector<std::uint32_t> col;
+  std::vector<double> val;
+};
+LinhasW linhas_w(const Desenho& d, const std::vector<std::size_t>& offset_grupo);
+// O sorteio de u*_g ~ N(0, C_g (x) K_g) por grupo: o fator de C_g (Cholesky, ou espectral na
+// fronteira) e a Cholesky esparsa de K_g^-1 na ordem de grau minimo (vazia num grupo iid).
+struct SorteioAleatorio {
+  std::vector<std::size_t> offset, dim, nl;
+  std::vector<Densa> chol_c;
+  std::vector<std::vector<std::size_t>> perm_k;
+  std::vector<Csc> lk;
+};
+SorteioAleatorio prepara_sorteio(const Modelo& mo, const std::vector<Csc>& kinv,
+                                 const std::vector<DesenhoTermo>& aleatorios,
+                                 const std::vector<double>& theta,
+                                 const std::vector<std::size_t>& offset_grupo);
+// escreve os slots de cada grupo de u (o resto de u fica intocado); usa o RNG do R
+void sorteia_aleatorios(const SorteioAleatorio& S, std::vector<double>& u);
+// Replicas do bootstrap parametrico com theta fixo: por replica o residuo condicional e o
+// ajustado fixo das linhas usadas (coluna-major, n_usadas x nsim, na escala ESCALADA por
+// sqrt(w) no model()), e, com com_u, os u* sorteados (colunas aleatorias x nsim).
+struct NulosSaida {
+  std::size_t n_usadas = 0, nsim = 0;
+  std::vector<double> residuo, fixo, u;
+};
+// familia do erro das replicas: 0 normal, < 0 Laplace, > 4 t com esses graus de liberdade
+double erro_padrao(double familia);
+// O bootstrap PREPARADO uma vez: o desenho, o fator das MME em theta, o sorteio dos
+// aleatorios e X b^ ficam vivos entre os lotes, e cada lote so sorteia e resolve. Remontar
+// o desenho por lote custava, num passo unico, a G^-1 inteira a cada lote. O preparo
+// tambem devolve o que confere o ajuste: o residuo dos DADOS no mesmo fator (y - W s nas
+// linhas usadas, na escala escalada por sqrt(w)), que so bate com o do ajuste se o desenho,
+// o pedigree e os genotipos forem os dele, e a diagonal de K_g de cada grupo (vazia num grupo
+// iid), lida da inversa seletiva do fator de K_g^-1 que o sorteio ja tem: a variancia a
+// priori EXATA de cada nivel, inclusive o H_ii de um animal nao genotipado num passo unico.
+struct PreparoNulos {
+  virtual ~PreparoNulos() {}
+  std::vector<char> usa;
+  // sqrt(w) de cada linha usada (vazio = 1): quem devolve ao R divide por ele
+  std::vector<double> raiz;
+  std::vector<double> residuo_dados;
+  std::vector<std::vector<double>> diag_k;
+  std::vector<std::vector<std::string>> niveis;
+  // um lote de k replicas, em sequencia no RNG do R: lotes seguidos dao as mesmas replicas
+  // que um lote so do mesmo tamanho total
+  virtual NulosSaida lote(std::size_t k, bool com_u, double familia) = 0;
+};
+std::unique_ptr<PreparoNulos> prepara_nulos(Desenho&& d, const std::vector<double>& theta,
+                                            const std::vector<double>& b);
+// a diagonal de K = (K^-1)^-1 pela inversa seletiva de um fator ja feito na ordem perm
+// (L de perm K^-1 perm'), devolvida na ordem original dos niveis
+std::vector<double> diagonal_de_k(const Csc& lk, const std::vector<std::size_t>& perm);
+// o mesmo fatorando K_g^-1 aqui, por grupo (vazio num grupo iid): o caminho sem theta
+std::vector<std::vector<double>> diagonais_k(const std::vector<Csc>& kinv);
+// os niveis de cada grupo (os do primeiro termo, que indexa a K do grupo)
+template <class DES>
+std::vector<std::vector<std::string>> niveis_grupos(const DES& d) {
+  std::vector<std::vector<std::string>> out(d.modelo.grupos.size());
+  for (std::size_t g = 0; g < d.modelo.grupos.size(); g++)
+    for (const DesenhoTermo& a : d.aleatorios)
+      if (a.termo == d.modelo.grupos[g].termos[0]) { out[g] = a.niveis; break; }
+  return out;
+}
 
 // ---- genomica.cpp
 // Os genotipos COMO O R OS GUARDA, sem copia: coluna-major (o animal corre mais rapido), em
@@ -500,6 +581,48 @@ RelatorioG aplica_genomica(Desenho&, const Pedigree&, const std::vector<std::str
                            std::size_t = 0);
 std::vector<double> partida(const Desenho&);
 
+// ---- genomica.cpp: as contas de genotipos que eram feitas em R (F e D genomicos, Gamma dos
+// metafundadores, efeitos de SNP), lendo a vista Genotipos sem copia
+// a G de VanRaden no buffer de quem chama (n x n), sem a copia densa intermediaria
+void vanraden_g_em(const Genotipos&, RelatorioG&, bool meio, double* out);
+// heterozigotos e observados por animal
+void homozigose(const Genotipos&, double* het, double* obs);
+// a D de Vitezica no buffer de quem chama (n x n)
+void g_dominancia(const Genotipos&, double* out);
+// (X - c)' V, m x k, com o ausente valendo imp
+void genotipos_tv(const Genotipos&, const double* centro, const double* imp, const double* v,
+                  std::size_t k, double* out);
+double conta_ausentes(const Genotipos&);
+// a linha do pedigree de cada genotipado, erro declarado para quem nao tem linha
+std::vector<std::size_t> linhas_genotipados(const Pedigree&, const std::vector<std::string>&);
+// A22^-1 X (n2 x q coluna-major) pelo Schur, sem formar A22^-1; cache opcional da simbolica
+// do bloco nao genotipado (o padrao se repete nas iteracoes do pseudo-EM)
+std::vector<double> a22_inversa_vezes(const Csc& ainv, const std::vector<std::size_t>& geno,
+                                      const std::vector<double>& X, std::size_t q,
+                                      CacheSimbolica& (*cache)(const Csc&) = nullptr);
+// os tres resumos do ML de um metafundador: 1'A22^-1 1, soma_j z_j'A22^-1 z_j e
+// soma_j (z_j'A22^-1 1)^2, z_j = m_j - 1 (sem dividir por m/2)
+struct ResumosMl { double s = 0.0, t = 0.0, r = 0.0; };
+ResumosMl gamma_ml_resumos(const Csc& ainv, const std::vector<std::size_t>& geno,
+                           const Genotipos&);
+// fracoes de genes dos metafundadores, n x q por linhas, pedigree em ordem topologica
+std::vector<double> fracoes_genes(const std::vector<std::int64_t>& pai,
+                                  const std::vector<std::int64_t>& mae,
+                                  const std::vector<std::int64_t>& col_mf, std::size_t q);
+// efeitos de SNP retro-calculados com a G* do ajuste
+struct EfeitosSnp {
+  std::vector<double> efeito, freq;    // por marcador em uso
+  std::vector<std::size_t> usados;     // os marcadores em uso (base 0)
+  std::vector<double> diag_gstar;      // a diagonal da G* refeita, para conferir com o ajuste
+  double denom = 0.0, a = 0.0, b = 1.0;
+  int rota = 0;                        // 1 exata, 2 APY, 3 Vecchia
+};
+// (hp: a diagonal de G* guardada no ajuste, conferida antes do trabalho pesado; vazia = sem)
+EfeitosSnp efeitos_snp(const Pedigree&, const std::vector<std::string>& geno_ids,
+                       const Genotipos&, const std::vector<double>& u, double mistura,
+                       const std::vector<std::string>& nucleo_apy, std::size_t vecchia_k,
+                       const std::vector<double>& hp);
+
 // ---- sssnp.cpp: o passo unico sem G, marcadores como equacoes, PCG, A22^-1 livre de
 // matriz (Liu et al. 2014; Masuda et al. 2017; Vandenplas et al. 2018, 2019). theta e
 // dado: e um resolvedor.
@@ -544,6 +667,15 @@ struct GibbsSaida {
   std::vector<double> media_loc, var_loc;
   std::vector<double> partida;     // theta com que a cadeia comeca (a primeira iteracao)
   std::string mensagem;
+  // residuo realizado e_s = y - W loc_s (no probit, a liability menos W loc_s): a media a
+  // posteriori por linha da tabela (NaN fora das usadas) e, para as discrepancias pivotais
+  // (Johnson 2007; Yuan e Johnson 2012), n_pdm sorteios espacados de e_s / sqrt(s2e_s),
+  // n_pdm x n_usadas por linha, cada um N(0, I) sob o modelo
+  std::vector<double> media_residuo, residuos_pdm;
+  std::size_t n_pdm = 0;
+  // W E[loc] e X E[b] por linha da tabela (NaN fora das usadas): pela linearidade, a media a
+  // posteriori do ajustado condicional e do fixo (no probit, na escala da liability)
+  std::vector<double> ajustado, ajustado_fixo;
 };
 // priori das variancias, a mesma em todo grupo e no residuo: 0 Jeffreys (1/s2, o padrao),
 // 1 plana na variancia, 2 uniforme no desvio-padrao (so grupo escalar), 3 qui-quadrado
@@ -554,7 +686,8 @@ struct PrioriGibbs {
 };
 GibbsSaida gibbs(const Desenho&, std::size_t n_iter, std::size_t burnin, std::size_t thin,
                  bool loc_fixa, const std::vector<double>* theta_fixo, bool verboso = false,
-                 const PrioriGibbs& priori = PrioriGibbs(), bool probit = false);
+                 const PrioriGibbs& priori = PrioriGibbs(), bool probit = false,
+                 std::size_t n_pdm = 0);
 Ajuste ajusta(const Desenho&, const std::vector<double>*, std::size_t, std::size_t, double,
               bool = false);
 
@@ -571,7 +704,7 @@ struct DesenhoMT {
   // o layout antigo e caso particular deste, o que deixa intacto todo ajuste que ja andava.
   std::vector<int> eq_fixa;
   std::size_t n_fixa = 0;
-  Densa x;
+  Csr x;   // por registro, como no Desenho
   std::vector<std::string> nomes_x;
   std::vector<std::string> saiu_x;
   std::vector<DesenhoTermo> aleatorios;
@@ -661,7 +794,7 @@ struct DesenhoAR {
   Modelo modelo;
   std::vector<std::string> alvos;   // t = alvos.size(); t = 1 e o caminho classico
   std::size_t t = 1;
-  Densa x;
+  Csr x;   // por registro, como no Desenho
   std::vector<std::string> nomes_x;
   std::vector<std::string> saiu_x;
   std::vector<DesenhoTermo> aleatorios;
@@ -741,6 +874,22 @@ AjusteMT ajusta_ar1(const DesenhoAR&, const std::vector<double>*, std::size_t, d
 RelatorioG aplica_genomica(DesenhoAR&, const Pedigree&, const std::vector<std::string>&,
                            const Genotipos&, double, const std::vector<std::string>&,
                            std::size_t = 0);
+
+// Residuos no theta final do multicaracter e do AR(1): por linha da tabela e caracteristica
+// (indice r * t + tau), o residuo condicional, os ajustados condicional e fixo e
+// Var(e^_{r,tau}) = R0[tau,tau] - w' C^-1 w (MME absolutas). NaN em linha nao usada e em
+// celula ausente. Uma montagem e um fator a mais no fim do ajuste (o fator da ultima
+// avaliacao nao sobrevive a ela).
+struct ResiduosMT {
+  bool ok = false;
+  std::size_t t = 0, nlin = 0, fora = 0;
+  std::vector<double> residuo, ajustado, ajustado_fixo, variancia;
+};
+ResiduosMT residuos_mt(const DesenhoMT& d, const std::vector<double>& theta);
+ResiduosMT residuos_ar1(const DesenhoAR& d, const std::vector<double>& theta);
+// bootstrap parametrico preparado do AR(1)/CAR(1) univariado (residuos.cpp tem o do model())
+std::unique_ptr<PreparoNulos> prepara_nulos_ar1(DesenhoAR&& d, const std::vector<double>& theta,
+                                                const std::vector<double>& b);
 
 }  // namespace br
 

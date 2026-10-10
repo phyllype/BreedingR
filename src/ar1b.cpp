@@ -96,23 +96,8 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
     }
   }
 
-  // X e aleatorios como no caminho comum
-  std::vector<std::pair<std::string, std::vector<double>>> cols;
-  cols.push_back({"intercept", std::vector<double>(d.nlin, 1.0)});
-  for (std::size_t k = 0; k < m.termos.size(); k++) {
-    if (m.termos[k].aleatorio()) continue;
-    DesenhoTermo dt = monta_termo(m, k, tab, nullptr);
-    Densa zd = dt.z.densa();
-    for (std::size_t j = 0; j < dt.z.ncol; j++) {
-      std::vector<double> v(d.nlin);
-      for (std::size_t i = 0; i < d.nlin; i++) v[i] = zd.at(i, j);
-      cols.push_back({dt.nome + "=" + dt.niveis[j % std::max<std::size_t>(dt.n_niveis, 1)],
-                      std::move(v)});
-    }
-  }
-  Densa xfull(d.nlin, cols.size());
-  for (std::size_t j = 0; j < cols.size(); j++)
-    for (std::size_t i = 0; i < d.nlin; i++) xfull.at(i, j) = cols[j].second[i];
+  // X (esparso, fixos.cpp) e aleatorios como no caminho comum
+  const FixosCandidatos fx = colunas_fixas(m, tab);
   // AS LINHAS SEM PAR CAEM ANTES DO POSTO DE X, como em model() (mme.cpp). Antes caiam
   // depois: um CG cujos animais nao estao no pedigree ficava com coluna em X, o posto nao
   // a via como dependente, e a coluna chegava vazia na montagem. model() derrubava o nivel
@@ -137,21 +122,11 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   // matriz de coeficientes ganha coluna VAZIA, e a Cholesky morre com "nao
   // positiva-definida" tres passos longe da causa. Medindo o posto onde o modelo de fato
   // vive, a coluna sai como dependente e e REPORTADA em dropped_x.
-  std::vector<std::size_t> usadas;
-  usadas.reserve(d.n_usadas());
-  for (std::size_t i = 0; i < d.nlin; i++) if (d.usa[i]) usadas.push_back(i);
-  Densa xusadas(usadas.size(), cols.size());
-  for (std::size_t j = 0; j < cols.size(); j++)
-    for (std::size_t r = 0; r < usadas.size(); r++)
-      xusadas.at(r, j) = cols[j].second[usadas[r]];
   std::vector<std::size_t> fica, sai;
-  posto_completo(xusadas, 1e-9, fica, sai);
-  d.x = Densa(d.nlin, fica.size());
-  for (std::size_t jj = 0; jj < fica.size(); jj++) {
-    d.nomes_x.push_back(cols[fica[jj]].first);
-    for (std::size_t i = 0; i < d.nlin; i++) d.x.at(i, jj) = xfull.at(i, fica[jj]);
-  }
-  for (std::size_t j : sai) d.saiu_x.push_back(cols[j].first);
+  posto_esparso(fx.x, d.usa, 1e-9, fica, sai, false, nullptr, &fx.nomes);
+  d.x = fixas_por_linha(fx.x, fica);
+  for (std::size_t j : fica) d.nomes_x.push_back(fx.nomes[j]);
+  for (std::size_t j : sai) d.saiu_x.push_back(fx.nomes[j]);
 
   // sujeitos: registros usaveis agrupados e ordenados pelo tempo
   {
@@ -177,16 +152,13 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   // caracteristica so encontra celulas mv, que a absorvem inteira: a MME fica singular.
   // Nesta etapa isso e RECUSADO nomeando o par; derrubar o par (como o model_mt() faz)
   // pede a numeracao por caracteristica no AR(1), que segue aberta.
-  if (t > 1)
+  if (t > 1) {
+    const Csc xc = fixas_por_coluna(d.x);
     for (std::size_t tau = 0; tau < t; tau++) {
-      std::vector<std::size_t> lin_tau;
-      for (std::size_t i = 0; i < d.nlin; i++)
-        if (d.usa[i] && d.obs[i * t + tau]) lin_tau.push_back(i);
-      Densa xt(lin_tau.size(), d.x.ncol);
-      for (std::size_t j = 0; j < d.x.ncol; j++)
-        for (std::size_t r = 0; r < lin_tau.size(); r++) xt.at(r, j) = d.x.at(lin_tau[r], j);
+      std::vector<char> lin_tau(d.nlin, 0);
+      for (std::size_t i = 0; i < d.nlin; i++) lin_tau[i] = d.usa[i] && d.obs[i * t + tau];
       std::vector<std::size_t> fica_t, sai_t;
-      posto_completo(xt, 1e-9, fica_t, sai_t);
+      posto_esparso(xc, lin_tau, 1e-9, fica_t, sai_t, false, nullptr, &d.nomes_x);
       if (!sai_t.empty())
         throw Erro("the fixed column '" + d.nomes_x[sai_t[0]] + "' is not estimable for "
                    "trait '" + d.alvos[tau] + "' from the records where that trait was "
@@ -194,6 +166,7 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
                    "missing cells a level can end up with no observation of one trait. "
                    "Merge that level, or fit that trait's records with model_mt()");
     }
+  }
 
   // layout: grupos com dim expandida por t (como na multi) + vech(R0) + rho
   std::size_t off = 0;
@@ -231,8 +204,9 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
     }
     d.lw.assign(d.nlin, {});
     for (std::size_t r = 0; r < d.nlin; r++)
-      for (std::size_t j = 0; j < d.x.ncol; j++) {
-        const double v = d.x.at(r, j);
+      for (std::size_t ex = d.x.linptr[r]; ex < d.x.linptr[r + 1]; ex++) {
+        const std::size_t j = d.x.coluna[ex];
+        const double v = d.x.valor[ex];
         if (v == 0.0) continue;
         for (std::size_t tau = 0; tau < t; tau++)
           d.lw[r].push_back({static_cast<std::uint32_t>(j * t + tau),

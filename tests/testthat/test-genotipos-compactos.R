@@ -1,8 +1,9 @@
 # GENOTIPOS COMPACTOS: a matriz entra em double, integer ou raw (1 byte, 5 como ausente) e o
 # motor le qualquer uma direto do objeto do R, sem a copia double que fazia antes. Portoes: os
 # tres tipos dao o MESMO resultado, bit a bit, em cada caminho que le genotipos (G, H^-1
-# exata e APY, nucleo APY exato e por Lanczos, F e D genomicos, o ajuste e o ssSNPBLUP), com
-# ausentes no meio; valores fora do codigo sao recusados nos tres; e o leitor do arquivo do
+# exata e APY, nucleo APY exato e por Lanczos, F e D genomicos, o ajuste, os efeitos de SNP
+# retro-calculados e o ssSNPBLUP), com ausentes no meio (Gamma, que recusa ausentes, tem o
+# portao dos tres tipos em test-estimate-gamma.R); valores fora do codigo sao recusados nos tres; e o leitor do arquivo do
 # BLUPF90 devolve a matriz que o escritor pos.
 
 tres_tipos <- function(m) {
@@ -41,14 +42,18 @@ test_that("G, H^-1 exata e APY, nucleo APY, F e D genomicos: o mesmo com os tres
   expect_identical(saidas$raw, saidas$double)
 })
 
-test_that("o ajuste com genotypes= e o ssSNPBLUP: o mesmo com os tres tipos", {
+test_that("o ajuste com genotypes=, os efeitos de SNP e o ssSNPBLUP: o mesmo com os tres tipos", {
   z <- populacao_compacta()
   saidas <- lapply(z$tt, function(m) {
     g <- list(ids = z$ids, m = m)
     f <- model(y ~ cg + animal(id), z$s$data, z$s$pedigree, genotypes = g, verbose = FALSE)
+    fa <- model(y ~ cg + animal(id), z$s$data, z$s$pedigree, genotypes = g,
+                apy_core = z$ids[seq(1, length(z$ids), 3)], verbose = FALSE)
     sb <- snp_blup(y ~ cg + animal(id), z$s$data, z$s$pedigree, genotypes = g,
                    theta = c(0.4, 0.6), rpg = 0.2, tol = 1e-10, verbose = FALSE)
-    list(theta = f$theta, ebv = ebv(f), u = ebv(sb), g = sb$g, msg = sb$message)
+    # os efeitos de SNP retro-calculados, nas rotas exata e APY, com os ausentes no meio
+    list(theta = f$theta, ebv = ebv(f), u = ebv(sb), g = sb$g, msg = sb$message,
+         snp = snp_effects(f, z$s$pedigree, g), snp_apy = snp_effects(fa, z$s$pedigree, g))
   })
   expect_identical(saidas$integer, saidas$double)
   expect_identical(saidas$raw, saidas$double)

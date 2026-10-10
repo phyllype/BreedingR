@@ -160,7 +160,8 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
     for (std::size_t i = 0; i < d.nlin; i++) {
       if (!d.usa[i]) continue;
       double wb = 0.0;
-      for (std::size_t j = 0; j < d.x.ncol; j++) wb += d.x.at(i, j) * A.solucao[j];
+      for (std::size_t e = d.x.linptr[i]; e < d.x.linptr[i + 1]; e++)
+        wb += d.x.valor[e] * A.solucao[d.x.coluna[e]];
       ehat[i] = d.y[i] - wb;
     }
     for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
@@ -372,12 +373,11 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
   // AI[i,j] = (f_i' f_j - (W' f_i)' Cs^-1 (W' f_j)) / s2e, com W'f resolvido pelas MME
   std::vector<std::vector<double>> wtf(ntheta, std::vector<double>(ntot, 0.0));
   for (std::size_t k = 0; k < ntheta; k++) {
-    // W'f: X'f e Z'f
-    for (std::size_t j = 0; j < d.x.ncol; j++) {
-      double s = 0.0;
-      for (std::size_t i = 0; i < d.nlin; i++)
-        if (d.usa[i]) s += d.x.at(i, j) * f[k][i];
-      wtf[k][j] = s;
+    // W'f: X'f e Z'f. X'f por linhas: cada entrada soma os registros na ordem crescente
+    for (std::size_t i = 0; i < d.nlin; i++) {
+      if (!d.usa[i]) continue;
+      for (std::size_t e = d.x.linptr[i]; e < d.x.linptr[i + 1]; e++)
+        wtf[k][d.x.coluna[e]] += d.x.valor[e] * f[k][i];
     }
     for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
       std::size_t col0 = M.offset_grupo[g];
@@ -745,6 +745,53 @@ Densa jacobiano_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>
 
 static Densa jacobiano_z(const Modelo& mo, const std::vector<double>& z) {
   return jacobiano_z(mapa_z(mo), mo.ntheta, z);
+}
+
+// O residuo, os ajustados e a alavanca no fator do bloco final (o mesmo theta da PEV). A
+// solucao sai DESTE fator, e nao da ultima avaliacao: residuo e alavanca ficam no mesmo
+// theta por construcao. Tudo na escala escalada por sqrt(w); quem chama divide.
+static void residuos_no_fator(const Desenho& d, const Montado& M, const Csc& L,
+                              const SelInv& z, const std::vector<std::size_t>& perm,
+                              Ajuste& R) {
+  const std::size_t tot = M.total;
+  std::vector<double> pb(tot);
+  for (std::size_t k = 0; k < tot; k++) pb[k] = M.rhs[perm[k]];
+  const std::vector<double> px = resolve(L, pb);
+  std::vector<double> s(tot);
+  for (std::size_t k = 0; k < tot; k++) s[perm[k]] = px[k];
+  std::vector<std::size_t> inv_perm(tot);
+  for (std::size_t k = 0; k < tot; k++) inv_perm[perm[k]] = k;
+  const LinhasW W = linhas_w(d, M.offset_grupo);
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  R.residuo.assign(d.nlin, nan);
+  R.ajustado.assign(d.nlin, nan);
+  R.ajustado_fixo.assign(d.nlin, nan);
+  R.alavanca.assign(d.nlin, nan);
+  R.alavanca_fora = 0;
+  for (std::size_t i = 0; i < d.nlin; i++) {
+    if (!d.usa[i]) continue;
+    double fa = 0.0, fx = 0.0;
+    for (std::size_t p = W.ptr[i]; p < W.ptr[i + 1]; p++) {
+      const double v = W.val[p] * s[W.col[p]];
+      fa += v;
+      if (W.col[p] < d.x.ncol) fx += v;
+    }
+    R.ajustado[i] = fa;
+    R.ajustado_fixo[i] = fx;
+    R.residuo[i] = d.y[i] - fa;
+    // h_ii = soma_{j,k} w_ij w_ik C^-1[j,k], cada par fora da diagonal duas vezes
+    double h = 0.0;
+    for (std::size_t p = W.ptr[i]; p < W.ptr[i + 1]; p++)
+      for (std::size_t q = p; q < W.ptr[i + 1]; q++) {
+        double c;
+        if (!z.get(inv_perm[W.col[p]], inv_perm[W.col[q]], c)) {
+          R.alavanca_fora++;
+          continue;
+        }
+        h += (p == q ? 1.0 : 2.0) * W.val[p] * W.val[q] * c;
+      }
+    R.alavanca[i] = h;
+  }
 }
 
 // ------------------------------------------------------------------------------- o ajuste
@@ -1234,6 +1281,17 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
         R.pev.assign(M.total, std::nan(""));
         for (std::size_t k = 0; k < M.total; k++)
           R.pev[perm[k]] = diag[k] * M.s2e;
+        // uma falha aqui (memoria) nao leva junto o ajuste: os residuos ficam NA
+        try {
+          residuos_no_fator(d, M, L, z, perm, R);
+        } catch (const Interrompido&) {
+          throw;
+        } catch (const std::exception& e) {
+          R.residuo.clear(); R.ajustado.clear(); R.ajustado_fixo.clear(); R.alavanca.clear();
+          R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
+              "residuals not computed (" + e.what() + "): the fit is kept, residual and "
+              "leverage are NA";
+        }
       }
     }
   }

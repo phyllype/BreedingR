@@ -70,6 +70,11 @@ to be used wherever this Gamma is used. The result enters any fitter as
 \code{gamma = est$gamma}. A metafounder with no genotyped descendant is not estimable: its
 row and column are zero, as gammaf90 does, and the singular Gamma goes through the
 pseudo-inverse of the fitters.
+
+The genotype matrix may be double, integer or raw and is read as it is, marker by
+marker. Nothing of size genotyped x genotyped is formed, not even for \code{"ml"}: its
+summaries come from sparse solves on the Schur complement of the non-genotyped block
+of \code{A^-1}, by blocks of markers.
 }
 \references{
 Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I.

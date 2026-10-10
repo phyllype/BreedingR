@@ -141,23 +141,8 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
     }
   }
 
-  // X por registro (a expansao por caracteristica e na montagem)
-  std::vector<std::pair<std::string, std::vector<double>>> cols;
-  cols.push_back({"intercept", std::vector<double>(d.nlin, 1.0)});
-  for (std::size_t k = 0; k < m.termos.size(); k++) {
-    if (m.termos[k].aleatorio()) continue;
-    DesenhoTermo dt = monta_termo(m, k, tab, nullptr);
-    Densa zd = dt.z.densa();
-    for (std::size_t j = 0; j < dt.z.ncol; j++) {
-      std::vector<double> v(d.nlin);
-      for (std::size_t i = 0; i < d.nlin; i++) v[i] = zd.at(i, j);
-      cols.push_back({dt.nome + "=" + dt.niveis[j % std::max<std::size_t>(dt.n_niveis, 1)],
-                      std::move(v)});
-    }
-  }
-  Densa xfull(d.nlin, cols.size());
-  for (std::size_t j = 0; j < cols.size(); j++)
-    for (std::size_t i = 0; i < d.nlin; i++) xfull.at(i, j) = cols[j].second[i];
+  // X por registro, esparso (fixos.cpp); a expansao por caracteristica e na montagem
+  const FixosCandidatos fx = colunas_fixas(m, tab);
   // AS LINHAS SEM PAR CAEM ANTES DO POSTO DE X, como em model() (mme.cpp). Antes caiam
   // depois: um CG cujos animais nao estao no pedigree ficava com coluna em X, o posto nao
   // a via como dependente, e a coluna chegava vazia na montagem. model() derrubava o nivel
@@ -182,21 +167,11 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
   // matriz de coeficientes ganha coluna VAZIA, e a Cholesky morre com "nao
   // positiva-definida" tres passos longe da causa. Medindo o posto onde o modelo de fato
   // vive, a coluna sai como dependente e e REPORTADA em dropped_x.
-  std::vector<std::size_t> usadas;
-  usadas.reserve(d.n_usadas());
-  for (std::size_t i = 0; i < d.nlin; i++) if (d.usa[i]) usadas.push_back(i);
-  Densa xusadas(usadas.size(), cols.size());
-  for (std::size_t j = 0; j < cols.size(); j++)
-    for (std::size_t r = 0; r < usadas.size(); r++)
-      xusadas.at(r, j) = cols[j].second[usadas[r]];
   std::vector<std::size_t> fica, sai;
-  posto_completo(xusadas, 1e-9, fica, sai);
-  d.x = Densa(d.nlin, fica.size());
-  for (std::size_t jj = 0; jj < fica.size(); jj++) {
-    d.nomes_x.push_back(cols[fica[jj]].first);
-    for (std::size_t i = 0; i < d.nlin; i++) d.x.at(i, jj) = xfull.at(i, fica[jj]);
-  }
-  for (std::size_t j : sai) d.saiu_x.push_back(cols[j].first);
+  posto_esparso(fx.x, d.usa, 1e-9, fica, sai, false, nullptr, &fx.nomes);
+  d.x = fixas_por_linha(fx.x, fica);
+  for (std::size_t j : fica) d.nomes_x.push_back(fx.nomes[j]);
+  for (std::size_t j : sai) d.saiu_x.push_back(fx.nomes[j]);
 
   // POSTO DE X POR CARACTER, e nao so ausencia de registro por caracter.
   //
@@ -215,7 +190,7 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
   // NAO BASTA testar se o par tem registro: depois de tirar os pares vazios, o que sobra para
   // um caracter continua podendo ser COLINEAR. No desenho acima y1 fica com intercepto mais
   // CG1..CG4, que somam ao intercepto: posto 4 e nao 5. Por isso aqui roda o mesmo
-  // posto_completo() de cima, uma vez por caracter, sobre as linhas em que aquele caracter foi
+  // posto_esparso() de cima, uma vez por caracter, sobre as linhas em que aquele caracter foi
   // observado. Ausencia de registro e o caso particular de coluna nula, que o posto ja pega.
   //
   // A numeracao final segue a ordem antiga, j externo e tau interno, entao quando nada cai
@@ -223,16 +198,13 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
   // ajuste que ja andava muda de numero.
   d.eq_fixa.assign(d.nomes_x.size() * d.t, -1);
   {
+    const Csc xc = fixas_por_coluna(d.x);
     for (std::size_t tau = 0; tau < d.t; tau++) {
-      std::vector<std::size_t> lin_tau;
+      std::vector<char> lin_tau(d.nlin, 0);
       for (std::size_t i = 0; i < d.nlin; i++)
-        if (d.usa[i] && d.obs[i * d.t + tau]) lin_tau.push_back(i);
-      Densa xt(lin_tau.size(), d.x.ncol);
-      for (std::size_t j = 0; j < d.x.ncol; j++)
-        for (std::size_t r = 0; r < lin_tau.size(); r++)
-          xt.at(r, j) = d.x.at(lin_tau[r], j);
+        lin_tau[i] = d.usa[i] && d.obs[i * d.t + tau];
       std::vector<std::size_t> fica_t, sai_t;
-      posto_completo(xt, 1e-9, fica_t, sai_t);
+      posto_esparso(xc, lin_tau, 1e-9, fica_t, sai_t, false, nullptr, &d.nomes_x);
       for (std::size_t j : fica_t) d.eq_fixa[j * d.t + tau] = -2;
       for (std::size_t j : sai_t)  d.saiu_x.push_back(d.nomes_x[j] + "|" + d.alvos[tau]);
     }

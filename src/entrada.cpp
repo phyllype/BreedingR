@@ -107,15 +107,19 @@ struct Assinatura {
 // remedio, que e a parte que importa.
 #define GUARDA(...)                                                              char msg__[2048];                                                               msg__[0] = 0;                                                                  try { __VA_ARGS__ }                                                            catch (const std::exception& e) {                                                std::snprintf(msg__, sizeof msg__, "%s", e.what());                          }                                                                              catch (...) { std::snprintf(msg__, sizeof msg__, "unknown error"); }       Rf_error("%s", msg__);
 
+// Os ajudantes de leitura abaixo (textos, mgs_de, genotipos_do_R) so rodam dentro do try de
+// um GUARDA: a recusa e um br::Erro, e nao um Rf_error, para que o longjmp nao pule os
+// destrutores dos objetos C++ que a entrada ja montou (o pedigree, a A^-1).
 static std::vector<std::string> textos(SEXP v, const char* quem) {
-  if (TYPEOF(v) != STRSXP) Rf_error("%s: expected a text vector", quem);
+  if (TYPEOF(v) != STRSXP) throw br::Erro(std::string(quem) + ": expected a text vector");
   const R_xlen_t n = XLENGTH(v);
   std::vector<std::string> out;
   out.reserve(static_cast<std::size_t>(n));
   for (R_xlen_t i = 0; i < n; i++) {
     SEXP e = STRING_ELT(v, i);
     if (e == NA_STRING)
-      Rf_error("%s: there is NA. A missing identifier would become an animal named 'NA'", quem);
+      throw br::Erro(std::string(quem) +
+                     ": there is NA. A missing identifier would become an animal named 'NA'");
     out.emplace_back(CHAR(e));
   }
   return out;
@@ -129,8 +133,8 @@ static std::vector<char> mgs_de(SEXP mae) {
   std::vector<char> out;
   if (a == R_NilValue) return out;
   const R_xlen_t n = XLENGTH(a);
-  if (n != XLENGTH(mae)) Rf_error("the 'mgs' flags do not match the dam column in length");
-  if (TYPEOF(a) != LGLSXP) Rf_error("the 'mgs' flags must be logical");
+  if (n != XLENGTH(mae)) throw br::Erro("the 'mgs' flags do not match the dam column in length");
+  if (TYPEOF(a) != LGLSXP) throw br::Erro("the 'mgs' flags must be logical");
   out.resize((std::size_t) n);
   for (R_xlen_t k = 0; k < n; k++) {
     const int v = LOGICAL(a)[k];
@@ -176,7 +180,7 @@ br::CacheSimbolica& simbolica_do_padrao(const br::Csc& a) {
 // copia. As linhas tem de ser os ids declarados.
 static br::Genotipos genotipos_do_R(SEXP gm, std::size_t n_ids) {
   SEXP dim = Rf_getAttrib(gm, R_DimSymbol);
-  if (dim == R_NilValue || XLENGTH(dim) != 2) Rf_error("the genotype matrix must be a matrix");
+  if (dim == R_NilValue || XLENGTH(dim) != 2) throw br::Erro("the genotype matrix must be a matrix");
   br::Genotipos g;
   g.n = (std::size_t) INTEGER(dim)[0];
   g.m = (std::size_t) INTEGER(dim)[1];
@@ -184,9 +188,11 @@ static br::Genotipos genotipos_do_R(SEXP gm, std::size_t n_ids) {
     case REALSXP: g.d = REAL(gm); break;
     case INTSXP: g.i = INTEGER(gm); break;
     case RAWSXP: g.r = RAW(gm); break;
-    default: Rf_error("the genotype matrix must be double, integer or raw");
+    default: throw br::Erro("the genotype matrix must be double, integer or raw");
   }
-  if (g.n != n_ids) Rf_error("%d identifiers for %d genotype rows", (int) n_ids, (int) g.n);
+  if (g.n != n_ids)
+    throw br::Erro(std::to_string(n_ids) + " identifiers for " + std::to_string(g.n) +
+                   " genotype rows");
   return g;
 }
 
@@ -833,6 +839,37 @@ static SEXP sexp_bloco_denso(std::size_t k, std::size_t n) {
   return db;
 }
 
+// Os residuos do multicaracter e do AR(1) nas posicoes q0..q0+4 de `out` (ja protegido):
+// residual, fitted, fitted_fixed e resid_var como matrizes nlin x t do R, com as
+// caracteristicas nos nomes das colunas e NA em linha nao usada e celula ausente, e used.
+static void poe_residuos(SEXP out, int q0, const br::ResiduosMT& res,
+                         const std::vector<char>& usa, const std::vector<std::string>& alvos) {
+  const std::size_t nlin = usa.size(), t = alvos.size();
+  const std::vector<double>* v[4] = {&res.residuo, &res.ajustado, &res.ajustado_fixo,
+                                     &res.variancia};
+  for (int q = 0; q < 4; q++) {
+    SEXP m = PROTECT(Rf_allocMatrix(REALSXP, (int) nlin, (int) t));
+    const bool tem = res.ok && v[q]->size() == nlin * t;
+    for (std::size_t r = 0; r < nlin; r++)
+      for (std::size_t tau = 0; tau < t; tau++) {
+        const double x = tem ? (*v[q])[r * t + tau] : NA_REAL;
+        REAL(m)[tau * nlin + r] = std::isfinite(x) ? x : NA_REAL;
+      }
+    SEXP dn = PROTECT(Rf_allocVector(VECSXP, 2));
+    SEXP cn = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) t));
+    for (std::size_t tau = 0; tau < t; tau++)
+      SET_STRING_ELT(cn, (R_xlen_t) tau, Rf_mkChar(alvos[tau].c_str()));
+    SET_VECTOR_ELT(dn, 1, cn);
+    Rf_setAttrib(m, R_DimNamesSymbol, dn);
+    SET_VECTOR_ELT(out, q0 + q, m);
+    UNPROTECT(3);
+  }
+  SEXP u = PROTECT(Rf_allocVector(LGLSXP, (R_xlen_t) nlin));
+  for (std::size_t r = 0; r < nlin; r++) LOGICAL(u)[r] = usa[r] ? TRUE : FALSE;
+  SET_VECTOR_ELT(out, q0 + 4, u);
+  UNPROTECT(1);
+}
+
 template <class DES>
 std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& ped,
                                 SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo,
@@ -1049,13 +1086,33 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     }
     Rf_setAttrib(bfix, R_NamesSymbol, bnms);
 
+    // O residuo condicional, os ajustados e a alavanca por linha da tabela, NA nas linhas
+    // que nao entram. O motor os da na escala escalada por sqrt(w); aqui voltam a escala do
+    // dado (a alavanca e adimensional e nao muda). Var(e^_i) = s2e (1 - h_ii) / w_i.
+    if (r.alavanca_fora > 0)
+      r.mensagem += std::string(r.mensagem.empty() ? "" : "; ") +
+          std::to_string(r.alavanca_fora) + " leverage pair(s) read outside the sparsity "
+          "pattern of the factor: the leverages are NOT reliable";
+    SEXP res_s[4];
+    const std::vector<double>* res_v[4] = {&r.residuo, &r.ajustado, &r.ajustado_fixo,
+                                           &r.alavanca};
+    for (int q = 0; q < 4; q++) {
+      res_s[q] = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) d.nlin));
+      for (std::size_t i = 0; i < d.nlin; i++) {
+        double v = (res_v[q]->size() == d.nlin && d.usa[i]) ? (*res_v[q])[i] : NA_REAL;
+        if (q < 3 && !pw.empty() && R_finite(v)) v /= std::sqrt(pw[i]);
+        REAL(res_s[q])[i] = std::isfinite(v) ? v : NA_REAL;
+      }
+    }
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
                             "message", "n_used", "n_columns", "ebv", "dropped_x", "pev",
                             "score", "vcov", "b", "newton_dec",
-                            "h_prior", "h_prior_row", "used", "dense_block"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 20));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 20));
-    for (int q = 0; q < 20; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "h_prior", "h_prior_row", "used", "dense_block",
+                            "residual", "fitted", "fitted_fixed", "leverage"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 24));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 24));
+    for (int q = 0; q < 24; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    for (int q = 0; q < 4; q++) SET_VECTOR_ELT(out, 20 + q, res_s[q]);
     SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
     for (std::size_t k = 0; k < d.saiu_x.size(); k++)
       SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
@@ -1103,7 +1160,7 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     Rf_setAttrib(db, R_NamesSymbol, dbn);
     SET_VECTOR_ELT(out, 19, db);
     Rf_setAttrib(out, R_NamesSymbol, nms);
-    UNPROTECT(18);
+    UNPROTECT(22);
     return out;
   )
 }
@@ -1319,13 +1376,33 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     for (std::size_t k = 0; k < d.saiu_x.size(); k++)
       SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
 
+    // residuos no theta final: uma montagem e um fator a mais. Uma falha aqui (memoria) nao
+    // leva junto o ajuste ja feito: os residuos ficam NA e a mensagem diz por que
+    br::ResiduosMT res;
+    if (!r.theta.empty()) {
+      try {
+        res = br::residuos_mt(d, r.theta);
+      } catch (const br::Interrompido&) {
+        throw;
+      } catch (const std::exception& e) {
+        res = br::ResiduosMT();
+        r.mensagem += std::string(r.mensagem.empty() ? "" : "; ") + "residuals not computed (" +
+            e.what() + "): the fit is kept, residual and resid_var are NA";
+      }
+    }
+    if (res.fora > 0)
+      r.mensagem += std::string(r.mensagem.empty() ? "" : "; ") + std::to_string(res.fora) +
+          " residual-variance pair(s) read outside the sparsity pattern of the factor: the "
+          "residual variances are NOT reliable";
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
                             "message", "n_used", "n_columns", "ebv", "pev", "b",
                             "dropped_x", "newton_dec", "dense_block", "h_prior",
-                            "h_prior_row"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 17));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 17));
-    for (int q = 0; q < 17; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "h_prior_row", "residual", "fitted", "fitted_fixed",
+                            "resid_var", "used"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 22));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 22));
+    for (int q = 0; q < 22; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    poe_residuos(out, 17, res, d.usa, d.alvos);
     SET_VECTOR_ELT(out, 15, sexp_priori_h(diag_h_geno, linha_h_geno, ped));
     SET_VECTOR_ELT(out, 16, sexp_linha_h(linha_h_geno));
     SET_VECTOR_ELT(out, 14, sexp_bloco_denso(r.bloco_denso, r.colunas_fator));
@@ -1528,13 +1605,49 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     for (std::size_t k = 0; k < d.saiu_x.size(); k++)
       SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
 
+    // residuos no theta final (uma montagem e um fator a mais), e o sujeito e o tempo de cada
+    // linha usada, na ordem em que o motor os encadeia: o que as inovacoes precisam
+    br::ResiduosMT res;
+    if (!r.theta.empty()) {
+      try {
+        res = br::residuos_ar1(d, r.theta);
+      } catch (const br::Interrompido&) {
+        throw;
+      } catch (const std::exception& e) {
+        res = br::ResiduosMT();
+        r.mensagem += std::string(r.mensagem.empty() ? "" : "; ") + "residuals not computed (" +
+            e.what() + "): the fit is kept, residual and resid_var are NA";
+      }
+    }
+    if (res.fora > 0)
+      r.mensagem += std::string(r.mensagem.empty() ? "" : "; ") + std::to_string(res.fora) +
+          " residual-variance pair(s) read outside the sparsity pattern of the factor: the "
+          "residual variances are NOT reliable";
     const char* campos[] = {"theta", "se", "neg2logl", "converged", "iters", "reldelta",
                             "message", "n_used", "n_columns", "n_subjects", "ebv", "pev",
                             "b", "dropped_x", "newton_dec", "dense_block", "h_prior",
-                            "h_prior_row"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 18));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 18));
-    for (int q = 0; q < 18; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "h_prior_row", "residual", "fitted", "fitted_fixed",
+                            "resid_var", "used", "subject_index", "time"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 25));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 25));
+    for (int q = 0; q < 25; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    poe_residuos(out, 18, res, d.usa, d.alvos);
+    {
+      SEXP sj = PROTECT(Rf_allocVector(INTSXP, (R_xlen_t) d.nlin));
+      SEXP tp = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) d.nlin));
+      for (std::size_t i = 0; i < d.nlin; i++) {
+        INTEGER(sj)[i] = NA_INTEGER;
+        REAL(tp)[i] = NA_REAL;
+      }
+      for (std::size_t si = 0; si < d.sujeitos.size(); si++)
+        for (std::size_t i : d.sujeitos[si]) {
+          INTEGER(sj)[i] = (int) si + 1;
+          REAL(tp)[i] = d.tempo[i];
+        }
+      SET_VECTOR_ELT(out, 23, sj);
+      SET_VECTOR_ELT(out, 24, tp);
+      UNPROTECT(2);
+    }
     SET_VECTOR_ELT(out, 16, sexp_priori_h(diag_h_geno, linha_h_geno, ped));
     SET_VECTOR_ELT(out, 17, sexp_linha_h(linha_h_geno));
     SET_VECTOR_ELT(out, 15, sexp_bloco_denso(r.bloco_denso, r.colunas_fator));
@@ -1559,12 +1672,282 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
   )
 }
 
+// O bootstrap parametrico preparado vive num ponteiro externo do R entre os lotes. O
+// finalizador o apaga quando o R o recolhe, e R_residuos_libera o apaga antes, no on.exit de
+// quem chamou: o desenho e o fator nao ficam no pico do R alem do necessario.
+extern "C++" {
+static void finaliza_preparo(SEXP p) {
+  br::PreparoNulos* P = static_cast<br::PreparoNulos*>(R_ExternalPtrAddr(p));
+  if (P) delete P;
+  R_ClearExternalPtr(p);
+}
+
+static br::PreparoNulos* preparo_de(SEXP p) {
+  if (TYPEOF(p) != EXTPTRSXP || !R_ExternalPtrAddr(p))
+    throw br::Erro("the prepared bootstrap was already released");
+  return static_cast<br::PreparoNulos*>(R_ExternalPtrAddr(p));
+}
+
+// sqrt(w) das linhas usadas (vazio quando nao ha pesos)
+static std::vector<double> raizes(const std::vector<char>& usa, const std::vector<double>& pw) {
+  std::vector<double> raiz;
+  if (pw.empty()) return raiz;
+  for (std::size_t i = 0; i < usa.size(); i++)
+    if (usa[i]) raiz.push_back(std::sqrt(pw[i]));
+  return raiz;
+}
+
+// As replicas no formato do R: residual e fixed, matrizes n_usadas x k (as linhas usadas na
+// ordem da tabela, de volta a escala do dado), e u (colunas aleatorias x k, ou NULL).
+static SEXP sexp_lote(const br::NulosSaida& S, const std::vector<double>& raiz) {
+  const std::size_t nu = S.n_usadas, ns = S.nsim;
+  SEXP er = PROTECT(Rf_allocMatrix(REALSXP, (int) nu, (int) ns));
+  SEXP fx = PROTECT(Rf_allocMatrix(REALSXP, (int) nu, (int) ns));
+  for (std::size_t r = 0; r < ns; r++)
+    for (std::size_t k = 0; k < nu; k++) {
+      const double q = raiz.empty() ? 1.0 : raiz[k];
+      REAL(er)[r * nu + k] = S.residuo[r * nu + k] / q;
+      REAL(fx)[r * nu + k] = S.fixo[r * nu + k] / q;
+    }
+  SEXP uu = R_NilValue;
+  if (!S.u.empty()) {
+    const std::size_t nq = S.u.size() / std::max<std::size_t>(ns, 1);
+    uu = PROTECT(Rf_allocMatrix(REALSXP, (int) nq, (int) ns));
+    std::copy(S.u.begin(), S.u.end(), REAL(uu));
+  } else {
+    PROTECT(uu);
+  }
+  const char* campos[] = {"residual", "fixed", "u"};
+  SEXP out = PROTECT(Rf_allocVector(VECSXP, 3));
+  SEXP nms = PROTECT(Rf_allocVector(STRSXP, 3));
+  for (int q = 0; q < 3; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+  SET_VECTOR_ELT(out, 0, er);
+  SET_VECTOR_ELT(out, 1, fx);
+  SET_VECTOR_ELT(out, 2, uu);
+  Rf_setAttrib(out, R_NamesSymbol, nms);
+  UNPROTECT(5);
+  return out;
+}
+
+// O que o preparo devolve ao R: o ponteiro (ou NULL), used, o residuo dos dados no fator
+// (ou NULL), o ajustado W loc (ou NULL), e por grupo os niveis e a diagonal de K (NULL no
+// grupo iid), nomeados pelos grupos.
+static SEXP sexp_preparo(SEXP ptr, const std::vector<char>& usa, const std::vector<double>* res,
+                         const std::vector<double>* ajust, const std::vector<double>& raiz,
+                         const std::vector<std::vector<double>>& diag_k,
+                         const std::vector<std::vector<std::string>>& niveis,
+                         const std::vector<std::string>& grupos) {
+  SEXP us = PROTECT(Rf_allocVector(LGLSXP, (R_xlen_t) usa.size()));
+  for (std::size_t i = 0; i < usa.size(); i++) LOGICAL(us)[i] = usa[i] ? TRUE : FALSE;
+  SEXP vs[2] = {R_NilValue, R_NilValue};
+  const std::vector<double>* fontes[2] = {res, ajust};
+  for (int q = 0; q < 2; q++) {
+    if (fontes[q]) {
+      vs[q] = Rf_allocVector(REALSXP, (R_xlen_t) fontes[q]->size());
+      for (std::size_t k = 0; k < fontes[q]->size(); k++)
+        REAL(vs[q])[k] = (*fontes[q])[k] / (raiz.empty() ? 1.0 : raiz[k]);
+    }
+    PROTECT(vs[q]);
+  }
+  SEXP kd = PROTECT(Rf_allocVector(VECSXP, (R_xlen_t) grupos.size()));
+  SEXP nv = PROTECT(Rf_allocVector(VECSXP, (R_xlen_t) grupos.size()));
+  SEXP gn = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) grupos.size()));
+  for (std::size_t g = 0; g < grupos.size(); g++) {
+    SET_STRING_ELT(gn, (R_xlen_t) g, Rf_mkChar(grupos[g].c_str()));
+    SEXP rot = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) niveis[g].size()));
+    for (std::size_t k = 0; k < niveis[g].size(); k++)
+      SET_STRING_ELT(rot, (R_xlen_t) k, Rf_mkChar(niveis[g][k].c_str()));
+    SET_VECTOR_ELT(nv, (R_xlen_t) g, rot);
+    if (g < diag_k.size() && !diag_k[g].empty()) {
+      SEXP v = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) diag_k[g].size()));
+      std::copy(diag_k[g].begin(), diag_k[g].end(), REAL(v));
+      if (diag_k[g].size() == niveis[g].size()) Rf_setAttrib(v, R_NamesSymbol, rot);
+      SET_VECTOR_ELT(kd, (R_xlen_t) g, v);
+      UNPROTECT(1);
+    }
+    UNPROTECT(1);
+  }
+  Rf_setAttrib(kd, R_NamesSymbol, gn);
+  Rf_setAttrib(nv, R_NamesSymbol, gn);
+  const char* campos[] = {"ptr", "used", "residual", "fitted", "kdiag", "levels"};
+  SEXP out = PROTECT(Rf_allocVector(VECSXP, 6));
+  SEXP nms = PROTECT(Rf_allocVector(STRSXP, 6));
+  for (int q = 0; q < 6; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+  SET_VECTOR_ELT(out, 0, ptr);
+  SET_VECTOR_ELT(out, 1, us);
+  SET_VECTOR_ELT(out, 2, vs[0]);
+  SET_VECTOR_ELT(out, 3, vs[1]);
+  SET_VECTOR_ELT(out, 4, kd);
+  SET_VECTOR_ELT(out, 5, nv);
+  Rf_setAttrib(out, R_NamesSymbol, nms);
+  UNPROTECT(8);
+  return out;
+}
+
+// b do ajuste contra as colunas fixas do desenho remontado: o mesmo nome, na mesma ordem
+static std::vector<double> b_conferido(SEXP b, SEXP bnomes,
+                                       const std::vector<std::string>& nomes_x) {
+  const std::vector<std::string> bn = textos(bnomes, "names of b");
+  if (TYPEOF(b) != REALSXP || (std::size_t) XLENGTH(b) != nomes_x.size() ||
+      bn.size() != nomes_x.size())
+    throw br::Erro("the fixed-effect solutions of the fit have " +
+                   std::to_string(XLENGTH(b)) + " entries and the rebuilt design " +
+                   std::to_string(nomes_x.size()) + " columns: the data, the missing code or "
+                   "the weights are not the ones of the fit");
+  for (std::size_t k = 0; k < bn.size(); k++)
+    if (bn[k] != nomes_x[k])
+      throw br::Erro("fixed column " + std::to_string(k + 1) + " is '" + nomes_x[k] +
+                     "' in the rebuilt design and '" + bn[k] + "' in the fit: the data are "
+                     "not the ones of the fit");
+  return std::vector<double>(REAL(b), REAL(b) + XLENGTH(b));
+}
+
+template <class DES>
+static std::vector<std::string> nomes_grupos(const DES& d) {
+  std::vector<std::string> out;
+  for (const br::Grupo& g : d.modelo.grupos) out.push_back(g.nome);
+  return out;
+}
+
+// o preparo pronto vira um ponteiro externo com finalizador, e a lista do R
+static SEXP entrega_preparo(std::unique_ptr<br::PreparoNulos> P,
+                            const std::vector<std::string>& grupos) {
+  SEXP ptr = PROTECT(R_MakeExternalPtr(nullptr, R_NilValue, R_NilValue));
+  R_RegisterCFinalizerEx(ptr, finaliza_preparo, TRUE);
+  br::PreparoNulos* bruto = P.release();
+  R_SetExternalPtrAddr(ptr, bruto);
+  SEXP out = sexp_preparo(ptr, bruto->usa, &bruto->residuo_dados, nullptr, bruto->raiz,
+                          bruto->diag_k, bruto->niveis, grupos);
+  UNPROTECT(1);
+  return out;
+}
+}  // extern "C++"
+
+// O preparo do bootstrap parametrico do model() com theta fixo (os mesmos argumentos de
+// desenho do R_ajustar, mais theta, b com os nomes e loc). Com theta: monta e fatora as MME,
+// devolve o ponteiro e o residuo dos dados no fator. Sem theta (a conferencia de uma cadeia
+// do gibbs()): so o desenho, devolvendo W loc nas linhas usadas, sem fator das MME. Nos dois,
+// a diagonal de K_g de cada grupo.
+SEXP R_residuos_prepara(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
+                        SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
+                        SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP gid, SEXP gm,
+                        SEXP mistura, SEXP anucleo, SEXP vk, SEXP mfx, SEXP gmx, SEXP pesos,
+                        SEXP kern, SEXP tdil, SEXP tfix, SEXP theta, SEXP b, SEXP bnomes,
+                        SEXP loc) {
+  GUARDA(
+    br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
+                               ausente, usa_ausente, tdil, tfix);
+    br::Tabela t = tabela_do_R(dados, nomes);
+    br::Pedigree ped;
+    const br::Pedigree* pp = nullptr;
+    if (XLENGTH(pid) > 0) {
+      auto i = textos(pid, "id");
+      auto p = textos(ppai, "sire");
+      auto ma = textos(pmae, "dam");
+      ped = br::constroi_pedigree(i, p, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(pmae));
+      pp = &ped;
+    }
+    std::vector<double> pw;
+    if (XLENGTH(pesos) > 0) pw.assign(REAL(pesos), REAL(pesos) + XLENGTH(pesos));
+    std::vector<br::KernelDecl> ks = kernels_do_R(kern);
+    br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw,
+                                      ks.empty() ? nullptr : &ks);
+    std::vector<br::KernelDecl>().swap(ks);
+    genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
+    const std::vector<double> bv = b_conferido(b, bnomes, d.nomes_x);
+    const std::vector<std::string> grupos = nomes_grupos(d);
+    if (XLENGTH(theta) == 0) {
+      // a conferencia da cadeia: W loc com o loc dela, e a diagonal de cada K
+      if (TYPEOF(loc) != REALSXP || (std::size_t) XLENGTH(loc) != d.total_colunas())
+        throw br::Erro("the posterior means of the chain have " + std::to_string(XLENGTH(loc)) +
+                       " entries and the rebuilt design " + std::to_string(d.total_colunas()) +
+                       " columns: the data are not the ones of the chain");
+      std::vector<std::size_t> off(m.grupos.size());
+      std::size_t acc = d.x.ncol;
+      for (std::size_t g = 0; g < m.grupos.size(); g++) { off[g] = acc; acc += d.largura(g); }
+      const br::LinhasW W = br::linhas_w(d, off);
+      std::vector<double> ajust;
+      for (std::size_t i = 0; i < d.nlin; i++) {
+        if (!d.usa[i]) continue;
+        double v = 0.0;
+        for (std::size_t p = W.ptr[i]; p < W.ptr[i + 1]; p++) v += W.val[p] * REAL(loc)[W.col[p]];
+        ajust.push_back(v);
+      }
+      const std::vector<std::vector<double>> dk = br::diagonais_k(d.kinv);
+      return sexp_preparo(R_NilValue, d.usa, nullptr, &ajust, raizes(d.usa, pw), dk,
+                          br::niveis_grupos(d), grupos);
+    }
+    std::vector<double> th(REAL(theta), REAL(theta) + XLENGTH(theta));
+    if (th.size() != m.ntheta)
+      throw br::Erro("theta with " + std::to_string(th.size()) + " entries; the layout asks for " +
+                     std::to_string(m.ntheta));
+    std::unique_ptr<br::PreparoNulos> P = br::prepara_nulos(std::move(d), th, bv);
+    P->raiz = raizes(P->usa, pw);
+    return entrega_preparo(std::move(P), grupos);
+  )
+}
+
+// O mesmo para o model_ar1() univariado (unidades absolutas, sem pesos).
+SEXP R_residuos_prepara_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol,
+                            SEXP tcov, SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc,
+                            SEXP pid, SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente,
+                            SEXP sujeito, SEXP tempo, SEXP gid, SEXP gm, SEXP mistura,
+                            SEXP anucleo, SEXP vk, SEXP mfx, SEXP gmx, SEXP kern, SEXP tdil,
+                            SEXP theta, SEXP b, SEXP bnomes) {
+  GUARDA(
+    SEXP alvo1 = PROTECT(Rf_mkString(CHAR(STRING_ELT(alvo, 0))));
+    br::Modelo m = modelo_do_R(alvo1, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
+                               ausente, usa_ausente, tdil);
+    UNPROTECT(1);
+    br::Tabela t = tabela_do_R(dados, nomes);
+    br::Pedigree ped;
+    const br::Pedigree* pp = nullptr;
+    if (XLENGTH(pid) > 0) {
+      auto i = textos(pid, "id");
+      auto p2 = textos(ppai, "sire");
+      auto ma = textos(pmae, "dam");
+      ped = br::constroi_pedigree(i, p2, ma, textos(mfx, "metafounders"), std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(pmae));
+      pp = &ped;
+    }
+    std::vector<std::string> alv = textos(alvo, "traits");
+    std::vector<br::KernelDecl> kd = kernels_do_R(kern);
+    br::DesenhoAR d = br::monta_desenho_ar1(m, alv, t, pp, CHAR(STRING_ELT(sujeito, 0)),
+                                            CHAR(STRING_ELT(tempo, 0)), &kd);
+    std::vector<br::KernelDecl>().swap(kd);
+    genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
+    std::vector<double> th(REAL(theta), REAL(theta) + XLENGTH(theta));
+    if (th.size() != d.modelo.ntheta)
+      throw br::Erro("theta with " + std::to_string(th.size()) + " entries; the layout asks for " +
+                     std::to_string(d.modelo.ntheta));
+    const std::vector<double> bv = b_conferido(b, bnomes, d.nomes_x);
+    const std::vector<std::string> grupos = nomes_grupos(d);
+    return entrega_preparo(br::prepara_nulos_ar1(std::move(d), th, bv), grupos);
+  )
+}
+
+// Um lote de k replicas do bootstrap preparado: residual e fixed (n_usadas x k) e, com
+// com_u, os u* (colunas aleatorias x k). O RNG do R corre na mesma ordem de sempre.
+SEXP R_residuos_lote(SEXP ptr, SEXP k, SEXP com_u, SEXP familia) {
+  GUARDA(
+    br::PreparoNulos* P = preparo_de(ptr);
+    const br::NulosSaida S = P->lote((std::size_t) Rf_asInteger(k), Rf_asLogical(com_u) == TRUE,
+                                     Rf_asReal(familia));
+    return sexp_lote(S, P->raiz);
+  )
+}
+
+SEXP R_residuos_libera(SEXP ptr) {
+  if (TYPEOF(ptr) == EXTPTRSXP) finaliza_preparo(ptr);
+  return R_NilValue;
+}
+
 SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
              SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
              SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP gid, SEXP gm, SEXP mistura,
              SEXP anucleo, SEXP n_iter, SEXP burnin, SEXP thin, SEXP loc_fixa,
              SEXP theta_fixo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern,
-             SEXP tfix, SEXP ptipo, SEXP pdf, SEXP pesc, SEXP fam, SEXP tdil) {
+             SEXP tfix, SEXP ptipo, SEXP pdf, SEXP pesc, SEXP fam, SEXP tdil,
+             SEXP npdm) {
   GUARDA(
     // kernel() e kernel(fixed =) chegam como no model(): o amostrador ja era generico em
     // K^-1 (o bloco de localizacao e a InvWishart leem d.kinv[g]); faltava so o transporte
@@ -1608,7 +1991,8 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
                                  (std::size_t) Rf_asInteger(thin),
                                  Rf_asLogical(loc_fixa) == TRUE, pthf,
                                  Rf_asLogical(verb) == TRUE, priori,
-                                 Rf_asInteger(fam) == 1);
+                                 Rf_asInteger(fam) == 1,
+                                 (std::size_t) std::max(0, Rf_asInteger(npdm)));
     if (!nota.empty()) S.mensagem = S.mensagem.empty() ? nota : nota + "; " + S.mensagem;
 
     std::vector<std::string> nomes_th = m.nomes_theta();
@@ -1672,10 +2056,33 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
     for (std::size_t k = 0; k < S.partida.size(); k++) REAL(part)[k] = S.partida[k];
     if (S.partida.size() == S.ntheta) Rf_setAttrib(part, R_NamesSymbol, Rf_duplicate(nms_t));
     const char* campos[] = {"samples", "names", "ebv", "ebv_sd", "message", "n_used",
-                            "b", "b_sd", "dropped_x", "dense_block", "start"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 11));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 11));
-    for (int q = 0; q < 11; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "b", "b_sd", "dropped_x", "dense_block", "start",
+                            "residual", "pdm_residuals", "fitted", "fitted_fixed"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 15));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 15));
+    for (int q = 0; q < 15; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    // o residuo medio a posteriori e os ajustados W E[loc] e X E[b] por linha da tabela (NA
+    // fora das usadas), e os sorteios pivotais e_s / sqrt(s2e_s), n_usadas x n_pdm
+    {
+      const std::vector<double>* fontes[3] = {&S.media_residuo, &S.ajustado, &S.ajustado_fixo};
+      const int lugar[3] = {11, 13, 14};
+      for (int q = 0; q < 3; q++) {
+        SEXP mr = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) d.nlin));
+        for (std::size_t i = 0; i < d.nlin; i++) {
+          const double v = i < fontes[q]->size() ? (*fontes[q])[i] : NA_REAL;
+          REAL(mr)[i] = std::isfinite(v) ? v : NA_REAL;
+        }
+        SET_VECTOR_ELT(out, lugar[q], mr);
+        UNPROTECT(1);
+      }
+      const std::size_t nu = d.n_usadas();
+      SEXP pd = PROTECT(Rf_allocMatrix(REALSXP, (int) nu, (int) S.n_pdm));
+      for (std::size_t k = 0; k < S.n_pdm; k++)
+        for (std::size_t i = 0; i < nu; i++)
+          REAL(pd)[k * nu + i] = S.residuos_pdm[k * nu + i];
+      SET_VECTOR_ELT(out, 12, pd);
+      UNPROTECT(1);
+    }
     SET_VECTOR_ELT(out, 9, sexp_bloco_denso(S.bloco_denso, S.colunas_fator));
     SET_VECTOR_ELT(out, 0, amostras);
     SET_VECTOR_ELT(out, 1, nms_t);
@@ -1887,12 +2294,215 @@ SEXP R_freq_genotipos(SEXP gm) {
   )
 }
 
-// A G de VanRaden pelo mesmo nucleo do passo unico (vanraden_g), direto da matriz do R.
+// Uma matriz n x n do R por allocVector + dim: allocMatrix recusa mais de 2^31 - 1 entradas
+// (n > 46340), e um vetor longo com dim e a mesma matriz. Volta desprotegida.
+static SEXP matriz_n_n(std::size_t n) {
+  SEXP x = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) n * (R_xlen_t) n));
+  SEXP d = PROTECT(Rf_allocVector(INTSXP, 2));
+  INTEGER(d)[0] = (int) n;
+  INTEGER(d)[1] = (int) n;
+  Rf_setAttrib(x, R_DimSymbol, d);
+  UNPROTECT(2);
+  return x;
+}
+
+// A G de VanRaden pelo mesmo nucleo do passo unico (vanraden_g), direto da matriz do R e
+// escrita na matriz de saida, sem a copia densa intermediaria.
 SEXP R_g_matrix(SEXP gm) {
   GUARDA(
     const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
     br::RelatorioG rel;
-    return densa_para_R(br::vanraden_g(g, rel, false));
+    SEXP out = PROTECT(matriz_n_n(g.n));
+    br::vanraden_g_em(g, rel, false, REAL(out));
+    UNPROTECT(1);
+    return out;
+  )
+}
+
+// A D de Vitezica, escrita direto na matriz de saida
+SEXP R_g_dominancia(SEXP gm) {
+  GUARDA(
+    const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    SEXP out = PROTECT(matriz_n_n(g.n));
+    br::g_dominancia(g, REAL(out));
+    UNPROTECT(1);
+    return out;
+  )
+}
+
+// Heterozigotos e observados por animal, list(het, obs)
+SEXP R_homozigose(SEXP gm) {
+  GUARDA(
+    const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    SEXP het = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) g.n));
+    SEXP obs = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) g.n));
+    br::homozigose(g, REAL(het), REAL(obs));
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 2));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 2));
+    SET_STRING_ELT(nms, 0, Rf_mkChar("het"));
+    SET_STRING_ELT(nms, 1, Rf_mkChar("obs"));
+    SET_VECTOR_ELT(out, 0, het);
+    SET_VECTOR_ELT(out, 1, obs);
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(4);
+    return out;
+  )
+}
+
+// (M - c)' V, m x k, sem formar M - c: V e uma matriz double n x k e c um escalar (o ausente
+// vale c, isto e, nao contribui)
+SEXP R_genotipos_tv(SEXP gm, SEXP v, SEXP centro) {
+  GUARDA(
+    const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    if (TYPEOF(v) != REALSXP || (std::size_t) Rf_nrows(v) != g.n)
+      throw br::Erro("V must be a double matrix with one row per genotyped animal");
+    const std::size_t k = (std::size_t) Rf_ncols(v);
+    const std::vector<double> c(g.m, Rf_asReal(centro));
+    SEXP out = PROTECT(Rf_allocMatrix(REALSXP, (int) g.m, (int) k));
+    br::genotipos_tv(g, c.data(), c.data(), REAL(v), k, REAL(out));
+    UNPROTECT(1);
+    return out;
+  )
+}
+
+// Quantos genotipos ausentes (NA, NaN ou 5 no raw)
+SEXP R_conta_ausentes(SEXP gm) {
+  GUARDA(
+    const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    return Rf_ScalarReal(br::conta_ausentes(g));
+  )
+}
+
+// Fracoes de genes dos metafundadores nos genotipados: pai e mae em base 1 (NA desconhecido),
+// do pedigree topologico de pedigree(); mf as linhas dos metafundadores na ordem das colunas
+// de Gamma; o as linhas dos genotipados. Devolve length(o) x q.
+SEXP R_fracoes_genes(SEXP pai, SEXP mae, SEXP mf, SEXP o) {
+  GUARDA(
+    if (TYPEOF(pai) != INTSXP || TYPEOF(mae) != INTSXP || TYPEOF(mf) != INTSXP ||
+        TYPEOF(o) != INTSXP)
+      throw br::Erro("gene fractions: expected integer row numbers");
+    const R_xlen_t n = XLENGTH(pai);
+    if (XLENGTH(mae) != n) throw br::Erro("sire and dam of different lengths");
+    std::vector<std::int64_t> s(n), d(n), col(n, -1);
+    for (R_xlen_t i = 0; i < n; i++) {
+      s[i] = INTEGER(pai)[i] == NA_INTEGER ? -1 : (std::int64_t) INTEGER(pai)[i] - 1;
+      d[i] = INTEGER(mae)[i] == NA_INTEGER ? -1 : (std::int64_t) INTEGER(mae)[i] - 1;
+    }
+    const std::size_t q = (std::size_t) XLENGTH(mf);
+    for (std::size_t k = 0; k < q; k++) {
+      const int r = INTEGER(mf)[k];
+      if (r == NA_INTEGER || r < 1 || r > n)
+        throw br::Erro("metafounder without a line in the pedigree");
+      col[r - 1] = (std::int64_t) k;
+    }
+    const R_xlen_t no = XLENGTH(o);
+    for (R_xlen_t t = 0; t < no; t++) {
+      const int r = INTEGER(o)[t];
+      if (r == NA_INTEGER || r < 1 || r > n)
+        throw br::Erro("genotyped animal without a line in the pedigree");
+    }
+    const std::vector<double> Q = br::fracoes_genes(s, d, col, q);
+    SEXP out = PROTECT(Rf_allocMatrix(REALSXP, (int) no, (int) q));
+    for (R_xlen_t t = 0; t < no; t++) {
+      const int r = INTEGER(o)[t];
+      for (std::size_t k = 0; k < q; k++)
+        REAL(out)[t + (R_xlen_t) k * no] = Q[(std::size_t) (r - 1) * q + k];
+    }
+    UNPROTECT(1);
+    return out;
+  )
+}
+
+// A22^-1 X sem formar A22^-1 (o V de estimate_gamma()): o pedigree como em a_inverse()
+// (metafundadores e Gamma opcionais), gid os genotipados, X n_geno x q double
+SEXP R_a22inv_vezes(SEXP id, SEXP pai, SEXP mae, SEXP mfx, SEXP gmx, SEXP gid, SEXP x) {
+  GUARDA(
+    br::Pedigree ped = br::constroi_pedigree(textos(id, "id"), textos(pai, "sire"),
+        textos(mae, "dam"), textos(mfx, "metafounders"),
+        std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(mae));
+    const br::Csc ainv = br::a_inversa(ped, br::endogamia(ped));
+    const std::vector<std::size_t> idx = br::linhas_genotipados(ped, textos(gid, "genotypes"));
+    if (TYPEOF(x) != REALSXP || (std::size_t) Rf_nrows(x) != idx.size())
+      throw br::Erro("X must be a double matrix with one row per genotyped animal");
+    const std::size_t q = (std::size_t) Rf_ncols(x);
+    const std::vector<double> r = br::a22_inversa_vezes(
+        ainv, idx, std::vector<double>(REAL(x), REAL(x) + XLENGTH(x)), q, simbolica_do_padrao);
+    SEXP out = PROTECT(Rf_allocMatrix(REALSXP, (int) idx.size(), (int) q));
+    std::copy(r.begin(), r.end(), REAL(out));
+    UNPROTECT(1);
+    return out;
+  )
+}
+
+// Os tres resumos do ML de um metafundador, no pedigree classico (sem metafundadores)
+SEXP R_gamma_ml_resumos(SEXP id, SEXP pai, SEXP mae, SEXP gid, SEXP gm) {
+  GUARDA(
+    br::Pedigree ped = br::constroi_pedigree(textos(id, "id"), textos(pai, "sire"),
+                                             textos(mae, "dam"), {}, {}, mgs_de(mae));
+    const br::Csc ainv = br::a_inversa(ped, br::endogamia(ped));
+    const auto gids = textos(gid, "genotypes");
+    const std::vector<std::size_t> idx = br::linhas_genotipados(ped, gids);
+    const br::Genotipos g = genotipos_do_R(gm, gids.size());
+    const br::ResumosMl r = br::gamma_ml_resumos(ainv, idx, g);
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 3));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 3));
+    const char* campos[] = {"ss", "tt", "rr"};
+    for (int k = 0; k < 3; k++) SET_STRING_ELT(nms, k, Rf_mkChar(campos[k]));
+    SET_VECTOR_ELT(out, 0, Rf_ScalarReal(r.s));
+    SET_VECTOR_ELT(out, 1, Rf_ScalarReal(r.t));
+    SET_VECTOR_ELT(out, 2, Rf_ScalarReal(r.r));
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(2);
+    return out;
+  )
+}
+
+// Efeitos de SNP com a G* do ajuste: o pedigree como em h_inverse() (metafundadores e Gamma
+// do ajuste), os genotipados, u (o valor genetico de cada genotipado, na ordem de gid), a
+// mistura, o nucleo APY e o k de Vecchia que o ajuste usou, e hp, a diagonal de G* que o
+// ajuste guardou (na ordem de gid; vazia = sem conferencia)
+SEXP R_efeitos_snp(SEXP id, SEXP pai, SEXP mae, SEXP mfx, SEXP gmx, SEXP gid, SEXP gm,
+                   SEXP u, SEXP mistura, SEXP anucleo, SEXP vk, SEXP hp) {
+  GUARDA(
+    br::Pedigree ped = br::constroi_pedigree(textos(id, "id"), textos(pai, "sire"),
+        textos(mae, "dam"), textos(mfx, "metafounders"),
+        std::vector<double>(REAL(gmx), REAL(gmx) + XLENGTH(gmx)), mgs_de(mae));
+    const auto gids = textos(gid, "genotypes");
+    const br::Genotipos g = genotipos_do_R(gm, gids.size());
+    if (TYPEOF(u) != REALSXP || TYPEOF(hp) != REALSXP)
+      throw br::Erro("u and the stored diagonal of G* must be double");
+    std::vector<std::string> nuc;
+    if (XLENGTH(anucleo) > 0) nuc = textos(anucleo, "APY core");
+    const br::EfeitosSnp r = br::efeitos_snp(
+        ped, gids, g, std::vector<double>(REAL(u), REAL(u) + XLENGTH(u)), Rf_asReal(mistura),
+        nuc, (std::size_t) std::max(0, Rf_asInteger(vk)),
+        std::vector<double>(REAL(hp), REAL(hp) + XLENGTH(hp)));
+    const R_xlen_t nu = (R_xlen_t) r.usados.size();
+    SEXP ef = PROTECT(Rf_allocVector(REALSXP, nu));
+    SEXP fr = PROTECT(Rf_allocVector(REALSXP, nu));
+    SEXP us = PROTECT(Rf_allocVector(INTSXP, nu));
+    for (R_xlen_t k = 0; k < nu; k++) {
+      REAL(ef)[k] = r.efeito[(std::size_t) k];
+      REAL(fr)[k] = r.freq[(std::size_t) k];
+      INTEGER(us)[k] = (int) r.usados[(std::size_t) k] + 1;
+    }
+    SEXP dg = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) r.diag_gstar.size()));
+    std::copy(r.diag_gstar.begin(), r.diag_gstar.end(), REAL(dg));
+    const char* campos[] = {"effect", "freq", "used", "denom", "a", "b", "diag_gstar", "route"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 8));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 8));
+    for (int k = 0; k < 8; k++) SET_STRING_ELT(nms, k, Rf_mkChar(campos[k]));
+    SET_VECTOR_ELT(out, 0, ef);
+    SET_VECTOR_ELT(out, 1, fr);
+    SET_VECTOR_ELT(out, 2, us);
+    SET_VECTOR_ELT(out, 3, Rf_ScalarReal(r.denom));
+    SET_VECTOR_ELT(out, 4, Rf_ScalarReal(r.a));
+    SET_VECTOR_ELT(out, 5, Rf_ScalarReal(r.b));
+    SET_VECTOR_ELT(out, 6, dg);
+    SET_VECTOR_ELT(out, 7, Rf_mkString(r.rota == 2 ? "apy" : r.rota == 3 ? "vecchia" : "exact"));
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(6);
+    return out;
   )
 }
 
@@ -2099,6 +2709,141 @@ SEXP R_threads(SEXP n, SEXP lapack) {
   return out;
 }
 
+// A rota de um posto_esparso para os portoes: colunas pela Cholesky, colunas pelo residuo
+// explicito, correcoes semi-normais, 1 se o posto saiu da rota densa de reserva (0 se nao) e a
+// coluna (base 1) que a rota esparsa nao certificou (0 se nenhuma)
+static SEXP rota_do_posto(const br::PostoInfo& info) {
+  SEXP ro = PROTECT(Rf_allocVector(INTSXP, 5));
+  INTEGER(ro)[0] = (int) info.rapidas;
+  INTEGER(ro)[1] = (int) info.explicitas;
+  INTEGER(ro)[2] = (int) info.correcoes;
+  INTEGER(ro)[3] = info.densa ? 1 : 0;
+  INTEGER(ro)[4] = info.densa ? (int) info.coluna_densa + 1 : 0;
+  SEXP rn = PROTECT(Rf_allocVector(STRSXP, 5));
+  SET_STRING_ELT(rn, 0, Rf_mkChar("fast"));
+  SET_STRING_ELT(rn, 1, Rf_mkChar("explicit"));
+  SET_STRING_ELT(rn, 2, Rf_mkChar("corrections"));
+  SET_STRING_ELT(rn, 3, Rf_mkChar("dense"));
+  SET_STRING_ELT(rn, 4, Rf_mkChar("column"));
+  Rf_setAttrib(ro, R_NamesSymbol, rn);
+  UNPROTECT(2);
+  return ro;
+}
+
+// O portao do posto esparso dos efeitos fixos: as colunas que ficam de uma X densa do R (n x
+// p, por colunas) sobre as linhas ativas, pela rota esparsa dos desenhos (posto_esparso) e,
+// com com_denso, pelo Gram-Schmidt denso de antes (posto_completo). Indices base 1. route diz
+// por onde a rota esparsa decidiu (rota_do_posto).
+SEXP R_posto_fixo(SEXP x, SEXP ativa, SEXP tol, SEXP com_denso) {
+  GUARDA(
+    if (!Rf_isMatrix(x) || TYPEOF(x) != REALSXP) throw br::Erro("x must be a double matrix");
+    const std::size_t n = (std::size_t) Rf_nrows(x), p = (std::size_t) Rf_ncols(x);
+    if (TYPEOF(ativa) != LGLSXP || (std::size_t) XLENGTH(ativa) != n)
+      throw br::Erro("ativa must be a logical vector with one entry per row");
+    const double* xv = REAL(x);
+    const double tl = Rf_asReal(tol);
+    std::vector<char> at(n);
+    for (std::size_t i = 0; i < n; i++) at[i] = LOGICAL(ativa)[i] == TRUE;
+    // a CSC com os nao-zeros da matriz (o NaN entra, como no desenho)
+    br::Csc cx(n, p);
+    for (std::size_t j = 0; j < p; j++) {
+      for (std::size_t i = 0; i < n; i++) {
+        const double v = xv[j * n + i];
+        if (v == 0.0) continue;
+        cx.linha.push_back(static_cast<std::uint32_t>(i));
+        cx.valor.push_back(v);
+      }
+      cx.colptr[j + 1] = cx.linha.size();
+    }
+    std::vector<std::size_t> fica, sai;
+    br::PostoInfo info;
+    br::posto_esparso(cx, at, tl, fica, sai, false, &info);
+    std::vector<std::size_t> fica_d;
+    if (Rf_asLogical(com_denso) == TRUE) {
+      std::size_t na = 0;
+      for (char a : at) na += a;
+      br::Densa xd(na, p);
+      std::size_t r = 0;
+      for (std::size_t i = 0; i < n; i++) {
+        if (!at[i]) continue;
+        for (std::size_t j = 0; j < p; j++) xd.at(r, j) = xv[j * n + i];
+        r++;
+      }
+      std::vector<std::size_t> sai_d;
+      br::posto_completo(xd, tl, fica_d, sai_d);
+    }
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 3));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 3));
+    SEXP fe = PROTECT(Rf_allocVector(INTSXP, (R_xlen_t) fica.size()));
+    for (std::size_t k = 0; k < fica.size(); k++) INTEGER(fe)[k] = (int) fica[k] + 1;
+    SEXP fd = PROTECT(Rf_allocVector(INTSXP, (R_xlen_t) fica_d.size()));
+    for (std::size_t k = 0; k < fica_d.size(); k++) INTEGER(fd)[k] = (int) fica_d[k] + 1;
+    SEXP ro = PROTECT(rota_do_posto(info));
+    SET_VECTOR_ELT(out, 0, fe);
+    SET_VECTOR_ELT(out, 1, fd);
+    SET_VECTOR_ELT(out, 2, ro);
+    SET_STRING_ELT(nms, 0, Rf_mkChar("sparse"));
+    SET_STRING_ELT(nms, 1, Rf_mkChar("dense"));
+    SET_STRING_ELT(nms, 2, Rf_mkChar("route"));
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(5);
+    return out;
+  )
+}
+
+// O posto do X esparso dos ajustadores do lado R (limiar e sobrevivencia, R/threshold.R): um
+// bloco por termo, cols[[b]] a coluna de cada linha (base 1; 0 = sem entrada) e vals[[b]] o
+// valor. Devolve as colunas que ficam (base 1), pela rota de posto_esparso, com a rota no
+// atributo route (rota_do_posto).
+SEXP R_posto_blocos(SEXP cols, SEXP vals, SEXP n, SEXP p, SEXP tol, SEXP relativo) {
+  GUARDA(
+    const std::size_t nl = (std::size_t) Rf_asInteger(n), nc = (std::size_t) Rf_asInteger(p);
+    if (TYPEOF(cols) != VECSXP || TYPEOF(vals) != VECSXP || XLENGTH(vals) != XLENGTH(cols))
+      throw br::Erro("cols and vals must be lists of the same length");
+    const R_xlen_t nb = XLENGTH(cols);
+    br::Csc x(nl, nc);
+    for (R_xlen_t b = 0; b < nb; b++) {
+      SEXP c = VECTOR_ELT(cols, b), v = VECTOR_ELT(vals, b);
+      if (TYPEOF(c) != INTSXP || TYPEOF(v) != REALSXP || (std::size_t) XLENGTH(c) != nl ||
+          (std::size_t) XLENGTH(v) != nl)
+        throw br::Erro("each block needs an integer column and a double value per row");
+      for (std::size_t i = 0; i < nl; i++) {
+        const int j = INTEGER(c)[i];
+        if (j == NA_INTEGER || j < 0 || (std::size_t) j > nc)
+          throw br::Erro("block column outside 0..p");
+        if (j > 0 && REAL(v)[i] != 0.0) x.colptr[(std::size_t) j]++;
+      }
+    }
+    for (std::size_t j = 0; j < nc; j++) x.colptr[j + 1] += x.colptr[j];
+    x.linha.assign(x.colptr[nc], 0);
+    x.valor.assign(x.colptr[nc], 0.0);
+    // uma coluna pertence a um bloco so, e cada bloco anda nas linhas em ordem: as linhas de
+    // cada coluna saem crescentes
+    std::vector<std::size_t> prox(x.colptr.begin(), x.colptr.end() - 1);
+    for (R_xlen_t b = 0; b < nb; b++) {
+      const int* c = INTEGER(VECTOR_ELT(cols, b));
+      const double* v = REAL(VECTOR_ELT(vals, b));
+      for (std::size_t i = 0; i < nl; i++) {
+        if (c[i] <= 0 || v[i] == 0.0) continue;
+        const std::size_t j = (std::size_t) c[i] - 1;
+        x.linha[prox[j]] = static_cast<std::uint32_t>(i);
+        x.valor[prox[j]++] = v[i];
+      }
+    }
+    std::vector<std::size_t> fica, sai;
+    br::PostoInfo info;
+    br::posto_esparso(x, std::vector<char>(nl, 1), Rf_asReal(tol), fica, sai,
+                      Rf_asLogical(relativo) == TRUE, &info);
+    SEXP out = PROTECT(Rf_allocVector(INTSXP, (R_xlen_t) fica.size()));
+    for (std::size_t k = 0; k < fica.size(); k++) INTEGER(out)[k] = (int) fica[k] + 1;
+    // a rota, como no R_posto_fixo: so os portoes a leem
+    SEXP ro = PROTECT(rota_do_posto(info));
+    Rf_setAttrib(out, Rf_install("route"), ro);
+    UNPROTECT(2);
+    return out;
+  )
+}
+
 static const R_CallMethodDef metodos[] = {
   {"R_pedigree",   (DL_FUNC) &R_pedigree,   5},
   {"R_a_inversa",  (DL_FUNC) &R_a_inversa,  5},
@@ -2115,17 +2860,31 @@ static const R_CallMethodDef metodos[] = {
   {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  29},
   {"R_avaliar_ar1",  (DL_FUNC) &R_avaliar_ar1, 24},
   {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 31},
-    {"R_gibbs", (DL_FUNC) &R_gibbs, 36},
+  {"R_residuos_prepara",     (DL_FUNC) &R_residuos_prepara,     31},
+  {"R_residuos_prepara_ar1", (DL_FUNC) &R_residuos_prepara_ar1, 30},
+  {"R_residuos_lote",        (DL_FUNC) &R_residuos_lote,         4},
+  {"R_residuos_libera",      (DL_FUNC) &R_residuos_libera,       1},
+    {"R_gibbs", (DL_FUNC) &R_gibbs, 37},
   {"R_snp_blup",   (DL_FUNC) &R_snp_blup,  26},
   {"R_lanczos_g",  (DL_FUNC) &R_lanczos_g,  3},
   {"R_confere_genotipos", (DL_FUNC) &R_confere_genotipos, 1},
   {"R_freq_genotipos", (DL_FUNC) &R_freq_genotipos, 1},
   {"R_g_matrix",   (DL_FUNC) &R_g_matrix,   1},
+  {"R_g_dominancia", (DL_FUNC) &R_g_dominancia, 1},
+  {"R_homozigose", (DL_FUNC) &R_homozigose, 1},
+  {"R_genotipos_tv", (DL_FUNC) &R_genotipos_tv, 3},
+  {"R_conta_ausentes", (DL_FUNC) &R_conta_ausentes, 1},
+  {"R_fracoes_genes", (DL_FUNC) &R_fracoes_genes, 4},
+  {"R_a22inv_vezes", (DL_FUNC) &R_a22inv_vezes, 7},
+  {"R_gamma_ml_resumos", (DL_FUNC) &R_gamma_ml_resumos, 5},
+  {"R_efeitos_snp", (DL_FUNC) &R_efeitos_snp, 12},
   {"R_gram_genotipos", (DL_FUNC) &R_gram_genotipos, 1},
   {"R_le_snp_blupf90", (DL_FUNC) &R_le_snp_blupf90, 2},
 {"R_versao",     (DL_FUNC) &R_versao,     0},
   {"R_rotulos",    (DL_FUNC) &R_rotulos,    1},
   {"R_threads",    (DL_FUNC) &R_threads,    2},
+  {"R_posto_fixo", (DL_FUNC) &R_posto_fixo, 4},
+  {"R_posto_blocos", (DL_FUNC) &R_posto_blocos, 6},
   {"R_pegs",       (DL_FUNC) &R_pegs,      10},
   {"R_pegs_estrutura", (DL_FUNC) &R_pegs_estrutura, 3},
   {NULL, NULL, 0}

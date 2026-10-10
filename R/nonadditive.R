@@ -348,19 +348,11 @@ g_matrix <- function(genotypes) {
 g_dominance <- function(genotypes) {
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
-  gn <- genotipos_numericos(g$gm)
-  p <- colMeans(gn, na.rm = TRUE) / 2
-  ok <- is.finite(p) & p > 0 & p < 1
-  if (!any(ok)) stop("every marker is monomorphic: there is no D to build")
-  m <- gn[, ok, drop = FALSE]
-  q <- 1 - p[ok]
-  W <- matrix(0, nrow(m), ncol(m))
-  for (j in seq_len(ncol(m))) {
-    cod <- c(-2 * p[ok][j]^2, 2 * p[ok][j] * q[j], -2 * q[j]^2)[m[, j] + 1]
-    cod[is.na(cod)] <- mean(cod, na.rm = TRUE)
-    W[, j] <- cod
-  }
-  D <- tcrossprod(W) / sum((2 * p[ok] * q)^2)
+  # no C++, lendo a matriz do R por blocos de marcadores (double, integer ou raw, sem copia) e
+  # escrevendo D direto na matriz de saida; as frequencias sao as da G (soma/k em double). Sem
+  # marcador polimorfico o proprio C++ recusa, com "every marker is monomorphic: there is no D
+  # to build", na passada das frequencias (sem uma leitura a mais da matriz aqui).
+  D <- .Call(R_g_dominancia, g$gm)
   dimnames(D) <- list(g$gid, g$gid)
   D
 }
@@ -483,13 +475,12 @@ g_epistasis_order <- function(g, order = 2L) {
 genomic_inbreeding <- function(genotypes) {
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
-  gn <- genotipos_numericos(g$gm)
-  het <- rowSums(gn == 1, na.rm = TRUE)
-  obs <- rowSums(!is.na(gn))
-  if (any(obs == 0))
+  # heterozigotos e observados por animal no C++, sem converter a matriz
+  h <- .Call(R_homozigose, g$gm)
+  if (any(h$obs == 0))
     stop("animal(s) with no observed marker: ",
-         paste(g$gid[obs == 0], collapse = ", "))
-  f <- 1 - het / obs
+         paste(g$gid[h$obs == 0], collapse = ", "))
+  f <- 1 - h$het / h$obs
   names(f) <- g$gid
   f
 }

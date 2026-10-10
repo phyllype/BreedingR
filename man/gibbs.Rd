@@ -23,7 +23,8 @@ gibbs(
   family = c("gaussian", "probit"),
   chains = 1L,
   cores = 1L,
-  verbose = interactive()
+  verbose = interactive(),
+  residual_draws = 20L
 )
 }
 \arguments{
@@ -116,6 +117,16 @@ the parallel package, which also works on Windows); at most \code{chains}}
 \item{verbose}{print the chain as it runs, the iteration count every so often, so a
 long chain is a progress report instead of silence. Defaults to interactive(),
 live in a session and quiet in scripts and checks. Every fitter also honors Ctrl+C now}
+
+\item{residual_draws}{how many kept iterations, evenly spaced, store their realized
+residual \code{e_s / sqrt(s2e_s)}, with \verb{e_s = y - W loc_s} (for \code{family = "probit"}, the
+drawn liability minus \verb{W loc_s}, with variance 1). Each such draw is iid \code{N(0, 1)}
+under the model, which is what \code{\link[=residual_diagnostics]{residual_diagnostics()}} uses for its pivotal
+discrepancy checks (Johnson 2007; Yuan and Johnson 2012). They cost
+\code{8 * residual_draws * chains} bytes per record in the fit (\code{pdm_residuals}, one column
+per draw, the chains side by side), which with \code{cores > 1} also cross the link from
+each worker: 96 MB per chain for 600,000 records at the default 20. The chains
+themselves do not change (no extra random draws). 0 stores none}
 }
 \value{
 samples matrix (kept iterations x parameters), posterior \code{mean} and \code{sd},
@@ -124,7 +135,13 @@ effective sample sizes, Geweke z, and the posterior mean/sd of every random effe
 \code{\link[=model]{model()}}, whose parametrization note applies: dropped columns are in \code{dropped_x}
 and only contrasts compare against a reference-level convention), \code{dense_block}
 and \code{k_level_type} as in \code{\link[=model]{model()}}, and \code{start}, the components the chain starts
-from (the first chain's, with several)
+from (the first chain's, with several). \code{residual} is the posterior mean of the
+realized residual, one value per row of \code{data} (\code{NA} where the record did not
+enter), which by linearity is \verb{y - X E[b] - Z E[u]} (the liability for the probit),
+\code{fitted} and \code{fitted_fixed} the posterior means \verb{X E[b] + Z E[u]} and \verb{X E[b]} (on
+the liability scale for the probit), and \code{pdm_residuals} the stored draws described
+in \code{residual_draws}; \code{\link[=residuals.breeding_fit]{residuals.breeding_fit()}} and \code{\link[=residual_diagnostics]{residual_diagnostics()}} read
+them, with \code{missing_code} as given
 }
 \description{
 Gibbs sampler for a single-trait mixed model

@@ -4,7 +4,7 @@
 \alias{snp_effects}
 \title{Backsolve SNP effects from a single-step fit}
 \usage{
-snp_effects(fit, pedigree, genotypes, blend = 0.05, group = "animal")
+snp_effects(fit, pedigree, genotypes, blend = NULL, group = "animal")
 }
 \arguments{
 \item{fit}{result of \code{\link[=model]{model()}} fitted with \verb{genotypes=}}
@@ -13,16 +13,42 @@ snp_effects(fit, pedigree, genotypes, blend = 0.05, group = "animal")
 
 \item{genotypes}{the same list \code{ids}/\code{m} used in the fit}
 
-\item{blend}{the same blend used in the fit}
+\item{blend}{leave \code{NULL}: the blend is read from the fit. A value different from the
+fit's is refused.}
 
 \item{group}{covariance group of the genomic term ("animal" by default)}
 }
 \value{
-vector of marker effects, in the units of the trait per allele-dose,
-plus the allele frequencies used, as attributes
+vector of marker effects, in the units of the trait per allele dose, named by
+the column names of \code{m}, with attributes \code{freq} (the allele frequencies that centre
+each marker, named the same way; 0.5 under metafounders), \code{denom} (\verb{2 sum p q} over the
+markers used, or half their number under metafounders) and \code{route} (\code{"exact"},
+\code{"apy"} or \code{"vecchia"})
 }
 \description{
-Backsolve SNP effects from a single-step fit
+The marker effects implied by the genomic breeding values of a single-step fit,
+\verb{a = b (1 - w) Z' G*^-1 u / (2 sum p q)} (VanRaden 2008; Wang et al. 2012), with \code{Z} the
+genotypes centred by twice the allele frequency (a missing genotype at the marker mean),
+\code{u} the breeding values of the genotyped animals, and \verb{G*} the SAME matrix the fit
+inverted: VanRaden's G brought to the scale of A22 by the affine adjustment \verb{a + b G},
+blended with A22 by the weight \code{w}. Everything the fit used is read from the fit: the
+blend, the APY core (the APY inverse is applied to \code{u} without forming any n x n
+matrix) or the Vecchia \code{k}, and the metafounders. With metafounders the genomic matrix is
+the G05 of Legarra et al. (2015), \code{Z = M - 1} over all markers, monomorphic included, and
+scale \code{m / 2}, with no affine adjustment (\code{b = 1}): the equivalent marker model is
+\verb{u = (M - 1) a}, and the same formula gives the expectation of \code{a} given \code{u}. A marker
+with no observed genotype has no frequency and is left out, as in the fit. The \verb{G*}
+rebuilt from \code{pedigree} and \code{genotypes} is checked against the diagonal the fit stored,
+before any \verb{n x n} work: another genotype matrix, or a pedigree that changes the
+inbreeding of the genotyped animals, is refused instead of backsolving another model.
+The check cannot see every difference (a pedigree with the same inbreeding passes it),
+so give exactly the pedigree and genotypes of the fit; with \code{vecchia_k} also in the same
+row order, because the Vecchia inverse depends on it.
+}
+\details{
+The exact route needs one \verb{n x n} matrix (the genomic one, factored in place); the APY
+route needs only the core rows; the Vecchia route rebuilds the dense pipeline of the fit,
+about three \verb{n x n} matrices.
 }
 \references{
 VanRaden, P.M. (2008). Journal of Dairy Science 91:4414-4423.
@@ -30,4 +56,8 @@ VanRaden, P.M. (2008). Journal of Dairy Science 91:4414-4423.
 Wang, H., Misztal, I., Aguilar, I., Legarra, A. & Muir, W.M. (2012). Genome-wide
 association mapping including phenotypes from relatives without genotypes.
 Genetics Research 94:73-83.
+
+Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
+Ancestral relationships using metafounders: finite ancestral populations and across
+population relationships. Genetics 200:455-468.
 }

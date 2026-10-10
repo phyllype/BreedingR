@@ -341,7 +341,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = FALSE)
   X <- fx$X
   est_lam <- is.null(lambda)
-  if (est_lam) X <- cbind(intercept = 1, X)
+  if (est_lam) X <- xs_com_intercepto(X)
   al <- prepara_aleatorios(aleat, data, pedigree, k_inverse, keep, intervalo)
   escalar <- al$ntheta == length(al$slots)
   if (!is.null(sigma2) &&
@@ -361,7 +361,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
            collapse = ", "), "): the frailty belongs to the subject")
   }
 
-  n <- length(tv); p <- ncol(X)
+  n <- length(tv); p <- X$p
   qs <- vapply(al$slots, function(sl) sl$q, integer(1))
   offs <- p + c(0L, cumsum(qs))[seq_along(qs)]
   nal <- sum(qs); Nu <- p + nal
@@ -385,7 +385,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   }
   parte <- function(u) lapply(seq_along(qs), function(k) u[offs[k] + seq_len(qs[k])])
   eta_de <- function(u)
-    (if (p) drop(X %*% u[seq_len(p)]) else numeric(n)) + z_u_todos(al$slots, parte(u), n)
+    (if (p) xs_vezes(X, u[seq_len(p)]) else numeric(n)) + z_u_todos(al$slots, parte(u), n)
   # o sistema de Newton: so o bloco das fragilidades (so_aleat, para o Laplace) ou o
   # inteiro (b e fragilidades). Mesma ordem de montagem de antes num modelo de um termo.
   monta_h <- function(mu, Gs, so_aleat = FALSE) {
@@ -396,7 +396,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
     }
     base <- if (so_aleat) p else 0L
     if (p && !so_aleat) {
-      XtRX <- crossprod(X, mu * X)
+      XtRX <- xs_gram(X, mu)
       baixo <- which(lower.tri(XtRX, diag = TRUE), arr.ind = TRUE)
       poe(baixo[, 1], baixo[, 2], XtRX[baixo])
     }
@@ -404,9 +404,9 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
       sl <- al$slots[[k]]; o <- offs[k] - base
       g <- al$grupos[[sl$grupo]]
       if (p && !so_aleat) {
-        ZRX <- zt_mat(sl, mu * X)
-        nz <- which(ZRX != 0, arr.ind = TRUE)
-        if (nrow(nz)) poe(o + nz[, 1], nz[, 2], ZRX[nz])
+        ZRX <- xs_zt(sl, X, mu)
+        nz <- ZRX$x != 0
+        if (any(nz)) poe(o + ZRX$i[nz], ZRX$j[nz], ZRX$x[nz])
       }
       bl <- bloco_ztwz(al$slots, pares, k, k, mu, o, o)
       if (!is.null(bl)) poe(bl$i, bl$j, bl$x)
@@ -434,7 +434,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
     lpen <- function(u, r) {
       rh <- exp(r)
       us <- parte(u)
-      eta <- (if (p) drop(X %*% u[seq_len(p)]) else numeric(n)) + z_u_todos(al$slots, us, n)
+      eta <- (if (p) xs_vezes(X, u[seq_len(p)]) else numeric(n)) + z_u_todos(al$slots, us, n)
       L <- sum(qv * (r + rh * s - logt + eta) - exp(eta) * pecas_a(rh)$A)
       for (g in seq_along(al$grupos)) {
         gr <- al$grupos[[g]]
@@ -456,7 +456,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
       eta <- eta_de(u)
       pa <- pecas_a(rh)
       mu <- exp(eta) * pa$A
-      gu <- c(if (p) drop(crossprod(X, qv - mu)) else numeric(0),
+      gu <- c(if (p) xs_t(X, qv - mu) else numeric(0),
               unlist(Map(function(sl, pens) zt_vec(sl, qv - mu) - pens, al$slots,
                          pen_u(al, Gs, parte(u)))))
       C <- monta_h(mu, Gs)
@@ -469,7 +469,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
       if (is.null(rho)) {
         eB <- exp(eta) * pa$B
         g_r <- sum(qv * (1 + pa$rs2)) - sum(eB)
-        hur <- c(if (p) drop(crossprod(X, eB)) else numeric(0),
+        hur <- c(if (p) xs_t(X, eB) else numeric(0),
                  unlist(lapply(al$slots, function(sl) zt_vec(sl, eB))))
         crr <- sum(exp(eta) * pa$Cc) - sum(qv * pa$rs2)
         yv <- sparse_solve(C, hur)
@@ -562,7 +562,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   }
   f <- ajusta(Gs, quente)
 
-  b <- if (p) stats::setNames(f$u[seq_len(p)], colnames(X))
+  b <- if (p) stats::setNames(f$u[seq_len(p)], X$nomes)
        else stats::setNames(numeric(0), character(0))
   rho_est <- exp(f$r)
   lambda_est <- if (est_lam) exp(unname(b["intercept"]) / rho_est) else lambda
@@ -602,7 +602,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
     se = if (estimou) est$se else stats::setNames(rep(NA_real_, al$ntheta), al$nomes_theta),
     vcov = if (estimou) est$vcov,
     b = b,
-    se_b = if (p) stats::setNames(se_tudo[seq_len(p)], colnames(X)) else NULL,
+    se_b = if (p) stats::setNames(se_tudo[seq_len(p)], X$nomes) else NULL,
     dropped_x = fx$dropped,
     ebv = por_grupo(al, parte(f$u)),
     pev = por_grupo(al, parte(se_tudo^2)),

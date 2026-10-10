@@ -69,7 +69,12 @@
 #'   and per trait. The parametrization note of [model()] applies: dropped columns are
 #'   in `dropped_x` and only contrasts compare against a reference-level convention.
 #'   `dense_block`, `h_prior`, `h_prior_row`, `k_prior` and `k_level_type` are as in
-#'   [model()].
+#'   [model()]. `residual`, `fitted`, `fitted_fixed` and `resid_var` (the variance of
+#'   each residual) are matrices with one row per row of `data` and one column per trait,
+#'   `NA` in a missing cell, read by [residuals.breeding_fit()]. They come from one more
+#'   assembly, factorization and selective inverse at the final components, at the end of
+#'   every fit (about the cost of one more REML iteration); if that pass fails, the fit is
+#'   kept with `NA` residuals and the reason in `message`.
 #' @export
 model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                        apy_core = NULL, vecchia_k = NULL, missing_code = NULL,

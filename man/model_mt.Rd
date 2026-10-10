@@ -96,7 +96,12 @@ fixed-effect solutions \code{b} come named \code{term=level|trait}, one entry pe
 and per trait. The parametrization note of \code{\link[=model]{model()}} applies: dropped columns are
 in \code{dropped_x} and only contrasts compare against a reference-level convention.
 \code{dense_block}, \code{h_prior}, \code{h_prior_row}, \code{k_prior} and \code{k_level_type} are as in
-\code{\link[=model]{model()}}.
+\code{\link[=model]{model()}}. \code{residual}, \code{fitted}, \code{fitted_fixed} and \code{resid_var} (the variance of
+each residual) are matrices with one row per row of \code{data} and one column per trait,
+\code{NA} in a missing cell, read by \code{\link[=residuals.breeding_fit]{residuals.breeding_fit()}}. They come from one more
+assembly, factorization and selective inverse at the final components, at the end of
+every fit (about the cost of one more REML iteration); if that pass fails, the fit is
+kept with \code{NA} residuals and the reason in \code{message}.
 }
 \description{
 Fits a multi-trait mixed model by AI-REML

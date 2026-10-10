@@ -4,8 +4,9 @@
 #' genotyped animals, or any dense relationship matrix, end up after the ordering),
 #' factored in tiles of 64 x 64; the inverse of that tail inside the selected inverse; the
 #' columns of A22 (Colleau, 2002) and of the sparse Schur complement in `a22_inverse()`;
-#' the dense inverses of order 256 or more, such as G* and A22 in the single step; and
-#' the products Z Z' of the G of VanRaden and the two of APY.
+#' the dense inverses of order 256 or more, such as G* and A22 in the single step; the
+#' products Z Z' of the G of VanRaden and the two of APY; and the explicit residuals of
+#' the fixed-effect rank (a fixed block of records, or one kept column, per thread).
 #' Each output number is written by one thread only and every sum runs in a fixed order,
 #' so the factor, the -2logL and the solutions are bit for bit the same with 1 thread or
 #' with 16: the number of threads changes the time and nothing else.

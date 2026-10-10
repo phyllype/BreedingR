@@ -213,7 +213,14 @@ ARGS_MARCADOR <- local({
 #'   type of each level by term (`"animal"`, `"subclass"`, `"ancestral"`). In a single step it
 #'   carries `h_prior`, the diagonal of G* of each genotyped animal, named by animal, and
 #'   `h_prior_row`, the row of that animal in the pedigree the fit built: the prior
-#'   variance [accuracy()] uses for a genotyped animal instead of 1 + F. The object holds
+#'   variance [accuracy()] uses for a genotyped animal instead of 1 + F. It also carries
+#'   `genomic`, `list(blend, vecchia_k)` (`vecchia_k = 0` without Vecchia), which with
+#'   `apy`, `metafounders` and `gamma` is what [snp_effects()] reads to rebuild the same
+#'   G*. It carries, one value per row of `data` (`NA` where the record did not enter),
+#'   the conditional residual `residual`, the fitted values `fitted` (`X b + Z u`) and
+#'   `fitted_fixed` (`X b`) and the leverage `leverage`, which [residuals.breeding_fit()]
+#'   and [residual_diagnostics()] read, with `missing_code` and `weights` as given. The
+#'   object holds
 #'   the components `theta` with their `se`,
 #'   the fixed-effect solutions `b` (named `term=level`, in the order the columns of X
 #'   entered), `ebv` and `pev` per covariance group, `score`, `vcov`, the convergence
@@ -221,7 +228,24 @@ ARGS_MARCADOR <- local({
 #'   of the free components at the final point) and `message`. PARAMETRIZATION OF `b`, and it matters when comparing against
 #'   a book or another program: the model carries an implicit intercept and drops
 #'   linearly dependent columns (listed in `dropped_x`; a dropped level has solution
-#'   zero). A program that instead zeroes some other level -- Mrode's examples zero one
+#'   zero). The columns are taken in the order they entered, over the records that enter
+#'   the fit (with `weights`, scaled by the square root of the weight), and a column goes
+#'   when its distance to the span of the columns kept before it is below 1e-9 of its norm
+#'   (1e-9 itself when the norm is below 1), so of a dependent set the LAST column goes:
+#'   the last level of a class against the intercept, a level with no used record, a
+#'   covariate that is a combination of earlier ones. No more columns are kept than there
+#'   are records. The design X is sparse, one entry per record and fixed term, but finding
+#'   its rank keeps a dense triangular factor of p(p + 1)/2 doubles for p kept columns,
+#'   with O(p^3) work in one thread: of the order of 0.4 GB and minutes at 10 000 fixed
+#'   columns. The factor is sized before that work for p = the candidate columns with an
+#'   entry on the used records (or the number of records, if smaller), dependent ones
+#'   included, and the fit stops with a message when that passes 4 GB (fit the largest
+#'   class as random). A column that nearly collinear columns before it span only with
+#'   very large coefficients (x1, a near copy x2 = x1 + 1e-8 z, then x1 + 1e8 (x2 - x1))
+#'   sends the rank to a dense check of up to 8 x records x columns bytes and O(n p^2)
+#'   work in one thread, which also stops with a message above 4 GB; dropping the near
+#'   copy avoids it. Unscaled polynomial covariates, or near copies on their own, stay on
+#'   the sparse route. A program that instead zeroes some other level -- Mrode's examples zero one
 #'   level per factor and fit no intercept -- agrees with `b` only on CONTRASTS,
 #'   differences between levels of the same factor, never on the raw values.
 #' @references Patterson, H.D. & Thompson, R. (1971). Recovery of inter-block
@@ -315,6 +339,15 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # if it were tolerated the F would come back on the gamma = 0 base.
   r$metafounders <- metafounders
   r$gamma <- gamma
+  # o codigo de ausente e os pesos (o vetor ja validado): residual_diagnostics() remonta o
+  # MESMO desenho para o bootstrap, e residuals() padroniza por sqrt(w)
+  r$missing_code <- missing_code
+  r$weights <- if (length(w)) w else NULL
+  # o passo unico que o ajuste montou (a mistura e o k de Vecchia; o nucleo APY ja esta em
+  # fit$apy): snp_effects() le daqui para retro-calcular com a MESMA G*
+  if (length(g$gid))
+    r$genomic <- list(blend = as.double(blend),
+                      vecchia_k = if (is.null(vecchia_k)) 0L else as.integer(vecchia_k))
   r$formula <- formula_resolvida(formula, terms)
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
@@ -381,6 +414,14 @@ valida_genotipos <- function(genotypes) {
     if (is.logical(gm)) storage.mode(gm) <- "integer"
     if (!(is.double(gm) || is.integer(gm) || is.raw(gm)))
       stop("genotypes$m must be a double, integer or raw matrix")
+    # uma linha por id: sem isso genomic_inbreeding() com menos ids que linhas devolvia F com
+    # os nomes deslocados (cada F rotulado com outro animal), apy_core_select() escolhia um
+    # nucleo da lista desencontrada, e as outras paravam com mensagens do R base
+    # (non-conformable, dimnames) que nao diziam o que estava errado; h_inverse() e model() ja
+    # recusavam, com outra mensagem
+    if (nrow(gm) != length(genotypes$ids))
+      stop("genotypes$ids has ", length(genotypes$ids), " identifier(s) for ", nrow(gm),
+           " row(s) of genotypes$m: give one identifier per row")
     fora <- .Call(R_confere_genotipos, gm)
     if (fora > 0) stop(format(fora, scientific = FALSE), " genotype value(s) outside 0, 1, 2 and NA",
                        if (is.raw(gm)) " (5 in a raw matrix)", ". An unknown ",
@@ -391,9 +432,9 @@ valida_genotipos <- function(genotypes) {
   list(gid = gid, gm = gm)
 }
 
-# Para as contas feitas em R (D genomica, F genomico, Gamma, efeitos de SNP, Fst, ROH e o
-# controle de qualidade): a matriz raw vira integer com NA no 5; double e integer passam como
-# estao.
+# Para as contas que ainda sao feitas em R (Fst, ROH e o controle de qualidade; D e F
+# genomicos, Gamma e efeitos de SNP leem a matriz no C++): a matriz raw vira integer com NA no
+# 5; double e integer passam como estao.
 genotipos_numericos <- function(gm) {
   if (!is.raw(gm)) return(gm)
   x <- as.integer(gm)

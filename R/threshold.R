@@ -410,14 +410,105 @@ tri_matvec <- function(i, j, x, v) {
   out
 }
 
-# The fixed design of the threshold family. No implicit intercept: in the ordinal
+# ------------------------------------------------------------------ the sparse X
+#
+# O X dos efeitos fixos do limiar e da sobrevivencia e ESPARSO: um bloco por termo, com a
+# coluna de cada linha (0 = sem entrada: o nivel de referencia, ou uma coluna que caiu no
+# posto) e o valor. Cada termo poe no maximo um nao-zero por linha e os blocos seguem a ordem
+# das colunas. Antes ele era a matriz densa n x p, com mais uma copia no qr() do posto e outra
+# em cada w * X de cada iteracao: a 200 mil registros e 700 colunas, 1,1 GB por copia.
+#
+# As contas somam na MESMA ordem do X denso de antes: o crossprod() e o %*% do R vao ao BLAS de
+# referencia que vem com ele, que soma linha a linha (dgemv e dgemm acumulam
+# TEMP + A(L,I) * B(L,J) em L crescente), e o rowsum() tambem; os produtos sao os mesmos
+# (x_r (w x_c), b_j x). Entao o sistema montado e o mesmo bit a bit com esse BLAS (com um BLAS
+# otimizado o denso ja somava em outra ordem).
+
+# X b
+xs_vezes <- function(xs, b) {
+  y <- numeric(xs$n)
+  for (bl in xs$blocos) {
+    f <- bl$col > 0L
+    y[f] <- y[f] + b[bl$col[f]] * bl$val[f]
+  }
+  y
+}
+
+# X' v (v vetor de n) ou X' M (M de n linhas)
+xs_t <- function(xs, v) {
+  mat <- is.matrix(v)
+  out <- if (mat) matrix(0, xs$p, ncol(v)) else numeric(xs$p)
+  for (bl in xs$blocos) {
+    f <- bl$col > 0L
+    if (!any(f)) next
+    s <- rowsum(if (mat) bl$val[f] * v[f, , drop = FALSE] else bl$val[f] * v[f], bl$col[f])
+    if (mat) out[as.integer(rownames(s)), ] <- s else out[as.integer(rownames(s))] <- s[, 1]
+  }
+  out
+}
+
+# X' diag(w) X (w NULL: X'X) em p x p, so o triangulo de baixo (o de cima fica zero, e e o de
+# baixo que o sistema le): a entrada (r, c), r >= c, soma x_r (w x_c) linha a linha. Dois
+# blocos so se cruzam fora da diagonal; dentro de um bloco so a diagonal tem entrada.
+xs_gram <- function(xs, w = NULL) {
+  out <- matrix(0, xs$p, xs$p)
+  for (s in seq_along(xs$blocos)) for (t in seq_len(s)) {
+    a <- xs$blocos[[s]]
+    b <- xs$blocos[[t]]
+    f <- a$col > 0L & b$col > 0L
+    if (!any(f)) next
+    sp <- soma_por_par(if (is.null(w)) a$val[f] * b$val[f] else a$val[f] * (w[f] * b$val[f]),
+                       a$col[f], b$col[f])
+    out[cbind(sp$i, sp$j)] <- sp$x
+  }
+  out
+}
+
+# Z' diag(w) X de um termo aleatorio (w NULL: Z'X), nos triplos dos nao-zeros (i = nivel,
+# j = coluna de X): o zt_mat(sl, w * X) de antes sem a matriz densa q x p. Com indice (um
+# nivel por linha) soma w x por (nivel, coluna) na ordem das linhas; com triplos (o termo
+# social) soma v (w x) na ordem dos triplos, como o rowsum() do zt_mat().
+xs_zt <- function(sl, xs, w = NULL) {
+  ii <- list(); jj <- list(); xx <- list()
+  for (bl in xs$blocos) {
+    if (!is.null(sl$idx)) {
+      f <- bl$col > 0L
+      if (!any(f)) next
+      sp <- soma_por_par(if (is.null(w)) bl$val[f] else w[f] * bl$val[f], sl$idx[f], bl$col[f])
+    } else {
+      cr <- bl$col[sl$r]
+      f <- cr > 0L
+      if (!any(f)) next
+      r <- sl$r[f]
+      sp <- soma_por_par(sl$v[f] * (if (is.null(w)) bl$val[r] else w[r] * bl$val[r]),
+                         sl$c[f], cr[f])
+    }
+    k <- length(ii) + 1L
+    ii[[k]] <- sp$i; jj[[k]] <- sp$j; xx[[k]] <- sp$x
+  }
+  list(i = as.integer(unlist(ii)), j = as.integer(unlist(jj)), x = as.double(unlist(xx)))
+}
+
+# um intercepto na frente das colunas de X
+xs_com_intercepto <- function(xs) {
+  list(n = xs$n, p = xs$p + 1L, nomes = c("intercept", xs$nomes),
+       blocos = c(list(list(col = rep(1L, xs$n), val = rep(1, xs$n))),
+                  lapply(xs$blocos, function(bl)
+                    list(col = ifelse(bl$col > 0L, bl$col + 1L, 0L), val = bl$val))))
+}
+
+# The fixed design of the threshold family, sparse. No implicit intercept: in the ordinal
 # mode the thresholds absorb it and the FIRST level of every class factor is dropped;
 # in the joint mode the first class factor keeps all its levels (it carries the
-# quantitative intercept) and the later ones drop their first. Linear dependence
-# beyond that is removed by pivoted QR and reported, as in model().
+# quantitative intercept) and the later ones drop their first. Linear dependence beyond
+# that is removed and reported, as in model(), with the criterion of the pivoted QR this
+# used before (qr(), the LINPACK dqrdc2 of R: a column goes when its distance to the
+# columns kept before it falls below 1e-7 of its norm), from the sparse rank of the engine
+# (posto_esparso, src/fixos.cpp).
 monta_x_limiar <- function(terms, data, keep, primeiro_cheio) {
   fixos <- Filter(function(tm) tm$estrutura == 0L, terms)
-  cols <- list(); info <- list()
+  n <- sum(keep)
+  blocos <- list(); nomes <- character(0); info <- list()
   primeiro <- TRUE
   for (tm in fixos) {
     col <- data[[tm$column]][keep]
@@ -425,7 +516,8 @@ monta_x_limiar <- function(terms, data, keep, primeiro_cheio) {
       v <- as.double(col)
       if (any(!is.finite(v)))
         stop("missing or non-finite value(s) in covariate '", tm$column, "'")
-      cols[[tm$nome]] <- v
+      nomes <- c(nomes, tm$nome)
+      blocos[[length(blocos) + 1L]] <- list(col = rep(length(nomes), n), val = v)
       info[[length(info) + 1L]] <- list(nome = tm$nome, column = tm$column,
                                         covariavel = TRUE, niveis = character(0))
     } else {
@@ -433,31 +525,40 @@ monta_x_limiar <- function(terms, data, keep, primeiro_cheio) {
       lv <- if (is.factor(col)) levels(droplevels(col)) else sort(unique(valores))
       if (anyNA(valores)) stop("missing value(s) in fixed effect '", tm$column, "'")
       fica <- if (primeiro_cheio && primeiro) lv else lv[-1]
-      for (l in fica) cols[[paste0(tm$nome, "=", l)]] <- as.numeric(valores == l)
+      if (length(fica)) {
+        k <- match(valores, fica)
+        blocos[[length(blocos) + 1L]] <- list(col = ifelse(is.na(k), 0L, length(nomes) + k),
+                                              val = rep(1, n))
+        nomes <- c(nomes, paste0(tm$nome, "=", fica))
+      }
       info[[length(info) + 1L]] <- list(nome = tm$nome, column = tm$column,
                                         covariavel = FALSE, niveis = lv)
       primeiro <- FALSE
     }
   }
-  n <- sum(keep)
-  X <- if (length(cols)) do.call(cbind, cols) else matrix(0, n, 0)
+  X <- list(n = n, p = length(nomes), nomes = nomes, blocos = blocos)
   if (primeiro_cheio && !length(Filter(function(tm) !tm$covariavel, fixos))) {
     # joint mode with no class factor: the quantitative trait still needs a mean
-    X <- cbind(intercept = 1, X)
+    X <- xs_com_intercepto(X)
     info[[length(info) + 1L]] <- list(nome = "intercept", column = "",
                                       covariavel = TRUE, niveis = character(0))
   }
   dropped <- character(0)
-  if (ncol(X)) {
-    M <- if (primeiro_cheio) X else cbind(1, X)   # the constant stands for the thresholds
-    qx <- qr(M)
-    fica <- sort(qx$pivot[seq_len(qx$rank)])
-    idx_x <- if (primeiro_cheio) seq_len(ncol(X)) else seq_len(ncol(X)) + 1L
-    fora <- setdiff(idx_x, fica)
+  if (X$p) {
+    # the constant stands for the thresholds in the ordinal mode
+    M <- if (primeiro_cheio) X else xs_com_intercepto(X)
+    fica <- .Call(R_posto_blocos, lapply(M$blocos, function(bl) as.integer(bl$col)),
+                  lapply(M$blocos, function(bl) as.double(bl$val)), n, M$p, 1e-7, TRUE)
+    if (!primeiro_cheio) fica <- fica[fica > 1L] - 1L
+    fora <- setdiff(seq_len(X$p), fica)
     if (length(fora)) {
-      dropped <- colnames(X)[fora - if (primeiro_cheio) 0L else 1L]
-      X <- X[, setdiff(seq_len(ncol(X)),
-                       fora - if (primeiro_cheio) 0L else 1L), drop = FALSE]
+      dropped <- X$nomes[fora]
+      novo <- integer(X$p)
+      novo[fica] <- seq_along(fica)
+      X$blocos <- Filter(function(bl) any(bl$col > 0L), lapply(X$blocos, function(bl)
+        list(col = ifelse(bl$col > 0L, novo[pmax(bl$col, 1L)], 0L), val = bl$val)))
+      X$nomes <- X$nomes[fica]
+      X$p <- length(fica)
     }
   }
   list(X = X, dropped = dropped, info = info)
@@ -574,7 +675,7 @@ prepara_limiar <- function(formula, trait, terms, aleat, data, pedigree, k_inver
 
   fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = FALSE)
   al <- prepara_aleatorios(aleat, data, pedigree, k_inverse, keep)
-  n <- length(codes); nt <- m - 1L; p <- ncol(fx$X)
+  n <- length(codes); nt <- m - 1L; p <- fx$X$p
   qs <- vapply(al$slots, function(sl) sl$q, integer(1))
   tvec <- if (is.null(thresholds_start)) stats::qnorm(cumsum(contagem)[1:nt] / n)
           else as.double(thresholds_start)
@@ -604,9 +705,9 @@ sistema_limiar <- function(pr, Gs, gf, us) {
   for (k in seq_len(nt)) poe(k, k, gf$Q[k, k])
   if (nt > 1L) for (k in seq_len(nt - 1L)) poe(k + 1L, k, gf$Q[k + 1L, k])
   if (p) {
-    XtL <- crossprod(X, gf$L)                       # p x nt, rows below the Q block
+    XtL <- xs_t(X, gf$L)                            # p x nt, rows below the Q block
     poe(rep(nt + seq_len(p), nt), rep(seq_len(nt), each = p), as.vector(XtL))
-    XtWX <- crossprod(X, gf$w * X)
+    XtWX <- xs_gram(X, gf$w)
     baixo <- which(lower.tri(XtWX, diag = TRUE), arr.ind = TRUE)
     poe(nt + baixo[, 1], nt + baixo[, 2], XtWX[baixo])
   }
@@ -617,9 +718,9 @@ sistema_limiar <- function(pr, Gs, gf, us) {
     nz <- which(ZL != 0, arr.ind = TRUE)
     if (nrow(nz)) poe(o + nz[, 1], nz[, 2], ZL[nz])
     if (p) {
-      ZWX <- zt_mat(sl, gf$w * X)
-      nz <- which(ZWX != 0, arr.ind = TRUE)
-      if (nrow(nz)) poe(o + nz[, 1], nt + nz[, 2], ZWX[nz])
+      ZWX <- xs_zt(sl, X, gf$w)
+      nz <- ZWX$x != 0
+      if (any(nz)) poe(o + ZWX$i[nz], nt + ZWX$j[nz], ZWX$x[nz])
     }
     bl <- bloco_ztwz(al$slots, pr$pares, s, s, gf$w, o, o)
     if (!is.null(bl)) poe(bl$i, bl$j, bl$x)
@@ -635,7 +736,7 @@ sistema_limiar <- function(pr, Gs, gf, us) {
   }
   pu <- pen_u(al, Gs, us)
   rhs <- c(gf$p,
-           if (p) drop(crossprod(X, gf$v)) else numeric(0),
+           if (p) xs_t(X, gf$v) else numeric(0),
            unlist(Map(function(sl, pens) zt_vec(sl, gf$v) - pens, al$slots, pu)))
   list(monta = list(i = unlist(ti), j = unlist(tj), x = unlist(tx), n = pr$N), rhs = rhs)
 }
@@ -652,7 +753,7 @@ ajusta_limiar_ordinal <- function(pr, Gs, maxiter, tol, verbose, warm = NULL, pe
   # partida quente: a estimacao dos componentes resolve o sistema muitas vezes com
   # variancias vizinhas, e recomecar do zero a cada vez so gasta iteracoes
   if (!is.null(warm)) { tvec <- warm$tvec; b <- warm$b; us <- warm$us }
-  eta <- function(b, us) (if (p) drop(X %*% b) else numeric(n)) + z_u_todos(al$slots, us, n)
+  eta <- function(b, us) (if (p) xs_vezes(X, b) else numeric(n)) + z_u_todos(al$slots, us, n)
 
   it <- 0L; crit <- Inf
   while (crit > tol && it < maxiter) {
@@ -711,8 +812,8 @@ ajusta_limiar_ordinal <- function(pr, Gs, maxiter, tol, verbose, warm = NULL, pe
     se_thresholds = stats::setNames(se_tudo[seq_len(nt)], paste0("t", seq_len(nt))),
     theta = theta,
     se = stats::setNames(rep(NA_real_, length(theta)), nomes_theta),
-    b = if (p) stats::setNames(b, colnames(X)) else stats::setNames(numeric(0), character(0)),
-    se_b = if (p) stats::setNames(se_tudo[nt + seq_len(p)], colnames(X)) else NULL,
+    b = if (p) stats::setNames(b, X$nomes) else stats::setNames(numeric(0), character(0)),
+    se_b = if (p) stats::setNames(se_tudo[nt + seq_len(p)], X$nomes) else NULL,
     dropped_x = pr$fx$dropped,
     ebv = ebv_, pev = pev_,
     converged = crit <= tol, iters = it, reldelta = crit,
@@ -764,7 +865,7 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
   n <- length(y1)
 
   fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = TRUE)
-  X <- fx$X; nb <- ncol(X)
+  X <- fx$X; nb <- X$p
   z <- monta_z_limiar(aleat, data, pedigree, k_inverse, keep)[[1]]
   q <- z$q
 
@@ -797,17 +898,18 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
       poe(oi + b_[, 1], oj + b_[, 2], M[b_])
     }
     # quantitative block, Eqn 15.17
-    baixo_de(crossprod(X) / R[1, 1], 0L, 0L)
-    ZX <- soma_por_nivel(X, z$idx, q) / R[1, 1]
-    nz <- which(ZX != 0, arr.ind = TRUE)
-    if (nrow(nz)) poe(o2 + nz[, 1], nz[, 2], ZX[nz])
+    baixo_de(xs_gram(X) / R[1, 1], 0L, 0L)
+    ZX <- xs_zt(z, X)
+    zx <- ZX$x / R[1, 1]
+    nz <- zx != 0
+    if (any(nz)) poe(o2 + ZX$i[nz], ZX$j[nz], zx[nz])
     poe(o2 + seq_len(q), o2 + seq_len(q), soma_por_nivel(rep(1, n), z$idx, q) / R[1, 1])
     poe(o2 + z$pi, o2 + z$pj, z$px * Gci[1, 1])
     # threshold block
-    baixo_de(crossprod(X, wvec * X), o3, o3)
-    ZWX <- soma_por_nivel(wvec * X, z$idx, q)
-    nz <- which(ZWX != 0, arr.ind = TRUE)
-    if (nrow(nz)) poe(o4 + nz[, 1], o3 + nz[, 2], ZWX[nz])
+    baixo_de(xs_gram(X, wvec), o3, o3)
+    ZWX <- xs_zt(z, X, wvec)
+    nz <- ZWX$x != 0
+    if (any(nz)) poe(o4 + ZWX$i[nz], o3 + ZWX$j[nz], ZWX$x[nz])
     poe(o4 + seq_len(q), o4 + seq_len(q), soma_por_nivel(wvec, z$idx, q))
     poe(o4 + z$pi, o4 + z$pj, z$px * Gci[2, 2])
     # the genetic coupling between the two liabilities: the FULL A^-1 * gc12 block
@@ -815,10 +917,10 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
     if (any(fora_diag))
       poe(o4 + z$pj[fora_diag], o2 + z$pi[fora_diag], z$px[fora_diag] * Gci[1, 2])
 
-    rhs <- c(drop(crossprod(X, y1)) / R[1, 1],
+    rhs <- c(xs_t(X, y1) / R[1, 1],
              soma_por_nivel(y1, z$idx, q) / R[1, 1] -
                Gci[1, 2] * tri_matvec(z$pi, z$pj, z$px, nu),
-             drop(crossprod(X, qvec)),
+             xs_t(X, qvec),
              soma_por_nivel(qvec, z$idx, q) -
                Gci[2, 2] * tri_matvec(z$pi, z$pj, z$px, nu))
     monta <- list(i = unlist(ti), j = unlist(tj), x = unlist(tx), n = N)
@@ -835,7 +937,7 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
     if (isTRUE(verbose)) cat(sprintf("it %d  relDelta %.3e\n", it, crit))
 
     # Eqns 15.18-15.19 and 15.24: the working variate and weights for the next round
-    mlin <- drop(X %*% tt) + nu[z$idx] + breg * y1c
+    mlin <- xs_vezes(X, tt) + nu[z$idx] + breg * y1c
     P1 <- pmin(pmax(stats::pnorm(mlin), 1e-12), 1 - 1e-12)
     d1 <- -stats::dnorm(mlin) / P1
     d2 <- stats::dnorm(mlin) / (1 - P1)
@@ -873,8 +975,8 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
     traits = traits, trait = paste(traits, collapse = ", "),
     theta = theta,
     se = stats::setNames(rep(NA_real_, 6L), nomes_theta),
-    b = c(stats::setNames(b1, paste0(colnames(X), "|", traits[1])),
-          stats::setNames(tt, paste0(colnames(X), "|", traits[2]))),
+    b = c(stats::setNames(b1, paste0(X$nomes, "|", traits[1])),
+          stats::setNames(tt, paste0(X$nomes, "|", traits[2]))),
     dropped_x = fx$dropped,
     ebv = stats::setNames(list(c(stats::setNames(u1, paste0(z$ids, "|", traits[1])),
                                  stats::setNames(u2, paste0(z$ids, "|", traits[2])))),

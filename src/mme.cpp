@@ -557,14 +557,13 @@ Montado monta_mme(const Desenho& d, const std::vector<double>& theta, CacheSimbo
   std::vector<double> tv;
   if (pronto) {
     M.rhs.assign(M.total, 0.0);
-    for (std::size_t j = 0; j < d.x.ncol; j++) {
-      double s = 0.0;
-      for (std::size_t r = 0; r < d.nlin; r++) {
-        if (!d.usa[r]) continue;
-        const double v = d.x.at(r, j);
-        if (v != 0.0) s += v * d.y[r];
+    // X'y por linhas: cada entrada soma os registros na mesma ordem crescente de antes
+    for (std::size_t r = 0; r < d.nlin; r++) {
+      if (!d.usa[r]) continue;
+      for (std::size_t e = d.x.linptr[r]; e < d.x.linptr[r + 1]; e++) {
+        const double v = d.x.valor[e];
+        if (v != 0.0) M.rhs[d.x.coluna[e]] += v * d.y[r];
       }
-      M.rhs[j] = s;
     }
     for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
       std::size_t col = M.offset_grupo[g];
@@ -603,9 +602,9 @@ Montado monta_mme(const Desenho& d, const std::vector<double>& theta, CacheSimbo
     for (std::size_t r = 0; r < d.nlin; r++) {
       if (!d.usa[r]) continue;
       lin.clear();
-      for (std::size_t j = 0; j < d.x.ncol; j++) {
-        const double v = d.x.at(r, j);
-        if (v != 0.0) lin.push_back({static_cast<std::uint32_t>(j), v});
+      for (std::size_t e = d.x.linptr[r]; e < d.x.linptr[r + 1]; e++) {
+        const double v = d.x.valor[e];
+        if (v != 0.0) lin.push_back({d.x.coluna[e], v});
       }
       for (std::size_t g = 0; g < slots.size(); g++)
         for (const auto& [a, col0] : slots[g])
@@ -837,7 +836,7 @@ double neg2logl_densa_V(const Desenho& d, const std::vector<double>& theta) {
   std::vector<double> y(n);
   for (std::size_t r = 0; r < n; r++) {
     y[r] = d.y[linhas[r]];
-    for (std::size_t c = 0; c < p; c++) X.at(r, c) = d.x.at(linhas[r], c);
+    linha_densa(d.x, linhas[r], X.linha(r));
   }
 
   // X' M^-1 X e X' M^-1 y
@@ -937,23 +936,8 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
     }
   }
 
-  // X: intercepto + termos fixos expandidos, depois posto completo
-  std::vector<std::pair<std::string, std::vector<double>>> cols;
-  cols.push_back({"intercept", std::vector<double>(d.nlin, 1.0)});
-  for (std::size_t k = 0; k < m.termos.size(); k++) {
-    if (m.termos[k].aleatorio()) continue;
-    DesenhoTermo dt = monta_termo(m, k, t, nullptr);
-    Densa zd = dt.z.densa();
-    for (std::size_t j = 0; j < dt.z.ncol; j++) {
-      std::vector<double> v(d.nlin);
-      for (std::size_t i = 0; i < d.nlin; i++) v[i] = zd.at(i, j);
-      cols.push_back({dt.nome + "=" + dt.niveis[j % std::max<std::size_t>(dt.n_niveis, 1)],
-                      std::move(v)});
-    }
-  }
-  Densa xfull(d.nlin, cols.size());
-  for (std::size_t j = 0; j < cols.size(); j++)
-    for (std::size_t i = 0; i < d.nlin; i++) xfull.at(i, j) = cols[j].second[i];
+  // X: intercepto + termos fixos expandidos, ESPARSO (fixos.cpp), depois posto completo
+  FixosCandidatos fx = colunas_fixas(m, t);
 
   // aleatorios, com niveis do pedigree quando ha parentesco, da K quando declarada e da
   // uniao das colunas num grupo sem estrutura de varios termos: todo nivel do conjunto
@@ -998,16 +982,19 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
         throw Erro("weight that is not finite and positive at row " + std::to_string(i + 1));
       d.logdet_peso += std::log(w);
     }
-    for (std::size_t i = 0; i < d.nlin; i++) {
-      const double r = d.usa[i] ? std::sqrt((*peso)[i]) : 1.0;
-      if (r == 1.0) continue;
-      d.y[i] *= r;
-      for (std::size_t j = 0; j < xfull.ncol; j++) xfull.at(i, j) *= r;
-      for (DesenhoTermo& a : d.aleatorios)
-        for (std::size_t c = 0; c < a.z.ncol; c++)
-          for (std::size_t k = a.z.colptr[c]; k < a.z.colptr[c + 1]; k++)
-            if (a.z.linha[k] == i) a.z.valor[k] *= r;
-    }
+    // a raiz de cada linha, e cada entrada de y, X e Z multiplicada pela da sua linha numa
+    // passada so. A versao anterior varria todas as entradas de cada Z por LINHA pesada, O(n
+    // nnz(Z)); a conta de cada entrada e a mesma (uma multiplicacao pela mesma raiz).
+    std::vector<double> raiz(d.nlin, 1.0);
+    for (std::size_t i = 0; i < d.nlin; i++)
+      if (d.usa[i]) raiz[i] = std::sqrt((*peso)[i]);
+    for (std::size_t i = 0; i < d.nlin; i++)
+      if (raiz[i] != 1.0) d.y[i] *= raiz[i];
+    for (std::size_t k = 0; k < fx.x.nnz(); k++)
+      if (raiz[fx.x.linha[k]] != 1.0) fx.x.valor[k] *= raiz[fx.x.linha[k]];
+    for (DesenhoTermo& a : d.aleatorios)
+      for (std::size_t k = 0; k < a.z.nnz(); k++)
+        if (raiz[a.z.linha[k]] != 1.0) a.z.valor[k] *= raiz[a.z.linha[k]];
   }
 
   // POSTO DE X SOBRE AS LINHAS QUE ENTRAM, nao sobre a tabela inteira.
@@ -1020,20 +1007,11 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
   // avaliacao sem theta, e a travessia ainda tentava montar as MME com esse theta vazio.
   // Medindo o posto onde o modelo de fato vive, a coluna sai como dependente e e
   // REPORTADA em dropped_x, que e o comportamento correto e visivel.
-  std::vector<std::size_t> usadas;
-  usadas.reserve(d.n_usadas());
-  for (std::size_t i = 0; i < d.nlin; i++) if (d.usa[i]) usadas.push_back(i);
-  Densa xusadas(usadas.size(), cols.size());
-  for (std::size_t r = 0; r < usadas.size(); r++)
-    for (std::size_t j = 0; j < cols.size(); j++) xusadas.at(r, j) = xfull.at(usadas[r], j);
   std::vector<std::size_t> fica, sai;
-  posto_completo(xusadas, 1e-9, fica, sai);
-  d.x = Densa(d.nlin, fica.size());
-  for (std::size_t jj = 0; jj < fica.size(); jj++) {
-    d.nomes_x.push_back(cols[fica[jj]].first);
-    for (std::size_t i = 0; i < d.nlin; i++) d.x.at(i, jj) = xfull.at(i, fica[jj]);
-  }
-  for (std::size_t j : sai) d.saiu_x.push_back(cols[j].first);
+  posto_esparso(fx.x, d.usa, 1e-9, fica, sai, false, nullptr, &fx.nomes);
+  d.x = fixas_por_linha(fx.x, fica);
+  for (std::size_t j : fica) d.nomes_x.push_back(fx.nomes[j]);
+  for (std::size_t j : sai) d.saiu_x.push_back(fx.nomes[j]);
   return d;
 }
 

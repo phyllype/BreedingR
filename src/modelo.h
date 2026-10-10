@@ -172,9 +172,51 @@ struct DesenhoTermo {
 DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
                          const std::vector<std::string>* niveis_fixos);
 
-// Colunas de posto completo, por Gram-Schmidt modificado. Devolve as que ficam e as que saem.
+// Colunas de posto completo, por Gram-Schmidt modificado DENSO. Devolve as que ficam e as que
+// saem. E a referencia do posto esparso (o portao de R_posto_fixo): os desenhos ja nao a
+// usam, porque pede o X denso e guarda cada coluna ortogonalizada como um vetor de n, O(n p^2).
+// A rota densa de reserva de posto_esparso faz a mesma conta sem o X denso.
 void posto_completo(const Densa& x, double tol, std::vector<std::size_t>& fica,
                     std::vector<std::size_t>& sai);
+
+// ---- fixos.cpp: o desenho dos efeitos fixos, ESPARSO
+// As colunas candidatas de X: o intercepto e cada termo fixo expandido, na ordem do modelo,
+// com os nomes "termo=nivel". Por coluna (CSC nlin x p), com os MESMOS nao-zeros do desenho
+// denso de antes: uma classe poe um 1 por linha, a covariavel aninhada o valor no nivel da
+// linha, a covariavel simples os seus valores nao nulos (um NaN incluido: o posto o derruba).
+struct FixosCandidatos {
+  Csc x;
+  std::vector<std::string> nomes;
+};
+FixosCandidatos colunas_fixas(const Modelo& m, const Tabela& t);
+// As colunas de posto completo sobre as linhas ativas, na ordem dada: a coluna j fica quando
+// a distancia dela ao espaco das que ficaram antes passa de tol * max(||x_j||, 1), o criterio
+// do Gram-Schmidt de antes (posto_completo), entao a coluna que sai de um conjunto dependente
+// e a ULTIMA dele, e o posto nunca passa do numero de linhas ativas. A distancia sai da
+// Cholesky de X'X na ordem das colunas quando ela e confiavel, e do residuo EXPLICITO
+// x_j - X_K c pelas equacoes semi-normais corrigidas (Bjorck 1987) quando nao e, com cada
+// decisao certificada; se uma nao se certifica (desenho numericamente quase singular), o posto
+// inteiro sai do Gram-Schmidt denso de antes, montado coluna a coluna (ver fixos.cpp).
+// relativo = true troca o limiar por tol * ||x_j||, o criterio do QR com pivo limitado do R
+// (dqrdc2, o qr() padrao) que os ajustadores do limiar e da sobrevivencia usavam. info, se
+// dado, recebe por qual rota as colunas foram decididas; nomes da o nome da coluna a mensagem.
+struct PostoInfo {
+  std::size_t rapidas = 0;      // decididas pela Cholesky
+  std::size_t explicitas = 0;   // decididas pelo residuo explicito
+  std::size_t correcoes = 0;    // correcoes das equacoes semi-normais, no todo
+  bool densa = false;           // o posto saiu da rota densa de reserva
+  std::size_t coluna_densa = 0; // a coluna que a rota esparsa nao certificou
+};
+void posto_esparso(const Csc& x, const std::vector<char>& ativa, double tol,
+                   std::vector<std::size_t>& fica, std::vector<std::size_t>& sai,
+                   bool relativo = false, PostoInfo* info = nullptr,
+                   const std::vector<std::string>* nomes = nullptr);
+// X so com as colunas que ficam, por linhas (a forma que os desenhos guardam)
+Csr fixas_por_linha(const Csc& x, const std::vector<std::size_t>& fica);
+// a mesma matriz por colunas, para o posto por caracteristica dos desenhos multicaracter
+Csc fixas_por_coluna(const Csr& x);
+// uma linha de X em denso, para as rotas de referencia pela forma V
+void linha_densa(const Csr& x, std::size_t i, double* out);
 
 }  // namespace br
 

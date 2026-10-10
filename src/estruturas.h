@@ -101,6 +101,18 @@ struct Csc {
   }
 };
 
+// Compressed Sparse Row, com as colunas CRESCENTES dentro de cada linha. E a forma do desenho
+// dos efeitos fixos: todo consumidor dele anda por registro (a montagem das MME, o residuo, o
+// escore), e uma linha de X tem um nao-zero por termo fixo, nao um por coluna.
+struct Csr {
+  std::size_t nlin = 0, ncol = 0;
+  std::vector<std::size_t> linptr;   // nlin + 1
+  std::vector<std::uint32_t> coluna;
+  std::vector<double> valor;
+
+  std::size_t nnz() const { return valor.size(); }
+};
+
 // Constroi a CSC a partir de triplos, SOMANDO duplicados.
 //
 // Somar e obrigatorio e nao conveniencia: o A^-1 de Henderson escreve varias vezes na mesma

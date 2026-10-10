@@ -157,8 +157,9 @@ MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
     if (!d.usa[r]) continue;
     lin.clear();
     // X: coluna j da caracteristica tau fica em j*t + tau
-    for (std::size_t j = 0; j < d.x.ncol; j++) {
-      const double v = d.x.at(r, j);
+    for (std::size_t ex = d.x.linptr[r]; ex < d.x.linptr[r + 1]; ex++) {
+      const std::size_t j = d.x.coluna[ex];
+      const double v = d.x.valor[ex];
       if (v == 0.0) continue;
       for (std::size_t tau = 0; tau < t; tau++) {
         const int e = d.eq_fixa[j * t + tau];
@@ -305,9 +306,9 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
       if (!d.usa[r]) continue;
       for (std::size_t tau = 0; tau < t; tau++) {
         double wb = 0.0;
-        for (std::size_t j = 0; j < d.x.ncol; j++) {
-          const int e = d.eq_fixa[j * t + tau];
-          if (e >= 0) wb += d.x.at(r, j) * A.solucao[e];
+        for (std::size_t ex = d.x.linptr[r]; ex < d.x.linptr[r + 1]; ex++) {
+          const int e = d.eq_fixa[d.x.coluna[ex] * t + tau];
+          if (e >= 0) wb += d.x.valor[ex] * A.solucao[e];
         }
         ehat.at(r, tau) = d.y.at(r, tau) - wb;
       }
@@ -543,8 +544,9 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
     for (std::size_t r = 0; r < d.nlin; r++) {
       if (!d.usa[r]) continue;
       lin.clear();
-      for (std::size_t j = 0; j < d.x.ncol; j++) {
-        const double v = d.x.at(r, j);
+      for (std::size_t ex = d.x.linptr[r]; ex < d.x.linptr[r + 1]; ex++) {
+        const std::size_t j = d.x.coluna[ex];
+        const double v = d.x.valor[ex];
         if (v == 0.0) continue;
         for (std::size_t tau = 0; tau < t; tau++) {
           const int e = d.eq_fixa[j * t + tau];
@@ -684,8 +686,9 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
       for (std::size_t r = 0; r < nlin; r++) {
         if (!d.usa[r]) continue;
         lin.clear();
-        for (std::size_t j = 0; j < d.x.ncol; j++) {
-          const double v = d.x.at(r, j);
+        for (std::size_t ex = d.x.linptr[r]; ex < d.x.linptr[r + 1]; ex++) {
+          const std::size_t j = d.x.coluna[ex];
+          const double v = d.x.valor[ex];
           if (v == 0.0) continue;
           for (std::size_t tau = 0; tau < t; tau++) {
             const int e = d.eq_fixa[j * t + tau];
@@ -841,9 +844,9 @@ double neg2logl_densa_V_mt(const DesenhoMT& d, const std::vector<double>& theta)
   for (std::size_t q = 0; q < N; q++) {
     const std::size_t r = obs[q].first, tau = obs[q].second;
     y[q] = d.y.at(r, tau);
-    for (std::size_t j = 0; j < d.x.ncol; j++) {
-      const int e = d.eq_fixa[j * t + tau];
-      if (e >= 0) X.at(q, e) = d.x.at(r, j);
+    for (std::size_t ex = d.x.linptr[r]; ex < d.x.linptr[r + 1]; ex++) {
+      const int e = d.eq_fixa[d.x.coluna[ex] * t + tau];
+      if (e >= 0) X.at(q, e) = d.x.valor[ex];
     }
   }
 
@@ -879,6 +882,108 @@ double neg2logl_densa_V_mt(const DesenhoMT& d, const std::vector<double>& theta)
     for (std::size_t b = 0; b < p; b++) quad += XtViy[a] * XtViXinv.at(a, b) * XtViy[b];
 
   return logdet_V + logdet_X + (yViy - quad);
+}
+
+// Residuos no theta final: as linhas de W na mesma convencao da montagem (X na coluna
+// eq_fixa[j*t + tau], Z caracteristica-major no coeficiente), o residuo condicional por
+// celula observada e Var(e^_{r,tau}) = R0[tau,tau] - w_{r,tau}' C^-1 w_{r,tau}, com os pares
+// de uma linha lidos da inversa seletiva (estao no padrao: a montagem empurra todos eles).
+ResiduosMT residuos_mt(const DesenhoMT& d, const std::vector<double>& theta) {
+  ResiduosMT S;
+  const std::size_t t = d.t;
+  S.t = t;
+  S.nlin = d.nlin;
+  if (theta.size() != d.modelo.ntheta) return S;
+  MontadoMT M = monta_mme_mt(d, theta);
+  if (!M.ok) return S;
+  const std::vector<std::size_t> perm = grau_minimo(M.c);
+  const Csc pc = permuta_sim(M.c, perm);
+  const Simbolica sb = simbolica(pc);
+  Csc L;
+  if (!cholesky(pc, sb, L)) return S;
+  std::vector<double> pb(M.total);
+  for (std::size_t k = 0; k < M.total; k++) pb[k] = M.rhs[perm[k]];
+  const std::vector<double> px = resolve(L, pb);
+  std::vector<double> s(M.total);
+  for (std::size_t k = 0; k < M.total; k++) s[perm[k]] = px[k];
+  SelInv z = inversa_seletiva(L, 0);
+  std::vector<std::size_t> inv_perm(M.total);
+  for (std::size_t k = 0; k < M.total; k++) inv_perm[perm[k]] = k;
+
+  std::vector<std::vector<std::pair<std::size_t, std::size_t>>> slots(d.modelo.grupos.size());
+  for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
+    std::size_t col = M.offset_grupo[g];
+    for (std::size_t tm : d.modelo.grupos[g].termos)
+      for (std::size_t a = 0; a < d.aleatorios.size(); a++)
+        if (d.aleatorios[a].termo == tm) {
+          slots[g].push_back({a, col});
+          col += d.aleatorios[a].z.ncol * t;
+        }
+  }
+  std::vector<std::vector<std::vector<std::pair<std::uint32_t, double>>>> zl;
+  for (const DesenhoTermo& a : d.aleatorios) {
+    std::vector<std::vector<std::pair<std::uint32_t, double>>> lin(a.z.nlin);
+    for (std::size_t c = 0; c < a.z.ncol; c++)
+      for (std::size_t k = a.z.colptr[c]; k < a.z.colptr[c + 1]; k++)
+        lin[a.z.linha[k]].push_back({static_cast<std::uint32_t>(c), a.z.valor[k]});
+    zl.push_back(std::move(lin));
+  }
+
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  S.residuo.assign(d.nlin * t, nan);
+  S.ajustado.assign(d.nlin * t, nan);
+  S.ajustado_fixo.assign(d.nlin * t, nan);
+  S.variancia.assign(d.nlin * t, nan);
+  std::vector<EntradaLinha> lin;
+  for (std::size_t r = 0; r < d.nlin; r++) {
+    if (!d.usa[r]) continue;
+    lin.clear();
+    for (std::size_t ex = d.x.linptr[r]; ex < d.x.linptr[r + 1]; ex++) {
+      const std::size_t j = d.x.coluna[ex];
+      const double v = d.x.valor[ex];
+      if (v == 0.0) continue;
+      for (std::size_t tau = 0; tau < t; tau++) {
+        const int e = d.eq_fixa[j * t + tau];
+        if (e < 0) continue;
+        lin.push_back({static_cast<std::uint32_t>(e), static_cast<std::uint32_t>(tau), v});
+      }
+    }
+    const std::size_t n_x = lin.size();
+    for (std::size_t g = 0; g < slots.size(); g++)
+      for (const auto& [a, col0] : slots[g]) {
+        const DesenhoTermo& dt = d.aleatorios[a];
+        for (const auto& [c, v] : zl[a][r]) {
+          const std::size_t ct = c / dt.n_niveis;
+          const std::size_t nv = c % dt.n_niveis;
+          for (std::size_t tau = 0; tau < t; tau++)
+            lin.push_back({static_cast<std::uint32_t>(
+                               col0 + (tau * dt.n_coef + ct) * dt.n_niveis + nv),
+                           static_cast<std::uint32_t>(tau), v});
+        }
+      }
+    for (std::size_t tau = 0; tau < t; tau++) {
+      if (!d.obs.empty() && !d.obs[r * t + tau]) continue;
+      double fa = 0.0, fx = 0.0, q = 0.0;
+      for (std::size_t p = 0; p < lin.size(); p++) {
+        if (lin[p].trait != tau) continue;
+        const double v = lin[p].val * s[lin[p].col];
+        fa += v;
+        if (p < n_x) fx += v;
+        for (std::size_t p2 = p; p2 < lin.size(); p2++) {
+          if (lin[p2].trait != tau) continue;
+          double c;
+          if (!z.get(inv_perm[lin[p].col], inv_perm[lin[p2].col], c)) { S.fora++; continue; }
+          q += (p == p2 ? 1.0 : 2.0) * lin[p].val * lin[p2].val * c;
+        }
+      }
+      S.ajustado[r * t + tau] = fa;
+      S.ajustado_fixo[r * t + tau] = fx;
+      S.residuo[r * t + tau] = d.y.at(r, tau) - fa;
+      S.variancia[r * t + tau] = M.r0.at(tau, tau) - q;
+    }
+  }
+  S.ok = true;
+  return S;
 }
 
 }  // namespace br

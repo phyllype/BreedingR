@@ -226,7 +226,14 @@ level: the prior variance \code{\link[=accuracy]{accuracy()}} divides the PEV by
 type of each level by term (\code{"animal"}, \code{"subclass"}, \code{"ancestral"}). In a single step it
 carries \code{h_prior}, the diagonal of G* of each genotyped animal, named by animal, and
 \code{h_prior_row}, the row of that animal in the pedigree the fit built: the prior
-variance \code{\link[=accuracy]{accuracy()}} uses for a genotyped animal instead of 1 + F. The object holds
+variance \code{\link[=accuracy]{accuracy()}} uses for a genotyped animal instead of 1 + F. It also carries
+\code{genomic}, \code{list(blend, vecchia_k)} (\code{vecchia_k = 0} without Vecchia), which with
+\code{apy}, \code{metafounders} and \code{gamma} is what \code{\link[=snp_effects]{snp_effects()}} reads to rebuild the same
+G*. It carries, one value per row of \code{data} (\code{NA} where the record did not enter),
+the conditional residual \code{residual}, the fitted values \code{fitted} (\verb{X b + Z u}) and
+\code{fitted_fixed} (\verb{X b}) and the leverage \code{leverage}, which \code{\link[=residuals.breeding_fit]{residuals.breeding_fit()}}
+and \code{\link[=residual_diagnostics]{residual_diagnostics()}} read, with \code{missing_code} and \code{weights} as given. The
+object holds
 the components \code{theta} with their \code{se},
 the fixed-effect solutions \code{b} (named \code{term=level}, in the order the columns of X
 entered), \code{ebv} and \code{pev} per covariance group, \code{score}, \code{vcov}, the convergence
@@ -234,7 +241,24 @@ fields (\code{converged}, \code{iters}, \code{reldelta}, and \code{newton_dec}, 
 of the free components at the final point) and \code{message}. PARAMETRIZATION OF \code{b}, and it matters when comparing against
 a book or another program: the model carries an implicit intercept and drops
 linearly dependent columns (listed in \code{dropped_x}; a dropped level has solution
-zero). A program that instead zeroes some other level -- Mrode's examples zero one
+zero). The columns are taken in the order they entered, over the records that enter
+the fit (with \code{weights}, scaled by the square root of the weight), and a column goes
+when its distance to the span of the columns kept before it is below 1e-9 of its norm
+(1e-9 itself when the norm is below 1), so of a dependent set the LAST column goes:
+the last level of a class against the intercept, a level with no used record, a
+covariate that is a combination of earlier ones. No more columns are kept than there
+are records. The design X is sparse, one entry per record and fixed term, but finding
+its rank keeps a dense triangular factor of p(p + 1)/2 doubles for p kept columns,
+with O(p^3) work in one thread: of the order of 0.4 GB and minutes at 10 000 fixed
+columns. The factor is sized before that work for p = the candidate columns with an
+entry on the used records (or the number of records, if smaller), dependent ones
+included, and the fit stops with a message when that passes 4 GB (fit the largest
+class as random). A column that nearly collinear columns before it span only with
+very large coefficients (x1, a near copy x2 = x1 + 1e-8 z, then x1 + 1e8 (x2 - x1))
+sends the rank to a dense check of up to 8 x records x columns bytes and O(n p^2)
+work in one thread, which also stops with a message above 4 GB; dropping the near
+copy avoids it. Unscaled polynomial covariates, or near copies on their own, stay on
+the sparse route. A program that instead zeroes some other level -- Mrode's examples zero one
 level per factor and fit no intercept -- agrees with \code{b} only on CONTRASTS,
 differences between levels of the same factor, never on the raw values.
 }

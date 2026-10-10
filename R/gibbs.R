@@ -65,6 +65,15 @@
 #'   chains have not mixed), and each chain stays in `chain_samples`
 #' @param cores R processes that run the chains at the same time (a PSOCK cluster of
 #'   the parallel package, which also works on Windows); at most `chains`
+#' @param residual_draws how many kept iterations, evenly spaced, store their realized
+#'   residual `e_s / sqrt(s2e_s)`, with `e_s = y - W loc_s` (for `family = "probit"`, the
+#'   drawn liability minus `W loc_s`, with variance 1). Each such draw is iid `N(0, 1)`
+#'   under the model, which is what [residual_diagnostics()] uses for its pivotal
+#'   discrepancy checks (Johnson 2007; Yuan and Johnson 2012). They cost
+#'   `8 * residual_draws * chains` bytes per record in the fit (`pdm_residuals`, one column
+#'   per draw, the chains side by side), which with `cores > 1` also cross the link from
+#'   each worker: 96 MB per chain for 600,000 records at the default 20. The chains
+#'   themselves do not change (no extra random draws). 0 stores none
 #' @references Hobert, J.P. & Casella, G. (1996). The effect of improper priors on Gibbs
 #'   sampling in hierarchical linear mixed models. Journal of the American Statistical
 #'   Association 91:1461-1473.
@@ -77,7 +86,13 @@
 #'   [model()], whose parametrization note applies: dropped columns are in `dropped_x`
 #'   and only contrasts compare against a reference-level convention), `dense_block`
 #'   and `k_level_type` as in [model()], and `start`, the components the chain starts
-#'   from (the first chain's, with several)
+#'   from (the first chain's, with several). `residual` is the posterior mean of the
+#'   realized residual, one value per row of `data` (`NA` where the record did not
+#'   enter), which by linearity is `y - X E[b] - Z E[u]` (the liability for the probit),
+#'   `fitted` and `fitted_fixed` the posterior means `X E[b] + Z E[u]` and `X E[b]` (on
+#'   the liability scale for the probit), and `pdm_residuals` the stored draws described
+#'   in `residual_draws`; [residuals.breeding_fit()] and [residual_diagnostics()] read
+#'   them, with `missing_code` as given
 #' @param verbose print the chain as it runs, the iteration count every so often, so a
 #'   long chain is a progress report instead of silence. Defaults to interactive(),
 #'   live in a session and quiet in scripts and checks. Every fitter also honors Ctrl+C now
@@ -109,7 +124,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
                   n_iter = 20000L, burnin = 2000L, thin = 10L, theta_fixed = NULL,
                   metafounders = NULL, gamma = NULL, prior = "jeffreys",
                   family = c("gaussian", "probit"), chains = 1L, cores = 1L,
-                  verbose = interactive()) {
+                  verbose = interactive(), residual_draws = 20L) {
   family <- match.arg(family)
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side")
@@ -158,6 +173,9 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   nuc <- nucleo_apy(apy_core, genotypes)
 
   chains <- as.integer(chains); cores <- as.integer(cores)
+  residual_draws <- as.integer(residual_draws)
+  if (length(residual_draws) != 1L || is.na(residual_draws) || residual_draws < 0L)
+    stop("residual_draws must be a non-negative integer")
   if (length(chains) != 1L || is.na(chains) || chains < 1L)
     stop("chains must be a positive integer")
   if (length(cores) != 1L || is.na(cores) || cores < 1L)
@@ -196,7 +214,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              if (is.null(gamma)) numeric(0) else as.double(gamma),
              kern, kfixo,
              pr$tipo, pr$df, pr$scale, as.integer(family == "probit"),
-             vapply(terms, function(t) t$dilution, numeric(1)))
+             vapply(terms, function(t) t$dilution, numeric(1)), residual_draws)
   }
   r <- if (chains == 1L) cadeia(NULL) else
     junta_cadeias(roda_cadeias(cadeia, sample.int(.Machine$integer.max, chains),
@@ -220,6 +238,11 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # if it were tolerated the F would come back on the gamma = 0 base.
   r$metafounders <- metafounders
   r$gamma <- gamma
+  # o que residual_diagnostics() precisa para remontar o MESMO desenho e conferir a cadeia
+  r$missing_code <- missing_code
+  if (length(g$gid))
+    r$genomic <- list(blend = as.double(blend),
+                      vecchia_k = if (is.null(vecchia_k)) 0L else as.integer(vecchia_k))
   r$mean <- colMeans(r$samples)
   r$sd <- apply(r$samples, 2, stats::sd)
   if (chains == 1L) {
@@ -279,6 +302,12 @@ junta_cadeias <- function(rs) {
   j <- junta(lapply(rs, `[[`, "b"), lapply(rs, `[[`, "b_sd"))
   r$b <- j$m
   r$b_sd <- j$sd
+  # cadeias de mesmo comprimento: o residuo medio e a media das medias, e os sorteios
+  # pivotais de todas as cadeias ficam juntos
+  r$residual <- Reduce(`+`, lapply(rs, `[[`, "residual")) / length(rs)
+  r$fitted <- Reduce(`+`, lapply(rs, `[[`, "fitted")) / length(rs)
+  r$fitted_fixed <- Reduce(`+`, lapply(rs, `[[`, "fitted_fixed")) / length(rs)
+  r$pdm_residuals <- do.call(cbind, lapply(rs, `[[`, "pdm_residuals"))
   msg <- unique(vapply(rs, `[[`, character(1), "message"))
   r$message <- paste(msg[nzchar(msg)], collapse = "; ")
   r
