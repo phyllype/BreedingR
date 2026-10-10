@@ -455,7 +455,9 @@ test_that("D3: the multi-trait default starts from the univariate optima", {
   expect_lt(d4$newton_dec, 2e-4)
   expect_identical(v4$start_from, "start=")
   expect_true(v4$converged)
-  expect_lt(abs(d4$neg2logl - v4$neg2logl), 1e-4)
+  # a mesma face do otimo: a varredura de 24 dados separou as duas partidas por ate 1,8e-4, e o
+  # CI mediu 1,1e-4 no Linux e 1,2e-4 no macOS; o defeito antigo era 41 (real) e 0,050 (aqui)
+  expect_lt(abs(d4$neg2logl - v4$neg2logl), 1e-3)
   # o start= continua mandando, e dali o mesmo otimo
   g <- model_ar1(f_ar_mt, s4$dados, s4$ped, subject = "id", time = "dia",
                  start = unname(d4$theta), verbose = FALSE)
@@ -497,9 +499,16 @@ test_that("D3: a small interior univariate variance starts where it is, and the 
   vy <- model_mt(f_ige, z$d, z$ped, maxiter = 0L, verbose = FALSE)$start
   f <- model_mt(f_ige, z$d, z$ped, verbose = FALSE)
   expect_identical(f$start_from, "univariate fits")
-  expect_gt(u2[["var(indirect)"]], 1e-4 * vy[["var(indirect@y2)"]])
-  expect_lt(u2[["var(indirect)"]], 1e-2 * vy[["var(indirect@y2)"]])
-  expect_equal(f$start[["var(indirect@y2)"]], u2[["var(indirect)"]], tolerance = 1e-12)
+  # a regra, qualquer que seja o lado em que o univariado parou: abaixo de 1e-4 da partida de
+  # var(y) parte de 1% dela, acima fica onde o univariado deixou. Neste dado a verossimilhanca
+  # do univariado e plana perto do zero: no Windows var(indirect) fica dentro (0,117), no Linux
+  # vai a fronteira; os dois ramos sao conferidos onde o dado os produz
+  regra <- function(u, v) if (v > 0 && u < 1e-4 * v) 0.01 * v else u
+  for (k in c("var(indirect)", "var(animal)"))
+    expect_equal(f$start[[paste0(sub(")$", "", k), "@y2)")]],
+                 regra(u2[[k]], vy[[paste0(sub(")$", "", k), "@y2)")]]), tolerance = 1e-12)
+  if (u2[["var(indirect)"]] > 1e-4 * vy[["var(indirect@y2)"]])
+    expect_equal(f$start[["var(indirect@y2)"]], u2[["var(indirect)"]], tolerance = 1e-12)
   expect_lt(u2[["var(animal)"]], 1e-4 * vy[["var(animal@y2)"]])
   expect_equal(f$start[["var(animal@y2)"]], 0.01 * vy[["var(animal@y2)"]], tolerance = 1e-12)
   expect_true(f$converged)

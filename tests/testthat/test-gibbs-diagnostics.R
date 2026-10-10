@@ -158,12 +158,19 @@ test_that("os mesmos numeros, congelados (medidos com o posterior 1.7.0 a 4e-15)
                         BreedingR:::ess_media(z), ess(z), BreedingR:::mcse_media(z),
                         BreedingR:::mcse_dp(z), BreedingR:::mcse_quantil(z, 0.05),
                         BreedingR:::mcse_quantil(z, 0.95), BreedingR:::khat_pareto(z))
-  expect_equal(calc(x), c(1.02286955356, 842.662777343, 508.274281643, 836.026865964,
-                          792.015554568, 0.0379521456478, 0.0580664108981, 0.138918654486,
-                          0.103846297873, 0.0250990207733), tolerance = 1e-9)
-  expect_equal(calc(y), c(1.00389091092, 858.158750359, 848.547709023, 835.096479851,
-                          831.659936964, 0.0461584164408, 0.21645301854, 0.00879350873797,
-                          0.214920834899, 0.626614544189), tolerance = 1e-9)
+  # o R-hat dobra |x - mediana| e os dois valores do meio empatam: o empate cai de um lado ou
+  # do outro conforme o ultimo bit da conta (no macOS arm64 sai 1,0229023 contra 1,0228696),
+  # entao ele tem tolerancia propria; o resto bate a 1e-9 em toda plataforma
+  cx <- calc(x)
+  cy <- calc(y)
+  expect_equal(cx[1], 1.02286955356, tolerance = 1e-4)
+  expect_equal(cy[1], 1.00389091092, tolerance = 1e-4)
+  expect_equal(cx[-1], c(842.662777343, 508.274281643, 836.026865964,
+                         792.015554568, 0.0379521456478, 0.0580664108981, 0.138918654486,
+                         0.103846297873, 0.0250990207733), tolerance = 1e-9)
+  expect_equal(cy[-1], c(858.158750359, 848.547709023, 835.096479851,
+                         831.659936964, 0.0461584164408, 0.21645301854, 0.00879350873797,
+                         0.214920834899, 0.626614544189), tolerance = 1e-9)
   # com 3 a 5 linhas por metade a sequencia de Geyer nao anda e tau = 2, qualquer que seja a
   # amostra: ESS = S / 2 (antes, tau = 0 e o piso davam S log10(S), mais que S amostras)
   expect_identical(BreedingR:::ess_bulk(matrix(stats::rnorm(32), 8, 4)), 16)

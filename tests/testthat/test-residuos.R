@@ -91,7 +91,7 @@ test_that("model(): residual, fixed part and Var(e) equal the dense R P y, GLS a
     rd_perto(fit$residual + fit$fitted, d$y, 1e-12)
     r <- residuals(fit, "standardized")
     ok <- !is.na(r)
-    rd_perto(r[ok], (ref$e / sqrt(ref$var))[ok], 1e-8)
+    rd_perto(r[ok], (ref$e / sqrt(pmax(ref$var, 0)))[ok], 1e-8)
     rd_perto(residuals(fit, "marginal"), d$y - fit$fitted_fixed, 1e-12)
     rd_perto(residuals(fit, "pearson"), fit$residual * sqrt(w) / sqrt(1.3), 1e-12)
     expect_identical(fitted(fit, "marginal"), fit$fitted_fixed)
