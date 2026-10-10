@@ -21,7 +21,7 @@ qc_phenotypes(
 \item{missing_code}{the missing-value code in use (NA is always treated as missing)}
 
 \item{classes}{optional class columns (contemporary group, pen) to scan for levels
-with fewer than \code{min_class_n} observed records}
+with fewer than \code{min_class_n} observed records, and for missing labels}
 
 \item{fence}{Tukey multiplier: outliers fall outside quartiles +/- fence * IQR
 (3 by default, the "far out" fence; 1.5 flags far more)}
@@ -31,8 +31,11 @@ with fewer than \code{min_class_n} observed records}
 }
 \value{
 list with \code{data} (outliers turned into missing), \code{n_missing} (before the
-outlier pass), \code{n_outliers}, \code{fences} (the two cutoffs), and \code{small_classes}
-(per class column, HOW MANY levels fall under \code{min_class_n})
+outlier pass), \code{n_outliers}, \code{fences} (the two cutoffs), \code{small_classes}
+(per class column, HOW MANY levels fall under \code{min_class_n}) and \code{missing_labels}
+(per class column, how many rows hold a missing label: \code{NA}, \code{NaN}, \code{Inf}, \code{-Inf},
+blank text or the text "NaN", which every fitter refuses on any row; those rows are
+not a level and do not enter \code{small_classes})
 }
 \description{
 The mirror of \code{\link[=qc_genotypes]{qc_genotypes()}} for the observation side: flags the missing code,

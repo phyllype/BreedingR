@@ -154,7 +154,6 @@ struct MontadoAR {
   std::vector<double> rhs;
   double logdet_g = 0.0;
   double logdet_r = 0.0;            // soma_s t log|Gamma_s| + n log|R0|
-  double yry = 0.0;
   Densa r0, r0inv;
   double rho = 0.0;
   std::size_t n_fixo = 0, total = 0;
@@ -232,7 +231,8 @@ MontadoAR monta_mme_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
             }
             acc_s.at(p2, q2) += v;
           }
-        // rhs e yry
+        // rhs (y'R^-1 y nao e mais acumulado: a forma quadratica sai dos residuos, em
+        // avalia_ar1)
         for (const auto& ea : wa) {
           double ry = 0.0;
           for (std::size_t tb = 0; tb < t; tb++)
@@ -246,11 +246,6 @@ MontadoAR monta_mme_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
               ry += M.r0inv.at(eb.trait, tb) * d.y.at(regs[i], tb);
             M.rhs[eb.col] += eb.val * w * ry;
           }
-        double yy = 0.0;
-        for (std::size_t ta = 0; ta < t; ta++)
-          for (std::size_t tb = 0; tb < t; tb++)
-            yy += d.y.at(regs[i], ta) * M.r0inv.at(ta, tb) * d.y.at(regs[j], tb);
-        M.yry += (i == j ? 1.0 : 2.0) * w * yy;
       }
     }
     // um push por posicao do clique, ZEROS INCLUIDOS, que e o que garante o padrao
@@ -349,9 +344,14 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
   A.solucao.assign(M.total, 0.0);
   for (std::size_t k = 0; k < M.total; k++) A.solucao[perm[k]] = px[k];
 
-  double bry = 0.0;
-  for (std::size_t k = 0; k < M.total; k++) bry += A.solucao[k] * M.rhs[k];
-  A.neg2logl = M.logdet_r + M.logdet_g + logdet(L) + (M.yry - bry);
+  // -2logL: os termos que nao dependem de y aqui; y'Py entra depois de R^-1 e, pelos
+  // residuos, e'R^-1 e + u'G^-1 u, e nao por y'R^-1 y - b'r. O racional (invariancia a
+  // uma constante somada a y, medida no colapso rho = 0 contra o model()) esta em avalia(),
+  // src/aireml.cpp. As celulas ausentes entram com y = 0 e a coluna mv delas: a equacao da
+  // coluna mv zera (R^-1 e) na celula, e a identidade e'R^-1 e + b'Pen b = y'R^-1 y - b'r
+  // continua exata.
+  const double parte_fixa = M.logdet_r + M.logdet_g + logdet(L);
+  double upen = 0.0;   // soma_g soma_ab C_g^-1[a,b] Q[a,b] = u'G^-1 u
 
   // e^ = y - W b, por registro e caracteristica, com o esqueleto do desenho
   const auto& lw = d.lw;
@@ -427,6 +427,8 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
         for (std::size_t l = 0; l < nl; l++) s += ua[l] * ku[b][l];
         Q.at(a, b) = s;
       }
+    for (std::size_t a = 0; a < dim; a++)
+      for (std::size_t b = 0; b < dim; b++) upen += cinv.at(a, b) * Q.at(a, b);
     for (std::size_t a = 0; a < dim; a++)
       for (std::size_t b = 0; b < dim; b++) {
         double s = 0.0;
@@ -505,6 +507,14 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
       tmp[a] = s;
     }
     for (std::size_t a = 0; a < t; a++) re.at(r, a) = tmp[a];
+  }
+  {
+    double ere = 0.0;
+    for (std::size_t r = 0; r < d.nlin; r++) {
+      if (!d.usa[r]) continue;
+      for (std::size_t a = 0; a < t; a++) ere += ehat.at(r, a) * re.at(r, a);
+    }
+    A.neg2logl = parte_fixa + ere + upen;
   }
 
   // ---- parametros residuais, unificados: dR = D (x) S

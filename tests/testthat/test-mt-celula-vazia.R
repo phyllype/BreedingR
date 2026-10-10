@@ -123,10 +123,26 @@ test_that("onde nada cai, o EBV e IDENTICO ao que o fitter dava antes da cirurgi
   # o portao de regressao da mudanca de layout, e o mais forte dela: quando todo par sobrevive
   # eq_fixa[k] == k, o bloco fixo tem o tamanho de sempre, e nenhum numero pode se mover.
   # Valor conferido contra a build anterior a cirurgia, no mesmo dado e mesma semente.
+  #
+  # A identidade e conferida NAS COMPONENTES daquela build (impressas com 12 digitos), e nao
+  # no ponto em que o ajuste de hoje para. Este dado tem h2 = 0 e a cov(res) sem informacao
+  # nenhuma (nenhum registro com os dois caracteres): a verossimilhanca e plana a 1e-5 em
+  # var(animal@y2), e desde que a partida padrao saiu dos univariados e a caminhada passou a
+  # ser padronizada por caracter (P1-5/P1-8) o ajuste para 1,5e-5 adiante nessa direcao, com
+  # o -2logL 4e-10 acima (412,0000044540 contra 412,0000044536). O portao do layout e o EBV
+  # num theta dado, exato; o do ajuste e o -2logL do otimo e o EBV no ponto ajustado, com a
+  # folga que a direcao plana pede (medido: 3,7e-6 na soma, 5,6e-6 nos tres primeiros).
   z <- cel(rep(1:8, length.out = 400))
   f <- model_mt(fm, data = z$d, pedigree = z$ped, maxiter = 40L, verbose = FALSE)
   expect_equal(length(f$b), 16L)
-  e <- ebv(f, trait = "y1")
+  expect_equal(f$neg2logl, 412.0000044536, tolerance = 1e-11)
+  ef <- ebv(f, trait = "y1")
+  expect_equal(sum(ef), -1.2784002552, tolerance = 1e-5)
+  expect_equal(unname(ef[1:3]), c(0.13661494, 0.10212621, 0.14661163), tolerance = 1e-5)
+  th <- c(0.0687309790572, 0.0273500536514, 0.1404936573446,
+          0.9134054329504, 0, 0.7686809209908)
+  g <- model_mt(fm, data = z$d, pedigree = z$ped, start = th, maxiter = 0L, verbose = FALSE)
+  e <- ebv(g, trait = "y1")
   expect_equal(sum(e), -1.2784002552, tolerance = 1e-8)
   expect_equal(unname(e[1:3]), c(0.13661494, 0.10212621, 0.14661163), tolerance = 1e-6)
 })

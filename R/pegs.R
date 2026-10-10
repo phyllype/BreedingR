@@ -31,10 +31,14 @@
 #'   or, with `environment =`, one row per record of one trait in long form (each animal at
 #'   most once per environment); `NA` is a missing record
 #' @param traits names of the trait columns (wide form), or the single trait column (long)
-#' @param id name of the animal column
+#' @param id name of the animal column. A missing id (`NA`, `NaN`, `Inf`, `-Inf`, blank
+#'   text or the text "NaN") is refused on every row, as a level column of [model()]; an
+#'   id that is present but not among the genotyped animals leaves its record, counted in
+#'   `dropped`
 #' @param genotypes `list(ids, m)` with dosages 0/1/2 (`NA` imputed by the marker mean)
 #' @param environment name of the environment column for the long form: each level becomes
-#'   a trait
+#'   a trait. A missing environment is refused on every row, by the same rule as `id`:
+#'   it would become one more trait, or its records would vanish uncounted
 #' @param cov_structure `"unstructured"`, `"hcs"` or `"xfa"`
 #' @param n_factors latent factors of `"xfa"`
 #' @param maxiter passes over the markers
@@ -61,6 +65,17 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
   if (!is.data.frame(data)) stop("data must be a data.frame")
   falta <- setdiff(c(traits, id, environment), names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # o id e o ambiente sao colunas de nivel: o rotulo ausente para em toda linha, pela regra
+  # de model() (nivel_ausente(), R/indirect.R). Antes o ambiente em texto vazio virava um
+  # ambiente, e portanto um traco, a mais; o ambiente NA sumia com o registro sem entrar em
+  # `dropped`; e o id vazio ou NA saia contado como registro sem genotipo
+  nivel_ausente(data[[id]], "", id, "id",
+                paste0("a record without an id has no animal to match the genotypes; drop ",
+                       "those rows or fill them"))
+  if (!is.null(environment))
+    nivel_ausente(data[[environment]], "", environment, "environment",
+                  paste0("a record without an environment has no trait to enter, and those ",
+                         "rows would form one more trait; drop those rows or fill them"))
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
   # o animal como o motor escreve o id dos genotipos: 100000 e "100000", nao "1e+05"

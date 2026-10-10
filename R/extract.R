@@ -448,29 +448,55 @@ summary.breeding_gibbs <- function(object, probs = c(0.025, 0.5, 0.975), ...) {
   q <- t(apply(s, 2, stats::quantile, probs = probs, names = FALSE))
   colnames(q) <- paste0("q", format(100 * probs, trim = TRUE))
   comp <- data.frame(component = colnames(s), mean = unname(colMeans(s)),
-                     sd = unname(apply(s, 2, stats::sd)), q, ess = round(unname(object$ess)),
-                     geweke_z = round(unname(object$geweke), 2), row.names = NULL,
+                     sd = unname(apply(s, 2, stats::sd)), q, row.names = NULL,
                      check.names = FALSE)
-  if (!is.null(object$rhat)) comp$rhat <- round(unname(object$rhat), 3)
+  # os diagnosticos das linhas, de mcmc_diagnostics(): a mesma tabela que o print le. A MCSE
+  # dos quantis e a dos quantis IMPRESSOS aqui (probs deste summary), pelas cadeias usadas
+  d <- diagnosticos_do_ajuste(object)
+  cad <- if (nrow(s) >= 4L) cadeias_do_ajuste(object)$cadeias
+  mcse_q <- function(f) {
+    xm <- if (!is.null(cad)) vapply(cad, f, numeric(nrow(cad[[1]])))
+    stats::setNames(vapply(probs, function(p) if (is.null(xm)) NA_real_
+                           else mcse_quantil(as.matrix(xm), p), numeric(1)),
+                    paste0("mcse_", colnames(q)))
+  }
+  colunas_diag <- function(linha, mq) {
+    if (is.null(d) || anyNA(linha)) return(NULL)
+    dt <- d$table[linha, ]
+    data.frame(rhat = round(dt$rhat, 3), ess_bulk = round(dt$ess_bulk),
+               ess_tail = round(dt$ess_tail), mcse_mean = signif(dt$mcse_mean, 2),
+               signif(mq, 2), status = dt$status, row.names = NULL, check.names = FALSE)
+  }
+  if (!is.null(d)) {
+    mq <- matrix(vapply(seq_len(ncol(s)), function(j) mcse_q(function(m) m[, j]),
+                        numeric(length(probs))), ncol(s), length(probs), byrow = TRUE,
+                 dimnames = list(NULL, paste0("mcse_", colnames(q))))
+    cd <- colunas_diag(seq_len(ncol(s)), mq)
+    if (!is.null(cd)) comp <- cbind(comp, cd)
+  }
   # o h2 amostra a amostra: a posteriori da razao, e nao a razao das medias. Com indirect()
-  # ou norma de reacao nao ha um numero so, e a linha nao sai.
+  # ou norma de reacao nao ha um numero so, e a linha nao sai. A definicao e a mesma dos
+  # derivados de mcmc_diagnostics() (alvo_h2_gibbs), que da os diagnosticos da linha.
   h <- NULL
   nm <- colnames(s)
-  alvo <- grep("^var\\(", nm)[1]
-  if (!is.na(alvo) && !tem_indireto(object) && !any(grepl("\\[\\d+\\]", nm)) &&
-      !any(grepl("@", nm, fixed = TRUE))) {
-    den <- rowSums(s[, grepl("^(var|cov)\\(", nm), drop = FALSE])
-    r <- s[, alvo] / den
-    h <- data.frame(ratio = paste0(nm[alvo], " / phenotypic"), mean = mean(r),
-                    sd = stats::sd(r),
+  ah <- alvo_h2_gibbs(nm, tem_indireto(object))
+  if (!is.null(ah)) {
+    r <- s[, ah$alvo] / rowSums(s[, ah$den, drop = FALSE])
+    h <- data.frame(ratio = ah$nome, mean = mean(r), sd = stats::sd(r),
                     t(stats::setNames(stats::quantile(r, probs, names = FALSE), colnames(q))),
                     row.names = NULL, check.names = FALSE)
+    # sem a linha do h2 na tabela (0 amostras, ou derived = FALSE) o h2 sai sem os
+    # diagnosticos, e nao com erro
+    cd <- colunas_diag(match(ah$nome, d$table$parameter),
+                       t(mcse_q(function(m) m[, ah$alvo] / rowSums(m[, ah$den, drop = FALSE]))))
+    if (!is.null(cd)) h <- cbind(h, cd)
   }
   structure(list(titulo = paste0(if (isTRUE(object$chains > 1L))
                                    paste0(object$chains, " Gibbs chains") else "Gibbs chain",
                                  " for '", object$trait, "', ", nrow(s),
                                  " kept sample(s)"),
                  components = comp, h2 = h, message = object$message,
+                 convergence = if (!is.null(d)) linha_convergencia(d),
                  fixed = if (length(object$b))
                    data.frame(term = names(object$b), mean = unname(object$b),
                               sd = unname(object$b_sd), row.names = NULL)),
@@ -491,6 +517,7 @@ print.summary.breeding_gibbs <- function(x, ...) {
     cat("\nfixed effects, posterior mean (implicit intercept; compare by contrast):\n")
     print(x$fixed, digits = 6, row.names = FALSE)
   }
+  if (!is.null(x$convergence)) cat("\n", x$convergence, "\n", sep = "")
   invisible(x)
 }
 

@@ -28,29 +28,116 @@
 # qualquer d (sem isto, 0^(1-2d) explodiria para d > 1/2).
 coef_social <- function(n, d) ifelse(n > 1, (n - 1)^(1 - 2 * d), 0)
 
-# Os registros sem rotulo de grupo (baia, disputa, competidor), pela MESMA regra com que
-# monta_termo (src/modelo.cpp) recusa a baia de indirect(); mudar uma e mudar a outra.
-# Ausente e: NA ou NaN, Inf e -Inf numericos; texto vazio depois de aparar os espacos (o que
+# ROTULO AUSENTE, a regra de toda coluna que da nivel ou rotulo (classe fixa, id de termo
+# aleatorio, classe de aninhamento, sujeito, baia, disputa, competidor, rotulos de
+# associative_matrix(), id e ambiente de pegs()). E a MESMA de rotulos_ausentes() no motor
+# (src/modelo.cpp), que a baia de indirect() tambem usa; mudar uma e mudar a outra (o portao
+# comum esta em test-rotulo-ausente.R). Ausente e: NA ou NaN, Inf e -Inf numericos; NA
+# textual; texto vazio depois de tirar espacos, tabulacoes e quebras de linha (o que
 # read.csv() e fread() dao a uma celula vazia de coluna textual); e o texto "NaN", que
 # factor() e as.character() fazem de um NaN numerico. Qualquer um deles viraria UM rotulo
 # so, e registros sem relacao entre si seriam agrupados sem aviso. Os textos "NA" e "Inf"
-# ficam de fora de proposito: podem ser o nome de uma baia de verdade. Devolve NULL quando
-# todo registro tem rotulo; senao o comeco da mensagem, "<o que> in <onde> in n row(s), the
-# first at row k", para o chamador completar com a sua razao.
-sem_rotulo <- function(x, onde) {
+# ficam de fora de proposito: podem ser o nome de uma classe de verdade.
+#
+# A comparacao e BYTE a BYTE (useBytes), como no motor: trimws() e regex sobre caracteres e
+# para com "input string k is invalid UTF-8" num texto latin1 lido por read.csv() sem
+# fileEncoding (o nome de lote ou fazenda com acento, no R 4.5 do Windows, que roda em
+# UTF-8); o ajuste parava sem termo, coluna nem linha, e so nos ajustadores escritos em R.
+#
+# Devolve a lista nomeada dos tipos, um vetor logico por tipo, na ordem das mensagens.
+tipos_rotulo_ausente <- function(x) {
   if (is.factor(x)) x <- as.character(x)
-  tipos <- if (is.character(x)) {
-    s <- trimws(x)
-    list("NA" = is.na(x), "blank text" = !is.na(s) & !nzchar(s),
-         "the text 'NaN'" = !is.na(s) & s == "NaN")
+  if (is.character(x)) {
+    na <- is.na(x)
+    list("NA" = na,
+         "blank text" = !na & !grepl("[^ \t\r\n]", x, useBytes = TRUE),
+         "the text 'NaN'" = !na & grepl("^[ \t\r\n]*NaN[ \t\r\n]*$", x, useBytes = TRUE))
   } else {
     x <- as.double(x)
     list("NA" = is.na(x), "Inf" = !is.na(x) & x == Inf, "-Inf" = !is.na(x) & x == -Inf)
   }
+}
+
+# o comeco da mensagem, "<o que> in <onde> in n row(s), the first at row k", ou NULL
+conta_ausentes_r <- function(tipos, onde) {
   ruim <- Reduce(`|`, tipos)
   if (!any(ruim)) return(NULL)
   paste0(paste(names(tipos)[vapply(tipos, any, logical(1))], collapse = " or "), " in ",
          onde, " in ", sum(ruim), " row(s), the first at row ", which(ruim)[1L])
+}
+
+# Os registros sem rotulo de grupo (baia, disputa, competidor, rotulos): NULL quando todo
+# registro tem rotulo; senao o comeco da mensagem, para o chamador completar com a sua razao.
+sem_rotulo <- function(x, onde) conta_ausentes_r(tipos_rotulo_ausente(x), onde)
+
+# o NA de coluna textual, com a mensagem de tabela_do_R (src/entrada.cpp), que o motor da
+# antes de qualquer outra conferencia
+na_textual <- function(x, coluna) {
+  if ((is.factor(x) || is.character(x)) && anyNA(x))
+    stop("NA in the text column '", coluna, "' at row ", which(is.na(x))[1L],
+         ": drop those rows or fill them", call. = FALSE)
+}
+
+# A COLUNA DE NIVEL e a COLUNA DE VALOR nos ajustadores escritos em R (model_threshold(),
+# model_survival(), pegs()), pela regra e com a mensagem de monta_termo (src/modelo.cpp),
+# para que o mesmo data.frame seja aceito ou recusado igual em todo ajustador. A conferencia
+# e em TODA linha de data, tambem na de observacao ausente, como no motor. Valor ausente:
+# NA, NaN, Inf e -Inf; texto ou fator numa covariavel e a recusa de Tabela::numerico, e nao
+# os codigos do fator (as.double() de um fator da 1, 2, ... e o limiar ajustava a covariavel
+# com eles, calado). Medido em f2c0d69: model_threshold() e model_survival() faziam do texto
+# vazio um nivel (o cg "" virava a classe de referencia do limiar), do Inf numerico o nivel
+# "inf", e so olhavam as linhas com observacao. `quem` e `razao` mudam o comeco e o fim da
+# mensagem para o sujeito da sobrevivencia, que segue a regra (e a mensagem) do sujeito de
+# model_ar1() (monta_desenho_ar1, src/ar1b.cpp), e para o id e o ambiente de pegs().
+nivel_ausente <- function(x, termo, coluna, quem = paste0("term '", termo, "'"),
+                          razao = paste0("a record without a level has no known effect, ",
+                                         "and those rows would share one level; drop those ",
+                                         "rows or fill them")) {
+  na_textual(x, coluna)
+  if (!is.null(falta <- sem_rotulo(x, paste0("the column '", coluna, "'"))))
+    stop(quem, ": ", falta, ": ", razao, call. = FALSE)
+  invisible(NULL)
+}
+
+valor_ausente <- function(x, termo, coluna, onde = paste0("the covariate column '", coluna, "'"),
+                          razao = paste0("a record without the value has no known incidence ",
+                                         "in this term, and the fit would drop the term or ",
+                                         "lose the likelihood without a word; drop those rows ",
+                                         "or fill them")) {
+  na_textual(x, coluna)
+  if (is.factor(x) || is.character(x))
+    stop("column '", coluna, "' is text and was requested as numeric", call. = FALSE)
+  if (!is.null(falta <- sem_rotulo(as.double(x), onde)))
+    stop("term '", termo, "': ", falta, ": ", razao, call. = FALSE)
+  invisible(NULL)
+}
+
+# A covariavel de newdata nas predicoes dos ajustadores em R (predict() do limiar, do modo
+# conjunto e da sobrevivencia): a mesma regra do ajuste. Antes desta recusa um fator em
+# newdata era lido pelos codigos 1, 2, ..., e a predicao saia outra, calada (o portao em
+# test-rotulo-ausente.R compara com a covariavel numerica), e o modo conjunto devolvia NA
+# para o valor ausente, sem conferir.
+covariavel_newdata <- function(col, info) {
+  valor_ausente(col, info$nome, info$column,
+                paste0("the covariate column '", info$column, "' of newdata"),
+                "a row without the value has no prediction; drop it or fill it")
+  as.double(col)
+}
+
+# A OBSERVACAO AUSENTE de um traco categorico (o limiar, ordinal ou conjunto, e o probit de
+# gibbs()): NA, e mais o que o motor tambem trata como ausente na observacao numerica
+# (NaN, Inf e -Inf; mme.cpp) e o rotulo ausente de um traco textual (texto vazio, o texto
+# "NaN"), alem do missing_code. So a observacao pode faltar, e a que falta sai do ajuste,
+# contada. Medido em f2c0d69: o texto vazio virava a categoria MAIS BAIXA do limiar (no
+# probit, a classe 0), o texto "NaN" e o fator de um NaN a mais alta, e o Inf numerico uma
+# categoria "Inf". O codigo numerico casa com a tolerancia do motor (|y - codigo| < 1e-9).
+observacao_ausente <- function(y, missing_code = NULL) {
+  texto <- is.factor(y) || is.character(y)
+  falta <- if (texto) Reduce(`|`, tipos_rotulo_ausente(y)) else !is.finite(as.double(y))
+  if (!is.null(missing_code))
+    falta <- falta | (if (texto) as.character(y) == as.character(missing_code)
+                      else abs(as.double(y) - as.double(missing_code)) < 1e-9) %in% TRUE
+  falta
 }
 
 #' Estimate the pen-size heterogeneous residual of the associative model
@@ -319,7 +406,9 @@ print.breeding_indirect_residual <- function(x, ...) {
 #'   a mismatch the residual describes a different model from the genetic side.
 #' @param labels row and column names for the returned matrix, one per record; defaults to
 #'   the record position. These are the levels the [kernel()] term will match on, so they
-#'   must be the same values as the column named in the formula
+#'   must be the same values as the column named in the formula; a missing label (`NA`,
+#'   `NaN`, `Inf`, `-Inf`, blank text or the text "NaN") is refused with its row, as in a
+#'   level column of [model()]
 #' @return a square matrix, records by records, positive semi-definite
 #' @references Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 #'   quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
@@ -347,6 +436,14 @@ associative_matrix <- function(pen, id, labels = NULL, dilution = 0) {
     stop("pen and id must have one entry per record: got ", length(pen), " and ", length(id))
   nr <- length(pen)
   if (is.null(labels)) labels <- seq_len(nr)
+  # o rotulo e o NIVEL que o kernel() casa com a coluna dos dados, entao vale a regra da
+  # coluna de nivel. Medido em f2c0d69: labels = c("r1", NA, "r3") devolvia a matriz com o
+  # nome de linha NA, que so parava depois, no ajuste ("kernel ids: there is NA", sem dizer
+  # de onde), e c("r1", "", "r3") a linha "", que nenhum registro pode ter: a linha da K
+  # ficava sem registro, calada
+  if (!is.null(falta <- sem_rotulo(labels, "labels")))
+    stop(falta, ": a record without a label has no level for the kernel() term to match; ",
+         "give every record a label", call. = FALSE)
   labels <- rotulo_motor(labels)
   if (length(labels) != nr) stop("labels must have one entry per record")
   if (anyDuplicated(labels))

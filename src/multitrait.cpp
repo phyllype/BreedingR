@@ -55,7 +55,6 @@ struct MontadoMT {
   std::vector<double> rhs;
   double logdet_g = 0.0;
   double logdet_r = 0.0;       // n log|R0|
-  double yry = 0.0;            // y' R^-1 y
   Densa r0, r0inv;
   // Por padrao de observacao (mascara de bits sobre as caracteristicas): a inversa da
   // submatriz de R0 EMBUTIDA numa t x t com zeros nas ausentes, e o log|R0_p|. A inversa
@@ -200,9 +199,6 @@ MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
         tv.push_back(v);
       }
     }
-    for (std::size_t a2 = 0; a2 < t; a2++)
-      for (std::size_t b2 = 0; b2 < t; b2++)
-        M.yry += d.y.at(r, a2) * rir.at(a2, b2) * d.y.at(r, b2);
   }
 
   // penalidade por grupo, unidades absolutas: kron(C_g^-1, K^-1)
@@ -294,9 +290,11 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
   A.solucao.assign(M.total, 0.0);
   for (std::size_t k = 0; k < M.total; k++) A.solucao[perm[k]] = px[k];
 
-  double bry = 0.0;
-  for (std::size_t k = 0; k < M.total; k++) bry += A.solucao[k] * M.rhs[k];
-  A.neg2logl = M.logdet_r + M.logdet_g + logdet(L) + (M.yry - bry);
+  // -2logL: os termos que nao dependem de y aqui; a forma quadratica sai dos residuos,
+  // e'R^-1 e + u'G^-1 u, e nao de y'R^-1 y - b'r, que perde digitos com uma constante
+  // somada a y (o racional esta em avalia(), src/aireml.cpp).
+  const double parte_fixa = M.logdet_r + M.logdet_g + logdet(L);
+  double upen = 0.0;   // soma_g soma_ab C_g^-1[a,b] Q[a,b] = u'G^-1 u
 
   // residuo por registro e caracteristica: e^ = y - W b
   Densa ehat(d.nlin, t);
@@ -403,6 +401,8 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
         for (std::size_t l = 0; l < nl; l++) s += ua[l] * ku[b][l];
         Q.at(a, b) = s;
       }
+    for (std::size_t a = 0; a < dim; a++)
+      for (std::size_t b = 0; b < dim; b++) upen += cinv.at(a, b) * Q.at(a, b);
 
     // T[a,b] = tr(K^-1 [C^-1]_{a,b}), unidades absolutas, sem fator s2e
     for (std::size_t a = 0; a < dim; a++)
@@ -491,6 +491,13 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
         re.at(r, a) = s;
       }
     }
+    // e'R^-1 e: a celula ausente tem linha e coluna zero na inversa embutida e nao conta
+    double ere = 0.0;
+    for (std::size_t r = 0; r < d.nlin; r++) {
+      if (!d.usa[r]) continue;
+      for (std::size_t a = 0; a < t; a++) ere += ehat.at(r, a) * re.at(r, a);
+    }
+    A.neg2logl = parte_fixa + ere + upen;
 
     // clique de cada registro (colunas e caracteristica), reconstruido como na montagem
     std::vector<std::vector<std::pair<std::uint32_t, double>>> zl2;

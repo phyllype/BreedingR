@@ -238,14 +238,17 @@ simulate_breeding <- function(n_founders = 40, n_generations = 3,
 #' @param trait observation column
 #' @param missing_code the missing-value code in use (NA is always treated as missing)
 #' @param classes optional class columns (contemporary group, pen) to scan for levels
-#'   with fewer than `min_class_n` observed records
+#'   with fewer than `min_class_n` observed records, and for missing labels
 #' @param fence Tukey multiplier: outliers fall outside quartiles +/- fence * IQR
 #'   (3 by default, the "far out" fence; 1.5 flags far more)
 #' @param min_class_n classes with FEWER observed records than this are reported
 #'   (default 2: singleton and empty levels)
 #' @return list with `data` (outliers turned into missing), `n_missing` (before the
-#'   outlier pass), `n_outliers`, `fences` (the two cutoffs), and `small_classes`
-#'   (per class column, HOW MANY levels fall under `min_class_n`)
+#'   outlier pass), `n_outliers`, `fences` (the two cutoffs), `small_classes`
+#'   (per class column, HOW MANY levels fall under `min_class_n`) and `missing_labels`
+#'   (per class column, how many rows hold a missing label: `NA`, `NaN`, `Inf`, `-Inf`,
+#'   blank text or the text "NaN", which every fitter refuses on any row; those rows are
+#'   not a level and do not enter `small_classes`)
 #' @export
 qc_phenotypes <- function(data, trait, missing_code = NULL, classes = NULL,
                           fence = 3, min_class_n = 2L) {
@@ -263,15 +266,21 @@ qc_phenotypes <- function(data, trait, missing_code = NULL, classes = NULL,
   fora <- !falta & (y < cerca[1] | y > cerca[2])
   data[[trait]][fora] <- if (is.null(missing_code)) NA else missing_code
   pequenos <- list()
+  sem <- list()
   for (cl in classes) {
     if (!cl %in% names(data)) stop("no column '", cl, "' in the data")
     # os niveis como o motor os ve: 100000 e "100000", e nao o "1e+05" do as.character()
     rot <- rotulo_motor(data[[cl]])
+    # o rotulo ausente, pela regra que todo ajustador aplica (tipos_rotulo_ausente(),
+    # R/indirect.R), e contado aqui, antes do ajuste, e nao e um nivel: o texto vazio era
+    # contado como uma classe a mais
+    aus <- Reduce(`|`, tipos_rotulo_ausente(data[[cl]]))
+    sem[[cl]] <- sum(aus)
     # a level whose records are ALL missing must still show up as small: build the
     # count over every level present in the data, not only the observed ones
-    tab <- table(factor(rot[!falta & !fora], levels = unique(rot)))
+    tab <- table(factor(rot[!falta & !fora & !aus], levels = unique(rot[!aus])))
     pequenos[[cl]] <- sum(tab < min_class_n)
   }
   list(data = data, n_missing = sum(falta), n_outliers = sum(fora),
-       fences = cerca, small_classes = pequenos)
+       fences = cerca, small_classes = pequenos, missing_labels = sem)
 }

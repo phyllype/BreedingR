@@ -125,11 +125,17 @@
 #'   `animal()`/`sire()`/`indirect()`, the union of the column labels for `random()`.
 #'   `rn()`, `kernel()`, `nested =` and `sire(mgs =)` are not available here.
 #'   `cbind(quant, bin)` on the left-hand side switches to the joint analysis, which
-#'   takes one relationship term and neither `indirect()` nor `group =`.
+#'   takes one relationship term and neither `indirect()` nor `group =`. A missing
+#'   level (`NA`, `NaN`, `Inf`, `-Inf`, blank text or the text "NaN") or a missing
+#'   covariate value is refused on every row, with the same rule and message as in
+#'   [model()]; a factor or text column in `cov()` is refused rather than read as its
+#'   codes.
 #' @param data data.frame with the columns referenced. The categorical trait can be
 #'   integer codes, character or factor; categories are ordered by factor level order,
 #'   or by sort order otherwise. In the joint mode the second trait must have exactly
-#'   two values (the larger one is the "difficulty").
+#'   two values (the larger one is the "difficulty"). A missing observation (`NA`,
+#'   `NaN`, `Inf`, `-Inf`, blank text, the text "NaN" or `missing_code`) drops its
+#'   record and is never a category, in either trait of the joint mode.
 #' @param pedigree data.frame animal, sire, dam; required with `animal()`, `sire()` or
 #'   `indirect()` unless `k_inverse` is given
 #' @param start MANDATORY. Ordinal mode: the components on the liability scale (the
@@ -420,18 +426,18 @@ monta_x_limiar <- function(terms, data, keep, primeiro_cheio) {
   cols <- list(); info <- list()
   primeiro <- TRUE
   for (tm in fixos) {
+    # em TODA linha, como no motor (nivel_ausente(), valor_ausente(), em R/indirect.R)
+    if (tm$covariavel) valor_ausente(data[[tm$column]], tm$nome, tm$column)
+    else nivel_ausente(data[[tm$column]], tm$nome, tm$column)
     col <- data[[tm$column]][keep]
     if (tm$covariavel) {
       v <- as.double(col)
-      if (any(!is.finite(v)))
-        stop("missing or non-finite value(s) in covariate '", tm$column, "'")
       cols[[tm$nome]] <- v
       info[[length(info) + 1L]] <- list(nome = tm$nome, column = tm$column,
                                         covariavel = TRUE, niveis = character(0))
     } else {
       valores <- rotulo_motor(col)
       lv <- if (is.factor(col)) levels(droplevels(col)) else sort(unique(valores))
-      if (anyNA(valores)) stop("missing value(s) in fixed effect '", tm$column, "'")
       fica <- if (primeiro_cheio && primeiro) lv else lv[-1]
       for (l in fica) cols[[paste0(tm$nome, "=", l)]] <- as.numeric(valores == l)
       info[[length(info) + 1L]] <- list(nome = tm$nome, column = tm$column,
@@ -468,9 +474,10 @@ monta_x_limiar <- function(terms, data, keep, primeiro_cheio) {
 # prepara_aleatorios() (R/aleatorios_r.R), que tambem monta indirect() e os grupos.
 monta_z_limiar <- function(aleat, data, pedigree, k_inverse, keep) {
   lapply(aleat, function(tm) {
-    # o nivel como o motor o escreve, o mesmo rotulo dos ids de a_inverse() e do pedigree
+    # o nivel como o motor o escreve, o mesmo rotulo dos ids de a_inverse() e do pedigree;
+    # o rotulo ausente para em toda linha, como no motor
+    nivel_ausente(data[[tm$column]], tm$nome, tm$column)
     valores <- rotulo_motor(data[[tm$column]][keep])
-    if (anyNA(valores)) stop("missing value(s) in random term '", tm$column, "'")
     if (tm$estrutura == 2L) {
       ai <- if (is.null(k_inverse)) a_inverse(pedigree) else valida_k_inverse(k_inverse)
       idx <- match(valores, ai$id)
@@ -558,8 +565,9 @@ pecas_gf <- function(a, tvec, codes, m) {
 prepara_limiar <- function(formula, trait, terms, aleat, data, pedigree, k_inverse,
                            missing_code, thresholds_start) {
   y <- data[[trait]]
-  keep <- !is.na(y)
-  if (!is.null(missing_code)) keep <- keep & !(as.character(y) == as.character(missing_code))
+  # a observacao ausente (NA, NaN, Inf, texto vazio, o texto "NaN", missing_code) sai do
+  # ajuste e e contada, como no motor; antes o texto vazio virava a categoria mais baixa
+  keep <- !observacao_ausente(y, missing_code)
   if (!any(keep)) stop("no record with an observed trait")
   y <- y[keep]
 
@@ -750,10 +758,9 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
 
   y1 <- as.double(data[[traits[1]]])
   y2raw <- data[[traits[2]]]
-  keep <- !is.na(y1) & !is.na(y2raw)
-  if (!is.null(missing_code))
-    keep <- keep & y1 != as.double(missing_code) &
-            as.character(y2raw) != as.character(missing_code)
+  # a observacao ausente de cada traco, pela regra do modo ordinal (observacao_ausente()):
+  # o texto vazio no binario virava um terceiro valor, e o Inf no quantitativo entrava
+  keep <- !observacao_ausente(y1, missing_code) & !observacao_ausente(y2raw, missing_code)
   y1 <- y1[keep]
   vals2 <- sort(unique(as.character(y2raw[keep])))
   if (length(vals2) != 2L)
@@ -980,9 +987,8 @@ predict.breeding_fit_thr <- function(object, newdata,
       stop("no column '", info$column, "' in newdata")
     col <- newdata[[info$column]]
     if (info$covariavel) {
-      v <- as.double(col)
-      if (any(!is.finite(v))) stop("non-finite value(s) in covariate '", info$column, "'")
-      a <- a + v * (if (info$nome %in% names(object$b)) object$b[[info$nome]] else 0)
+      a <- a + covariavel_newdata(col, info) *
+        (if (info$nome %in% names(object$b)) object$b[[info$nome]] else 0)
     } else {
       valores <- rotulo_motor(col)
       fora <- setdiff(unique(valores), info$niveis)
@@ -1009,11 +1015,19 @@ prediz_conjunto <- function(object, newdata, type) {
   parte_fixa <- function(tr) {
     a <- numeric(n)
     for (info in object$design$fixed) {
+      # o intercepto do modo conjunto sem fator de classe (monta_x_limiar) e uma constante,
+      # sem coluna em newdata; antes a predicao parava com "no column '' in newdata"
+      if (!nzchar(info$column)) {
+        nm <- paste0(info$nome, "|", tr)
+        a <- a + (if (nm %in% names(object$b)) object$b[[nm]] else 0)
+        next
+      }
       if (!info$column %in% names(newdata)) stop("no column '", info$column, "' in newdata")
       col <- newdata[[info$column]]
       if (info$covariavel) {
         nm <- paste0(info$nome, "|", tr)
-        a <- a + as.double(col) * (if (nm %in% names(object$b)) object$b[[nm]] else 0)
+        a <- a + covariavel_newdata(col, info) *
+          (if (nm %in% names(object$b)) object$b[[nm]] else 0)
       } else {
         valores <- rotulo_motor(col)
         fora <- setdiff(unique(valores), info$niveis)

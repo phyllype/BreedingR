@@ -32,8 +32,10 @@ test_that("NA, NaN and Inf in a level column stop the fit with the first row", {
   d2$g[9] <- NA
   expect_error(ajusta_na(y ~ random(g), d2, c(0.3, 1)),
                "NA or Inf in the column 'g' in 2 row\\(s\\), the first at row 5")
+  # -Inf tem o seu nome, como na baia de indirect() e em sem_rotulo()
   d2$g[9] <- -Inf
-  expect_error(ajusta_na(y ~ random(g), d2, c(0.3, 1)), "term 'random': Inf in the column 'g'")
+  expect_error(ajusta_na(y ~ random(g), d2, c(0.3, 1)),
+               "term 'random': Inf or -Inf in the column 'g' in 2 row\\(s\\), the first at row 5")
   # o fixo de classe, pela mesma regra
   d3 <- d
   d3$cg[c(4, 9)] <- NA
@@ -109,6 +111,7 @@ test_that("a missing observation still drops only its record, and a covariate ha
   d$y[2] <- -999
   d$y[11] <- 0.5
   expect_equal(ajusta_na(y ~ cg + random(g), d, c(0.3, 1), missing_code = -999)$n_used, 39L)
-  # cov(x) e um valor, nao um nivel: a regra de nivel nao se aplica a ele
+  # cov(x) e um valor, nao um nivel: a regra de nivel nao se aplica a ele (a do valor
+  # ausente, NA/NaN/Inf na covariavel, esta em test-rotulo-ausente.R)
   expect_equal(ajusta_na(y ~ cov(x) + random(g), caso_na(), c(0.3, 1))$n_used, 40L)
 })

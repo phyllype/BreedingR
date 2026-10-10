@@ -29,6 +29,7 @@
 #include "mme.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 
 // so para o TRACE opcional e a interrupcao: nenhuma conta usa o R
@@ -47,13 +48,39 @@ namespace br {
 //
 // O corte e o do certificado: autovalor abaixo de 1e-8 do maior e direcao sem curvatura. Os
 // componentes com peso >= 0.2 no autovetor dessa direcao sao os que o dado nao separa.
-std::string aviso_informacao(const Densa& ai, const std::vector<std::string>& nomes,
-                             std::vector<double>* se) {
-  const std::size_t n = ai.nlin;
+//
+// O CORTE E FEITO NAS UNIDADES PADRONIZADAS, F AI F com F = diag(fator), e nao na AI crua
+// das unidades do usuario. A AI crua mistura unidades: com y em unidades c, a linha de uma
+// variancia escala por 1/c^4 e a do rho do AR(1) nao escala, entao o mesmo ajuste era
+// SINGULAR com y em minutos e regular com y em horas, com as MESMAS estimativas (medido no
+// P1-5: 5 de 10 tracos univariados com EP NaN em unidades cruas, todos finitos em /100).
+// `fator` e a unidade de cada componente sob a padronizacao por caracteristica de
+// model_mt()/model_ar1(), s_a s_b com s o desvio padrao EXATO de cada caracteristica (1 para
+// o rho): y e c y dao a mesma F AI F ate o arredondamento do dado, para qualquer c, e o
+// mesmo veredito. O desvio exato, e nao a potencia de 2 logo acima dele com que a caminhada
+// anda: aquela so e invariante a fatores potencia de 2, e com y vezes 100 a razao entre as
+// duas muda por um fator em (1/2, 2) por caracteristica, que na AI vira ate 16 entre a linha
+// de uma variancia e a do rho, o bastante para um autovalor perto do corte trocar de lado.
+// No model() todos os componentes tem a unidade de y^2, a AI inteira escala por 1/c^4 e o
+// corte relativo ao maior autovalor ja e invariante: ali `fator` fica nulo e a conta e a de
+// sempre.
+//
+// A forma de correlacao, D^-1/2 AI D^-1/2, que tambem e invariante, foi tentada e
+// descartada: ela normaliza a diagonal, e um parametro SEM informacao nenhuma deixa de ser
+// visto (medido no desenho de test-grupo-iid-niveis.R, a covariancia entre dois termos de
+// rotulos disjuntos com diagonal da AI 3,1e-31 contra 5 a 170 dos outros: SINGULAR e EP NaN
+// com o corte cru, EP 9,6e15 e nenhum aviso na forma de correlacao).
+std::string aviso_informacao(const Densa& ai_bruta, const std::vector<std::string>& nomes,
+                             std::vector<double>* se, const std::vector<double>* fator) {
+  const std::size_t n = ai_bruta.nlin;
   if (n == 0 || nomes.size() != n) return "";
   for (std::size_t i = 0; i < n; i++)
     for (std::size_t j = 0; j < n; j++)
-      if (!std::isfinite(ai.at(i, j))) return "";
+      if (!std::isfinite(ai_bruta.at(i, j))) return "";
+  Densa ai = ai_bruta;
+  if (fator && fator->size() == n)
+    for (std::size_t i = 0; i < n; i++)
+      for (std::size_t j = 0; j < n; j++) ai.at(i, j) *= (*fator)[i] * (*fator)[j];
   std::vector<double> ev;
   Densa u;
   jacobi_sim(ai, ev, u);
@@ -130,15 +157,25 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
   A.solucao.assign(M.total, 0.0);
   for (std::size_t k = 0; k < M.total; k++) A.solucao[perm[k]] = px[k];
 
-  // -2logL
-  double yy = 0.0;
+  // -2logL: os termos que nao dependem de y aqui; y'Py entra depois, pelos residuos.
+  //
+  // A FORMA QUADRATICA SAI DOS RESIDUOS, e nao de y'y - b'r. As duas sao a mesma conta no
+  // otimo das MME (b'r = b'(W'W + Pen) b), mas y'y - b'r subtrai dois numeros da ordem de
+  // n (media de y)^2 e herda em PRIMEIRA ordem o erro da solucao b: somar uma constante a y
+  // mudava o -2logL, que o REML nao deixa mudar. Medido no dado do portao D4
+  // (test-unidade-partida-fronteira.R), em theta fixo: relativo 1,1e-8 com y + 1000 dp e
+  // 1,1e-6 com y + 1e4 dp no model(), 6,6e-7 no AR(1) e 3,9e-7 no multicaracter com 1e4 dp,
+  // e o colapso rho = 0 do model_ar1() contra o model() a -7,8e-11 com 100 dp e -7,9e-7 com
+  // 1e4 dp; pelos residuos, tudo abaixo de 3e-14. No P1-5 (dado real) o colapso dava -9e-6.
+  // e'e + b'Pen b e o minimo da soma de quadrados penalizada, estacionario em b: o erro da
+  // solucao entra so em SEGUNDA ordem, e os residuos ja nao carregam a media.
   std::size_t nreg = 0;
   for (std::size_t i = 0; i < d.nlin; i++)
-    if (d.usa[i]) { yy += d.y[i] * d.y[i]; nreg++; }
-  double bry = 0.0;
-  for (std::size_t k = 0; k < M.total; k++) bry += A.solucao[k] * M.rhs[k];
-  const double n = static_cast<double>(nreg), pfixo = static_cast<double>(M.n_fixo);
-  A.neg2logl = (n - pfixo) * std::log(M.s2e) + M.logdet_g + logdet(L) + (yy - bry) / M.s2e;
+    if (d.usa[i]) nreg++;
+  const double pfixo = static_cast<double>(M.n_fixo);
+  const double parte_fixa = (static_cast<double>(nreg) - pfixo) * std::log(M.s2e) +
+                            M.logdet_g + logdet(L);
+  double upen = 0.0;   // soma_g soma_ab C_g^-1[a,b] Q[a,b] = b'Pen b / s2e
 
   // inversa seletiva, lida na numeracao original atraves da permutacao
   SelInv z = inversa_seletiva(L, 0);
@@ -226,6 +263,8 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
         for (std::size_t l = 0; l < nl; l++) s += ua[l] * ku[b][l];
         Q.at(a, b) = s;
       }
+    for (std::size_t a = 0; a < dim; a++)
+      for (std::size_t b = 0; b < dim; b++) upen += cinv.at(a, b) * Q.at(a, b);
 
     // T[a,b] = s2e tr(K^-1 [Cs^-1]_{a,b}): le a inversa seletiva SO onde K^-1 tem nao-zero.
     // Todo nao-zero de K^-1 esta na penalidade, a penalidade esta em C, e todo nao-zero de C
@@ -308,6 +347,8 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
   // so que converge para o lugar errado. Um estimador com score errado e verossimilhanca
   // certa e o pior dos mundos: converge, reporta convergencia, e estima outra coisa.
   const double nreg_d = static_cast<double>(nreg);
+  // y'Py = (e'e + b'Pen b) / s2e, com e e b do proprio ajuste (ver o -2logL acima)
+  A.neg2logl = parte_fixa + ete / s2e + upen;
   A.score[d.modelo.offset_residual] =
       (nreg_d - pfixo - static_cast<double>(q_ordem) + trpen_total) / s2e
       - ete / (s2e * s2e);
@@ -499,8 +540,10 @@ bool z_de_theta(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& 
 
 // Pisos na diagonal de z, por bloco, recalculados no ponto corrente: relativo a maior
 // diagonal de Cholesky do bloco (assim um bloco de uma linha so nunca encosta nele) e
-// absoluto contra a escala residual (o velho piso de variancia, 1e-10 max(1, s2e), lido
-// atraves de l = sqrt(v)). O piso relativo de 1e-3 limita a condicao do bloco a ~1e6, que
+// absoluto contra uma escala (piso de variancia 1e-10 escala, lido atraves de l = sqrt(v)).
+// O model() passa a var(y) dos registros usados, fixa na caminhada (o racional e a medida
+// estao em ajusta); model_mt() e model_ar1() caminham com cada caracteristica padronizada e
+// passam max(1, variancia residual media) na unidade padronizada, que la e sempre 1. O piso relativo de 1e-3 limita a condicao do bloco a ~1e6, que
 // e o que mantem a inversa do bloco utilizavel: sem ele o passo em z chega a fronteira
 // exata (autovalor medido em 1.5e-14) e a solucao do MME para os efeitos fixos perde
 // digitos contra a mesma GLS montada densa. Escalares em log e correlacoes em atanh nao
@@ -509,7 +552,7 @@ void pisos_z(const MapaZ& mp, const std::vector<double>& z, double escala_residu
              std::vector<double>& piso, std::vector<char>& relativo) {
   piso.assign(z.size(), -std::numeric_limits<double>::infinity());
   relativo.assign(z.size(), 0);
-  const double piso_abs = 0.5 * std::log(1e-10 * std::max(1.0, escala_residual));
+  const double piso_abs = 0.5 * std::log(1e-10 * escala_residual);
   for (std::size_t b = 0; b < mp.blocos.size(); b++) {
     const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
     double zmax = -std::numeric_limits<double>::infinity();
@@ -580,7 +623,21 @@ PassoZ passo_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& t
   // e a parede prende o BLOCO, nao a coordenada: o piso relativo fixa a RAZAO entre as
   // diagonais de Cholesky, entao um bloco encostado nele esta confinado a uma face de
   // dimensao menor e nenhuma das coordenadas dele, a fora da diagonal inclusive, que nao
-  // tem piso proprio, e uma direcao livre.
+  // tem piso proprio, entra no certificado.
+  //
+  // TENTADO E DESFEITO no item ar1real: tirar do certificado so a diagonal na parede e
+  // cobrar as outras coordenadas do bloco, as que andam sobre a face de posto 1. A ideia
+  // pega o ponto da face que nao e o otimo da face (test-fixed-solutions.R, model_mt com
+  // h2 = 0, semente 32: decremento 1,7e-4 com o bloco fora num ponto 9e-4 acima do melhor de
+  // 30 partidas, 0,039 com a face dentro), mas o score analitico do bloco perto da
+  // singularidade e lixo: na semente 33 do mesmo desenho, com L_22 / L_11 = 1e-3 (o piso) e
+  // r = +1, o gradiente em (log L_11, L_21) dava (57,6; -117) contra (0,0012; 0,018) das
+  // diferencas finitas da forma V densa, e o proprio -2logL esparso estava 2,8e-6 abaixo da
+  // forma V. O piso relativo nao limita a condicao do bloco quando a fora da diagonal domina
+  // (ali L_11 = 0,049 e L_21 = 0,98: condicao ~1e11), e o MME perde os digitos. Com a face
+  // no certificado esse ajuste nunca certificava (decremento 0,02 num ponto 2e-5 acima do
+  // melhor) e parava em converged = FALSE. A face fica fora; quem a anda bem e o passo, com
+  // a curvatura da face (abaixo), e quem confere outra bacia e a exploracao da fronteira.
   for (std::size_t b = 0; b < mp.blocos.size(); b++) {
     const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
     if (dim < 2) continue;
@@ -618,6 +675,68 @@ PassoZ passo_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& t
         // o certificado.
         P.congelado[i] = 1;
       }
+  // A CURVATURA DA FACE. AI_z = J' AI J e a regra da cadeia de PRIMEIRA ordem; a Hessiana de
+  // f(theta(z)) tem ainda soma_k score_k d2 theta_k / dz dz', que no interior some junto com o
+  // score e numa fronteira nao: ali o score de theta e o multiplicador da restricao, e o termo
+  // e a curvatura da face (C = v v' e uma superficie curva em theta). Sem ele a AI_z
+  // subestimava a curvatura de log L_11 sobre a face de posto 1 em 2 a 4 vezes (medido por
+  // diferencas finitas no test-fixed-solutions.R, model_mt com h2 = 0, semente 32: 1,23 a
+  // 2,36 contra 0,56 a 0,65; com o termo, 1,15 a 1,38), o passo de Newton passava do ponto e
+  // o caminhante rastejava pela face com relDelta ~1e-4 por centenas de iteracoes.
+  //
+  // Por bloco, f = <S, L L'> com S_ii = score_ii e S_ij = score_ij / 2, e para as coordenadas
+  // a = (i, m) e b = (j, n) do triangulo de L: d2 f / dz_a dz_b = 2 S_ij D_a D_b quando m = n
+  // (D = L_ii na diagonal, em log, e 1 fora dela), mais 2 (S L_.m)_i L_ii na propria diagonal
+  // a = b = (i, i). So nos blocos com alguma diagonal na parede (no interior o caminho fica
+  // o de sempre), e so a parte positiva-semidefinida: longe do otimo o score pode deixar o
+  // termo indefinido, e somado a AI_z ele so pode encurtar o passo, nunca virar a direcao.
+  for (std::size_t b = 0; b < mp.blocos.size(); b++) {
+    const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
+    bool na = false;
+    for (std::size_t i = 0; i < dim; i++)
+      if (P.na_parede[idx_tri(off, dim, i, i)]) na = true;
+    if (!na) continue;
+    Densa S(dim, dim), L(dim, dim);
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++) {
+        const std::size_t k = idx_tri(off, dim, i, j);
+        S.at(i, j) = (i == j) ? score[k] : 0.5 * score[k];
+        S.at(j, i) = S.at(i, j);
+        L.at(i, j) = (i == j) ? std::exp(P.zc[k]) : P.zc[k];
+      }
+    // as coordenadas do bloco na ordem do triangulo: (linha, coluna) de L
+    std::vector<std::size_t> lin, col;
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++) { lin.push_back(i); col.push_back(j); }
+    const std::size_t nb = lin.size();
+    Densa H(nb, nb);
+    bool finito = true;
+    for (std::size_t a = 0; a < nb; a++)
+      for (std::size_t c = 0; c < nb; c++) {
+        if (col[a] != col[c]) continue;
+        const double da = (lin[a] == col[a]) ? L.at(lin[a], lin[a]) : 1.0;
+        const double dc = (lin[c] == col[c]) ? L.at(lin[c], lin[c]) : 1.0;
+        double v = 2.0 * S.at(lin[a], lin[c]) * da * dc;
+        if (a == c && lin[a] == col[a]) {
+          double sl = 0.0;
+          for (std::size_t q = 0; q < dim; q++) sl += S.at(lin[a], q) * L.at(q, col[a]);
+          v += 2.0 * sl * L.at(lin[a], lin[a]);
+        }
+        if (!std::isfinite(v)) finito = false;
+        H.at(a, c) = v;
+      }
+    if (!finito) continue;
+    std::vector<double> ev;
+    Densa u;
+    jacobi_sim(H, ev, u);
+    for (std::size_t a = 0; a < nb; a++)
+      for (std::size_t c = 0; c < nb; c++) {
+        double v = 0.0;
+        for (std::size_t q = 0; q < nb; q++)
+          if (ev[q] > 0.0) v += u.at(a, q) * ev[q] * u.at(c, q);
+        P.az.at(idx_tri(off, dim, lin[a], col[a]), idx_tri(off, dim, lin[c], col[c])) += v;
+      }
+  }
   return P;
 }
 
@@ -664,6 +783,418 @@ double decremento_z(const PassoZ& P) {
     dec += proj * proj / ev[k];
   }
   return std::fabs(dec);   // a AI e PSD; negativo aqui e arredondamento, nao curvatura
+}
+
+// REENTRADA NO CONE, a condicao de KKT conferida pela VEROSSIMILHANCA, para os
+// ajustadores que caminham com passo_z (model_mt(), model_ar1()). Medido no P1-8 (model_mt,
+// pares diarios reais): o ajuste saia com converged = TRUE numa fronteira de covariancia
+// 46,8 e 16,3 unidades de -2logL ACIMA do otimo interior. Duas pecas faziam isso juntas. O
+// certificado exclui da conta todo componente na parede sem olhar o sinal do score (passo_z,
+// acima: a exigencia de sinal reprovava otimos restritos verdadeiros, porque perto da
+// singularidade o score em z e ruido), e o passo congela a coordenada cuja curvatura em z
+// colapsou (dtheta/dz = 2 L^2 vai a zero com L), tambem sem olhar o sinal. Resultado: um
+// bloco parado perto da parede com o gradiente apontando PARA DENTRO do cone nunca era
+// empurrado de volta, e o certificado o ignorava.
+//
+// A condicao de KKT de min f(C) com C no cone PSD e G >= 0 e G C = 0, com G a matriz do
+// gradiente de f = -2logL no bloco (G_ii = score_ii, G_ij = score_ij / 2, pois C_ij = C_ji
+// e um componente so). Um autovalor negativo de G, com autovetor w, e uma direcao C + e ww'
+// que fica no cone e baixa o -2logL em primeira ordem: o ponto nao era otimo. Em z essa
+// direcao some, porque o Jacobiano da diagonal presa colapsou; em theta ela continua la. O
+// score perto da singularidade carrega ruido, entao o sinal dele nao decide sozinho: cada
+// direcao vira um ponto, com o comprimento do modelo quadratico da AI (e = -lambda / d'AI d,
+// d = vech(ww'), e metade e o dobro dele), e quem decide e o -2logL avaliado.
+//
+// Medido (test-unidade-partida-fronteira.R, P8-1, seed 12, a variancia da ninhada de y2
+// partindo de 1e-14): o bloco parou em r = -0,9999 com score -2,25 na var(random@y2),
+// apontando para dentro, e o ajuste certificava 0,041 unidade acima do otimo interior. Os
+// candidatos por coordenada pioravam todos, de 0,003 a 79 unidades, porque a menor fracao
+// da escala (1e-3 de 1, a escala da caracteristica padronizada) ja e 2,4 vezes a variancia
+// inteira de y2 no bloco; o primeiro ponto direcional baixou 0,009, e dali o caminhante chega ao otimo.
+// Os candidatos por coordenada ficam como reserva, para quando o gradiente nao aponta
+// nada: a variancia condicional L_ii^2 em 1e-3, 1e-2 e 1e-1 da escala da coordenada (a
+// variancia marginal C_ii dela ou, na parede do zero, a escala residual), so quando isso ao
+// menos dobra L_ii, e o bloco inteiro descorrelacionado com as variancias no mesmo piso
+// (levantar so uma diagonal mantem a fora da diagonal de Cholesky, e num bloco de posto 1
+// isso mantem a correlacao em +/-1). E uma sonda, nao uma prova: um otimo restrito que so
+// melhora longe dos candidatos passa.
+CandidatosKKT candidatos_reentrada(const MapaZ& mp, std::size_t ntheta,
+                                   const std::vector<double>& z,
+                                   const std::vector<char>& parede, double escala,
+                                   const std::vector<double>& score, const Densa& ai) {
+  CandidatosKKT out;
+  if (z.size() != ntheta || parede.size() != ntheta) return out;
+  const std::vector<double> theta = theta_de_z(mp, ntheta, z);
+  const bool com_gradiente = score.size() == ntheta && ai.nlin == ntheta && ai.ncol == ntheta;
+  for (std::size_t b = 0; b < mp.blocos.size(); b++) {
+    const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
+    bool bloco_na_parede = false;
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++)
+        if (parede[idx_tri(off, dim, i, j)]) bloco_na_parede = true;
+    if (!bloco_na_parede) continue;
+    // as direcionais: autovetores de autovalor negativo de G
+    if (com_gradiente) {
+      Densa G(dim, dim);
+      bool finito = true;
+      for (std::size_t j = 0; j < dim; j++)
+        for (std::size_t i = j; i < dim; i++) {
+          const double s = score[idx_tri(off, dim, i, j)];
+          if (!std::isfinite(s)) finito = false;
+          G.at(i, j) = (i == j) ? s : 0.5 * s;
+          G.at(j, i) = G.at(i, j);
+        }
+      if (finito) {
+        std::vector<double> ev;
+        Densa u;
+        jacobi_sim(G, ev, u);
+        for (std::size_t k = 0; k < ev.size(); k++) {
+          if (!(ev[k] < 0.0)) continue;
+          std::vector<double> dv(ntheta, 0.0);
+          for (std::size_t j = 0; j < dim; j++)
+            for (std::size_t i = j; i < dim; i++)
+              dv[idx_tri(off, dim, i, j)] = u.at(i, k) * u.at(j, k);
+          double q = 0.0;
+          for (std::size_t a = off; a < off + dim * (dim + 1) / 2; a++)
+            for (std::size_t c = off; c < off + dim * (dim + 1) / 2; c++)
+              q += dv[a] * ai.at(a, c) * dv[c];
+          if (!(q > 0.0) || !std::isfinite(q)) continue;
+          const double e = -ev[k] / q;
+          for (const double m : {1.0, 0.5, 2.0}) {
+            std::vector<double> th = theta;
+            for (std::size_t a = 0; a < ntheta; a++) th[a] += m * e * dv[a];
+            std::vector<double> zc;
+            if (z_de_theta(mp, ntheta, th, zc)) out.direcionais.push_back(zc);
+          }
+        }
+      }
+    }
+    // as por coordenada
+    Densa L(dim, dim);
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++) {
+        const double v = z[idx_tri(off, dim, i, j)];
+        L.at(i, j) = (i == j) ? std::exp(v) : v;
+      }
+    std::vector<double> cii(dim, 0.0);
+    for (std::size_t i = 0; i < dim; i++)
+      for (std::size_t m = 0; m <= i; m++) cii[i] += L.at(i, m) * L.at(i, m);
+    for (std::size_t i = 0; i < dim; i++) {
+      const std::size_t k = idx_tri(off, dim, i, i);
+      if (!parede[k]) continue;
+      const double ref = std::max(cii[i], escala);
+      const double v = L.at(i, i) * L.at(i, i);
+      for (const double fr : {1e-3, 1e-2, 1e-1}) {
+        const double vn = fr * ref;
+        if (!(vn > 4.0 * v) || !std::isfinite(vn)) continue;
+        std::vector<double> zc = z;
+        zc[k] = 0.5 * std::log(vn);
+        out.coordenadas.push_back(zc);
+      }
+    }
+    if (dim > 1)
+      for (const double fr : {1e-3, 1e-2, 1e-1}) {
+        std::vector<double> zc = z;
+        for (std::size_t j = 0; j < dim; j++)
+          for (std::size_t i = j; i < dim; i++)
+            zc[idx_tri(off, dim, i, j)] =
+                (i == j) ? 0.5 * std::log(std::max(cii[i], fr * escala)) : 0.0;
+        bool finito = true;
+        for (double v : zc) if (!std::isfinite(v)) finito = false;
+        if (finito) out.coordenadas.push_back(zc);
+      }
+  }
+  return out;
+}
+
+// A SONDA DA FACE, pela verossimilhanca. O certificado tira da conta o bloco inteiro que
+// encosta na parede (passo_z), porque o score analitico dele perto da singularidade e lixo;
+// mas um ponto da face que nao e o otimo da face passava junto. Medido no
+// test-fixed-solutions.R (model_mt com h2 = 0, semente 32): a partida dos univariados
+// certificava 9e-4 unidade de -2logL acima do melhor de 30 partidas, com o bloco genetico em
+// r = -1, e das 30 partidas aleatorias 10 certificavam mais de 1e-4 acima dele.
+//
+// Aqui a face e conferida sem o score do bloco. As coordenadas do bloco que andam sobre a
+// face (todas menos as diagonais na parede e as de curvatura colapsada) entram por
+// diferencas finitas centrais do -2logL, com passo h = 1e-2 em z: o gradiente, a Hessiana
+// entre elas e, pelo score das OUTRAS coordenadas avaliado nos mesmos pontos, a Hessiana
+// cruzada com o resto do modelo. As outras coordenadas livres entram com o score e a AI_z
+// de sempre. O passo de Newton CONJUNTO desse modelo quadratico (comprimentos 1, 1/2 e 1/4)
+// e os proprios pontos da sonda sao avaliados, e volta o melhor deles quando algum baixa o
+// -2logL; quem chama decide pelo ganho: acima de tol_reentrada o certificado e recusado e o
+// caminhante vai para ele, e um certificado aceito ainda e lapidado por ela enquanto cada
+// passo ganha mais que tol_lapida (o racional esta em mme.h). O conjunto importa: com
+// h2 ~ 0 a covariancia genetica e a residual trocam variancia ao longo de um vale estreito,
+// e uma sonda so da face, com o resto parado, deixava 9 das 30 partidas certificarem mais de
+// 1e-4 acima do melhor (o otimo condicional de cada bloco nao e o otimo conjunto).
+//
+// O passo h = 1e-2 e o que o ruido permite: no canto da semente 33 do mesmo desenho o
+// -2logL esparso erra ~1e-6 (2,8e-6 abaixo da forma V densa) e com h = 1e-5 a diferenca
+// finita ja era lixo; com 1e-2 o erro do gradiente fica perto de 1e-4. Custa 2n + n(n - 1)/2
+// + 3 avaliacoes, com n as coordenadas da face, e so quando o resto do certificado ja passou.
+// E uma sonda, nao uma prova: um otimo que so melhora longe do modelo quadratico passa.
+bool sonda_face(const MapaZ& mp, std::size_t ntheta, const PassoZ& P, double f0,
+                const std::function<bool(const std::vector<double>&, double&,
+                                         std::vector<double>&)>& f,
+                std::vector<double>& z_novo, double& f_novo) {
+  if (!P.ok || P.zc.size() != ntheta || !std::isfinite(f0)) return false;
+  const double h = 1e-2;
+  // as coordenadas da face (F) e as livres do certificado (Rl)
+  std::vector<std::size_t> F, Rl;
+  for (std::size_t b = 0; b < mp.blocos.size(); b++) {
+    const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
+    if (dim < 2) continue;
+    bool na = false;
+    for (std::size_t i = 0; i < dim; i++)
+      if (P.zc[idx_tri(off, dim, i, i)] <= P.piso[idx_tri(off, dim, i, i)] + std::log(2.0))
+        na = true;
+    if (!na) continue;
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++) {
+        const std::size_t k = idx_tri(off, dim, i, j);
+        if (P.congelado[k]) continue;
+        if (i == j && P.zc[k] <= P.piso[k] + std::log(2.0)) continue;
+        F.push_back(k);
+      }
+  }
+  if (F.empty()) return false;
+  for (std::size_t k = 0; k < ntheta; k++)
+    if (!P.na_parede[k]) Rl.push_back(k);
+  const std::size_t nf = F.size(), nr = Rl.size(), n = nf + nr;
+  bool achou = false;
+  f_novo = f0;
+  std::vector<double> gz;
+  auto prova = [&](const std::vector<double>& zc, double& v) -> bool {
+    std::vector<double> zz = zc;
+    for (std::size_t i = 0; i < ntheta; i++)
+      if (zz[i] < P.piso[i]) zz[i] = P.piso[i];
+    if (!f(zz, v, gz) || !std::isfinite(v)) return false;
+    if (v < f_novo) {
+      f_novo = v;
+      z_novo = zz;
+      achou = true;
+    }
+    return true;
+  };
+  std::vector<double> g(n, 0.0), mais(nf, 0.0);
+  Densa H(n, n);
+  for (std::size_t a = 0; a < nf; a++) {
+    std::vector<double> zc = P.zc;
+    double vm = 0.0, vn = 0.0;
+    zc[F[a]] += h;
+    if (!prova(zc, vm)) return achou;
+    const std::vector<double> gm = gz;
+    zc[F[a]] -= 2.0 * h;
+    if (!prova(zc, vn)) return achou;
+    mais[a] = vm;
+    g[a] = (vm - vn) / (2.0 * h);
+    H.at(a, a) = (vm - 2.0 * f0 + vn) / (h * h);
+    for (std::size_t c = 0; c < nr; c++) {
+      H.at(nf + c, a) = (gm[Rl[c]] - gz[Rl[c]]) / (2.0 * h);
+      H.at(a, nf + c) = H.at(nf + c, a);
+    }
+  }
+  for (std::size_t a = 0; a < nf; a++)
+    for (std::size_t c = a + 1; c < nf; c++) {
+      std::vector<double> zc = P.zc;
+      double v = 0.0;
+      zc[F[a]] += h;
+      zc[F[c]] += h;
+      if (!prova(zc, v)) return achou;
+      H.at(a, c) = (v - mais[a] - mais[c] + f0) / (h * h);
+      H.at(c, a) = H.at(a, c);
+    }
+  for (std::size_t c = 0; c < nr; c++) {
+    g[nf + c] = P.sz[Rl[c]];
+    for (std::size_t e = 0; e < nr; e++) H.at(nf + c, nf + e) = P.az.at(Rl[c], Rl[e]);
+  }
+  // o passo de Newton conjunto, com a Hessiana levada a positiva-definida: autovalores em
+  // modulo, e os abaixo de 1e-3 do maior levantados a ele (uma direcao plana nao vira um
+  // passo infinito)
+  std::vector<double> ev;
+  Densa u;
+  jacobi_sim(H, ev, u);
+  double maior = 0.0;
+  for (double e : ev) maior = std::max(maior, std::fabs(e));
+  if (!(maior > 0.0) || !std::isfinite(maior)) return achou;
+  std::vector<double> passo(n, 0.0);
+  for (std::size_t q = 0; q < n; q++) {
+    const double e = std::max(std::fabs(ev[q]), 1e-3 * maior);
+    double proj = 0.0;
+    for (std::size_t a = 0; a < n; a++) proj += u.at(a, q) * g[a];
+    for (std::size_t a = 0; a < n; a++) passo[a] -= u.at(a, q) * proj / e;
+  }
+  for (const double alpha : {1.0, 0.5, 0.25}) {
+    std::vector<double> zc = P.zc;
+    for (std::size_t a = 0; a < nf; a++) zc[F[a]] += alpha * passo[a];
+    for (std::size_t c = 0; c < nr; c++) zc[Rl[c]] += alpha * passo[nf + c];
+    double v = 0.0;
+    prova(zc, v);
+  }
+  return achou;
+}
+
+// O PONTO DESCORRELACIONADO NA PAREDE, o outro candidato da lapidacao (tol_lapida, mme.h).
+// Uma caracteristica cuja variancia MARGINAL no bloco esta no piso (a diagonal de Cholesky na
+// parede e C_ii ate 4 vezes a variancia do piso) esta na fronteira do zero, e ali a
+// correlacao dela com as outras nao tem sentido; mas o piso relativo nao e o zero, e no piso a
+// correlacao ainda mexe no -2logL. Medido (o desenho 2, semente 1, da busca do D3, model_ar1
+// bivariado com var(animal@y1) no piso): a partida de var(y) certificava r = -0,79 com
+// var(animal@y1) = 1,0e-6, 6,7e-4 unidade de -2logL acima do ponto da partida dos
+// univariados; no mesmo ponto, com a covariancia zerada, o -2logL baixa 7,3e-4. A sonda da
+// face nao acha essa direcao: no piso, L_21 carrega quase toda a var(animal@y2), o vale que
+// gira L_21 para zero com a variancia marginal fixa e um arco, e nenhum dos pontos das
+// diferencas finitas nem o passo de Newton delas melhorava. Aqui o candidato e o proprio
+// ponto do limite: as covariancias dessas caracteristicas em zero, TODAS as variancias onde
+// estao, de volta a z e aos pisos. Vazio quando nenhum bloco tem caracteristica assim (a face
+// r = +-1, com a diagonal condicional no piso e a variancia marginal longe dele, nao entra).
+std::vector<double> descorrelada_na_parede(const MapaZ& mp, std::size_t ntheta,
+                                           const PassoZ& P) {
+  if (!P.ok || P.zc.size() != ntheta || P.piso.size() != ntheta) return {};
+  std::vector<double> th = theta_de_z(mp, ntheta, P.zc);
+  bool mudou = false;
+  for (std::size_t b = 0; b < mp.blocos.size(); b++) {
+    const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
+    if (dim < 2) continue;
+    for (std::size_t i = 0; i < dim; i++) {
+      const std::size_t k = idx_tri(off, dim, i, i);
+      if (!(P.zc[k] <= P.piso[k] + std::log(2.0))) continue;
+      if (!(th[k] <= 4.0 * std::exp(2.0 * P.piso[k]))) continue;
+      for (std::size_t j = 0; j < dim; j++)
+        if (j != i && th[idx_tri(off, dim, i, j)] != 0.0) {
+          th[idx_tri(off, dim, i, j)] = 0.0;
+          mudou = true;
+        }
+    }
+  }
+  if (!mudou) return {};
+  std::vector<double> z;
+  if (!z_de_theta(mp, ntheta, th, z)) return {};
+  for (std::size_t i = 0; i < ntheta; i++)
+    if (z[i] < P.piso[i]) z[i] = P.piso[i];
+  return z;
+}
+
+// A EXPLORACAO DA FRONTEIRA, a segunda metade do conserto do P8-1. A sonda de KKT acima e
+// LOCAL: ela avalia pontos perto do bloco na parede, com o score do ponto, e o score de um
+// bloco quase singular nao tem sentido. Medido (a revisao do item ar1real, sim_ninhadas
+// seed 3 de test-unidade-partida-fronteira.R, var(random@y2) partindo de 1e-12 com a
+// covariancia zero): converged = TRUE em 13 iteracoes, decremento 9,8e-8, 4,73 unidades de
+// -2logL acima do otimo interior, com o bloco da ninhada em r = -1 e var(random@y1) =
+// 1,6e-9 contra 0,233 e r = +0,76 no otimo. A diagonal do gradiente do bloco ali e 4,3e8, o
+// unico autovalor negativo dele preve ganho de 2e-5 (abaixo da folga), e os candidatos
+// descorrelacionados da sonda pioram o -2logL NO PONTO (+0,094, +2,77 e +62); mas o segmento
+// ate o otimo ja baixa 0,0079 a 0,1% do caminho e desce monotonico ate -4,73. Era outra
+// bacia: o resto do modelo (var(animal@y1) 1,84 contra 1,11) tinha se ajustado ao bloco
+// na parede. Numa varredura de 48 partidas assim (seeds 1 a 12, cov da ninhada +-0,25, uma
+// variancia da ninhada em 1e-12), 6 certificados falsos, de 0,0056 a 4,73 unidades.
+//
+// Nenhum teste local ve outra bacia; uma CAMINHADA a ve. Quando um ajuste termina com algum
+// bloco de covariancia na parede (certificado, ou parado sem certificar antes do teto de
+// iteracoes), uma segunda caminhada parte de dentro do cone: cada bloco com coordenada na
+// parede vira diagonal, com cada variancia em max(C_ii, 10% da partida de var(y)), e o resto
+// fica onde a primeira deixou. Medido no caso acima: da partida assim, com 1%, 10%, 50% e
+// 100% da partida de var(y), as quatro caminhadas certificam o otimo interior em 7 a 9
+// iteracoes. Volta o melhor dos dois. A segunda vence quando baixa o -2logL por mais que
+// tol_reentrada (1e-4: a primeira, certificada ou nao, nao era o otimo); quando certifica e
+// fica abaixo da primeira por qualquer margem; quando certifica a menos de 2e-4 de uma
+// primeira que nao certificou (a folga do proprio certificado); e, sem certificado nas duas,
+// quando fica abaixo. So uma primeira certificada contra uma segunda sem certificado e
+// pouco abaixo dela fica com a primeira. A regra anterior (a segunda so vencia por mais que
+// 1e-4) devolvia o pior de dois certificados: no test-mf-genomico.R a segunda caminhada
+// certificava 2,49e-5 abaixo e voltava a primeira, 2,49e-5 acima do base. Senao volta a
+// primeira, com a segunda dita na mensagem. Ate duas rodadas, para a segunda caminhada que
+// tambem termina na parede, e a segunda rodada so depois de uma vitoria por mais que a folga
+// (o racional esta no fim de explora_fronteira). O
+// orcamento e o mesmo maxiter: a segunda conta a partir da primeira, `iters` e o total, e
+// sem iteracao sobrando nao ha exploracao. E uma busca, nao uma prova: um otimo melhor que
+// nenhuma das duas caminhadas alcanca passa, e o custo e uma caminhada a mais em todo ajuste
+// que termina na parede.
+static std::vector<double> partida_reentrada(const MapaZ& mp, const std::vector<double>& theta,
+                                             const std::vector<char>& parede,
+                                             const std::vector<double>& auto_) {
+  std::vector<double> th = theta;
+  bool algum = false;
+  for (std::size_t b = 0; b < mp.blocos.size(); b++) {
+    const std::size_t off = mp.blocos[b].first, dim = mp.blocos[b].second;
+    bool na = false;
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++)
+        if (parede[idx_tri(off, dim, i, j)]) na = true;
+    if (!na) continue;
+    algum = true;
+    for (std::size_t j = 0; j < dim; j++)
+      for (std::size_t i = j; i < dim; i++) {
+        const std::size_t k = idx_tri(off, dim, i, j);
+        th[k] = (i == j) ? std::max(theta[k], 0.1 * auto_[k]) : 0.0;
+      }
+  }
+  if (!algum) return {};
+  for (double v : th)
+    if (!std::isfinite(v)) return {};
+  return th;
+}
+
+AjusteMT explora_fronteira(AjusteMT R, const MapaZ& mp, const std::vector<double>& auto_,
+                           std::size_t maxiter,
+                           const std::function<AjusteMT(const std::vector<double>&,
+                                                        std::size_t)>& caminha,
+                           bool verboso) {
+  const char* como = "a second walk from inside the cone (every block at a covariance "
+                     "boundary made diagonal, its variances at least 10% of the var(y) start)";
+  for (int rodada = 0; rodada < 2; rodada++) {
+    if (!(R.convergiu || R.parou) || R.iters >= maxiter || !std::isfinite(R.neg2logl))
+      return R;
+    if (R.theta.size() != auto_.size() || R.na_parede.size() != auto_.size()) return R;
+    const std::vector<double> th = partida_reentrada(mp, R.theta, R.na_parede, auto_);
+    if (th.empty()) return R;
+    if (verboso)
+      Rprintf("boundary check: %s, from iteration %d\n", como, (int) R.iters);
+    AjusteMT E = caminha(th, R.iters);
+    // negativo: a segunda caminhada baixou o -2logL
+    const double gap = E.neg2logl - R.neg2logl;
+    const bool vence = std::isfinite(E.neg2logl) &&
+                       (gap < -tol_reentrada ||
+                        (E.convergiu && (gap < 0.0 || (!R.convergiu && gap < 2e-4))) ||
+                        (!R.convergiu && !E.convergiu && gap < 0.0));
+    char buf[480];
+    if (!vence) {
+      R.iters = std::max(R.iters, E.iters);
+      if (std::isfinite(E.neg2logl))
+        std::snprintf(buf, sizeof(buf), "%s ended %.3g -2logL unit(s) %s%s", como,
+                      std::fabs(gap), gap >= 0.0 ? "above this point" : "below this point, "
+                      "inside the 1e-4 slack", E.convergiu ? "" : " without a certificate");
+      else
+        std::snprintf(buf, sizeof(buf), "%s could not be evaluated", como);
+      R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + buf;
+      return R;
+    }
+    if (R.convergiu && gap < -tol_reentrada)
+      std::snprintf(buf, sizeof(buf), "a first walk certified a covariance boundary at -2logL "
+                    "%.6f that is not the optimum: %s %s this point, %.3g lower", R.neg2logl,
+                    como, E.convergiu ? "certified" : "reached, without a certificate,",
+                    -gap);
+    else if (R.convergiu)
+      std::snprintf(buf, sizeof(buf), "a first walk certified a covariance boundary at -2logL "
+                    "%.6f: %s certified this point, %.3g lower (inside the 1e-4 slack, the "
+                    "lower of the two certified points is returned)", R.neg2logl, como, -gap);
+    else
+      std::snprintf(buf, sizeof(buf), "a first walk stopped without a certificate at a "
+                    "covariance boundary at -2logL %.6f: %s %s this point (%+.3g)", R.neg2logl,
+                    como, E.convergiu ? "certified" : "reached, also without a certificate,",
+                    gap);
+    E.mensagem += std::string(E.mensagem.empty() ? "" : "; ") + buf;
+    E.partida = R.partida;
+    R = std::move(E);
+    // outra rodada so quando a segunda caminhada mostrou que a primeira NAO era o otimo (mais
+    // que a folga abaixo): a segunda tambem pode ter parado numa parede errada. Uma vitoria
+    // dentro da folga encerra. Medido no caso de fronteira de validation/
+    // unit_shift_start_scale.R (24 mil registros, ninhada de y2 em zero): a segunda caminhada
+    // certificava 4,9e-8 abaixo da primeira, a terceira ficava 9e-8 acima, e as tres custavam
+    // 23 iteracoes e 94 s contra as 8 da primeira.
+    if (!(gap < -tol_reentrada)) return R;
+  }
+  return R;
 }
 
 // O mapa do univariado: cada grupo e um bloco, o residuo e o escalar em log. Escrito assim
@@ -837,12 +1368,37 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
 
   // floors on the diagonal of z, recomputed at the current point: relative to the group's
   // largest Cholesky diagonal (so a one-term group never binds on it) and absolute against
-  // the residual scale (the old variance floor, 1e-10 max(1, s2e), read through l = sqrt v)
+  // a FIXED scale, the variance of y over the records used (read through l = sqrt v)
+  //
+  // A ESCALA DO PISO ABSOLUTO E FIXA NA CAMINHADA. Era 1e-10 max(1, s2e) com a s2e do ponto
+  // corrente: o max(1, .) prendia o piso em 1e-10 na unidade do usuario sempre que s2e < 1
+  // (com y vezes 1e-5 var(pe) ficava presa nele e o ajuste certificava var(animal) 14%
+  // abaixo; com 1e-6 nem convergia, 1,685 unidades acima), e a s2e corrente faz o piso andar
+  // junto com o residuo. Tirar so o max(1, .) deixou isso a mostra: uma variancia presa no
+  // piso passa a andar com a s2e, o passo nao sabe disso, e um ajuste que o base certificava
+  // em 19 iteracoes (test-mgs-misto.R, var(animal) na fronteira) rodou 300 com relDelta
+  // 1e-5 sem convergir. Com var(y), calculada uma vez, o piso e invariante a unidade e nao
+  // se move.
+  double escala_piso = 1.0;
+  {
+    double soma = 0.0, soma2 = 0.0;
+    std::size_t n = 0;
+    for (std::size_t i = 0; i < d.nlin; i++)
+      if (d.usa[i]) { soma += d.y[i]; soma2 += d.y[i] * d.y[i]; n++; }
+    if (n > 1) {
+      const double media = soma / static_cast<double>(n);
+      double ss = 0.0;
+      for (std::size_t i = 0; i < d.nlin; i++)
+        if (d.usa[i]) ss += (d.y[i] - media) * (d.y[i] - media);
+      const double v = ss / static_cast<double>(n - 1);
+      if (v > 0.0 && std::isfinite(v)) escala_piso = v;
+    }
+  }
   auto pisos_z = [&](const std::vector<double>& zc, std::vector<double>& piso,
                      std::vector<char>& relativo) {
     // no univariado o residuo e um escalar em log, entao o mapa tem so os grupos como
     // blocos e o resultado e o mesmo de sempre
-    br::pisos_z(mapa_z(d.modelo), zc, std::exp(zc[d.modelo.offset_residual]), piso, relativo);
+    br::pisos_z(mapa_z(d.modelo), zc, escala_piso, piso, relativo);
   };
 
   // The pieces of the step at a point, shared by the walker and by the final certificate:
@@ -954,8 +1510,11 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // (an EM that lands numerically ON the singularity would evaluate to garbage: the MME
   // -2logL loses its meaning when det(C_g) underflows). Up to 50 steps, while each pays
   // more than 1e-8.
+  // o gancho de teste do D2 (o racional esta em multitrait2.cpp): recusa todo passo AI e EM
+  const bool sem_passo = std::getenv("BREEDINGR_TESTE_SEM_PASSO") != nullptr;
   auto resgate_em = [&]() -> bool {
     bool ganhou = false;
+    if (sem_passo) return false;
     for (int e = 0; e < 50; e++) {
       std::vector<double> ze;
       // mesma restauracao do EM de aquecimento: o resgate tambem recomputa tudo
@@ -986,6 +1545,17 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     }
     return ganhou;
   };
+
+  // SEM REENTRADA POR SONDA AQUI, e de proposito. A condicao de KKT o univariado ja confere
+  // pelo sinal: o certificado so exclui uma coordenada na parede com o score em z apontando
+  // para FORA (na_parede, acima), e o passo so congela nessa mesma condicao, entao uma
+  // variancia perto da parede com o gradiente para DENTRO nunca e congelada: o passo em z
+  // dela cresce como 1 / L^2 e o caminhante sai sozinho. A sonda pela verossimilhanca dos
+  // ajustadores multicaracter (candidatos_reentrada) existe porque passo_z congela pela
+  // curvatura sem olhar o sinal. A versao intermediaria deste conserto pos aqui a sonda por
+  // coordenada, e ela nao disparou nenhuma vez: partidas com var(ninhada) em 1e-3, 1e-6 e
+  // 1e-10, e em r = +/-(1 - 1.5e-6) e +/-(1 - 1e-8) num grupo direto + indireto, chegaram
+  // ao otimo ou pararam com converged = FALSE, nunca um TRUE falso.
 
   for (std::size_t it = 1; it <= maxiter; it++) {
     R.iters = it;
@@ -1034,6 +1604,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
             const std::size_t k = gr.theta_idx(i, i);
             zc[k] = std::max(zc[k], piso[k]);
           }
+        if (sem_passo) continue;
         std::vector<double> cand = theta_de_z(d.modelo, zc);
         Avaliacao prox = avalia(d, cand, &cs);
         if (prox.ok && prox.neg2logl <= cur.neg2logl + 1e-9) {
@@ -1080,11 +1651,11 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
       } else {
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%.3g", R.decremento);
-        R.mensagem = std::string("did NOT converge: neither the damped AI step nor the ") +
-            "EM step improves the likelihood, but the Newton decrement of the free "
-            "components is " + buf + " (tolerance 2e-4 on the -2logL scale), so the "
-            "point is a stall, not a certified optimum. Try a different start=, and "
-            "profile any component the message reports at a boundary";
+        R.mensagem = std::string("did NOT converge: at iteration ") + std::to_string(it) +
+            " neither the damped AI step nor the EM step improved the likelihood, but the "
+            "Newton decrement of the free components is " + buf + " (tolerance 2e-4 on the "
+            "-2logL scale), so the point is a stall, not a certified optimum. Try a "
+            "different start=, and profile any component the message reports at a boundary";
       }
       break;
     }
@@ -1129,7 +1700,10 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // 300 iteracoes, relDelta 2.2e-4, decremento 1.3e-6 contra 2e-4. O model_mt() convergia no
   // mesmo dado. Aqui o veredicto passa a seguir o certificado, e a mensagem diz que a
   // direcao e plana, que e a informacao que importa para ler aqueles componentes.
-  if (!R.convergiu && R.iters >= maxiter && R.decremento < tol_dec) {
+  // So quando o laco andou: com maxiter = 0 nao ha caminhada nenhuma, e uma AVALIACAO no
+  // start= nao e convergencia, mesmo com o decremento pequeno (o ponto pode ser um otimo
+  // dado de fora, mas quem o certifica e o ajuste que chega nele).
+  if (!R.convergiu && maxiter > 0 && R.iters >= maxiter && R.decremento < tol_dec) {
     R.convergiu = true;
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%.3g", R.reldelta);
@@ -1159,7 +1733,19 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     }
   } catch (const Erro&) {}
 
-  if (!R.convergiu && R.mensagem.empty()) {
+  if (!R.convergiu && maxiter == 0) {
+    // uma avaliacao, nao um ajuste: dito como tal, com o decremento no ponto dado
+    char buf[240];
+    if (n_em > 0)
+      std::snprintf(buf, sizeof(buf), "maxiter = 0: no AI iteration was run, so the "
+                    "components are the start moved by %d EM round(s) and evaluated, not "
+                    "estimated; the Newton decrement there is %.3g", (int) n_em, R.decremento);
+    else
+      std::snprintf(buf, sizeof(buf), "maxiter = 0: no AI iteration was run, so the "
+                    "components are the start evaluated, not estimated; the Newton decrement "
+                    "there is %.3g", R.decremento);
+    R.mensagem = buf;
+  } else if (!R.convergiu && R.mensagem.empty()) {
     // The maxiter exit, and it comes BEFORE the boundary notes so those append to the
     // explanation instead of silencing it. Measured by the user on the 2x2 group
     // warm-started from the reduced model: 100 iterations ended with relDelta still

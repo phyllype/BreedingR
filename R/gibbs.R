@@ -54,15 +54,28 @@
 #'   Korsgaard 1995): each record gets a liability drawn from a normal truncated at 0 on
 #'   the side of its category, the residual variance is FIXED at 1 (it sets the scale of
 #'   the liability), and the implicit intercept stands for the threshold. The larger of
-#'   the two values of the trait is the upper category. Everything else is the chain of
-#'   the Gaussian case: `kernel()`, `indirect()`, genotypes, APY and `prior =`. This is
-#'   the unbiased alternative to the Laplace estimate of [model_threshold()]
+#'   the two values of the trait is the upper category. A missing observation (`NA`,
+#'   `NaN`, `Inf`, `-Inf`, blank text, the text "NaN" or `missing_code`) drops its
+#'   record, as in [model_threshold()]; it is never one of the two values. Everything
+#'   else is the chain of the Gaussian case: `kernel()`, `indirect()`, genotypes, APY and
+#'   `prior =`. This is the unbiased alternative to the Laplace estimate of
+#'   [model_threshold()]
 #' @param chains number of independent chains, each from its own seed. The seeds are
 #'   drawn from R's generator, so `set.seed()` governs every chain, and the result is
 #'   the same run in series or in parallel. With more than one, `samples`, `mean`,
-#'   `sd`, `ebv` and `ebv_sd` pool the chains, `ess` sums the chains, `rhat` is the
-#'   rank-normalized split R-hat of Vehtari et al. (2021) (values above 1.01 mean the
-#'   chains have not mixed), and each chain stays in `chain_samples`
+#'   `sd`, `ebv`, `ebv_sd`, `b` and `b_sd` pool the chains that ran to the end: the mean
+#'   and the sd (denominator `N - 1`) of all their draws stacked. Each chain stays in
+#'   `chain_samples`, and the per-chain means and sds of the locations in `chain_ebv`,
+#'   `chain_ebv_sd`, `chain_b` and `chain_b_sd` (levels x chains), which
+#'   [mcmc_diagnostics()] reads. A chain that stops early (an inadmissible theta or a
+#'   failed Cholesky inside the chain) is left out of the pooled results and of the
+#'   diagnostics, and the verdict says so; when no chain ran to the end, the longest one
+#'   is pooled alone. `chain_n` holds the draws each chain kept, `chains_used` the chains
+#'   pooled and `chain_messages` what each chain reported. The per-chain location
+#'   summaries add `2 q M` numbers to the fit for `q` levels and `M` chains (about 64 MB
+#'   for a million levels and 4 chains). All chains start from the same point; one chain
+#'   (the default) leaves the between-chain checks inactive, and 4 is the usual choice
+#'   for them
 #' @param cores R processes that run the chains at the same time (a PSOCK cluster of
 #'   the parallel package, which also works on Windows); at most `chains`
 #' @references Hobert, J.P. & Casella, G. (1996). The effect of improper priors on Gibbs
@@ -72,12 +85,20 @@
 #'   Gelman, A. (2006). Prior distributions for variance parameters in hierarchical
 #'   models. Bayesian Analysis 1:515-534.
 #' @return samples matrix (kept iterations x parameters), posterior `mean` and `sd`,
-#'   effective sample sizes, Geweke z, and the posterior mean/sd of every random effect
-#'   (`ebv`, `ebv_sd`), and of every fixed effect (`b`, `b_sd`, named `term=level` as in
-#'   [model()], whose parametrization note applies: dropped columns are in `dropped_x`
-#'   and only contrasts compare against a reference-level convention), `dense_block`
-#'   and `k_level_type` as in [model()], and `start`, the components the chain starts
-#'   from (the first chain's, with several)
+#'   the posterior mean/sd of every random effect (`ebv`, `ebv_sd`) and of every fixed
+#'   effect (`b`, `b_sd`, named `term=level` as in [model()], whose parametrization note
+#'   applies: dropped columns are in `dropped_x` and only contrasts compare against a
+#'   reference-level convention), `dense_block` and `k_level_type` as in [model()], `start`,
+#'   the components the chain starts from (the first chain's, with several), and the
+#'   convergence diagnostics: `diagnostics` is [mcmc_diagnostics()] of the fit, and `ess`
+#'   (the multi-chain bulk-ESS), `rhat` (rank-normalized split R-hat, also for one chain,
+#'   from its two halves) and `geweke` (the Geweke z combined over the chains, with the
+#'   spectral density at zero, on the scale given by the `start_scale` column of the
+#'   diagnostics) are its columns for the components; they are `NA` and the `message` says
+#'   why if the diagnostics fail. `n_iter`, `burnin`, `thin` and `n_expected` (the draws
+#'   each chain keeps when it runs to the end) record the run, and `fixed_components` marks
+#'   the components the model holds (`theta_fixed`, `kernel(fixed =)`, the probit
+#'   residual), which the diagnostics report as `"fixed"`
 #' @param verbose print the chain as it runs, the iteration count every so often, so a
 #'   long chain is a progress report instead of silence. Defaults to interactive(),
 #'   live in a session and quiet in scripts and checks. Every fitter also honors Ctrl+C now
@@ -137,9 +158,10 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   if (family == "probit") {
     # a caracteristica vira 0/1: o MAIOR dos dois valores e o 1 (a categoria de cima da
     # liability, como no modo conjunto do limiar)
+    # a observacao ausente pela regra do limiar (observacao_ausente(), R/indirect.R): o texto
+    # vazio era um dos dois valores e virava a classe 0
     v <- lst[[trait]]
-    obs <- !is.na(v)
-    if (!is.null(missing_code)) obs <- obs & as.character(v) != as.character(missing_code)
+    obs <- !observacao_ausente(v, missing_code)
     niveis_binarios <- sort(unique(v[obs]))
     if (length(niveis_binarios) != 2L)
       stop("family = \"probit\" is for a binary trait: '", trait, "' has ",
@@ -157,6 +179,17 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
 
+  # n_iter, burnin e thin inteiros: o laco do C++ faz (it - burnin) % thin, e thin = 0
+  # derrubava o processo do R
+  inteiro <- function(v, nome, minimo) {
+    if (!is.numeric(v) || length(v) != 1L || !is.finite(v) || v != round(v) || v < minimo ||
+        v > .Machine$integer.max)
+      stop(nome, " must be a single whole number >= ", minimo)
+    as.integer(v)
+  }
+  n_iter <- inteiro(n_iter, "n_iter", 1)
+  burnin <- inteiro(burnin, "burnin", 0)
+  thin <- inteiro(thin, "thin", 1)
   chains <- as.integer(chains); cores <- as.integer(cores)
   if (length(chains) != 1L || is.na(chains) || chains < 1L)
     stop("chains must be a positive integer")
@@ -198,10 +231,25 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
              pr$tipo, pr$df, pr$scale, as.integer(family == "probit"),
              vapply(terms, function(t) t$dilution, numeric(1)))
   }
+  # quantas amostras cada cadeia guarda se for ate o fim (o laco de gibbs.cpp: it >= burnin
+  # e (it - burnin) %% thin == 0); uma cadeia com menos parou cedo
+  esperado <- if (n_iter > burnin) (n_iter - burnin - 1L) %/% thin + 1L else 0L
   r <- if (chains == 1L) cadeia(NULL) else
     junta_cadeias(roda_cadeias(cadeia, sample.int(.Machine$integer.max, chains),
-                               min(cores, chains)))
+                               min(cores, chains)), esperado)
   colnames(r$samples) <- r$names
+  r$n_iter <- as.integer(n_iter)
+  r$burnin <- as.integer(burnin)
+  r$thin <- as.integer(thin)
+  r$n_expected <- esperado
+  # o que o modelo prende e nao amostra: tudo com theta_fixed, o residuo do probit e o
+  # componente de cada kernel(fixed =), escalar (o nome e o do C++, var(<termo>))
+  r$fixed_components <- stats::setNames(
+    if (!is.null(theta_fixed)) rep(TRUE, length(r$names))
+    else r$names %in% c(if (family == "probit") "var(residual)",
+                         sprintf("var(%s)", vapply(terms, function(t) t$nome,
+                                                   character(1))[is.finite(kfixo)])),
+    r$names)
   r$prior <- prior
   r$family <- family
   if (family == "probit") {
@@ -222,23 +270,30 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   r$gamma <- gamma
   r$mean <- colMeans(r$samples)
   r$sd <- apply(r$samples, 2, stats::sd)
-  if (chains == 1L) {
-    r$ess <- apply(r$samples, 2, ess)
-    r$geweke <- apply(r$samples, 2, geweke_z)
-  } else {
+  if (chains > 1L)
     for (k in seq_along(r$chain_samples)) colnames(r$chain_samples[[k]]) <- r$names
-    r$ess <- Reduce(`+`, lapply(r$chain_samples, function(m) apply(m, 2, ess)))
-    r$geweke <- apply(r$chain_samples[[1]], 2, geweke_z)
-    r$rhat <- vapply(seq_len(ncol(r$samples)), function(j)
-      rhat(do.call(cbind, lapply(r$chain_samples, function(m) m[, j]))), numeric(1))
-    names(r$rhat) <- r$names
-  }
   r$chains <- chains
   r$formula <- formula_resolvida(formula, terms)
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
   r$k_level_type <- tipos_kernels(terms, kern)
-  structure(r, class = "breeding_gibbs")
+  r <- structure(r, class = "breeding_gibbs")
+  # os diagnosticos ficam no ajuste (print e summary leem daqui); ess, rhat e geweke sao as
+  # colunas dos componentes, so nas cadeias que foram ate o fim. Uma falha neles nao pode
+  # custar a cadeia: o ajuste volta sem eles, e a mensagem diz por que
+  d <- tryCatch(mcmc_diagnostics(r), error = function(e) e)
+  if (inherits(d, "error")) {
+    r$message <- paste0(r$message, if (nzchar(r$message)) "; ",
+                        "convergence diagnostics failed: ", conditionMessage(d))
+    d <- NULL
+  }
+  r$diagnostics <- d
+  na <- stats::setNames(rep(NA_real_, ncol(r$samples)), r$names)
+  comp <- if (is.null(r$diagnostics)) NULL else r$diagnostics$table[seq_len(ncol(r$samples)), ]
+  r$ess <- if (is.null(comp)) na else stats::setNames(comp$ess_bulk, r$names)
+  r$rhat <- if (is.null(comp)) na else stats::setNames(comp$rhat, r$names)
+  r$geweke <- if (is.null(comp)) na else stats::setNames(comp$geweke_z, r$names)
+  r
 }
 
 # As cadeias em serie ou num cluster PSOCK (o do pacote parallel, que funciona no Windows).
@@ -258,106 +313,69 @@ roda_cadeias <- function(cadeia, sementes, cores) {
   parallel::parLapply(cl, sementes, cadeia)
 }
 
-# Junta cadeias de mesmo comprimento: amostras empilhadas, e media e desvio das posicoes
-# pelas amostras de todas (a variancia total e a media das variancias de cada cadeia mais
-# a variancia das medias entre elas).
-junta_cadeias <- function(rs) {
-  r <- rs[[1]]
+# Junta as cadeias. Uma cadeia pode parar cedo (theta inadmissivel ou C sem Cholesky dentro
+# da cadeia, gibbs.cpp) e guardar menos amostras: so as COMPLETAS entram nas amostras
+# empilhadas e nas medias; sem nenhuma completa, a mais longa. Media e desvio das posicoes
+# sao os de TODAS as amostras das cadeias usadas empilhadas: soma de quadrados dentro,
+# (n_k - 1) v_k, mais entre, n_k (m_k - m)^2, sobre N - 1 (as usadas tem todas o mesmo
+# comprimento, entao o peso n_k e igual; antes era a media das variancias mais a variancia
+# populacional das medias, ~1/(2n) menor). As medias e desvios de cada cadeia ficam
+# guardados (chain_ebv, chain_ebv_sd, chain_b, chain_b_sd, niveis x cadeias) para o R-hat
+# das localizacoes.
+junta_cadeias <- function(rs, esperado) {
+  nk <- vapply(rs, function(x) nrow(x$samples), integer(1))
+  completas <- which(nk == esperado)
+  usadas <- if (length(completas)) completas else which.max(nk)
+  r <- rs[[usadas[1]]]
   r$chain_samples <- lapply(rs, `[[`, "samples")
-  r$samples <- do.call(rbind, r$chain_samples)
-  junta <- function(medias, dps) {
-    m <- Reduce(`+`, medias) / length(medias)
-    v <- Reduce(`+`, lapply(dps, function(x) x^2)) / length(dps) +
-      Reduce(`+`, lapply(medias, function(x) (x - m)^2)) / length(medias)
-    list(m = m, sd = sqrt(v))
+  r$samples <- do.call(rbind, r$chain_samples[usadas])
+  r$chain_n <- nk
+  r$chains_used <- usadas
+  r$chain_messages <- vapply(rs, `[[`, character(1), "message")
+  # niveis x cadeias, com os nomes dos niveis nas linhas
+  por_cadeia <- function(vs) {
+    ref <- vs[[usadas[1]]]
+    m <- vapply(vs, function(v) if (length(v) == length(ref)) as.double(v)
+                else rep(NA_real_, length(ref)), numeric(length(ref)))
+    m <- matrix(m, nrow = length(ref))
+    rownames(m) <- names(ref)
+    m
   }
+  junta <- function(medias, dps) {
+    n <- nk[usadas]
+    N <- sum(n)
+    m <- Reduce(`+`, Map(function(x, w) x * w, medias[usadas], n)) / N
+    # com uma amostra so a variancia da cadeia e NaN, e o termo dentro dela e zero
+    dentro <- Map(function(x, w) if (w > 1) x^2 * (w - 1) else rep(0, length(x)), dps[usadas], n)
+    entre <- Map(function(x, w) (x - m)^2 * w, medias[usadas], n)
+    list(m = m, sd = sqrt((Reduce(`+`, dentro) + Reduce(`+`, entre)) / (N - 1)))
+  }
+  r$chain_ebv <- r$chain_ebv_sd <- stats::setNames(vector("list", length(r$ebv)), names(r$ebv))
   for (g in seq_along(r$ebv)) {
-    j <- junta(lapply(rs, function(x) x$ebv[[g]]), lapply(rs, function(x) x$ebv_sd[[g]]))
+    medias <- lapply(rs, function(x) x$ebv[[g]])
+    dps <- lapply(rs, function(x) x$ebv_sd[[g]])
+    j <- junta(medias, dps)
     r$ebv[[g]] <- j$m
     r$ebv_sd[[g]] <- j$sd
+    r$chain_ebv[[g]] <- por_cadeia(medias)
+    r$chain_ebv_sd[[g]] <- por_cadeia(dps)
   }
-  j <- junta(lapply(rs, `[[`, "b"), lapply(rs, `[[`, "b_sd"))
-  r$b <- j$m
-  r$b_sd <- j$sd
-  msg <- unique(vapply(rs, `[[`, character(1), "message"))
-  r$message <- paste(msg[nzchar(msg)], collapse = "; ")
+  if (length(r$b)) {
+    j <- junta(lapply(rs, `[[`, "b"), lapply(rs, `[[`, "b_sd"))
+    r$chain_b <- por_cadeia(lapply(rs, `[[`, "b"))
+    r$chain_b_sd <- por_cadeia(lapply(rs, `[[`, "b_sd"))
+    r$b <- j$m
+    r$b_sd <- j$sd
+  }
+  msg <- unique(r$chain_messages)
+  msg <- msg[nzchar(msg)]
+  paradas <- setdiff(seq_along(rs), usadas)
+  if (length(paradas))
+    msg <- c(msg, paste0("chain(s) ", paste(paradas, collapse = ", "), " stopped early (",
+                         paste(nk[paradas], collapse = ", "), " of ", esperado, " kept samples)",
+                         " and are left out of the pooled results"))
+  r$message <- paste(msg, collapse = "; ")
   r
-}
-
-#' Rank-normalized split R-hat
-#'
-#' The convergence diagnostic of Vehtari, Gelman, Simpson, Carpenter and Burkner (2021):
-#' each chain is split in half, the pooled draws are replaced by normal scores of their
-#' ranks, and the classic potential scale reduction of Gelman and Rubin (1992) is
-#' computed on those scores and on the scores of the folded draws `|x - median|`; the
-#' larger of the two is returned. Values above 1.01 mean the chains have not mixed.
-#' @param x matrix of draws, one column per chain (at least 4 draws per chain)
-#' @return a single number.
-#' @references Gelman, A. & Rubin, D.B. (1992). Inference from iterative simulation using
-#'   multiple sequences. Statistical Science 7:457-472.
-#'
-#'   Vehtari, A., Gelman, A., Simpson, D., Carpenter, B. & Burkner, P.-C. (2021).
-#'   Rank-normalization, folding, and localization: an improved R-hat for assessing
-#'   convergence of MCMC. Bayesian Analysis 16:667-718.
-#' @export
-rhat <- function(x) {
-  x <- as.matrix(x)
-  h <- floor(nrow(x) / 2)
-  if (h < 2 || anyNA(x)) return(NA_real_)
-  metade <- cbind(x[seq_len(h), , drop = FALSE], x[nrow(x) - h + seq_len(h), , drop = FALSE])
-  escore <- function(y) matrix(stats::qnorm((rank(y) - 3 / 8) / (length(y) + 1 / 4)), nrow = h)
-  classico <- function(y) {
-    w <- mean(apply(y, 2, stats::var))
-    if (!(w > 0)) return(NA_real_)
-    sqrt(((h - 1) / h * w + stats::var(colMeans(y))) / w)
-  }
-  max(classico(escore(metade)), classico(escore(abs(metade - stats::median(metade)))))
-}
-
-#' Effective sample size by the initial positive sequence estimator
-#'
-#' Geyer's initial positive sequence: sum consecutive pairs of autocovariances while the
-#' pair sums stay positive. Honest for reversible chains; iid draws give ess ~ n.
-#' @param x numeric vector (one chain)
-#' @return a single number, the effective sample size of the chain.
-#' @references Geyer, C.J. (1992). Practical Markov chain Monte Carlo. Statistical
-#'   Science 7:473-483.
-#' @export
-ess <- function(x) {
-  n <- length(x)
-  if (n < 10 || stats::sd(x) == 0) return(NA_real_)
-  ac <- stats::acf(x, lag.max = min(n - 1, 2000L), plot = FALSE)$acf[, 1, 1]
-  soma <- 0
-  k <- 2
-  while (k + 1 <= length(ac)) {
-    par <- ac[k] + ac[k + 1]
-    if (par <= 0) break
-    soma <- soma + par
-    k <- k + 2
-  }
-  n / (1 + 2 * soma)
-}
-
-#' Geweke convergence z-score
-#'
-#' Compares the mean of the first tenth of the chain against the mean of the last half;
-#' under convergence the standardized difference is approximately standard normal.
-#' @param x numeric vector (one chain)
-#' @return a single number, the z-score. Values beyond about 2 in absolute value are the
-#'   usual sign that the chain has not settled.
-#' @references Geweke, J. (1992). Evaluating the accuracy of sampling-based approaches
-#'   to the calculation of posterior moments. In Bayesian Statistics 4. Oxford
-#'   University Press.
-#' @export
-geweke_z <- function(x) {
-  n <- length(x)
-  if (n < 20) return(NA_real_)
-  a <- x[seq_len(floor(0.1 * n))]
-  b <- x[seq.int(floor(0.5 * n) + 1, n)]
-  va <- stats::var(a) / length(a)
-  vb <- stats::var(b) / length(b)
-  if (va + vb == 0) return(NA_real_)
-  (mean(a) - mean(b)) / sqrt(va + vb)
 }
 
 #' @export
@@ -368,17 +386,46 @@ print.breeding_gibbs <- function(x, ...) {
       format(x$seconds, digits = 3), " s\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
+  d <- diagnosticos_do_ajuste(x)
   tab <- data.frame(component = colnames(x$samples), mean = unname(x$mean),
-                    sd = unname(x$sd), ess = round(unname(x$ess)),
-                    geweke_z = round(unname(x$geweke), 2), row.names = NULL)
-  if (!is.null(x$rhat)) tab$rhat <- round(unname(x$rhat), 3)
+                    sd = unname(x$sd), row.names = NULL)
+  if (!is.null(d)) {
+    dt <- d$table[seq_len(ncol(x$samples)), ]
+    tab$rhat <- round(dt$rhat, 3)
+    tab$ess_bulk <- round(dt$ess_bulk)
+    tab$ess_tail <- round(dt$ess_tail)
+    tab$mcse_mean <- signif(dt$mcse_mean, 2)
+    tab$status <- dt$status
+  }
   print(tab, digits = 6)
   if (length(x$b)) {
     cat("\nfixed effects, posterior mean (implicit intercept; compare by contrast):\n")
     print(data.frame(term = names(x$b), mean = unname(x$b), sd = unname(x$b_sd),
                      row.names = NULL), digits = 6)
   }
+  if (!is.null(d)) cat("\n", linha_convergencia(d), "\n", sep = "")
   invisible(x)
+}
+
+# os diagnosticos guardados no ajuste, ou refeitos (um ajuste de versao anterior nao os tem)
+diagnosticos_do_ajuste <- function(x) {
+  if (!is.null(x$diagnostics)) return(x$diagnostics)
+  tryCatch(mcmc_diagnostics(x), error = function(e) NULL)
+}
+
+# o que print() e summary() mostram no fim: o veredito com a primeira razao, e as notas numa
+# linha cada (a de cauda pesada explica a mcse_mean em branco da tabela)
+linha_convergencia <- function(d) {
+  paste(c(paste0("convergence: ", d$verdict,
+                 if (length(d$reasons)) paste0(" (", d$reasons[1],
+                                               if (length(d$reasons) > 1L)
+                                                 paste0("; and ", length(d$reasons) - 1L, " more"),
+                                               ")")
+                 else if (d$verdict == "ok") " (no diagnostic found a problem)",
+                 if (length(d$info$chains_used) < 2L) "; one chain, so no between-chain check",
+                 "; mcmc_diagnostics() has the full table"),
+          if (length(d$notes)) paste0("note: ", d$notes)),
+        collapse = "\n")
 }
 
 # prior = vira (tipo, df, scale) para o C++: 0 Jeffreys, 1 plana na variancia, 2 uniforme

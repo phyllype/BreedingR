@@ -81,5 +81,7 @@ test_that("chains = 1 nao sorteia sementes: o gerador anda so pela propria cadei
              chains = 1L, verbose = FALSE)
   expect_identical(a$samples, b$samples)
   expect_identical(stats::runif(1), depois_a)
-  expect_null(a$rhat)
+  # com uma cadeia o rhat existe: e o R-hat dividido das duas metades dela
+  expect_null(a$chain_samples)
+  expect_equal(unname(a$rhat), unname(apply(a$samples, 2, rhat)))
 })

@@ -131,6 +131,65 @@ std::vector<double> Tabela::numerico(const std::string& n) const {
   return c->num;
 }
 
+// A contagem das regras abaixo: `tipo(i)` devolve 0 quando a linha i esta presente, senao
+// 1 + o indice do seu tipo em `nomes`. Os tipos vistos saem na ordem de `nomes`, juntos por
+// " or ", com a contagem e a primeira linha (base 1).
+template <class F>
+static std::string conta_ausentes(std::size_t nlin, const std::string& onde,
+                                  const char* const* nomes, int ntipos, F tipo) {
+  std::size_t n = 0, primeira = 0;
+  bool viu[4] = {false, false, false, false};
+  for (std::size_t i = 0; i < nlin; i++) {
+    const int c = tipo(i);
+    if (c == 0) continue;
+    if (n++ == 0) primeira = i;
+    viu[c - 1] = true;
+  }
+  if (n == 0) return "";
+  std::string oque;
+  for (int c = 0; c < ntipos; c++)
+    if (viu[c]) oque += (oque.empty() ? "" : " or ") + std::string(nomes[c]);
+  return oque + " in " + onde + " in " + std::to_string(n) + " row(s), the first at row " +
+         std::to_string(primeira + 1);
+}
+
+// o valor numerico ausente: NA ou NaN, Inf, -Inf (os tres nomes de sem_rotulo(), em R)
+static const char* const NOMES_NUMERICOS[] = {"NA", "Inf", "-Inf"};
+static int tipo_numerico(double x) {
+  if (std::isnan(x)) return 1;
+  if (std::isinf(x)) return x > 0 ? 2 : 3;
+  return 0;
+}
+
+bool texto_em_branco(const std::string& s) {
+  return s.find_first_not_of(" \t\r\n") == std::string::npos;
+}
+
+std::string valores_ausentes(const Tabela& t, const std::string& col, const std::string& papel) {
+  const Coluna* c = t.acha(col);
+  if (!c || c->texto) return "";
+  return conta_ausentes(t.nlin, "the " + papel + " '" + col + "'", NOMES_NUMERICOS, 3,
+                        [&](std::size_t i) { return tipo_numerico(c->num[i]); });
+}
+
+std::string rotulos_ausentes(const Tabela& t, const std::string& col, bool branco_e_codigo,
+                             const std::string& onde) {
+  const Coluna* c = t.acha(col);
+  if (!c) return "";
+  const std::string onde_txt = onde.empty() ? "the column '" + col + "'" : onde;
+  if (!c->texto)
+    return conta_ausentes(t.nlin, onde_txt, NOMES_NUMERICOS, 3,
+                          [&](std::size_t i) { return tipo_numerico(c->num[i]); });
+  static const char* const nomes[] = {"blank text", "the text 'NaN'"};
+  return conta_ausentes(t.nlin, onde_txt, nomes, 2, [&](std::size_t i) -> int {
+    const std::string& s = c->txt[i];
+    if (texto_em_branco(s)) return branco_e_codigo ? 0 : 1;
+    const std::size_t a = s.find_first_not_of(" \t\r\n");
+    const std::size_t b = s.find_last_not_of(" \t\r\n");
+    return s.compare(a, b - a + 1, "NaN") == 0 ? 2 : 0;
+  });
+}
+
 std::vector<std::string> Modelo::nomes_theta() const {
   std::vector<std::string> out(ntheta);
   for (const Grupo& g : grupos) {
@@ -264,6 +323,40 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
   // que parava adiante com "maternal grandsire 'nan' is not in the level set", sem a linha;
   // o avo DESCONHECIDO e o "0" (ou texto vazio), que deixa so o pai. A covariavel simples
   // nao tem nivel, e a observacao ausente continua tirando so a linha (monta_desenho).
+  //
+  // O TEXTO VAZIO e o rotulo ausente da coluna textual: read.csv() e fread() leem a celula
+  // vazia de uma coluna de texto como "", e nao como NA, e o "" (ou "  ") virava um nivel
+  // proprio, calado: em f2c0d69 random(lote) com "" em linhas de dados dava a MESMA -2logL
+  // que as mesmas linhas num nivel 'BRANCO' (a identidade, com o numero, esta no portao de
+  // test-rotulo-ausente.R), e o cg fixo ganhava a coluna "cg=". O texto "NaN" (o que
+  // factor() faz de um NaN numerico) virava o nivel "NaN". E a regra da baia de indirect(),
+  // agora em toda coluna de nivel. A excecao e a coluna do avo materno, onde o texto em
+  // branco e o codigo do avo desconhecido, como no pedigree.
+  //
+  // VALOR AUSENTE numa coluna que entra como VALOR (cov(x), a covariavel aninhada, as colunas
+  // de base= de uma regressao aleatoria) tambem para, em toda linha. Em f2c0d69 a covariavel
+  // com NA virava NaN, saia em dropped_x ('x=x') e o modelo era ajustado SEM ela, com a
+  // -2logL do modelo sem a covariavel e o n_used cheio; a covariavel aninhada perdia so a
+  // classe da linha ('x=c1'); random(g, base = "phi1") dava -2logL 0; Inf fazia o mesmo que
+  // NA; model_mt() e gibbs() tambem tiravam a covariavel.
+  //
+  // EM TODA LINHA, tambem na de observacao ausente, que sai do ajuste de todo jeito (ali o
+  // valor nao entra em conta nenhuma). E uma escolha, a da regra da coluna de nivel: uma
+  // regra so para toda coluna que o modelo le (so a observacao pode faltar), e o mesmo
+  // data.frame aceito ou recusado igual em todo ajustador, cujas linhas que entram nao sao
+  // as mesmas (model_mt() fica com a linha de algum traco observado, model_ar1() tira tambem
+  // a linha sem tempo, a sobrevivencia a sem tempo ou indicador, e a linha sem fenotipo
+  // ainda e companheira de baia de indirect()). O campo tem tres convencoes: o ASReml para
+  // quando falta valor numa variavel explicativa, salvo !MVINCLUDE (o ausente vale zero) ou
+  // !MVREMOVE (o registro sai) declarados, e o asreml-R tem na.method(y = "include", x =
+  // "fail") por padrao, com a linha de y ausente MANTIDA e estimada, entao ali o NA de x
+  // para tambem nessa linha (aqui a linha de y ausente sai, o que seria y = "omit"); o
+  // BLUPF90 le o 0 numa coluna de efeito de classe como efeito AUSENTE naquele registro
+  // (incidencia zero), numa covariavel o 0 e valor (manual do renumf90), e OPTION missing e
+  // o codigo da OBSERVACAO (manual do blupf90+): o -999 numa coluna cov entra na regressao
+  // como numero, o que ja se mediu em dado real; o R (na.omit) e o Genstat tiram a linha.
+  // Recusar e a mais conservadora: nada some nem vira zero sem o usuario escolher. O
+  // missing_code daqui tambem e so da observacao (o portao em test-rotulo-ausente.R).
   {
     const bool so_valor = tm.base.empty() && tm.efeito == Efeito::Covariavel &&
                           tm.aninhado.empty() && !tm.aleatorio();
@@ -273,25 +366,24 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
                                                                           : tm.coluna);
     if (tm.mgs) cols_nivel.push_back(tm.aninhado);
     for (const std::string& col_nivel : cols_nivel) {
-      const Coluna* cn = t.acha(col_nivel);
-      if (!cn || cn->texto) continue;
-      std::size_t n_aus = 0, primeira = 0;
-      bool viu_na = false, viu_inf = false;
-      for (std::size_t i = 0; i < nlin; i++) {
-        const double x = cn->num[i];
-        if (std::isfinite(x)) continue;
-        if (n_aus++ == 0) primeira = i;
-        (std::isnan(x) ? viu_na : viu_inf) = true;
-      }
-      if (n_aus > 0)
-        throw Erro("term '" + tm.nome + "': " +
-                   (viu_na ? std::string(viu_inf ? "NA or Inf" : "NA") : std::string("Inf")) +
-                   " in the column '" + col_nivel + "' in " + std::to_string(n_aus) +
-                   " row(s), the first at row " + std::to_string(primeira + 1) +
+      const bool do_avo = tm.mgs && col_nivel == tm.aninhado;
+      const std::string falta = rotulos_ausentes(t, col_nivel, do_avo);
+      if (!falta.empty())
+        throw Erro("term '" + tm.nome + "': " + falta +
                    ": a record without a level has no known effect, and those rows would "
                    "share one level; drop those rows or fill them" +
-                   (tm.mgs && col_nivel == tm.aninhado
-                        ? " (an unknown maternal grandsire is 0)" : ""));
+                   (do_avo ? " (an unknown maternal grandsire is 0)" : ""));
+    }
+    std::vector<std::string> cols_valor = tm.base;
+    if (tm.efeito == Efeito::Covariavel) cols_valor.insert(cols_valor.begin(), tm.coluna);
+    for (const std::string& col_valor : cols_valor) {
+      const std::string falta = valores_ausentes(
+          t, col_valor, tm.efeito == Efeito::Covariavel ? "covariate column" : "base= column");
+      if (!falta.empty())
+        throw Erro("term '" + tm.nome + "': " + falta +
+                   ": a record without the value has no known incidence in this term, and "
+                   "the fit would drop the term or lose the likelihood without a word; drop "
+                   "those rows or fill them");
     }
   }
 
@@ -323,54 +415,19 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
     // celula vazia de coluna textual) fica "". Em todos os casos as linhas sem baia viravam
     // UMA baia, e animais sem relacao entravam como companheiros uns dos outros sem aviso.
     // Tratar cada uma como baia de um tambem seria inventar: o registro TEM companheiros, so
-    // nao se sabe quais. O que conta como ausente:
-    //   coluna numerica: NA ou NaN, Inf, -Inf;
-    //   coluna textual (e fator, que cruza como texto): texto vazio depois de tirar espacos,
-    //   tabulacoes e quebras de linha, e o texto "NaN", que factor() e as.character() fazem
-    //   de um NaN numerico. O NA textual ja para antes, em tabela_do_R.
-    // Os textos "NA" e "Inf" NAO entram: podem ser o nome de uma baia de verdade. A mesma
-    // regra esta em sem_rotulo() (R/indirect.R), que indirect_residual(),
-    // associative_matrix() e competition_strength() usam; mudar uma e mudar a outra. A
-    // recusa fica aqui, onde a incidencia social e montada, para valer em todo ajustador.
+    // nao se sabe quais. O que conta como ausente e a regra de toda coluna de nivel
+    // (rotulos_ausentes, acima), a mesma de sem_rotulo() (R/indirect.R), que
+    // indirect_residual(), associative_matrix() e competition_strength() usam. A recusa
+    // fica aqui, onde a incidencia social e montada, para valer em todo ajustador.
     {
-      const Coluna* cb = t.acha(tm.aninhado);
-      if (!cb) throw Erro("no column '" + tm.aninhado + "' in the data");
-      static const char* const tipos_num[] = {"NA", "Inf", "-Inf"};
-      static const char* const tipos_txt[] = {"blank text", "the text 'NaN'", ""};
-      const char* const* nome_tipo = cb->texto ? tipos_txt : tipos_num;
-      // 0 quando a linha tem baia; senao 1 + o indice do tipo em nome_tipo
-      auto tipo = [&](std::size_t i) -> int {
-        if (!cb->texto) {
-          const double x = cb->num[i];
-          if (std::isnan(x)) return 1;
-          if (std::isinf(x)) return x > 0 ? 2 : 3;
-          return 0;
-        }
-        const std::string& s = cb->txt[i];
-        const std::size_t a = s.find_first_not_of(" \t\r\n");
-        if (a == std::string::npos) return 1;
-        const std::size_t b = s.find_last_not_of(" \t\r\n");
-        return s.compare(a, b - a + 1, "NaN") == 0 ? 2 : 0;
-      };
-      std::size_t n_aus = 0, primeira = 0;
-      bool viu[3] = {false, false, false};
-      for (std::size_t i = 0; i < nlin; i++) {
-        const int c = tipo(i);
-        if (c == 0) continue;
-        if (n_aus++ == 0) primeira = i;
-        viu[c - 1] = true;
-      }
-      if (n_aus > 0) {
-        std::string oque;
-        for (int c = 0; c < 3; c++)
-          if (viu[c]) oque += (oque.empty() ? "" : " or ") + std::string(nome_tipo[c]);
-        throw Erro("indirect term '" + tm.nome + "': " + oque + " in the pen column '" +
-                   tm.aninhado + "' of indirect() in " + std::to_string(n_aus) +
-                   " row(s), the first at row " + std::to_string(primeira + 1) +
+      if (!t.acha(tm.aninhado)) throw Erro("no column '" + tm.aninhado + "' in the data");
+      const std::string falta = rotulos_ausentes(
+          t, tm.aninhado, false, "the pen column '" + tm.aninhado + "' of indirect()");
+      if (!falta.empty())
+        throw Erro("indirect term '" + tm.nome + "': " + falta +
                    ": a record without a pen has no known pen mates, and grouping those "
                    "rows would make them mates of each other; drop those rows or assign "
                    "them a pen");
-      }
     }
     const std::vector<std::string> baia = t.rotulos(tm.aninhado);
     // baia -> animais distintos nela
@@ -426,8 +483,10 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
       li.push_back(static_cast<std::uint32_t>(i));
       cj.push_back(static_cast<std::uint32_t>(it->second));
       v.push_back(1.0);
+      // o avo DESCONHECIDO: "0", o texto "NA" ou o texto em branco (espacos inclusive, a
+      // regra de rotulos_ausentes, que deixa o branco passar nesta coluna como codigo)
       const std::string& a = avo[i];
-      if (a.empty() || a == "0" || a == "NA") continue;
+      if (texto_em_branco(a) || a == "0" || a == "NA") continue;
       auto ja = pos.find(a);
       if (ja == pos.end())
         throw Erro("sire term '" + tm.nome + "': maternal grandsire '" + a +

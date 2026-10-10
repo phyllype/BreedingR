@@ -151,11 +151,12 @@ prepara_aleatorios <- function(aleat, data, pedigree, k_inverse, keep, intervalo
       stop("group '", gs$nomes[g], "' mixes structures: the penalty is a single ",
            "kron(C, K), so a relationship term and an iid term cannot share a group",
            call. = FALSE)
+    # o rotulo ausente para em TODA linha, como no motor (nivel_ausente(), em R/indirect.R);
+    # o termo indireto confere o animal e a baia em incidencia_social()
     valores <- lapply(tms, function(tm) {
       if (isTRUE(tm$social)) return(NULL)
-      v <- rotulo_motor(data[[tm$column]][keep])
-      if (anyNA(v)) stop("missing value(s) in random term '", tm$column, "'")
-      v
+      nivel_ausente(data[[tm$column]], tm$nome, tm$column)
+      rotulo_motor(data[[tm$column]][keep])
     })
     if (est[1] == 2L) {
       if (is.null(rel)) {

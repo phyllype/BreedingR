@@ -47,14 +47,39 @@ ARGS_MARCADOR <- local({
 #'   the likelihood, and every fitter that estimates components stops before fitting and
 #'   names the two terms. At given components (`start =` with `maxiter = 0` and
 #'   `n_em = 0`, or `theta_fixed =` in [gibbs()]) the group is accepted.
-#'   A column that gives the level of a term (a fixed class, the id of a random term,
-#'   the maternal grandsire of `sire(mgs =)`, the class of a nested covariate) may not
-#'   hold `NA`, `NaN`, `Inf` or `-Inf` on ANY row, including a row whose observation is
-#'   missing: those rows would form one shared level. A numeric column stops the fit with
-#'   the term, the column, the number of such rows and the first of them; a text column
-#'   with `NA` stops it with the column and the first row. Drop those rows before the
-#'   fit. A missing observation (`NA` in the trait, or `missing_code`) with its levels
-#'   present only drops its record.
+#'   ONLY THE OBSERVATION MAY BE MISSING. A column that gives the level of a term (a
+#'   fixed class, the id of a random term, the maternal grandsire of `sire(mgs =)`, the
+#'   class of a nested covariate, the pen of `indirect()`) may not hold a missing label on
+#'   ANY row, including a row whose observation is missing: `NA`, `NaN`, `Inf` or `-Inf`
+#'   in a numeric column, and `NA`, blank text (what `read.csv()` gives an empty cell of a
+#'   text column; spaces, tabs and line breaks alone count as blank) or the text "NaN"
+#'   (what `factor()` makes of a numeric `NaN`) in a text or factor column. Those rows
+#'   would form one shared level. The texts "NA" and "Inf" are accepted, since they may be
+#'   real names, and in the maternal-grandsire column blank text is the unknown grandsire,
+#'   like "0". A column that enters as a VALUE, the covariate of `cov()` (nested or not)
+#'   and the columns of `base =`, may not hold `NA`, `NaN`, `Inf` or `-Inf` on any row
+#'   either: the covariate would leave the model without a word. Every case stops the fit
+#'   with the term, the column, the number of such rows and the first of them (a text `NA`
+#'   with the column and the first row); drop those rows, or fill them, before the fit.
+#'   The rule is checked on every row, also where the observation is missing, so one data
+#'   frame is accepted or refused alike by [model()], [model_mt()], [model_ar1()]
+#'   (`subject =` included), [gibbs()], [snp_blup()], the `eval_internal` family,
+#'   [model_threshold()], [model_survival()] (`subject =` included) and [pegs()] (`id`
+#'   and `environment =`). Refusing is the conservative one of the field's conventions:
+#'   ASReml stops on a missing explanatory value unless `!MVINCLUDE` (the missing value
+#'   counts as zero) or `!MVREMOVE` (the record is dropped) is declared, and asreml-R
+#'   defaults to `na.method(y = "include", x = "fail")`; BLUPF90 reads a 0 in a class
+#'   column as the effect being absent from that record, so a BLUPF90 data file with 0 as
+#'   its missing class code gives here one shared level "0", which cannot be refused
+#'   because "0" may be a real name: drop those records, or give them their levels,
+#'   before the fit. A missing observation (`NA`, `NaN`, `Inf` or `-Inf` in the trait,
+#'   or `missing_code`) with its levels and covariates present only drops its record.
+#'   `missing_code` is the code of the OBSERVATION only, as `OPTION missing` is in
+#'   BLUPF90: a covariate holding it is fitted as that number without a word (a BLUPF90
+#'   data file with -999 for an unknown age in a `cov` column regresses those records on
+#'   an age of -999), and a level column holding it is one more level "-999". Turn those
+#'   cells into `NA`, which stops the fit with the column and the first row, and then
+#'   drop or fill those records.
 #'   `indirect(id, pen = "pen")` is the indirect
 #'   (associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a
 #'   record marks the animal's DISTINCT pen mates, and it shares a group with `animal()`
@@ -133,7 +158,9 @@ ARGS_MARCADOR <- local({
 #'   give for the double 100000) is a different label, and when the other side holds
 #'   that same number the fit stops with an error rather than dropping the animal's
 #'   records
-#' @param missing_code missing-value code for observations, for example -999
+#' @param missing_code missing-value code for observations, for example -999. It applies
+#'   to the trait only: in a covariate or a level column the code is an ordinary value
+#'   (see the missing-value rule under `formula`)
 #' @param genotypes list with `ids` and `m` for single-step: animals x markers coded 0/1/2,
 #'   as a double, integer or raw matrix. NA (5 in a raw matrix, the BLUPF90 code) is
 #'   imputed with the marker mean, never converted to zero. The matrix is read where it is,
@@ -155,7 +182,10 @@ ARGS_MARCADOR <- local({
 #'   raised from 100 after a measured case: a direct-indirect model warm-started from
 #'   the reduced fit still had relDelta 1.6e-4 at iteration 100, no defect, a model
 #'   that walks slowly along a covariance boundary. A fit that hits the ceiling says so
-#'   in `message` and reports `converged = FALSE`
+#'   in `message` and reports `converged = FALSE`. `maxiter = 0` evaluates the start
+#'   (after the `n_em` EM rounds) and always reports `converged = FALSE`: an evaluation
+#'   is not a convergence, whatever the Newton decrement at that point, which `message`
+#'   gives
 #' @param tol RELATIVE tolerance on the components, sqrt(sum delta^2 / sum theta^2).
 #'   BLUPF90 note: airemlf90/blupf90+ VCE test the SQUARED quantity, so their
 #'   conv_crit equals this tol squared (their 1e-10 is tol = 1e-5 here; this 1e-8
@@ -166,7 +196,18 @@ ARGS_MARCADOR <- local({
 #'   to it, so the certificate bounds that gap by ~1e-4. The value is reported in
 #'   `newton_dec`. Measured motivation: a fit that stalled against the singularity
 #'   boundary with relDelta 5.1e-9 and the score far from zero sat 6.9 -2logL units
-#'   above the optimum, and the step criterion alone declared it converged
+#'   above the optimum, and the step criterion alone declared it converged. A component
+#'   held at a boundary is left out of the decrement only when the boundary passes the
+#'   Karush-Kuhn-Tucker condition of a constrained optimum. Here that is the sign of the
+#'   score: a variance at its floor is excluded only with the score pushing it out of
+#'   the admissible cone, and the step never freezes a component whose score points
+#'   inward. [model_mt()] and [model_ar1()] check it on the likelihood instead, because
+#'   their step also freezes a block whose curvature has collapsed, whatever the sign
+#'   (see `tol` there). The variance floor of the step is 1e-10 of the variance of `y`,
+#'   fixed for the whole walk, so the walk does not depend on the unit of `y` (it was
+#'   1e-10 in the user's unit whenever the residual variance was below 1: with `y` times
+#'   1e-5 the permanent-environment variance stuck on it, 27% above its optimum, and the
+#'   fit was declared converged with the additive variance 14% low)
 #' @param n_em EM iterations before the AI, to land in the right basin
 #' @param start starting values for the components, in the order the fit reports them.
 #'   Use it to warm-start from a submodel, or to check that the optimum does not depend
@@ -422,17 +463,28 @@ matriz_genotipos_r <- function(m) {
 }
 
 # Weights: a column name or a vector, validated finite and positive. Empty means none.
+# O peso e uma coluna que entra como VALOR, em toda linha, e a recusa diz a coluna, a
+# contagem e a primeira linha, como a da covariavel (sem_rotulo(), R/indirect.R); um fator
+# nao e lido pelos codigos 1, 2, ...
 valida_pesos <- function(weights, data) {
   if (is.null(weights)) return(numeric(0))
-  w <- if (is.character(weights) && length(weights) == 1L) {
+  coluna <- is.character(weights) && length(weights) == 1L
+  w <- if (coluna) {
     if (!weights %in% names(data)) stop("no column '", weights, "' in the data")
     data[[weights]]
   } else weights
+  onde <- if (coluna) paste0("the weight column '", weights, "'") else "weights"
+  if (is.factor(w) || is.character(w))
+    stop(onde, " is text and was requested as numeric", call. = FALSE)
   w <- as.double(w)
   if (length(w) != nrow(data))
     stop("weights of length ", length(w), " for ", nrow(data), " record(s)")
-  if (any(!is.finite(w)) || any(w <= 0))
-    stop("every weight must be finite and positive")
+  if (!is.null(falta <- sem_rotulo(w, onde)))
+    stop("weights: ", falta, ": every weight must be finite and positive; drop those rows ",
+         "or fill them", call. = FALSE)
+  if (any(neg <- w <= 0))
+    stop("weights: ", sum(neg), " value(s) <= 0 in ", onde, ", the first at row ",
+         which(neg)[1L], ": every weight must be finite and positive", call. = FALSE)
   w
 }
 

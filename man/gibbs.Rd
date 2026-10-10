@@ -99,16 +99,29 @@ trait by data augmentation (Albert and Chib 1993; Sorensen, Andersen, Gianola an
 Korsgaard 1995): each record gets a liability drawn from a normal truncated at 0 on
 the side of its category, the residual variance is FIXED at 1 (it sets the scale of
 the liability), and the implicit intercept stands for the threshold. The larger of
-the two values of the trait is the upper category. Everything else is the chain of
-the Gaussian case: \code{kernel()}, \code{indirect()}, genotypes, APY and \verb{prior =}. This is
-the unbiased alternative to the Laplace estimate of \code{\link[=model_threshold]{model_threshold()}}}
+the two values of the trait is the upper category. A missing observation (\code{NA},
+\code{NaN}, \code{Inf}, \code{-Inf}, blank text, the text "NaN" or \code{missing_code}) drops its
+record, as in \code{\link[=model_threshold]{model_threshold()}}; it is never one of the two values. Everything
+else is the chain of the Gaussian case: \code{kernel()}, \code{indirect()}, genotypes, APY and
+\verb{prior =}. This is the unbiased alternative to the Laplace estimate of
+\code{\link[=model_threshold]{model_threshold()}}}
 
 \item{chains}{number of independent chains, each from its own seed. The seeds are
 drawn from R's generator, so \code{set.seed()} governs every chain, and the result is
 the same run in series or in parallel. With more than one, \code{samples}, \code{mean},
-\code{sd}, \code{ebv} and \code{ebv_sd} pool the chains, \code{ess} sums the chains, \code{rhat} is the
-rank-normalized split R-hat of Vehtari et al. (2021) (values above 1.01 mean the
-chains have not mixed), and each chain stays in \code{chain_samples}}
+\code{sd}, \code{ebv}, \code{ebv_sd}, \code{b} and \code{b_sd} pool the chains that ran to the end: the mean
+and the sd (denominator \code{N - 1}) of all their draws stacked. Each chain stays in
+\code{chain_samples}, and the per-chain means and sds of the locations in \code{chain_ebv},
+\code{chain_ebv_sd}, \code{chain_b} and \code{chain_b_sd} (levels x chains), which
+\code{\link[=mcmc_diagnostics]{mcmc_diagnostics()}} reads. A chain that stops early (an inadmissible theta or a
+failed Cholesky inside the chain) is left out of the pooled results and of the
+diagnostics, and the verdict says so; when no chain ran to the end, the longest one
+is pooled alone. \code{chain_n} holds the draws each chain kept, \code{chains_used} the chains
+pooled and \code{chain_messages} what each chain reported. The per-chain location
+summaries add \verb{2 q M} numbers to the fit for \code{q} levels and \code{M} chains (about 64 MB
+for a million levels and 4 chains). All chains start from the same point; one chain
+(the default) leaves the between-chain checks inactive, and 4 is the usual choice
+for them}
 
 \item{cores}{R processes that run the chains at the same time (a PSOCK cluster of
 the parallel package, which also works on Windows); at most \code{chains}}
@@ -119,12 +132,20 @@ live in a session and quiet in scripts and checks. Every fitter also honors Ctrl
 }
 \value{
 samples matrix (kept iterations x parameters), posterior \code{mean} and \code{sd},
-effective sample sizes, Geweke z, and the posterior mean/sd of every random effect
-(\code{ebv}, \code{ebv_sd}), and of every fixed effect (\code{b}, \code{b_sd}, named \code{term=level} as in
-\code{\link[=model]{model()}}, whose parametrization note applies: dropped columns are in \code{dropped_x}
-and only contrasts compare against a reference-level convention), \code{dense_block}
-and \code{k_level_type} as in \code{\link[=model]{model()}}, and \code{start}, the components the chain starts
-from (the first chain's, with several)
+the posterior mean/sd of every random effect (\code{ebv}, \code{ebv_sd}) and of every fixed
+effect (\code{b}, \code{b_sd}, named \code{term=level} as in \code{\link[=model]{model()}}, whose parametrization note
+applies: dropped columns are in \code{dropped_x} and only contrasts compare against a
+reference-level convention), \code{dense_block} and \code{k_level_type} as in \code{\link[=model]{model()}}, \code{start},
+the components the chain starts from (the first chain's, with several), and the
+convergence diagnostics: \code{diagnostics} is \code{\link[=mcmc_diagnostics]{mcmc_diagnostics()}} of the fit, and \code{ess}
+(the multi-chain bulk-ESS), \code{rhat} (rank-normalized split R-hat, also for one chain,
+from its two halves) and \code{geweke} (the Geweke z combined over the chains, with the
+spectral density at zero, on the scale given by the \code{start_scale} column of the
+diagnostics) are its columns for the components; they are \code{NA} and the \code{message} says
+why if the diagnostics fail. \code{n_iter}, \code{burnin}, \code{thin} and \code{n_expected} (the draws
+each chain keeps when it runs to the end) record the run, and \code{fixed_components} marks
+the components the model holds (\code{theta_fixed}, \code{kernel(fixed =)}, the probit
+residual), which the diagnostics report as \code{"fixed"}
 }
 \description{
 Gibbs sampler for a single-trait mixed model

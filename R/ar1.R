@@ -20,7 +20,10 @@
 #'   parameter
 #' @param data data.frame
 #' @param pedigree data.frame animal, sire, dam
-#' @param subject column identifying the subject (typically the animal)
+#' @param subject column identifying the subject (typically the animal). A missing
+#'   subject, `NA`, `NaN`, `Inf`, `-Inf`, blank text or the text "NaN", is refused on
+#'   every row with the column, the number of such rows and the first of them, as a
+#'   level column in [model()]: those rows would form one series
 #' @param time numeric time column; two records of the SAME subject at the SAME time
 #'   are a declared error: with AR(1) the time identifies the record, and simultaneous
 #'   repetition calls for a permanent environment effect. The column carries a UNIT, and
@@ -42,18 +45,36 @@
 #' @param missing_code missing-value code for observations
 #' @param start starting values for the components, in the order the fit reports
 #'   them. Use it to warm-start from a submodel, or to check that the optimum does
-#'   not depend on where the search began. Without it the start comes from `var(y)`,
-#'   divided by the geometric mean of a declared kernel's eigenvalues so that the
-#'   same model with `K` and with `c * K` starts at equivalent points.
+#'   not depend on where the search began. Without it, under `cbind()`, the start is
+#'   the univariate AR(1) optimum of each trait (`model_ar1()` with the same right-hand
+#'   side, one trait at a time, run to its own convergence), every covariance
+#'   between traits at zero and `rho` the mean of the univariate ones; a variance that
+#'   a univariate fit left at the zero boundary starts at 1% of the `var(y)` start, the
+#'   rule of [model_mt()], where the evidence for this default and its measured cost
+#'   are. With one trait, when a univariate fit fails, or with `maxiter = 0`, the start
+#'   comes from `var(y)`, divided by the geometric mean of a declared kernel's
+#'   eigenvalues so that the same model with `K` and with `c * K` starts at equivalent
+#'   points. When the fit from the univariate start stops short of `maxiter` without
+#'   certifying an optimum, the `var(y)` start is fitted as well and the better of the
+#'   two is returned, as in [model_mt()]. Which start was used is in `start_from`.
 #' @param maxiter maximum number of iterations; a fit that hits the ceiling says so in
-#'   `message` and how to raise it
+#'   `message` and how to raise it; the univariate fits of the default start are not
+#'   bound by it, as in [model_mt()]. `maxiter = 0` evaluates the start and reports
+#'   `converged = FALSE`, as [model()] does: an evaluation is not a convergence
 #' @param tol relative tolerance on the components, sqrt(sum delta^2 / sum theta^2);
 #'   see the BLUPF90 scale note in [model()]. The Newton decrement g' AI^-1 g is
 #'   computed at the final point and reported in `newton_dec` (components resting at a
-#'   covariance boundary excluded), and, as in [model()], `converged` requires it under
-#'   2e-4: the step walks in log-Cholesky coordinates, so it cannot jam against a
-#'   boundary. At `maxiter` with the decrement already under the tolerance the fit is
-#'   declared converged and `message` says the likelihood is flat along some direction
+#'   covariance boundary excluded, after the checks on the likelihood, the second walk
+#'   from inside the cone and the polish at a boundary described under `tol` in
+#'   [model_mt()]), and, as in [model()], `converged` requires it under 2e-4: the step
+#'   walks in log-Cholesky coordinates, so it cannot jam against a boundary. At
+#'   `maxiter` with the decrement already under the tolerance and those checks passed,
+#'   the fit is declared converged and `message` says the likelihood is flat along some
+#'   direction. A stop where no damped step and no EM step improves the likelihood is
+#'   never certified: `message` gives the iteration and the decrement. The checks cover
+#'   covariance blocks only: with one trait, a fit where `rho` goes to 1 and the residual
+#'   variance to its floor (records repeated within a subject) can still be certified on
+#'   an unbounded ridge, with the SINGULAR warning
 #' @return besides the components, `rho(residual)` with its standard error; |rho| >= 1
 #'   is never a result: a step that leaves the interval is rejected like any
 #'   inadmissible theta. The fixed-effect solutions come in `b`, named `term=level`
@@ -62,7 +83,19 @@
 #'   reference-level convention. `dense_block`, `h_prior`, `h_prior_row`, `k_prior` and
 #'   `k_level_type` are as in [model()]: in a single step, [accuracy()] divides a
 #'   genotyped animal by its diagonal of G* and not by 1 + F, and a `kernel()` level by
-#'   its diagonal of K
+#'   its diagonal of K. `start_from` is "univariate fits", "start=" or "var(y)", and
+#'   `start` the start the walk left from, named like `theta` (a start beyond the floors
+#'   of the step is raised to them first, as in [model_mt()]). `dropped_x_reason`,
+#'   parallel to `dropped_x`, says "no record" or "aliased" (a reference level or a
+#'   collinear column); a level with no record of one trait stops the fit with an error
+#'   that names it. The
+#'   walk runs on each trait divided by the power of two just above its standard
+#'   deviation, an exact rescaling in floating point (the variances have
+#'   units and `rho` has none, so even with one trait the step criterion and the
+#'   singularity check used to depend on the unit of `y`), the singularity verdict is
+#'   taken on the information matrix in those units, and the result is evaluated
+#'   back in the original units: `y` and `100 * y` give the same verdict, standard
+#'   errors scaled by 100^2 and the same standard error of `rho`
 #' @param verbose print the fit as it walks: one line per AI iteration with the
 #'   -2logL and the relative step, so a long fit is a progress report instead of
 #'   silence. The relative step is half of the convergence criterion; the Newton
@@ -130,7 +163,14 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
   kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
 
   t0 <- proc.time()[["elapsed"]]
-  r <- .Call(R_ajustar_ar1,
+  uni <- if (is.null(start) && maxiter > 0L && length(trait) > 1L)
+    otimos_univariados(function(f1, d1)
+      model_ar1(f1, d1, pedigree, subject = subject, time = time, genotypes = genotypes,
+                blend = blend, apy_core = nucleo_resolvido(apy_core, nuc),
+                vecchia_k = vecchia_k, metafounders = metafounders, gamma = gamma,
+                verbose = FALSE),
+      formula, trait, data, missing_code, verbose) else list()
+  ajusta <- function(uni) .Call(R_ajustar_ar1,
              lst, names(lst), trait,
              vapply(terms, function(t) t$nome, character(1)),
              vapply(terms, function(t) t$column, character(1)),
@@ -153,7 +193,8 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
 
              kern,
              if (is.null(start)) numeric(0) else as.double(start),
-             vapply(terms, function(t) t$dilution, numeric(1)))
+             vapply(terms, function(t) t$dilution, numeric(1)), uni)
+  r <- partida_de_reserva(ajusta(uni), ajusta, maxiter)
   r$seconds <- proc.time()[["elapsed"]] - t0
   r <- anota_nucleo(r, nuc)
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read

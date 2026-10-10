@@ -44,14 +44,39 @@ with none (sire and dam ids that never repeat between the sexes) it does not ent
 the likelihood, and every fitter that estimates components stops before fitting and
 names the two terms. At given components (\verb{start =} with \code{maxiter = 0} and
 \code{n_em = 0}, or \verb{theta_fixed =} in \code{\link[=gibbs]{gibbs()}}) the group is accepted.
-A column that gives the level of a term (a fixed class, the id of a random term,
-the maternal grandsire of \code{sire(mgs =)}, the class of a nested covariate) may not
-hold \code{NA}, \code{NaN}, \code{Inf} or \code{-Inf} on ANY row, including a row whose observation is
-missing: those rows would form one shared level. A numeric column stops the fit with
-the term, the column, the number of such rows and the first of them; a text column
-with \code{NA} stops it with the column and the first row. Drop those rows before the
-fit. A missing observation (\code{NA} in the trait, or \code{missing_code}) with its levels
-present only drops its record.
+ONLY THE OBSERVATION MAY BE MISSING. A column that gives the level of a term (a
+fixed class, the id of a random term, the maternal grandsire of \code{sire(mgs =)}, the
+class of a nested covariate, the pen of \code{indirect()}) may not hold a missing label on
+ANY row, including a row whose observation is missing: \code{NA}, \code{NaN}, \code{Inf} or \code{-Inf}
+in a numeric column, and \code{NA}, blank text (what \code{read.csv()} gives an empty cell of a
+text column; spaces, tabs and line breaks alone count as blank) or the text "NaN"
+(what \code{factor()} makes of a numeric \code{NaN}) in a text or factor column. Those rows
+would form one shared level. The texts "NA" and "Inf" are accepted, since they may be
+real names, and in the maternal-grandsire column blank text is the unknown grandsire,
+like "0". A column that enters as a VALUE, the covariate of \code{cov()} (nested or not)
+and the columns of \verb{base =}, may not hold \code{NA}, \code{NaN}, \code{Inf} or \code{-Inf} on any row
+either: the covariate would leave the model without a word. Every case stops the fit
+with the term, the column, the number of such rows and the first of them (a text \code{NA}
+with the column and the first row); drop those rows, or fill them, before the fit.
+The rule is checked on every row, also where the observation is missing, so one data
+frame is accepted or refused alike by \code{\link[=model]{model()}}, \code{\link[=model_mt]{model_mt()}}, \code{\link[=model_ar1]{model_ar1()}}
+(\verb{subject =} included), \code{\link[=gibbs]{gibbs()}}, \code{\link[=snp_blup]{snp_blup()}}, the \code{eval_internal} family,
+\code{\link[=model_threshold]{model_threshold()}}, \code{\link[=model_survival]{model_survival()}} (\verb{subject =} included) and \code{\link[=pegs]{pegs()}} (\code{id}
+and \verb{environment =}). Refusing is the conservative one of the field's conventions:
+ASReml stops on a missing explanatory value unless \code{!MVINCLUDE} (the missing value
+counts as zero) or \code{!MVREMOVE} (the record is dropped) is declared, and asreml-R
+defaults to \code{na.method(y = "include", x = "fail")}; BLUPF90 reads a 0 in a class
+column as the effect being absent from that record, so a BLUPF90 data file with 0 as
+its missing class code gives here one shared level "0", which cannot be refused
+because "0" may be a real name: drop those records, or give them their levels,
+before the fit. A missing observation (\code{NA}, \code{NaN}, \code{Inf} or \code{-Inf} in the trait,
+or \code{missing_code}) with its levels and covariates present only drops its record.
+\code{missing_code} is the code of the OBSERVATION only, as \verb{OPTION missing} is in
+BLUPF90: a covariate holding it is fitted as that number without a word (a BLUPF90
+data file with -999 for an unknown age in a \code{cov} column regresses those records on
+an age of -999), and a level column holding it is one more level "-999". Turn those
+cells into \code{NA}, which stops the fit with the column and the first row, and then
+drop or fill those records.
 \code{indirect(id, pen = "pen")} is the indirect
 (associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a
 record marks the animal's DISTINCT pen mates, and it shares a group with \code{animal()}
@@ -153,13 +178,18 @@ parents as the conditioning set). k >= n - 1 reproduces the exact inverse; the
 result message says it is an approximation and with which k. Mutually exclusive
 with \code{apy_core}}
 
-\item{missing_code}{missing-value code for observations, for example -999}
+\item{missing_code}{missing-value code for observations, for example -999. It applies
+to the trait only: in a covariate or a level column the code is an ordinary value
+(see the missing-value rule under \code{formula})}
 
 \item{maxiter}{maximum number of iterations of the damped step. The default 300 was
 raised from 100 after a measured case: a direct-indirect model warm-started from
 the reduced fit still had relDelta 1.6e-4 at iteration 100, no defect, a model
 that walks slowly along a covariance boundary. A fit that hits the ceiling says so
-in \code{message} and reports \code{converged = FALSE}}
+in \code{message} and reports \code{converged = FALSE}. \code{maxiter = 0} evaluates the start
+(after the \code{n_em} EM rounds) and always reports \code{converged = FALSE}: an evaluation
+is not a convergence, whatever the Newton decrement at that point, which \code{message}
+gives}
 
 \item{tol}{RELATIVE tolerance on the components, sqrt(sum delta^2 / sum theta^2).
 BLUPF90 note: airemlf90/blupf90+ VCE test the SQUARED quantity, so their
@@ -171,7 +201,18 @@ fall under 2e-4, near the optimum the decrement is about twice the -2logL gap
 to it, so the certificate bounds that gap by ~1e-4. The value is reported in
 \code{newton_dec}. Measured motivation: a fit that stalled against the singularity
 boundary with relDelta 5.1e-9 and the score far from zero sat 6.9 -2logL units
-above the optimum, and the step criterion alone declared it converged}
+above the optimum, and the step criterion alone declared it converged. A component
+held at a boundary is left out of the decrement only when the boundary passes the
+Karush-Kuhn-Tucker condition of a constrained optimum. Here that is the sign of the
+score: a variance at its floor is excluded only with the score pushing it out of
+the admissible cone, and the step never freezes a component whose score points
+inward. \code{\link[=model_mt]{model_mt()}} and \code{\link[=model_ar1]{model_ar1()}} check it on the likelihood instead, because
+their step also freezes a block whose curvature has collapsed, whatever the sign
+(see \code{tol} there). The variance floor of the step is 1e-10 of the variance of \code{y},
+fixed for the whole walk, so the walk does not depend on the unit of \code{y} (it was
+1e-10 in the user's unit whenever the residual variance was below 1: with \code{y} times
+1e-5 the permanent-environment variance stuck on it, 27\% above its optimum, and the
+fit was declared converged with the additive variance 14\% low)}
 
 \item{n_em}{EM iterations before the AI, to land in the right basin}
 
