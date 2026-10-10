@@ -501,16 +501,20 @@ test_that("D3: a small interior univariate variance starts where it is, and the 
   expect_identical(f$start_from, "univariate fits")
   # a regra, qualquer que seja o lado em que o univariado parou: abaixo de 1e-4 da partida de
   # var(y) parte de 1% dela, acima fica onde o univariado deixou. Neste dado a verossimilhanca
-  # do univariado e plana perto do zero: no Windows var(indirect) fica dentro (0,117), no Linux
-  # vai a fronteira; os dois ramos sao conferidos onde o dado os produz
+  # do univariado e plana: o ponto em que ele para muda com a plataforma (no Windows
+  # var(animal@y2) vai a fronteira, no Linux fica em 2,2) e o univariado refeito aqui nao e
+  # bit a bit o de dentro do model_mt (0,76923 contra 0,76934 no Linux). Por isso a regra e
+  # conferida a 1e-3 relativo, e cada ramo onde o dado o produz; os dois valores ficam longe
+  # do corte de 1e-4 em todas as plataformas medidas
   regra <- function(u, v) if (v > 0 && u < 1e-4 * v) 0.01 * v else u
-  for (k in c("var(indirect)", "var(animal)"))
-    expect_equal(f$start[[paste0(sub(")$", "", k), "@y2)")]],
-                 regra(u2[[k]], vy[[paste0(sub(")$", "", k), "@y2)")]]), tolerance = 1e-12)
-  if (u2[["var(indirect)"]] > 1e-4 * vy[["var(indirect@y2)"]])
-    expect_equal(f$start[["var(indirect@y2)"]], u2[["var(indirect)"]], tolerance = 1e-12)
-  expect_lt(u2[["var(animal)"]], 1e-4 * vy[["var(animal@y2)"]])
-  expect_equal(f$start[["var(animal@y2)"]], 0.01 * vy[["var(animal@y2)"]], tolerance = 1e-12)
+  for (k in c("var(indirect)", "var(animal)")) {
+    kk <- paste0(sub(")$", "", k), "@y2)")
+    expect_equal(f$start[[kk]], regra(u2[[k]], vy[[kk]]), tolerance = 1e-3)
+    if (u2[[k]] > 1e-4 * vy[[kk]])
+      expect_equal(f$start[[kk]], u2[[k]], tolerance = 1e-3)
+    else
+      expect_equal(f$start[[kk]], 0.01 * vy[[kk]], tolerance = 1e-12)
+  }
   expect_true(f$converged)
 })
 
@@ -697,8 +701,10 @@ test_that("P8-1: a certified point on a flat boundary face is polished to the fa
     expect_lt(g$theta[["cov(animal@y2,animal@y1)"]] /
                 sqrt(g$theta[["var(animal@y1)"]] * g$theta[["var(animal@y2)"]]), -0.9999)
   }
-  expect_lt(abs(v$neg2logl - w$neg2logl), 1e-4)
-  expect_lt(abs(f$neg2logl - w$neg2logl), 1e-4)
+  # com a lapidacao: 9,4e-5 no maior caso da varredura (Windows) e 1,3e-4 no Linux do CI; sem
+  # ela, 3,86e-4. O portao separa as duas com folga de quase 2 vezes
+  expect_lt(abs(v$neg2logl - w$neg2logl), 2e-4)
+  expect_lt(abs(f$neg2logl - w$neg2logl), 2e-4)
   # e a caracteristica no zero, descorrelacionada (descorrelada_na_parede, src/aireml.cpp):
   # model_ar1 bivariado com var(animal@y1) no piso relativo. A sonda da face nao gira a
   # correlacao de um bloco assim, e as duas partidas padrao certificavam r = -0,79 e r = 0,03
