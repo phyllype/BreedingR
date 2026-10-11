@@ -201,4 +201,32 @@ if (exists("efeito_de_lote", asNamespace("BreedingR"), inherits = FALSE)) {
                                   cg = paste0(rep(paste0("L", seq_len(nl)), each = 50 * tam),
                                               rep((rep(1:50, each = tam) - 1) %/% 5, nl)),
                                   pen = paste0("p", rep(rep(1:50, each = tam), nl)), y = 0))))
+  fundidas <- function(tam, nl, nlab, falta = 0, sd = 1, so_cg = FALSE) {
+    set.seed(sd)
+    b <- rep(rep(seq_len(nlab), each = tam), nl)
+    d <- data.frame(id = paste0("a", seq_along(b)),
+                    lote = rep(paste0("L", seq_len(nl)), each = nlab * tam),
+                    pen = paste0("p", b), y = 0)
+    d$cg <- paste0(d$lote, "_", (b - 1) %/% 5)
+    d <- d[stats::runif(nrow(d)) >= falta, ]
+    if (so_cg) avisa("cg", d) else avisa("lote", d)
+  }
+  cat("  merged pens, only the cg of batch x block of 5 pens in the formula, 3 batches, 30 labels:",
+      "pens of 2", fundidas(2, 3, 30, so_cg = TRUE), "; pens of 3", fundidas(3, 3, 30, so_cg = TRUE),
+      "\n")
+  for (falta in c(0.05, 0.1, 0.2)) cat(sprintf(
+    "  %2.0f%% of the animals missing, 3 batches, 50 labels: pens of 2 %.2f, pens of 3 %.2f\n",
+    100 * falta, mean(vapply(1:20, function(sd) fundidas(2, 3, 50, falta, sd), logical(1))),
+    mean(vapply(1:20, function(sd) fundidas(3, 3, 50, falta, sd), logical(1)))))
+  for (b in c(3, 6)) cat(sprintf("  three sex classes balanced in every pen of %d, 300 pens: %s\n",
+    b, avisa("sexo", data.frame(id = paste0("a", seq_len(300 * b)),
+                                pen = paste0("p", rep(1:300, each = b)),
+                                sexo = rep(rep(c("F", "M", "C"), each = b / 3), 300), y = 0))))
+  for (nlab in c(30, 50)) cat(sprintf(
+    "  pens of 3 merged over 2 batches with a cg nested in the batch, %d labels: %s\n", nlab,
+    avisa("lote + cg", transform(data.frame(id = paste0("a", seq_len(6 * nlab)),
+                                           lote = rep(c("A", "B"), each = 3 * nlab),
+                                           pen = paste0("p", rep(rep(seq_len(nlab), each = 3), 2)),
+                                           y = 0),
+                                cg = paste0(lote, (rep(rep(seq_len(nlab), each = 3), 2) - 1) %/% 5)))))
 }

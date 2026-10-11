@@ -18,10 +18,14 @@ h2(
 \item{fit}{result of \code{model()}, \code{model_mt()} or \code{model_ar1()}}
 
 \item{group}{covariance group; by default the group of the direct genetic term: the
-first pedigree, genomic or \code{kernel()} term with an estimated variance that is not
-\code{maternal()} or \code{indirect()} (pedigree before \code{kernel()}), else the first \code{maternal()}
-term, else the first group; the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}},
-\code{\link[=h2]{h2()}} and \code{\link[=h2_curve]{h2_curve()}}}
+first pedigree or genomic term that is not \code{maternal()} or \code{indirect()}, else the first
+\code{kernel()} with an estimated variance over the animals (most of its levels are
+animals of the pedigree, or there is no pedigree term), else the first \code{maternal()}
+term, else the first other \code{kernel()} with an estimated variance, else the first
+group; the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}}, \code{\link[=h2]{h2()}} and
+\code{\link[=h2_curve]{h2_curve()}}. A named group of several terms gives the h2 of its direct term, also
+when the group has the name of one of its terms; the name of a term outside such a
+group gives that term's ratio}
 
 \item{trait}{for a multi-trait fit, which trait; all of them by default}
 
@@ -116,7 +120,9 @@ Two kinds of \code{kernel()} are not relationships but covariances of the record
 at the variance they put on a record:
 \itemize{
 \item a \code{kernel()} that is the \code{\link[=associative_matrix]{associative_matrix()}} of the \code{indirect()} term of the same
-fit (recognised by its diagonal, \verb{(n_i - 1)^(1 - 2d)} on every record): at
+fit (recognised by its diagonal, \verb{(n_i - 1)^(1 - 2d)} on every record, and, when that
+diagonal is 1 everywhere, with pens of 2 or \code{d = 0.5}, by the attribute
+\code{br_associative} that \code{\link[=associative_matrix]{associative_matrix()}} sets): at
 \verb{(n - 1)^(1 - 2d)} times its component for the group size \code{n} asked for, or at its
 mean diagonal over the records without \code{n} (the share column);
 \item a \code{kernel(fixed = v)} term, the known covariance of a two-stage analysis (the sampling
@@ -147,11 +153,11 @@ of components the data do not separate, the ratio moves along that ridge and is
 returned as \code{NA}, with a warning naming the components; a set that only touches the
 denominator (permanent environment and residual with one record per animal) leaves the
 number, with a warning. A fit with no estimates (theta \code{NA}) gives \code{NA}, saying so. A
-fit at given components (\verb{start =} with \code{maxiter = 0} and \code{n_em = 0} in \code{\link[=model]{model()}},
-\verb{start =} with \code{maxiter = 0} in \code{\link[=model_mt]{model_mt()}} and \code{\link[=model_ar1]{model_ar1()}}) is read at those
+fit at given components (\code{start} with \code{maxiter = 0} and \code{n_em = 0} in \code{\link[=model]{model()}},
+\code{start} with \code{maxiter = 0} in \code{\link[=model_mt]{model_mt()}} and \code{\link[=model_ar1]{model_ar1()}}) is read at those
 components without a word; with \code{n_em > 0} the EM rounds moved the start, and without
-\verb{start =} the point is the default start, so either fit is read as one that did not
-converge.
+\code{start} the point is the default start, so either fit is read as one that did not
+converge. In a multi-trait fit one warning covers every trait.
 }
 \references{
 Willham, R.L. (1972). The role of maternal effects in animal breeding:

@@ -29,7 +29,11 @@ a mismatch the residual describes a different model from the genetic side.}
 \value{
 a square matrix, records by records, positive semi-definite, with the attribute
 \code{br_associative} holding \code{dilution}: \code{\link[=h2]{h2()}} and \code{\link[=t2]{t2()}} read a \code{kernel()} that carries
-it as this residual structure and not as a relationship matrix
+it as this residual structure and not as a relationship matrix. Indexing the matrix
+(\code{D[o, o]}) or inverting it drops the attribute; with every pen of 2 animals, or
+\code{dilution = 0.5}, the diagonal alone does not tell it from a relationship matrix, so
+pass it as returned, built on the rows of the fit, or restore the attribute with
+\code{attr(D, "br_associative") <- dilution}
 }
 \description{
 Builds the known matrix \code{D} such that the residual covariance of the associative model

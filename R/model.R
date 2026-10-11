@@ -48,8 +48,8 @@ ARGS_MARCADOR <- local({
 #'   given, is not checked. The check takes one fixed effect at a time; a confounding by a
 #'   combination of fixed effects is left to the SINGULAR verdict of the fit (see [h2()]
 #'   for how the extractors read it). [model_survival()] with `lambda` given warns instead:
-#'   the first level of the fixed effect is held at the baseline, and its records alone
-#'   inform the variance;
+#'   the first level of the fixed effect is held at the baseline, and the single level of
+#'   the term in it is all that informs the variance;
 #' * `indirect()` with every pen of one animal (the indirect incidence is all zero), with
 #'   all the records in one pen, or with the pen (or anything finer) as a fixed effect: the
 #'   fixed part absorbs the sum of each pen, and what is left of the indirect incidence of
@@ -98,19 +98,24 @@ ARGS_MARCADOR <- local({
 #'   at random within the pens or balanced by design in every pen. The data cannot tell
 #'   merged pens from pens that truly mix levels when the groups are large, or when two
 #'   batches have nothing nested in them: two batches of merged pens then look like pens
-#'   balanced for a two-level effect and are not read. A contemporary group nested in the
-#'   batch makes merged pens of 2 or 3 animals over two batches detectable; merged pens of
-#'   5 or more are not detected, since they look the same as a contemporary group that
-#'   includes sex in pens that mix the sexes. Merged pens of 2 or 3 animals over three or more batches, with 30 or more
-#'   labels and every animal present, are detected; animals missing from the data leave
-#'   groups of one and can hide the merging of pens of 2. An effect of three or more levels
+#'   balanced for a two-level effect and are not read. Measured on simulated data
+#'   (`validation/structure_cases.R`, 50 labels, every animal present): merged pens of 2 or
+#'   3 over three or more batches are detected, also when only a contemporary group nested
+#'   in the batch is in the formula (there from 30 labels); merged pens of 5 over three or
+#'   more batches are detected only through a contemporary group nested in the batch; over
+#'   two batches merged pens of 2 or 3 are detected only through such a group (pens of 3
+#'   from about 45 labels), and merged pens of 5 are not, since they look the same as a
+#'   contemporary group that includes sex in pens that mix the sexes. Animals missing from
+#'   the data leave groups of one: with 5% of the animals missing merged pens of 2 are not
+#'   detected, and with 20% neither are merged pens of 3. An effect of three or more levels
 #'   is read only when its levels meet in the mixed pens the way merged batches do (most
 #'   pairs of levels share some pen): a contemporary group defined within sex in pens that
 #'   mix the sexes (the sexes of one batch meet, never two batches) and a birth-week group
 #'   in pens filled in birth order (neighbouring weeks meet) are not read. An effect of the
-#'   animal with three or more levels balanced in every pen (three sex classes in equal
-#'   numbers) does look like merged pens and is reported. `options(BreedingR.warn_pen_labels
-#'   = FALSE)` silences this check;
+#'   animal with three or more levels balanced in every pen, with two or more animals of
+#'   each level per pen (three sex classes in equal numbers in pens of 6), does look like
+#'   merged pens and is reported (pens of 3 with one animal per class are not).
+#'   `options(BreedingR.warn_pen_labels = FALSE)` silences this check;
 #' * a `pe()` or `random()` term has fewer than 5 levels among the records: its variance
 #'   comes from that many levels and is barely determined, and labels that number
 #'   something inside another unit (the parity within each dam used as the litter) merge
@@ -1423,10 +1428,12 @@ mostra_fixos <- function(b, dropped, nota = "implicit intercept") {
 #' @param fit result of model(), model_mt(), model_ar1(), model_threshold(),
 #'   model_survival() or snp_blup()
 #' @param group covariance group; by default the group of the direct genetic term: the
-#'   first pedigree, genomic or `kernel()` term with an estimated variance that is not
-#'   `maternal()` or `indirect()` (pedigree before `kernel()`), else the first `maternal()`
-#'   term, else the first group; the same default in [ebv()], [solutions()], [accuracy()],
-#'   [h2()] and [h2_curve()]
+#'   first pedigree or genomic term that is not `maternal()` or `indirect()`, else the first
+#'   `kernel()` with an estimated variance over the animals (most of its levels are
+#'   animals of the pedigree, or there is no pedigree term), else the first `maternal()`
+#'   term, else the first other `kernel()` with an estimated variance, else the first
+#'   group; the same default in [ebv()], [solutions()], [accuracy()], [h2()] and
+#'   [h2_curve()]
 #' @param trait multi-trait only: which trait to slice out; all of them if omitted
 #' @export
 ebv <- function(fit, group = NULL, trait = NULL) {
@@ -1560,7 +1567,7 @@ print.summary.breeding_fit <- function(x, ...) {
 #' variance move together along that ridge and the accuracy of every level is returned as
 #' `NA`, with a warning naming the components; a fit with no estimates (theta `NA`, the
 #' start was inadmissible) gives `NA` too, saying so (it used to stop with "no component
-#' 'var(animal)'"). A fit at given components (`start =` with `maxiter = 0` and
+#' 'var(animal)'"). A fit at given components (`start` with `maxiter = 0` and
 #' `n_em = 0`) is read at those components without a word. A PEV above the prior variance
 #' of its level beyond rounding gives accuracy 0 with a warning that counts those levels: the prior used is then not the one
 #' the level was fitted with, as for a non-genotyped animal of a single step (see above).
@@ -1572,10 +1579,12 @@ print.summary.breeding_fit <- function(x, ...) {
 #'   declared `k_inverse =` other than an [h_inverse()], it may be omitted. A term fitted
 #'   with `k_inverse = h_inverse(...)` or `genotypes =` is a pedigree term and needs it
 #' @param group covariance group; by default the group of the direct genetic term: the
-#'   first pedigree, genomic or `kernel()` term with an estimated variance that is not
-#'   `maternal()` or `indirect()` (pedigree before `kernel()`), else the first `maternal()`
-#'   term, else the first group; the same default in [ebv()], [solutions()], [accuracy()],
-#'   [h2()] and [h2_curve()]
+#'   first pedigree or genomic term that is not `maternal()` or `indirect()`, else the first
+#'   `kernel()` with an estimated variance over the animals (most of its levels are
+#'   animals of the pedigree, or there is no pedigree term), else the first `maternal()`
+#'   term, else the first other `kernel()` with an estimated variance, else the first
+#'   group; the same default in [ebv()], [solutions()], [accuracy()], [h2()] and
+#'   [h2_curve()]
 #' @param trait required in the multi-trait case (`model_mt()`, or `model_ar1()` with
 #'   `cbind()`): accuracy is per trait, with the corresponding var(term@trait)
 #' @return a numeric vector named by level, in the order of `fit$pev[[group]]`; a group
@@ -1648,7 +1657,9 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
   if (mt) comps_g <- comps_g[grepl(paste0("@", trait, ","), comps_g, fixed = TRUE) |
                                grepl(paste0("@", trait, ")"), comps_g, fixed = TRUE)]
   if (estado_para_extrator(fit, "accuracy()", names(fit$theta), comps_g,
-                           como = "the prediction error variance")) {
+                           como = paste0("the prediction error variance, which does not ",
+                                         "move along a ridge that leaves the components of ",
+                                         "the group fixed, so it holds"))) {
     pv[] <- NA_real_
     return(pv)
   }

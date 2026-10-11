@@ -123,8 +123,9 @@
 #' records. Without `sigma2 =` a design that does not identify a frailty component stops,
 #' with it the design is a warning. With `lambda` given there is no intercept and the first
 #' level of each fixed class effect is held at the baseline: a frailty term nested in a
-#' fixed effect is then informed by the records of that reference level alone, and the fit
-#' goes on with a warning that says so.
+#' fixed effect is then informed by the single level of the term in that reference level
+#' alone, which does not determine its variance, and the fit goes on with a warning that
+#' says so.
 #'
 #' @param formula fixed class effects, `cov()` covariates, and one or more random terms
 #'   among `animal()`, `sire()`, `random()` and `indirect()` -- the frailties -- with

@@ -432,7 +432,11 @@ print.breeding_indirect_residual <- function(x, ...) {
 #'   level column of [model()]
 #' @return a square matrix, records by records, positive semi-definite, with the attribute
 #'   `br_associative` holding `dilution`: [h2()] and [t2()] read a `kernel()` that carries
-#'   it as this residual structure and not as a relationship matrix
+#'   it as this residual structure and not as a relationship matrix. Indexing the matrix
+#'   (`D[o, o]`) or inverting it drops the attribute; with every pen of 2 animals, or
+#'   `dilution = 0.5`, the diagonal alone does not tell it from a relationship matrix, so
+#'   pass it as returned, built on the rows of the fit, or restore the attribute with
+#'   `attr(D, "br_associative") <- dilution`
 #' @references Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 #'   quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
 #'

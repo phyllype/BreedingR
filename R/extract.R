@@ -35,10 +35,12 @@ eh_norma_reacao <- function(theta) any(grepl("\\[\\d+\\]", names(theta)))
 #'   gradients) and takes no `pedigree`; for [model_survival()] the accuracy is on the
 #'   log-hazard scale, from the Laplace PEV of the frailty
 #' @param group covariance group; by default the group of the direct genetic term: the
-#'   first pedigree, genomic or `kernel()` term with an estimated variance that is not
-#'   `maternal()` or `indirect()` (pedigree before `kernel()`), else the first `maternal()`
-#'   term, else the first group; the same default in [ebv()], [solutions()], [accuracy()],
-#'   [h2()] and [h2_curve()]
+#'   first pedigree or genomic term that is not `maternal()` or `indirect()`, else the first
+#'   `kernel()` with an estimated variance over the animals (most of its levels are
+#'   animals of the pedigree, or there is no pedigree term), else the first `maternal()`
+#'   term, else the first other `kernel()` with an estimated variance, else the first
+#'   group; the same default in [ebv()], [solutions()], [accuracy()], [h2()] and
+#'   [h2_curve()]
 #' @param trait for a multi-trait fit (`model_mt()`, or `model_ar1()` with `cbind()`),
 #'   which trait. Without it the table lists every trait, with ids written "level|trait",
 #'   and has no `acc` column; given a `pedigree` but no `trait =`, the call stops and
@@ -68,7 +70,7 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
   # (a classe breedingr_estado), com o NA que eles explicam
   avisa_estado_solucoes(fit, g, com_acc = !is.null(pedigree) ||
                           (length(fit$pev[[g]]) && (!eh_multicaracter(fit) || !is.null(trait)) &&
-                             acuracia_sem_pedigree(fit, g)))
+                             acuracia_sem_pedigree(fit, g)), trait = trait)
   # O EFEITO DE CADA LINHA. Num grupo de varios termos (direto-materno, direto-indireto, dois
   # termos iid) ou de varios coeficientes (norma de reacao) o mesmo id aparece uma vez por
   # efeito, e o se e a acc eram casados so pelo id: todas as linhas do id recebiam os do
@@ -125,16 +127,20 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
 # Os avisos de solutions() sobre o estado do ajuste: sem estimativas, sem convergencia, ou
 # com componentes que os dados nao separam (os EBV sao entao os de um ponto arbitrario da
 # crista, e a acuracia sai NA onde depende deles)
-avisa_estado_solucoes <- function(fit, g, com_acc = TRUE) {
+avisa_estado_solucoes <- function(fit, g, com_acc = TRUE, trait = NULL) {
   if (!length(fit$theta)) return(invisible(NULL))
   if (sem_estimativas(fit)) {
     aviso_estado("solutions(): this fit has no estimates (theta is NA: it stopped before a ",
-                 "first evaluation, see fit$message), so ebv, se", if (com_acc) " and acc",
-                 " are NA")
+                 "first evaluation, see fit$message), so ",
+                 if (com_acc) "ebv, se and acc are NA" else "ebv and se are NA")
     return(invisible(NULL))
   }
   avisa_convergencia(fit, "solutions()")
   do_grupo <- tryCatch(componentes_do_grupo(fit, g), error = function(e) character(0))
+  # com trait = num ajuste multicaracter so os componentes desse caracter movem os EBV dele
+  if (!is.null(trait) && eh_multicaracter(fit))
+    do_grupo <- do_grupo[grepl(paste0("@", trait, ","), do_grupo, fixed = TRUE) |
+                           grepl(paste0("@", trait, ")"), do_grupo, fixed = TRUE)]
   ss <- nao_separados(fit, names(fit$theta))
   # um conjunto que toca os componentes do grupo move os EBV ao longo da crista; um que so
   # toca o resto (pe e residuo com um registro por animal, a covariancia residual entre
@@ -271,7 +277,9 @@ efeito_por_linha <- function(fit, g, n_total, trait) {
 #' Two kinds of `kernel()` are not relationships but covariances of the records, and enter
 #' at the variance they put on a record:
 #' * a `kernel()` that is the [associative_matrix()] of the `indirect()` term of the same
-#'   fit (recognised by its diagonal, `(n_i - 1)^(1 - 2d)` on every record): at
+#'   fit (recognised by its diagonal, `(n_i - 1)^(1 - 2d)` on every record, and, when that
+#'   diagonal is 1 everywhere, with pens of 2 or `d = 0.5`, by the attribute
+#'   `br_associative` that [associative_matrix()] sets): at
 #'   `(n - 1)^(1 - 2d)` times its component for the group size `n` asked for, or at its
 #'   mean diagonal over the records without `n` (the share column);
 #' * a `kernel(fixed = v)` term, the known covariance of a two-stage analysis (the sampling
@@ -301,18 +309,22 @@ efeito_por_linha <- function(fit, g, n_total, trait) {
 #' returned as `NA`, with a warning naming the components; a set that only touches the
 #' denominator (permanent environment and residual with one record per animal) leaves the
 #' number, with a warning. A fit with no estimates (theta `NA`) gives `NA`, saying so. A
-#' fit at given components (`start =` with `maxiter = 0` and `n_em = 0` in [model()],
-#' `start =` with `maxiter = 0` in [model_mt()] and [model_ar1()]) is read at those
+#' fit at given components (`start` with `maxiter = 0` and `n_em = 0` in [model()],
+#' `start` with `maxiter = 0` in [model_mt()] and [model_ar1()]) is read at those
 #' components without a word; with `n_em > 0` the EM rounds moved the start, and without
-#' `start =` the point is the default start, so either fit is read as one that did not
-#' converge.
+#' `start` the point is the default start, so either fit is read as one that did not
+#' converge. In a multi-trait fit one warning covers every trait.
 #'
 #' @param fit result of `model()`, `model_mt()` or `model_ar1()`
 #' @param group covariance group; by default the group of the direct genetic term: the
-#'   first pedigree, genomic or `kernel()` term with an estimated variance that is not
-#'   `maternal()` or `indirect()` (pedigree before `kernel()`), else the first `maternal()`
-#'   term, else the first group; the same default in [ebv()], [solutions()], [accuracy()],
-#'   [h2()] and [h2_curve()]
+#'   first pedigree or genomic term that is not `maternal()` or `indirect()`, else the first
+#'   `kernel()` with an estimated variance over the animals (most of its levels are
+#'   animals of the pedigree, or there is no pedigree term), else the first `maternal()`
+#'   term, else the first other `kernel()` with an estimated variance, else the first
+#'   group; the same default in [ebv()], [solutions()], [accuracy()], [h2()] and
+#'   [h2_curve()]. A named group of several terms gives the h2 of its direct term, also
+#'   when the group has the name of one of its terms; the name of a term outside such a
+#'   group gives that term's ratio
 #' @param trait for a multi-trait fit, which trait; all of them by default
 #' @param n group size, required when the model has an `indirect()` term and ignored
 #'   otherwise; a vector gives one value per size
@@ -409,7 +421,8 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
       fator * the[[alvo]] / vp
     }, numeric(1))
   lidos <- character(0)
-  # os avisos de estado de cada caracteristica, juntos: o mesmo texto sai uma vez so
+  # os avisos de estado de cada caracteristica, juntos: o primeiro sai, e os seguintes
+  # (o mesmo veredito lido em outro caracter) entram nele como os caracteres a mais
   vistos <- character(0)
   vals <- withCallingHandlers(lapply(tr, function(t) {
     alvo <- nome_comp("var", group, t)
@@ -421,9 +434,15 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
       return(rep(NA_real_, length(ns)))
     razao(t, alvo)
   }), breedingr_estado = function(w) {
-    if (conditionMessage(w) %in% vistos) invokeRestart("muffleWarning")
     vistos <<- c(vistos, conditionMessage(w))
+    invokeRestart("muffleWarning")
   })
+  if (length(vistos)) {
+    unicos <- unique(vistos)
+    aviso_estado(unicos[1], if (length(unicos) > 1L)
+      paste0(" (and the same verdict for the other trait(s): ",
+             paste(sub("^h2\\(\\): ", "", unicos[-1]), collapse = "; "), ")"))
+  }
   # a K de um kernel() com diagonal media longe de 1: o numero fica, e o aviso diz o outro
   kd <- kernels_fora_de_um(fit, lidos)
   if (length(kd)) {
@@ -722,7 +741,8 @@ summary.breeding_fit_mt <- function(object, ...)
 
 #' @export
 summary.breeding_fit_ar1 <- function(object, ...)
-  resumo_comum(object, paste0("AR(1)/CAR(1) fit of '", object$trait, "'"),
+  resumo_comum(object, paste0("AR(1)/CAR(1) fit of ",
+                              paste0("'", object$trait, "'", collapse = ", ")),
                list(neg2logl = object$neg2logl, n_subjects = object$n_subjects))
 
 #' @export

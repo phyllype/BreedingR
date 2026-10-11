@@ -127,6 +127,9 @@ confere_estrutura <- function(terms, data, resp, missing_code, quem, estima,
   }
   # os registros que um kernel() tira da analise (nivel sem linha na K), antes do filtro
   entra_k <- linhas_do_kernel(terms, kern, data)
+  # kern segue a lista de termos sem filtro: casa pelo nome do termo, e nao pela posicao
+  if (length(kern))
+    names(kern) <- vapply(terms, function(t) t$nome, character(1))[seq_along(kern)]
   fixos <- Filter(function(t) t$estrutura == 0L && !isTRUE(t$covariavel) &&
                     completa(t$column), terms)
   terms <- Filter(function(t) t$estrutura == 0L || (completa(t$column) &&
@@ -240,9 +243,11 @@ confere_aninhamento <- function(terms, fixos, cod, li, traco, quem, estima, avis
                            "levels of ", absorve$column, " so that each holds several ",
                            "levels of ", t$column, ", or drop ", nome)
     if (referencia) {
+      # a referencia guarda um nivel so do termo (funcao_de): um nivel nao determina uma
+      # variancia
       avisa(paste0(quem, ": ", causa, " except in its reference level, which is held at the ",
-                   "baseline: only the levels of ", t$column, " in that level inform ", comp,
-                   ", which is barely determined; ", remedio))
+                   "baseline: only the one level of ", t$column, " in that level informs ",
+                   comp, ", and one level does not determine a variance; ", remedio))
       next
     }
     if (estima)
@@ -309,9 +314,10 @@ confere_baias <- function(s, terms, fixos, cod, nlin, li, por_traco, quem, estim
                  "with an optimum design"))
   if (isTRUE(getOption("BreedingR.warn_pen_labels", TRUE)))
     for (f in fixos) {
-      if (!efeito_de_lote(f, fixos, cod, pen, id, tam)) next
+      # o teste do acaso sai cedo (S < 0.9 M) no dado comum; so num acerto se pergunta se o
+      # efeito e de lote, que custa uma passada pelos pares de niveis das baias
       v <- rotulos_reaproveitados(pen, id, cod(f$column)$k, tam)
-      if (is.null(v)) next
+      if (is.null(v) || !efeito_de_lote(f, fixos, cod, pen, id, tam)) next
       cp <- cod(s$nested)
       cf <- cod(f$column)
       niveis_p1 <- sort(cf$u[unique(cod(f$column)$k[pen == v$pen1])])
@@ -400,9 +406,11 @@ efeito_de_lote <- function(f, fixos, cod, pen, id, tam) {
   FALSE
 }
 
-# A FRACAO DOS PARES DE NIVEIS DE kf QUE DIVIDEM ALGUMA BAIA (nas baias com companheiros).
-# Com o rotulo reaproveitado todo rotulo cruza todos os lotes, e quase todo par de lotes se
-# encontra numa baia. Um cg de lote x sexo em baias que misturam os sexos so junta os dois
+# A FRACAO DOS PARES DE NIVEIS DE kf QUE DIVIDEM ALGUMA BAIA, dentro das componentes de 3
+# ou mais niveis (nas baias com companheiros). Com o rotulo reaproveitado todo rotulo cruza
+# todos os lotes que o reaproveitam, e quase todo par desses lotes se encontra numa baia,
+# tambem quando a formula so tem o cg aninhado no lote, ou quando os lotes se revezam em
+# salas que numeram as proprias baias. Um cg de lote x sexo em baias que misturam os sexos so junta os dois
 # sexos do mesmo lote (blocos), e a semana de nascimento em baias cheias pela ordem de
 # nascimento junta semanas vizinhas (cadeia): os dois disparavam o aviso em dado certo.
 pares_cruzados <- function(pen, kf, mates) {
@@ -418,11 +426,44 @@ pares_cruzados <- function(pen, kf, mates) {
   L <- length(niv)
   if (L < 2L || !length(p)) return(0)
   km <- match(k, niv)
-  pares <- unique(unlist(lapply(split(km, p), function(v) {
-    cb <- utils::combn(sort(v), 2)
-    cb[1, ] * (L + 1) + cb[2, ]
-  })))
-  length(pares) / choose(L, 2)
+  o <- order(p, km)
+  p <- p[o]
+  km <- km[o]
+  # os pares (a, b) de niveis de cada baia mista, sem combn: cada nivel com os que vem depois
+  # dele na mesma baia
+  r <- rle(p)$lengths
+  depois <- rep(r, r) - sequence(r)
+  i <- rep(seq_along(km), depois)
+  j <- i + sequence(depois)
+  cod <- unique(km[i] * (L + 1) + km[j])
+  a <- cod %/% (L + 1)
+  b <- cod %% (L + 1)
+  # as componentes conexas do grafo de niveis que dividem baia, pela propagacao do menor
+  # rotulo: lotes fundidos formam componentes completas (cada rotulo junta um pedaco de cada
+  # lote da componente), o cg de lote x sexo forma pares, a semana de nascimento cadeias
+  comp <- seq_len(L)
+  repeat {
+    m <- pmin(comp[a], comp[b])
+    idx <- c(a, b)
+    x <- c(m, m)
+    oo <- order(idx, x)
+    pri <- !duplicated(idx[oo])
+    novo <- comp
+    novo[idx[oo][pri]] <- pmin(comp[idx[oo][pri]], x[oo][pri])
+    novo <- novo[novo]
+    if (identical(novo, comp)) break
+    comp <- novo
+  }
+  tam <- tabulate(comp, nbins = L)
+  poss <- sum(choose(tam[tam >= 3L], 2))
+  if (!poss) return(0)
+  # cada baia fundida guarda um pedaco de cada lote da sua componente: a fracao media dos
+  # niveis da componente em cada baia mista (numa cadeia de semanas, 2 de 3 ou menos)
+  nb <- tabulate(match(p, unique(p)))
+  cb <- tam[comp[km[!duplicated(p)]]]
+  g3 <- cb >= 3L
+  if (!any(g3) || mean(nb[g3] / cb[g3]) < 0.75) return(0)
+  sum(tam[comp[a]] >= 3L) / poss
 }
 
 # O NUMERO DA BAIA REAPROVEITADO. Se a numeracao recomeca em cada lote, baias que nunca se
@@ -533,7 +574,7 @@ confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa, kern = NULL) {
   # a diagonal da K so e conferida no kernel() que agrupa os registros como o animal, e uma
   # vez (custa uma passada pela K)
   faz_pe <- function(i) terms[[i]]$estrutura == 1L ||
-    (i <= length(kern) && kernel_diagonal(kern[[i]]))
+    kernel_diagonal(kern[[terms[[i]]$nome]])
   for (a in ani) {
     ka <- cod(a$column)$k
     mesma_particao <- function(t) {
@@ -545,7 +586,10 @@ confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa, kern = NULL) {
     }
     # o sujeito do AR(1) conta como um pe(): na mesma coluna ou numa que agrupa igual
     suj <- if (is.null(sujeito)) list() else list(list(column = sujeito))
-    if (any(vapply(suj, mesma_particao, logical(1))) ||
+    if (any(vapply(suj, mesma_particao, logical(1)))) next
+    # a K so e lida quando algum animal repete: sem repeticao nao ha aviso a calar
+    repete <- vapply(obs_t, function(o) any(tabulate(ka[o & ka > 0L]) > 1L), logical(1))
+    if (!any(repete) ||
         any(vapply(cand, function(i) mesma_particao(terms[[i]]) && faz_pe(i), logical(1))))
       next
     for (tr in names(obs_t)) {
@@ -558,7 +602,8 @@ confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa, kern = NULL) {
       # desenho de repetibilidade
       fr <- (sum(rep_a) - length(rep_a)) / sum(reg)
       efeito <- if (fr < 0.01)
-        paste0(", which at this share (", format(signif(100 * fr, 2)), "% of the records ",
+        paste0(", which at this share (", formatC(100 * fr, digits = 2, format = "fg"),
+               "% of the records ",
                "repeat an animal) moves h2 little: check that the rows are not duplicates, or")
       else ", which inflates h2 by more the larger the share of repeated records;"
       avisa(sprintf(paste0(
@@ -580,7 +625,17 @@ confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa, kern = NULL) {
 kernel_diagonal <- function(k) {
   if (is.null(k)) return(FALSE)
   K <- k[[2]]
-  if (!is.null(K)) return(sum(K != 0) == sum(diag(K) != 0))
+  # em blocos de colunas, sem a copia logica de n x n, e saindo no primeiro valor fora da
+  # diagonal
+  if (!is.null(K)) {
+    for (j0 in seq(1L, ncol(K), by = 256L)) {
+      j <- j0:min(ncol(K), j0 + 255L)
+      B <- K[, j, drop = FALSE]
+      B[cbind(j, seq_along(j))] <- 0
+      if (any(B != 0)) return(FALSE)
+    }
+    return(TRUE)
+  }
   if (length(k) >= 5L && !is.null(k[[3]])) return(all(k[[3]] == k[[4]] | k[[5]] == 0))
   FALSE
 }
@@ -682,7 +737,8 @@ nao_separados <- function(fit, nomes) {
 # em h2() e t2(); a PEV em accuracy() e solutions(), que uma crista do lado do residuo deixa
 # igual (medido: os EBV e a acuracia mudam menos de 1e-10 ao longo da crista pe-residuo).
 estado_para_extrator <- function(fit, quem, comps, num = comps, convergencia = TRUE,
-                                 como = "the phenotypic variance") {
+                                 como = paste0("the phenotypic variance, so it holds only ",
+                                               "where the ridge leaves that sum unchanged")) {
   if (sem_estimativas(fit, comps)) {
     aviso_estado(quem, ": this fit has no estimates (theta is NA: it stopped before a first ",
                  "evaluation, see fit$message), so the value is NA")
@@ -702,8 +758,8 @@ estado_para_extrator <- function(fit, quem, comps, num = comps, convergencia = T
   else if (length(soma))
     aviso_estado(quem, ": ", texto_singular(soma), "; the value uses ",
                  paste(intersect(unlist(soma), comps), collapse = ", "), " only through ",
-                 como, ", so it holds only where the ridge leaves that sum unchanged, as with ",
-                 "permanent environment and residual under one record per animal")
+                 como, ", as with permanent environment and residual under one record per ",
+                 "animal")
   length(leva) > 0L
 }
 
@@ -1057,18 +1113,29 @@ grupo_padrao <- function(fit) {
   if (length(gr)) gr[1] else g[1]
 }
 
-# OS TERMOS GENETICOS CANDIDATOS AO GRUPO PADRAO, em ordem: pedigree, genomica e kernel()
-# de variancia estimada (fora a associative_matrix() do indirect()), o direto de qualquer
-# estrutura antes do maternal(), e entre os diretos o pedigree antes do kernel(). Com
-# kernel(id, K = G) para o direto e maternal(dam) de pedigree o grupo era o materno, porque
-# todo termo de pedigree vinha antes de todo kernel()
+# OS TERMOS GENETICOS CANDIDATOS AO GRUPO PADRAO, em ordem: o direto de pedigree ou
+# genomica, o kernel() de variancia estimada sobre os animais (fora a associative_matrix()
+# do indirect()), o maternal(), e os outros kernel(). Com kernel(id, K = G) para o direto e
+# maternal(dam) de pedigree o grupo era o materno, porque todo termo de pedigree vinha antes
+# de todo kernel()
 candidatos_geneticos <- function(fit) {
   termos <- Filter(function(t) t$estrutura %in% c(2L, 3L) && !isTRUE(t$social) &&
                      !variancia_dada(t) && !t$nome %in% names(fit$k_associative),
                    termos_do_ajuste(fit))
   if (!length(termos)) return(list())
-  materno <- vapply(termos, function(t) identical(t$marcador, "maternal"), logical(1))
-  termos[order(materno, vapply(termos, function(t) t$estrutura, integer(1)))]
+  # um kernel() e genetico quando seus niveis sao animais: sem termo de pedigree, ou com a
+  # maior parte dos rotulos da K entre os niveis dos grupos de pedigree. Um kernel de
+  # parcelas, de leitegadas ou espacial vem depois do maternal()
+  ped <- Filter(function(t) t$estrutura == 2L, termos)
+  ids <- unlist(lapply(ped, function(t) names(fit$ebv[[if (nzchar(t$group)) t$group else t$nome]])))
+  de_animais <- function(t) {
+    rot <- names(fit$k_prior[[t$nome]])
+    !length(ped) || !length(rot) || !length(ids) || mean(rot %in% ids) >= 0.5
+  }
+  pos <- vapply(termos, function(t)
+    if (identical(t$marcador, "maternal")) 2L else if (t$estrutura == 2L) 0L
+    else if (de_animais(t)) 1L else 3L, integer(1))
+  termos[order(pos)]
 }
 
 # Os termos com o efeito direto antes do maternal() e do indirect(), na ordem da formula

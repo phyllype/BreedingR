@@ -1381,8 +1381,13 @@ test_that("o veredito SINGULAR: conjuntos repetidos saem uma vez, e o h2 multica
                                   verbose = FALSE))
   skip_if_not(length(BreedingR:::componentes_singulares(fm)) > 0L,
               "o ajuste nao deu o veredito SINGULAR nesta plataforma")
+  # um aviso do veredito para os dois caracteres, e nao um por caracter
   h <- e6_avisos(h2(fm))
-  expect_identical(anyDuplicated(h$avisos), 0L)
+  expect_equal(sum(grepl("not separated|not identified", h$avisos)), 1L)
+  # sem trait = a tabela nao tem acc, e o aviso nao fala dela
+  so <- e6_avisos(solutions(fm))
+  expect_false("acc" %in% names(so$valor))
+  expect_false(any(grepl("acc", so$avisos, fixed = TRUE)))
   # rg() so le as tres componentes do termo animal
   expect_true(is.na(suppressWarnings(rg(fm))))
   # t2() de um ajuste sem estimativas diz isso
@@ -1432,4 +1437,118 @@ test_that("h2_curve() le o grupo do direto e o residuo no peso harmonico medio",
                                 maxiter = 0L, n_em = 0L, verbose = FALSE))
   expect_equal(suppressWarnings(h2_curve(f10, limits = c(-1, 1), points = 5L))$h2, cv$h2,
                tolerance = 1e-8)
+})
+
+test_that("um kernel() de parcelas nao passa na frente do maternal() como grupo padrao", {
+  s <- simulate_breeding(n_founders = 40, n_generations = 3, offspring_per_generation = 80,
+                         seed = 31)
+  pd <- s$pedigree
+  d <- s$data
+  d$dam <- pd$dam[match(d$id, pd$id)]
+  d <- d[d$dam != "0", ]
+  set.seed(4)
+  d$parcela <- sprintf("pl%02d", sample(40, nrow(d), TRUE))
+  xy <- seq_len(40)
+  Ks <- exp(-abs(outer(xy, xy, "-")) / 5)
+  dimnames(Ks) <- list(sprintf("pl%02d", xy), sprintf("pl%02d", xy))
+  f <- model(y ~ cg + maternal(dam) + kernel(parcela, K = Ks, nome = "espacial"), d, pd,
+             start = c(0.2, 0.1, 0.7), maxiter = 0L, n_em = 0L, verbose = FALSE)
+  expect_identical(BreedingR:::grupo_padrao(f), "maternal")
+  expect_equal(h2(f), 0.2, tolerance = 1e-12)
+})
+
+test_that("o gibbs() le a diagonal do kernel(fixed =) so nos registros que entram na K", {
+  s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 50,
+                         seed = 3)
+  d <- s$data
+  set.seed(4)
+  ve <- stats::runif(nrow(d), 0.1, 0.5)
+  d$idk <- d$id
+  Ke <- diag(ve[1:150])
+  dimnames(Ke) <- list(d$id[1:150], d$id[1:150])
+  gk <- suppressWarnings(gibbs(y ~ cg + kernel(idk, K = Ke, fixed = 1) + animal(id), d,
+                               s$pedigree, n_iter = 60, burnin = 10, thin = 1, verbose = FALSE))
+  expect_equal(gk$k_record_diag[["kernel"]], mean(ve[1:150]), tolerance = 1e-12)
+  m <- gk$samples
+  esperado <- m[, "var(animal)"] / (m[, "var(animal)"] + mean(ve[1:150]) * m[, "var(kernel)"] +
+                                      m[, "var(residual)"])
+  expect_silent(sm <- summary(gk))
+  expect_equal(sm$h2$mean, mean(esperado), tolerance = 1e-12)
+})
+
+test_that("o rotulo reaproveitado: so o cg na formula, salas que se revezam, e uma copia do efeito", {
+  fl <- function(f) stats::as.formula(paste0("y ~ ", f, " + animal(id, group = \"g\") + ",
+                                             "indirect(id, pen = \"pen\", group = \"g\")"))
+  reaproveita <- function(f, d) any(grepl("reused label", e6_notas(fl(f), d)))
+  # tres lotes de 30 baias de 2, rotulos recomecando em cada lote, e so o cg de lote x bloco
+  # de 5 baias na formula (sem a coluna do lote)
+  nl <- 3
+  b <- rep(rep(1:30, each = 2), nl)
+  d <- data.frame(id = paste0("a", seq_along(b)), pen = paste0("p", b),
+                  cg = paste0(rep(paste0("L", seq_len(nl)), each = 60), "_", (b - 1) %/% 5),
+                  y = 0, stringsAsFactors = FALSE)
+  expect_true(reaproveita("cg", d))
+  # seis lotes em duas salas que numeram as proprias baias: cada sala reaproveita os rotulos
+  # entre os seus tres lotes
+  b6 <- rep(rep(1:30, each = 2), 6)
+  lote <- rep(paste0("L", 1:6), each = 60)
+  sala <- rep(c("A", "B"), each = 60, times = 3)
+  d6 <- data.frame(id = paste0("a", seq_along(b6)), lote = lote,
+                   pen = paste0(sala, "p", b6), y = 0, stringsAsFactors = FALSE)
+  expect_true(reaproveita("lote", d6))
+  # uma copia do sexo com outro nome nao faz do sexo balanceado um lote
+  p <- rep(1:300, each = 4)
+  db <- data.frame(id = paste0("a", seq_along(p)), pen = paste0("p", p),
+                   sexo = rep(rep(c("M", "F"), each = 2), 300), y = 0, stringsAsFactors = FALSE)
+  db$sexo2 <- db$sexo
+  expect_false(reaproveita("sexo + sexo2", db))
+})
+
+test_that("kernel(Kinv =) diagonal tambem cala o aviso de repeticao", {
+  z <- e6_repetidos()
+  ids <- z$ped$id
+  Ki <- list(i = seq_along(ids), j = seq_along(ids), x = rep(1, length(ids)), n = length(ids),
+             id = ids)
+  w <- e6_avisos(model(y ~ cg + animal(id) + kernel(id, Kinv = Ki), z$d, z$ped, maxiter = 1L,
+                       verbose = FALSE))
+  expect_false(any(grepl("more than one record", w$avisos)))
+})
+
+test_that("o estado do ajuste: rg() fora do termo, AR(1) sem start, snp_blup(), theta NA parcial", {
+  s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 50,
+                         n_markers = 300, seed = 3)
+  d <- s$data
+  # o AR(1) com maxiter = 0 e sem start = e a partida padrao, e nao componentes dados
+  fa0 <- model_ar1(y ~ cg + animal(id), transform(d, t = 1L), s$pedigree, subject = "id",
+                   time = "t", maxiter = 0L, verbose = FALSE)
+  expect_false(fa0$components_given)
+  expect_warning(h2(fa0), "did not converge", class = "breedingr_estado")
+  # o gradiente conjugado do snp_blup() que parou antes da tolerancia diz isso
+  fs <- snp_blup(y ~ cg + animal(id), d, s$pedigree, s$genotypes, theta = c(0.3, 0.7),
+                 maxiter = 2L, verbose = FALSE)
+  skip_if(isTRUE(fs$converged), "o gradiente conjugado convergiu em 2 iteracoes")
+  expect_warning(solutions(fs), "conjugate-gradient solve stopped", class = "breedingr_estado")
+  # um theta com um componente NA (de um ajuste parado) da NA com o aviso
+  f <- model(y ~ cg + animal(id), d, s$pedigree, start = c(0.4, 0.6), maxiter = 0L,
+             n_em = 0L, verbose = FALSE)
+  f$theta[1] <- NA_real_
+  h <- e6_avisos(h2(f))
+  expect_true(is.na(h$valor))
+  expect_true(any(grepl("this fit has no estimates", h$avisos)))
+})
+
+test_that("solutions(trait =) no multicaracter: um veredito no outro caracter deixa os EBV", {
+  s <- simulate_breeding(n_founders = 40, n_generations = 3, offspring_per_generation = 60,
+                         seed = 5)
+  d <- s$data
+  fund <- s$pedigree$id[s$pedigree$sire == "0"]
+  d$y2 <- ifelse(d$id %in% fund, d$y + stats::rnorm(nrow(d)), NA)
+  fm <- suppressWarnings(model_mt(cbind(y, y2) ~ cg + animal(id), d, s$pedigree,
+                                  verbose = FALSE))
+  ss <- BreedingR:::componentes_singulares(fm)
+  skip_if_not(length(ss) > 0L && !any(grepl("@y)", unlist(ss), fixed = TRUE)),
+              "o veredito SINGULAR nao saiu so no caracter y2 nesta plataforma")
+  so <- e6_avisos(solutions(fm, s$pedigree, trait = "y"))
+  expect_false(any(grepl("arbitrary point", so$avisos)))
+  expect_false(anyNA(so$valor$acc))
 })

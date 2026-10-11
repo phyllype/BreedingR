@@ -21,10 +21,12 @@ gradients) and takes no \code{pedigree}; for \code{\link[=model_survival]{model_
 log-hazard scale, from the Laplace PEV of the frailty}
 
 \item{group}{covariance group; by default the group of the direct genetic term: the
-first pedigree, genomic or \code{kernel()} term with an estimated variance that is not
-\code{maternal()} or \code{indirect()} (pedigree before \code{kernel()}), else the first \code{maternal()}
-term, else the first group; the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}},
-\code{\link[=h2]{h2()}} and \code{\link[=h2_curve]{h2_curve()}}}
+first pedigree or genomic term that is not \code{maternal()} or \code{indirect()}, else the first
+\code{kernel()} with an estimated variance over the animals (most of its levels are
+animals of the pedigree, or there is no pedigree term), else the first \code{maternal()}
+term, else the first other \code{kernel()} with an estimated variance, else the first
+group; the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}}, \code{\link[=h2]{h2()}} and
+\code{\link[=h2_curve]{h2_curve()}}}
 
 \item{trait}{for a multi-trait fit (\code{model_mt()}, or \code{model_ar1()} with \code{cbind()}),
 which trait. Without it the table lists every trait, with ids written "level|trait",
