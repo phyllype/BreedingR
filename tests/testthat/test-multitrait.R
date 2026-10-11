@@ -182,7 +182,7 @@ test_that("multi EBV and PEV match the dense MME assembled and solved by R", {
                   p1 = rep(a1, 2) + rnorm(2 * nA, 0, 0.7),
                   p2 = rep(a2, 2) + rnorm(2 * nA, 0, 0.8), stringsAsFactors = FALSE)
   # dois registros por animal sem pe(): o aviso de repeticao sai, e o portao segue
-  f <- expect_warning(model_mt(cbind(p1, p2) ~ animal(id), d, ped),
+  expect_warning(f <- model_mt(cbind(p1, p2) ~ animal(id), d, ped),
                        "have more than one record", class = "breedingr_estrutura")
   th <- f$theta
   cg12 <- th[[grep("^cov\\(animal@", names(th), value = TRUE)[1]]]
@@ -241,9 +241,9 @@ test_that("single step in the multi: blend 1 forces H equal to A in the whole fi
                   p2 = rep(a2, 2) + rnorm(2 * nA, 0, 0.8), stringsAsFactors = FALSE)
   gids <- id[5:16]
   m <- matrix(sample(0:2, length(gids) * 40, TRUE), length(gids), 40)
-  f0 <- expect_warning(model_mt(cbind(p1, p2) ~ animal(id), d, ped),
+  expect_warning(f0 <- model_mt(cbind(p1, p2) ~ animal(id), d, ped),
                        "have more than one record", class = "breedingr_estrutura")
-  f1 <- expect_warning(model_mt(cbind(p1, p2) ~ animal(id), d, ped,
+  expect_warning(f1 <- model_mt(cbind(p1, p2) ~ animal(id), d, ped,
                                 genotypes = list(ids = gids, m = m), blend = 1),
                        "have more than one record", class = "breedingr_estrutura")
   expect_equal(f1$neg2logl, f0$neg2logl, tolerance = 1e-8)
@@ -266,10 +266,10 @@ test_that("APY in the multi with core = all reproduces the exact single step ide
   den <- function(h) { M <- matrix(0, h$n, h$n); M[cbind(h$i, h$j)] <- h$x; M[cbind(h$j, h$i)] <- h$x; M }
   expect_lt(max(abs(den(h_inverse(ped, list(ids = gids, m = m), apy_core = gids)) -
                       den(h_inverse(ped, list(ids = gids, m = m))))), 1e-12)
-  fe <- expect_warning(model_mt(cbind(p1, p2) ~ animal(id), d, ped,
+  expect_warning(fe <- model_mt(cbind(p1, p2) ~ animal(id), d, ped,
                                 genotypes = list(ids = gids, m = m)),
                        "have more than one record", class = "breedingr_estrutura")
-  fa <- expect_warning(model_mt(cbind(p1, p2) ~ animal(id), d, ped,
+  expect_warning(fa <- model_mt(cbind(p1, p2) ~ animal(id), d, ped,
                                 genotypes = list(ids = gids, m = m), apy_core = gids),
                        "have more than one record", class = "breedingr_estrutura")
   expect_equal(fa$neg2logl, fe$neg2logl, tolerance = 1e-8)

@@ -68,12 +68,14 @@ ARGS_MARCADOR <- local({
 #' moves the start by EM, which estimates, so it stops.
 #'
 #' The fit goes on with a warning, also written in `message`, when:
-#' * an `animal()` term has repeated records of some animal and no `pe()` or `random()`
-#'   reads the same column, or a column that groups the records the same way (nor, in
-#'   [model_ar1()], is the animal the `subject`): the permanent-environment covariance
-#'   between records of the same animal goes into the additive variance and inflates h2,
-#'   by more the larger the share of repeated records. The warning counts the repeated
-#'   animals and their records, and the advice is the one of [suggest_model()];
+#' * an `animal()` term has repeated records of some animal and no `pe()`, `random()` or
+#'   `kernel()` reads the same column, or a column that groups the records the same way
+#'   (nor, in [model_ar1()], is the animal the `subject`): the permanent-environment
+#'   covariance between records of the same animal goes into the additive variance and
+#'   inflates h2, by more the larger the share of repeated records. The warning counts the repeated animals and their
+#'   records, and the advice is the one of [suggest_model()]; when less than 1% of the
+#'   records repeat an animal it says that h2 moves little and asks to check for
+#'   duplicated rows;
 #' * fewer than 10 pens of `indirect()` hold more than one animal: the indirect components
 #'   rest on that many pen sums (Bijma 2010 puts the detection of indirect effects at
 #'   about 250 to 500 groups even with an optimum design);
@@ -84,14 +86,18 @@ ARGS_MARCADOR <- local({
 #'   The test: at least 90% of the pens that hold more than one level split into groups of
 #'   two or more animals per level, and that count exceeds what animals placed in the pens
 #'   regardless of the effect would give (each level at its overall proportion; the exact
-#'   multinomial chance of a pen with no group of one) with P < 0.0001. A fixed effect that
-#'   varies at random within the pens, such as sex in mixed pens of any size, gives no
-#'   warning except at that rate. The data cannot tell merged pens from pens that truly
-#'   mix levels when the groups are large: two batches of pens of 5 merged by label look
-#'   like mixed-sex pens of 10 and are not detected, while merged pens of 2 or 3 animals,
-#'   or labels reused over many batches, are. Pens balanced for the effect by design (four
-#'   of each sex in every pen of eight) are not chance either, and with more than about 150
-#'   such pens they give the warning too. `options(BreedingR.warn_pen_labels = FALSE)`
+#'   multinomial chance of a pen with no group of one) with P < 0.0001. Only a fixed
+#'   effect that can be the batch is read: no animal has records in two of its levels (the
+#'   period or age class of each record is not read), and it has three or more levels
+#'   among the pens with mates, or another fixed class effect with more levels is nested in
+#'   it (the contemporary group within the batch). A two-level effect of the animal, such
+#'   as sex, is not read (unless a fixed class effect is nested in it), whether it is drawn
+#'   at random within the pens or balanced by design in every pen. The data cannot tell merged pens from pens that truly mix levels when the groups
+#'   are large, or when two batches have nothing nested in them: two batches of merged pens
+#'   then look like pens balanced for a two-level effect and are not read, and batches of
+#'   pens of 5 merged by label are not detected unless a contemporary group is nested in
+#'   the batch. Merged pens of 2 or 3 animals over three or more batches, with some tens of
+#'   labels, are detected. `options(BreedingR.warn_pen_labels = FALSE)`
 #'   silences this check;
 #' * a `pe()` or `random()` term has fewer than 5 levels among the records: its variance
 #'   comes from that many levels and is barely determined, and labels that number
@@ -1247,8 +1253,9 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
 # fragilidade nao tem variancia residual, e a unica linha saia com share 1,00.
 #
 # Com `fit`, o share usa o MESMO denominador de h2() (multiplicadores() e extra_mgs(),
-# R/separabilidade.R): os componentes com parentesco como estimados (com metafundadores,
-# vezes o var_scale), a associative_matrix() do indirect() na sua diagonal media,
+# R/separabilidade.R): os componentes com parentesco como estimados (com metafundadores, na
+# base de Gamma), a associative_matrix() do indirect() e o kernel(fixed =) na sua diagonal
+# media,
 # var(residual) no peso harmonico medio e, num sire(mgs =), a parte do avo materno no Vp;
 # a nota diz os numeros. As colunas estimate e std_error ficam como o ajuste as deu.
 tabela_componentes <- function(theta, se, indireto = FALSE, sem_share = NULL, fit = NULL) {

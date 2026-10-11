@@ -355,7 +355,7 @@ test_that("baias de um animal so: o indireto nao tem incidencia e estimar e recu
   expect_error(model_threshold(form, dd, s$ped, start = c(0.3, -0.06, 0.1), estimate = TRUE,
                                verbose = FALSE), "no record has a pen mate")
   # nos componentes dados o ajuste roda, e o aviso diz que nada se sabe do indireto
-  f <- expect_warning(model_threshold(form, dd, s$ped, start = c(0.3, -0.06, 0.1),
+  expect_warning(f <- model_threshold(form, dd, s$ped, start = c(0.3, -0.06, 0.1),
                                       verbose = FALSE),
                       "no record has a pen mate", class = "breedingr_estrutura")
   q <- length(s$ped$id)

@@ -45,7 +45,7 @@ texto <- function(v) ifelse(v == 0, "0", sprintf("%.0f", v))
 # os dados de ped_num() tem dois registros por animal sem pe(): o ajuste avisa da repeticao
 # (o aviso de test-estrutura-e6.R), e o portao daqui confere que ele sai e segue para os ids
 ajusta <- function(d, ped, ...)
-  expect_warning(model(y ~ cg + animal(id), d, ped, start = c(0.6, 1), verbose = FALSE, ...),
+  com_aviso(model(y ~ cg + animal(id), d, ped, start = c(0.6, 1), verbose = FALSE, ...),
                  "have more than one record", class = "breedingr_estrutura")
 
 test_that("ids double, integer, texto e colunas de tipos diferentes dao o mesmo ajuste", {

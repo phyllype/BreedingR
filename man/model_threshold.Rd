@@ -265,8 +265,9 @@ the documented trap (g22 of Gc gives 0.117 where the book prints 0.18).
 
 The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here: with
 \code{estimate = TRUE} a design that does not identify a component stops (all the records in
-one pen of \code{indirect()} kept the estimation running for more than 120 s before this
-version), with the components given it is a warning, and the warnings go to \code{message}.
+one pen of \code{indirect()} gave components the data do not identify, reported as converged,
+before this version),
+with the components given it is a warning, and the warnings go to \code{message}.
 }
 \examples{
 # Example 15.1 of Mrode & Pocrnic: calving ease in three categories, sire model,

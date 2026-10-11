@@ -127,7 +127,7 @@ test_that("component names do not depend on which other terms are present", {
   d$lot <- sample(c("l1", "l2", "l3"), nrow(d), TRUE)
 
   # (random(lot) e random(cg) de 3 niveis: o aviso de poucos niveis sai, e e conferido)
-  um <- expect_warning(model(y ~ cg + random(lot) + animal(id), d, s$pedigree),
+  expect_warning(um <- model(y ~ cg + random(lot) + animal(id), d, s$pedigree),
                        "random[(]lot[)] has 3 level", class = "breedingr_estrutura")
   expect_true("var(random)" %in% names(um$theta))
 
@@ -135,8 +135,8 @@ test_that("component names do not depend on which other terms are present", {
   # message says exactly what to write
   expect_error(model(y ~ random(cg) + random(lot) + animal(id), d, s$pedigree),
                "Name them")
-  dois <- expect_warning(expect_warning(
-    model(y ~ random(cg, nome = "cg_r") + random(lot) + animal(id), d, s$pedigree),
+  expect_warning(expect_warning(
+    dois <- model(y ~ random(cg, nome = "cg_r") + random(lot) + animal(id), d, s$pedigree),
     "random[(]cg[)] has 3 level", class = "breedingr_estrutura"),
     "random[(]lot[)] has 3 level", class = "breedingr_estrutura")
   # the term that was already there keeps the name it had

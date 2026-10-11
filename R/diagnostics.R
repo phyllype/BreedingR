@@ -750,9 +750,11 @@ cadeias_do_ajuste <- function(fit) {
 
 # h2 amostra a amostra com a regra de h2() (R/extract.R, R/separabilidade.R): o termo e o do
 # grupo padrao (o primeiro com pedigree ou genomica, depois o primeiro kernel() com variancia
-# estimada; um termo iid nao e herdabilidade e nao da linha), o numerador leva 4 num sire()
-# e o denominador e a soma das var() e cov() com o var_scale dos metafundadores nos termos
-# de pedigree e, num sire(mgs =), a parte do avo materno. Antes era a primeira var() sobre a
+# estimada, o direto antes do maternal(); um termo iid nao e herdabilidade e nao da linha),
+# o numerador leva 4 num sire() e o denominador e a soma das var() e cov() com os
+# multiplicadores de h2() (os componentes como estimados, o kernel(fixed =) e a
+# associative_matrix() pela diagonal media nos registros) e, num sire(mgs =), a parte do avo
+# materno. Antes era a primeira var() sobre a
 # soma, um quarto do h2 num modelo de touro. Sem linha com indirect(), norma de reacao ([k])
 # ou multicaracter. Um ajuste sem formula guardada (de versao anterior) usa a primeira var().
 # `peso` e o coeficiente de cada coluna no denominador e `mult` o do numerador.
@@ -769,15 +771,17 @@ alvo_h2_gibbs <- function(nm, indireto, fit = NULL) {
   }
   cand <- NULL
   for (e in c(2L, 3L)) {
-    cs <- Filter(function(t) t$estrutura == e && !isTRUE(t$social) && !variancia_dada(t) &&
-                   paste0("var(", t$nome, ")") %in% nm, termos)
+    cs <- direto_primeiro(Filter(function(t) t$estrutura == e && !isTRUE(t$social) &&
+                                   !variancia_dada(t) && paste0("var(", t$nome, ")") %in% nm,
+                                 termos))
     if (length(cs)) { cand <- cs[[1]]; break }
   }
   if (is.null(cand)) return(NULL)
   alvo <- match(paste0("var(", cand$nome, ")"), nm)
   m <- multiplicadores(list(theta = stats::setNames(rep(1, length(nm)), nm),
                             formula = fit$formula, metafounders = fit$metafounders,
-                            gamma = fit$gamma))
+                            gamma = fit$gamma, k_record_diag = fit$k_record_diag,
+                            k_associative = fit$k_associative))
   peso <- unname(m) * den
   for (k in names(fit$mgs_known)) {
     j <- match(paste0("var(", k, ")"), nm)

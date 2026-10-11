@@ -10,7 +10,9 @@ ebv(fit, group = NULL, trait = NULL)
 \item{fit}{result of model(), model_mt(), model_ar1(), model_threshold(),
 model_survival() or snp_blup()}
 
-\item{group}{covariance group; the first one if omitted}
+\item{group}{covariance group; by default the group of the first pedigree or genomic
+term, else of the first \code{kernel()} with an estimated variance, else the first group
+(the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}} and \code{\link[=h2]{h2()}})}
 
 \item{trait}{multi-trait only: which trait to slice out; all of them if omitted}
 }

@@ -233,31 +233,36 @@ efeito_por_linha <- function(fit, g, n_total, trait) {
 #' refused: `var / Vp` there is a variance ratio, not a heritability, and the share column
 #' of `print(fit)` gives it.
 #'
-#' THE SCALE OF THE COMPONENTS. Every term with a relationship matrix, pedigree, genomic
-#' or a declared [kernel()] K, enters with its component as estimated, the variance on the
-#' base of its matrix (diagonal 1 for a non-inbred base animal): that is the ratio
-#' BLUPF90, ASReml and WOMBAT report from the components, and `animal(id)` and
-#' `kernel(id, K = A)` with the A of the same pedigree give the same number. A declared K
-#' whose mean diagonal over the records that entered the fit is more than 10% away from 1
-#' (a partial multibreed matrix, whose diagonal is about the breed fraction, or an
-#' unscaled kernel) gives a warning with the mean diagonal and the value the ratio would
-#' take with each such K at its mean diagonal over the records; scaling K to mean diagonal
-#' 1 makes the two agree. Two cases change the multiplier, because there the component
-#' is not on that base:
-#' * with metafounders and `scale = TRUE` (the default), every pedigree component is
-#'   multiplied by `var_scale = 1 + mean(diag(Gamma)) / 2 - mean(Gamma)`, the factor from
-#'   the base of Gamma to the usual base (Legarra et al. 2015), the one [estimate_gamma()]
-#'   returns. The model with metafounders is a reparametrization of the same model, and
-#'   with this factor its h2 is the h2 of the fit without them; `scale = FALSE` gives the
-#'   raw ratio on the base of Gamma;
+#' THE SCALE OF THE COMPONENTS. One rule holds for every term with a relationship matrix,
+#' pedigree, genomic, H, metafounders or a declared [kernel()] K: it enters with its
+#' component as estimated, the variance on the base of its matrix (diagonal 1 for a
+#' non-inbred base animal). That is the ratio BLUPF90, ASReml and WOMBAT report from the
+#' components, and the same likelihood gives the same number: `animal(id)` and
+#' `kernel(id, K = A)` with the A of the same pedigree, or `animal(id)` with `genotypes =`
+#' and `kernel(id, K = H)`, give the same h2, in [h2()], [t2()], the share column of
+#' `print(fit)` and `summary(fit)`, and the h2 of `summary()` of a [gibbs()] fit. Two
+#' warnings give the other reading when the base of a matrix is far from the records:
+#' * a declared K whose mean diagonal over the records that entered the fit is more than
+#'   10% away from 1 (a partial multibreed matrix, whose diagonal is about the breed
+#'   fraction, or an unscaled kernel) gives a warning with the mean diagonal and the value
+#'   the ratio would take with each such K at its mean diagonal over the records; scaling
+#'   K to mean diagonal 1 (`K / mean(diag(K))`) makes the two agree;
+#' * with metafounders, the pedigree components are on the base of Gamma. When
+#'   `var_scale = 1 + mean(diag(Gamma)) / 2 - mean(Gamma)` (Legarra et al. 2015, the
+#'   factor [estimate_gamma()] returns) is more than 10% away from 1 and `scale` is not
+#'   given, a warning gives the ratio on the usual base, each pedigree component times
+#'   `var_scale`; `scale = TRUE` returns that number (then the h2 of the fit with
+#'   metafounders is close to the h2 of the fit without them), and `scale = FALSE` keeps
+#'   the default and silences the warning.
+#' Two kinds of `kernel()` are not relationships but covariances of the records, and enter
+#' at the variance they put on a record:
 #' * a `kernel()` that is the [associative_matrix()] of the `indirect()` term of the same
-#'   fit (recognised by its diagonal, `(n_i - 1)^(1 - 2d)` on every record) is a residual
-#'   covariance of the records and not a relationship, so it enters at the variance it puts
-#'   on a record: `(n - 1)^(1 - 2d)` times the component at the group size `n` asked for;
+#'   fit (recognised by its diagonal, `(n_i - 1)^(1 - 2d)` on every record): at
+#'   `(n - 1)^(1 - 2d)` times its component for the group size `n` asked for, or at its
+#'   mean diagonal over the records without `n` (the share column);
 #' * a `kernel(fixed = v)` term, the known covariance of a two-stage analysis (the sampling
-#'   variances of the first-stage estimates), is a covariance of the records too, and
-#'   enters at `v` times the mean diagonal of its K over the records, the mean sampling
-#'   variance, and not at `v`.
+#'   variances of the first-stage estimates): at `v` times the mean diagonal of its K over
+#'   the records, the mean sampling variance, and not at `v`.
 #' A covariance between two terms takes the geometric mean of the two factors.
 #'
 #' WEIGHTS. With `weights` in [model()], `var(residual)` is the residual variance at
@@ -296,10 +301,11 @@ efeito_por_linha <- function(fit, g, n_total, trait) {
 #' @param weight for a fit with `weights`, the weight at which `var(residual)` is read;
 #'   by default the harmonic mean of the weights of the records that entered the fit.
 #'   `weight = 1` is the ratio of the components as estimated
-#' @param scale `TRUE` (default) puts the pedigree components of a fit with metafounders on
-#'   the usual base (`var_scale`); `FALSE` reads them on the base of Gamma. Without
-#'   metafounders it changes nothing. The residual is read at `weight` either way, so
-#'   `scale = FALSE, weight = 1` is the raw ratio of the components
+#' @param scale `FALSE` (default) reads every component as estimated, the pedigree
+#'   components of a fit with metafounders on the base of Gamma; `TRUE` multiplies those by
+#'   `var_scale`, the usual base. Without metafounders it changes nothing. It does not touch
+#'   the residual, which is read at `weight` either way: `weight = 1` is the ratio of the
+#'   raw components
 #' @return a single number, or one per trait in the multi-trait case, named by trait;
 #'   with a vector `n`, one per size
 #' @references Willham, R.L. (1972). The role of maternal effects in animal breeding:
@@ -322,7 +328,7 @@ efeito_por_linha <- function(fit, g, n_total, trait) {
 #'   for the indirect-effect model
 #' @export
 h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
-               scale = TRUE) {
+               scale = FALSE) {
   if (!inherits(fit, c("breeding_fit", "breeding_fit_mt", "breeding_fit_ar1")))
     stop("expected the result of model(), model_mt() or model_ar1()")
   confere_peso_escala(fit, weight, scale)
@@ -338,12 +344,14 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
   termos <- termos_do_ajuste(fit)
   if (is.null(group)) group <- grupo_padrao(fit)
   # um grupo NOMEADO com mais de um termo (direto e indireto, direto e materno) nao tem
-  # var(<grupo>): a variancia e de cada termo. O h2 e do PRIMEIRO termo do grupo, que e o
-  # efeito direto na convencao de toda formula do pacote (animal() antes do outro termo).
+  # var(<grupo>): a variancia e de cada termo. O h2 e do termo DIRETO do grupo, em qualquer
+  # ordem da formula (antes era o primeiro: com indirect() escrito antes de animal() saia
+  # var(indirect) / Vp).
   mt <- any(grepl("@", names(th), fixed = TRUE))
   sufixo <- if (mt) "@" else ")"
   if (!any(startsWith(names(th), paste0("var(", group, sufixo)))) {
-    no_grupo <- Filter(function(t) identical(t$group, group) && t$estrutura != 0L, termos)
+    no_grupo <- direto_primeiro(Filter(function(t) identical(t$group, group) &&
+                                         t$estrutura != 0L, termos))
     if (length(no_grupo)) group <- no_grupo[[1]]$nome
   }
   # O MARCADOR DO TERMO decide o que a razao e: 4 var(sire) / Vp num sire() (fator_h2), e
@@ -372,9 +380,9 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
   }
   avisa_convergencia(fit, "h2()")
   ns <- if (is.null(n)) list(NULL) else as.list(n)
-  razao <- function(t, alvo, kernels = NULL)
+  razao <- function(t, alvo, kernels = NULL, escala = isTRUE(scale))
     vapply(ns, function(nn) {
-      the <- th * multiplicadores(fit, weight, isTRUE(scale), nn, kernels)
+      the <- th * multiplicadores(fit, weight, escala, nn, kernels)
       vp <- variancia_fenotipica(the, t, ige, if (is.null(nn)) NA_real_ else nn, r) +
         extra_mgs(fit, the, t)
       fator * the[[alvo]] / vp
@@ -399,6 +407,12 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
     }))
     avisa_diagonal_kernel("h2()", kd, alt)
   }
+  # os metafundadores com o var_scale longe de 1, sem scale = dito: o numero fica na base de
+  # Gamma, e o aviso diz o da base usual
+  if (missing(scale) && precisa_var_scale(fit, lidos))
+    avisa_var_scale("h2()", var_scale_mf(fit), unlist(lapply(tr, function(t)
+      if (anyNA(vals[[match(t, tr)]])) NA_real_
+      else razao(t, nome_comp("var", group, t), escala = TRUE))))
   avisa_diagonal_desconhecida(fit, lidos, "h2()")
   if (mt) return(stats::setNames(unlist(vals), tr))
   out <- vals[[1]]
@@ -410,8 +424,9 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
 # weight mudaria a razao sem que o ajuste tenha peso nenhum)
 confere_peso_escala <- function(fit, weight, scale) {
   if (!isTRUE(scale) && !isFALSE(scale))
-    stop("scale must be TRUE (the pedigree components of a fit with metafounders on the ",
-         "usual base) or FALSE (on the base of Gamma)", call. = FALSE)
+    stop("scale must be FALSE (the components as estimated, the pedigree components of a fit ",
+         "with metafounders on the base of Gamma) or TRUE (those times var_scale, on the ",
+         "usual base)", call. = FALSE)
   if (is.null(weight)) return(invisible(NULL))
   if (!is.numeric(weight) || length(weight) != 1L || !is.finite(weight) || weight <= 0)
     stop("weight must be one positive number, the weight at which var(residual) is read",
@@ -440,8 +455,8 @@ confere_peso_escala <- function(fit, weight, scale) {
 #' group size and relationship).
 #'
 #' Every other variance and covariance of the trait enters as in [h2()], at the same group
-#' size `n`: the components with a relationship matrix as estimated (with metafounders,
-#' times `var_scale`), and a residual indirect structure declared through
+#' size `n`: the components with a relationship matrix as estimated (with metafounders and
+#' `scale = TRUE`, times `var_scale`), and a residual indirect structure declared through
 #' [associative_matrix()] at the variance it puts on a record of a pen of `n` animals,
 #' `(n - 1)^(1 - 2d)` times its component (before this version it entered with
 #' coefficient 1). `var(residual)` is read at `weight`, by default the harmonic mean
@@ -483,7 +498,7 @@ confere_peso_escala <- function(fit, weight, scale) {
 #'   Leite, N.G. et al. (2023). Genetics Selection Evolution 55:47.
 #' @seealso [h2()], [se_function()]
 #' @export
-t2 <- function(fit, n, r = 0, trait = NULL, weight = NULL, scale = TRUE) {
+t2 <- function(fit, n, r = 0, trait = NULL, weight = NULL, scale = FALSE) {
   # a fragilidade nao tem residuo: a soma dos componentes nao e variancia fenotipica de
   # coisa nenhuma, e o T2 sairia um numero sem sentido
   if (inherits(fit, "breeding_fit_surv"))
@@ -504,8 +519,8 @@ t2 <- function(fit, n, r = 0, trait = NULL, weight = NULL, scale = TRUE) {
   # a escala de h2(), no tamanho de grupo de cada linha (multiplicadores(), n = nn): o
   # var_scale dos metafundadores, a associative_matrix() em (n - 1)^(1 - 2d), o residuo no
   # peso pedido ou no tamanho de grupo do indirect_residual()
-  linha <- function(t, nn, estado, kernels = NULL) {
-    mult <- multiplicadores(fit, weight, isTRUE(scale), nn, kernels)
+  linha <- function(t, nn, estado, kernels = NULL, escala = isTRUE(scale)) {
+    mult <- multiplicadores(fit, weight, escala, nn, kernels)
     vd <- nome_comp("var", ige$direto, t)
     f_tbv <- function(x) var_tbv(x * mult, t, ige, nn)
     f_p <- function(x) variancia_fenotipica(x * mult, t, ige, nn, r) + extra_mgs(fit, x * mult, t)
@@ -541,6 +556,9 @@ t2 <- function(fit, n, r = 0, trait = NULL, weight = NULL, scale = TRUE) {
       vapply(n, function(nn) linha(tr[j], nn, estados[[j]], kd)$t2, numeric(1))))
     avisa_diagonal_kernel("t2()", kd, alt)
   }
+  if (missing(scale) && precisa_var_scale(fit, lidos))
+    avisa_var_scale("t2()", var_scale_mf(fit), unlist(lapply(seq_along(tr), function(j)
+      vapply(n, function(nn) linha(tr[j], nn, estados[[j]], escala = TRUE)$t2, numeric(1)))))
   avisa_diagonal_desconhecida(fit, lidos, "t2()")
   if (!mt) out$trait <- NULL
   out

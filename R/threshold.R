@@ -120,7 +120,8 @@
 #'
 #' The structure checks of [model()] (see its section "Structure checks") apply here: with
 #' `estimate = TRUE` a design that does not identify a component stops (all the records in
-#' one pen of `indirect()` kept the estimation running without end before this version),
+#' one pen of `indirect()` gave components the data do not identify, reported as converged,
+#' before this version),
 #' with the components given it is a warning, and the warnings go to `message`.
 #'
 #' @param formula as in [model()]: fixed class effects, `cov()` covariates, and random
@@ -323,8 +324,9 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
   falta <- setdiff(colunas_usadas(traits, terms), names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
   # a estrutura que o ajuste nao identifica ou que a mascara (R/separabilidade.R): para
-  # quando os componentes sao estimados (estimate = TRUE; a baia unica travava a estimacao
-  # por 120 s), avisa quando sao dados
+  # quando os componentes sao estimados (estimate = TRUE; a baia unica dava componentes sem
+  # sentido com converged = TRUE, validation/structure_cases.R, caso 6), avisa quando sao
+  # dados
   notas <- confere_estrutura(terms, data, traits, missing_code, "model_threshold()",
                              !conjunto && isTRUE(estimate))
 

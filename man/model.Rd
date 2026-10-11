@@ -333,58 +333,82 @@ cannot identify, naming the term, the levels and what to do:
 \itemize{
 \item a random term whose levels are a function of the levels of a fixed class effect (each
 level of the fixed effect holds the records of a single level of the term: one sire
-per contemporary group, a fixed litter with \code{maternal(dam)} or \code{pe(dam)} and one
-litter per dam, \code{cg = id}), or a random term with a single level among the records.
-The incidence of the term is then a sum of columns of X, the fixed effect absorbs the
-whole term and its variance does not enter the REML likelihood (measured before this
-version: \code{var(sire)} walking to 4e6, or 300 iterations and a stop). ASReml lists a
-random term confounded with a fixed one among the causes of a singular average
-information and stops unless \code{!AISINGULARITIES} is given. The check takes one fixed
-effect at a time; a confounding by a combination of fixed effects is left to the
-SINGULAR verdict of the fit (see \code{\link[=h2]{h2()}} for how the extractors read it);
+per contemporary group, a fixed litter with \code{maternal(dam)} or \code{pe(dam)} whenever each
+litter has one dam, whatever the number of litters per dam, \code{cg = id}), a random term
+with a single level among the records, or a term whose records all carry the unknown
+code 0 in its column. The incidence of the term is then a sum of columns of X (or
+zero), the fixed effect absorbs the whole term and its variance does not enter the
+REML likelihood. ASReml lists a random term confounded with a fixed one among the
+causes of a singular average information and stops unless \code{!AISINGULARITIES} is given.
+The unknown 0 of a relationship column has no incidence, so a level of the fixed effect
+that holds only unknown parents does not count against the nesting. In \code{\link[=model_mt]{model_mt()}}
+the check reads the rows with some trait observed and then the rows of each trait,
+since the fixed effects are per trait. A \code{kernel(fixed = )} term, whose variance is
+given, is not checked. The check takes one fixed effect at a time; a confounding by a
+combination of fixed effects is left to the SINGULAR verdict of the fit (see \code{\link[=h2]{h2()}}
+for how the extractors read it);
 \item \code{indirect()} with every pen of one animal (the indirect incidence is all zero), with
 all the records in one pen, or with the pen (or anything finer) as a fixed effect: the
 fixed part absorbs the sum of each pen, and what is left of the indirect incidence of
 a record is minus its own indirect effect, which the direct effect of the same animal
 cannot be told apart from (Cantet and Cappa 2008, J. Anim. Breed. Genet. 125:371;
-Bijma 2010, Genetics 186:1013). Fit the pen as \code{random(pen)}. With \code{dilution > 0} and
-pens of different sizes only the dilution weights separate the two, a very weak
-identification, and that is a warning.
+Bijma 2010, Genetics 186:1013). The message suggests the pen as \code{random(pen)}, with
+the caveat of Cantet and Cappa (2008) that a random pen does not always remove the
+collinearity: what separates the two effects is families spread over several pens.
+With \code{dilution > 0} and pens of different sizes only the dilution weights separate the
+two, a very weak identification, and that is a warning.
 }
 
-At given components (\code{maxiter = 0} here and in \code{\link[=model_mt]{model_mt()}} and \code{\link[=model_ar1]{model_ar1()}},
-\verb{theta_fixed =} in \code{\link[=gibbs]{gibbs()}}, \code{estimate = FALSE} in \code{\link[=model_threshold]{model_threshold()}}, \verb{sigma2 =} in
-\code{\link[=model_survival]{model_survival()}}, and \code{\link[=snp_blup]{snp_blup()}}) the same designs are a warning: the BLUP exists,
-and the data say nothing about the term beyond the components given.
+At given components (\code{maxiter = 0} with \code{n_em = 0} here, \code{maxiter = 0} in \code{\link[=model_mt]{model_mt()}}
+and \code{\link[=model_ar1]{model_ar1()}}, \verb{theta_fixed =} in \code{\link[=gibbs]{gibbs()}}, \code{estimate = FALSE} in
+\code{\link[=model_threshold]{model_threshold()}}, \verb{sigma2 =} in \code{\link[=model_survival]{model_survival()}}, and \code{\link[=snp_blup]{snp_blup()}}) every design
+above is a warning instead: the BLUP exists, and the data say nothing about the term
+beyond the components given (with every pen of one animal, the indirect breeding values
+come only from their covariance with the direct ones). \code{maxiter = 0} with \code{n_em > 0}
+moves the start by EM, which estimates, so it stops.
 
 The fit goes on with a warning, also written in \code{message}, when:
 \itemize{
-\item an \code{animal()} term has repeated records of some animal and no \code{pe()} or \code{random()}
-uses the same column (nor, in \code{\link[=model_ar1]{model_ar1()}}, is the animal the \code{subject}): the
-permanent-environment covariance between records of the same animal is loaded onto
-the additive variance and h2 inflates (measured: 0.70 without \code{pe()} against 0.32 with
-it, true value 0.30). The text is the one of \code{\link[=suggest_model]{suggest_model()}};
+\item an \code{animal()} term has repeated records of some animal and no \code{pe()}, \code{random()} or
+\code{kernel()} reads the same column, or a column that groups the records the same way
+(nor, in \code{\link[=model_ar1]{model_ar1()}}, is the animal the \code{subject}): the permanent-environment
+covariance between records of the same animal goes into the additive variance and
+inflates h2, by more the larger the share of repeated records. The warning counts the repeated animals and their
+records, and the advice is the one of \code{\link[=suggest_model]{suggest_model()}}; when less than 1\% of the
+records repeat an animal it says that h2 moves little and asks to check for
+duplicated rows;
 \item fewer than 10 pens of \code{indirect()} hold more than one animal: the indirect components
 rest on that many pen sums (Bijma 2010 puts the detection of indirect effects at
 about 250 to 500 groups even with an optimum design);
-\item the pens of \code{indirect()} hold records of more than one level of a fixed class effect,
-each level a group of two or more animals (at least 90\% of the pens that mix levels
-split that way), which is how pens merged by a reused label look. When pen numbers
+\item the pens of \code{indirect()} split by the levels of a fixed class effect in a way chance
+does not explain, which is how pens merged by a reused label look: when pen numbers
 restart within each batch, pens that never met are merged into one and every record
-gets mates it never had (measured: pens of 10 seen where there were 5, and the
-correlation of the indirect breeding value with the true one down from 0.45 to 0.28);
-give each pen a unique label, such as \code{paste(batch, pen)}. A fixed effect that varies
-at random within the pens leaves pieces of one animal and gives no warning; pens that
-truly mix levels in groups (both sexes in a pen of 10) cannot be told apart from
-merged pens, so \code{options(BreedingR.warn_pen_labels = FALSE)} silences this check;
+gets mates it never had; give each pen a unique label, such as \code{paste(batch, pen)}.
+The test: at least 90\% of the pens that hold more than one level split into groups of
+two or more animals per level, and that count exceeds what animals placed in the pens
+regardless of the effect would give (each level at its overall proportion; the exact
+multinomial chance of a pen with no group of one) with P < 0.0001. Only a fixed
+effect that can be the batch is read: no animal has records in two of its levels (the
+period or age class of each record is not read), and it has three or more levels
+among the pens with mates, or another fixed class effect with more levels is nested in
+it (the contemporary group within the batch). A two-level effect of the animal, such
+as sex, is not read (unless a fixed class effect is nested in it), whether it is drawn
+at random within the pens or balanced by design in every pen. The data cannot tell merged pens from pens that truly mix levels when the groups
+are large, or when two batches have nothing nested in them: two batches of merged pens
+then look like pens balanced for a two-level effect and are not read, and batches of
+pens of 5 merged by label are not detected unless a contemporary group is nested in
+the batch. Merged pens of 2 or 3 animals over three or more batches, with some tens of
+labels, are detected. \code{options(BreedingR.warn_pen_labels = FALSE)}
+silences this check;
 \item a \code{pe()} or \code{random()} term has fewer than 5 levels among the records: its variance
 comes from that many levels and is barely determined, and labels that number
-something inside another unit (the parity within each dam used as the litter: 3
-levels where there were 349 litters) merge units.
+something inside another unit (the parity within each dam used as the litter) merge
+units.
 }
 
-These checks read the rows with an observed response (for \code{indirect()}, the pen
-membership of every row, as the incidence does).
+These checks read the rows with an observed response that enter the analysis (a row
+whose \code{kernel()} level has no line in K leaves it), and, for \code{indirect()}, the pen
+membership of every row, as the incidence does.
 }
 
 \references{

@@ -5,11 +5,13 @@
 # devolve numeros sem sentido, ou trava, sem uma palavra:
 # - um termo aleatorio inteiramente dentro de um efeito fixo (cada CG com os filhos de um
 #   touro so, a leitegada FIXA com maternal(dam), o cg = id): a incidencia do termo e soma de
-#   colunas de X, o termo some da verossimilhanca REML e o componente anda ate 4e6;
+#   colunas de X, o termo some da verossimilhanca REML e o componente anda para 1e8 ou mais,
+#   ou para zero, sem otimo certificado (validation/structure_cases.R, caso 1);
 # - indirect() com a baia como efeito fixo, ou com todos os registros numa baia so: a soma
 #   da baia vai para a parte fixa e o que sobra da incidencia indireta do registro e menos o
 #   proprio efeito indireto, que o direto do mesmo animal nao separa (Cantet e Cappa 2008;
-#   Bijma 2010). Uma baia so travava o model_threshold(estimate = TRUE) por 120 s;
+#   Bijma 2010). Uma baia so fazia o model_threshold(estimate = TRUE) devolver componentes
+#   que os dados nao identificam, com converged = TRUE (o mesmo script, caso 6);
 # - indirect() com toda baia de um animal: incidencia toda zero no motor e no gibbs(), onde
 #   os ajustadores em R ja recusavam;
 # - o numero da baia reaproveitado em cada lote, que funde baias que nunca se encontraram;
@@ -101,7 +103,15 @@ confere_estrutura <- function(terms, data, resp, missing_code, quem, estima,
   # uma coluna com rotulo ausente (NA, branco, "NaN", Inf) fica de fora daqui: o motor e os
   # ajustadores em R param nela com a coluna, a contagem e a linha, e uma conferencia de
   # estrutura sobre o nivel "NA" daria a razao errada
-  completa <- function(col) col %in% names(data) && is.null(sem_rotulo(data[[col]], col))
+  # a varredura de rotulo ausente, uma vez por coluna (era refeita por termo nas duas
+  # filtragens abaixo: 37% do tempo da conferencia em 200 mil registros)
+  vistos <- list()
+  completa <- function(col) {
+    if (!is.null(vistos[[col]])) return(vistos[[col]])
+    v <- col %in% names(data) && is.null(sem_rotulo(data[[col]], col))
+    vistos[[col]] <<- v
+    v
+  }
   # os registros que um kernel() tira da analise (nivel sem linha na K), antes do filtro
   entra_k <- rep(TRUE, nrow(data))
   if (length(kern)) for (i in seq_along(terms)) {
@@ -125,7 +135,8 @@ confere_estrutura <- function(terms, data, resp, missing_code, quem, estima,
     confere_aninhamento(terms, fixos, cod, li, "", quem, estima, avisa)
     for (tr in names(por_traco))
       confere_aninhamento(terms, fixos, cod, por_traco[[tr]], tr, quem, estima, avisa)
-  }
+  } else if (estima) confere_aninhamento(terms, fixos, cod, li, "", quem, estima, avisa,
+                                        referencia = TRUE)
   for (s in Filter(function(t) isTRUE(t$social), terms))
     confere_baias(s, terms, fixos, cod, nrow(data), li, por_traco, quem, estima, avisa,
                   intercepto)
@@ -141,13 +152,21 @@ confere_estrutura <- function(terms, data, resp, missing_code, quem, estima,
 # e avo) esta no espaco de X quando cada nivel de um efeito fixo de classe guarda um nivel so
 # do termo, ou quando todo registro tem o mesmo nivel (o intercepto). Ai K'Z = 0 para todo
 # contraste do erro K, e o componente nao entra na verossimilhanca REML: o passo anda ate
-# 4e6 (medido em f2c0d69 no modelo pai com um pai por CG) ou para em 300 iteracoes. O ASReml
+# 1e8 ou mais, ou para zero, conforme a semente e a partida, sem otimo certificado (um pai por
+# CG; validation/structure_cases.R, caso 1). O ASReml
 # lista o termo aleatorio confundido com um fixo entre as causas de singularidade da AI e
 # para, salvo !AISINGULARITIES. O desconhecido (codigo 0) nao tem incidencia: um nivel do
 # fixo so com desconhecidos nao atrapalha a absorcao, e um com um pai e desconhecidos a
 # impede. A conferencia e por um efeito fixo de cada vez: uma combinacao de dois que absorve
 # o termo fica para o veredito SINGULAR do motor. `traco` vazio e a uniao das linhas.
-confere_aninhamento <- function(terms, fixos, cod, li, traco, quem, estima, avisa) {
+#
+# `referencia = TRUE` e a parte fixa sem intercepto, com o primeiro nivel de cada classe no
+# valor de base (a sobrevivencia com lambda dado): os niveis do fixo fora da referencia ainda
+# absorvem os niveis do termo dentro deles, e so os da referencia informam a variancia. Ai o
+# termo dentro de um fixo e um aviso, e nao uma parada (antes passava calado, com o
+# componente indo a fronteira).
+confere_aninhamento <- function(terms, fixos, cod, li, traco, quem, estima, avisa,
+                                referencia = FALSE) {
   if (length(li) < 2L) return(invisible(NULL))
   aleat <- Filter(function(t) t$estrutura != 0L && !isTRUE(t$social) && !nzchar(t$base) &&
                     !variancia_dada(t), terms)
@@ -188,7 +207,8 @@ confere_aninhamento <- function(terms, fixos, cod, li, traco, quem, estima, avis
                    "data carry no information on ", nome, "; ", remedio))
       next
     }
-    absorve <- if (all(conhecido) && length(unique(r)) == 1L) "intercepto" else NULL
+    absorve <- if (!referencia && all(conhecido) && length(unique(r)) == 1L) "intercepto"
+               else NULL
     if (is.null(absorve)) for (f in fixos) {
       fv <- cod(f$column)$k[li]
       if (length(unique(fv)) > 1L && funcao_de(r, fv)) { absorve <- f; break }
@@ -212,6 +232,12 @@ confere_aninhamento <- function(terms, fixos, cod, li, traco, quem, estima, avis
                else paste0("fit ", absorve$column, " as random(", absorve$column, "), join ",
                            "levels of ", absorve$column, " so that each holds several ",
                            "levels of ", t$column, ", or drop ", nome)
+    if (referencia) {
+      avisa(paste0(quem, ": ", causa, " except in its reference level, which is held at the ",
+                   "baseline: only the levels of ", t$column, " in that level inform ", comp,
+                   ", which is barely determined; ", remedio))
+      next
+    }
     if (estima)
       stop(quem, ": ", causa, " and ", comp, " does not enter the likelihood: the data ",
            "carry no information on it (a random term confounded with a fixed one, which ",
@@ -241,7 +267,8 @@ confere_baias <- function(s, terms, fixos, cod, nlin, li, por_traco, quem, estim
     txt <- paste0("indirect term '", s$nome, "': no record has a pen mate (every pen holds ",
                   "a single animal), so the indirect effect has no incidence")
     if (estima)
-      stop(txt, " and its components are not identified by these data; drop indirect() or ",
+      stop(quem, ": ", txt, " and its components are not identified by these data; drop ",
+           "indirect() or ",
            "give the components", call. = FALSE)
     avisa(paste0(quem, ": ", txt, ": at the given components the fit runs, but the data ",
                  "say nothing about the indirect effects, whose breeding values come only ",
@@ -275,6 +302,7 @@ confere_baias <- function(s, terms, fixos, cod, nlin, li, por_traco, quem, estim
                  "with an optimum design"))
   if (isTRUE(getOption("BreedingR.warn_pen_labels", TRUE)))
     for (f in fixos) {
+      if (!efeito_de_lote(f, fixos, cod, pen, id, tam)) next
       v <- rotulos_reaproveitados(pen, id, cod(f$column)$k, tam)
       if (is.null(v)) next
       cp <- cod(s$nested)
@@ -339,6 +367,30 @@ absorcao_baia <- function(s, direto, fixos, cod, pen, tam, com_mates, li, traco,
   TRUE
 }
 
+# O EFEITO FIXO PODE SER O LOTE CUJAS BAIAS O ROTULO FUNDIU? A tabela (baia, nivel) nao
+# separa a fusao de baias de um efeito do animal balanceado por desenho (2 de cada sexo em
+# toda baia de 4 disparava com 20 baias) nem de um efeito do registro (o periodo de teste,
+# com todo animal em todo periodo, disparava com 3 periodos e 100 baias). Um lote guarda
+# cada animal uma vez so e e de grupo: tem 3 ou mais niveis nas baias com companheiros, ou
+# outro efeito fixo de classe de mais niveis esta aninhado nele (o cg dentro do lote). Dois
+# lotes com nada aninhado nao se distinguem do sexo balanceado e nao sao lidos.
+efeito_de_lote <- function(f, fixos, cod, pen, id, tam) {
+  mates <- tam[pen] >= 2L
+  kf <- cod(f$column)$k[mates]
+  ki <- id[mates]
+  if (!length(kf)) return(FALSE)
+  par <- !duplicated(as.double(ki) * (max(kf) + 1) + kf)
+  if (anyDuplicated(ki[par])) return(FALSE)
+  nf <- length(unique(kf))
+  if (nf >= 3L) return(TRUE)
+  for (g in fixos) {
+    if (identical(g$column, f$column)) next
+    kg <- cod(g$column)$k[mates]
+    if (length(unique(kg)) > nf && funcao_de(kf, kg)) return(TRUE)
+  }
+  FALSE
+}
+
 # O NUMERO DA BAIA REAPROVEITADO. Se a numeracao recomeca em cada lote, baias que nunca se
 # encontraram viram uma: a baia de rotulo 'p1' guarda os animais da baia 1 de cada lote, e
 # todo registro ganha companheiros que nao teve. A baia fundida se parte pelo lote em grupos
@@ -354,8 +406,8 @@ absorcao_baia <- function(s, direto, fixos, cod, pen, tam, com_mates, li, traco,
 # com P < 1e-4 (a cauda exata da soma de Bernoullis de probabilidades q). Baias fundidas de
 # baias pequenas, ou de lotes de muitos niveis, sao vistas; a fusao de duas baias de 5 de
 # dois lotes de mesmo tamanho nao se distingue de baias mistas de 10 e nao avisa. Baias
-# balanceadas para o efeito por desenho (4 de cada sexo em toda baia de 8) tambem nao sao
-# acaso: com mais de umas 150 delas o aviso sai (0.937^150 < 1e-4). NULL sem aviso, ou
+# balanceadas por desenho tambem nao sao acaso (com 2 de cada sexo em baias de 4 o aviso saia
+# com 20 baias): por isso so se le um efeito de lote (efeito_de_lote()). NULL sem aviso, ou
 # list(S, M, E, p, pen1).
 rotulos_reaproveitados <- function(pen, id, fv, tam) {
   mates <- tam[pen] >= 2L
@@ -431,13 +483,17 @@ cauda_bernoullis <- function(q, s) {
 
 # REGISTROS REPETIDOS SEM pe(): a covariancia entre registros do mesmo animal que nao e
 # genetica (ambiente permanente) so tem para onde ir na aditiva, e o h2 infla (medido em
-# f2c0d69: 0.70 sem pe e 0.32 com pe, verdade 0.30). O mesmo conselho do suggest_model().
-# Nao avisa quando pe() ou random() le a mesma coluna, ou uma coluna que agrupa os registros
-# do mesmo jeito (pe(id2) com id2 uma copia de id), ou quando o AR(1) tem o animal como
-# sujeito.
+# validation/structure_cases.R, caso 3: 0.71 sem pe e 0.33 com pe, verdade 0.30). O mesmo
+# conselho do suggest_model().
+# Nao avisa quando pe(), random() ou kernel() le a mesma coluna, ou uma coluna que agrupa os
+# registros do mesmo jeito (pe(id2) com id2 uma copia de id), ou quando o AR(1) tem o animal
+# como sujeito.
 confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa) {
   ani <- Filter(function(t) identical(t$marcador, "animal") && !nzchar(t$base), terms)
-  iid <- Filter(function(t) t$estrutura == 1L && !nzchar(t$base), terms)
+  # um kernel() na coluna do animal (ou numa que agrupa igual) tambem da a cada animal um
+  # efeito que os registros dele dividem: kernel(id, K = I) e o pe(id), e kernel(id, K = D)
+  # leva a covariancia de dominancia entre os registros do animal
+  iid <- Filter(function(t) t$estrutura %in% c(1L, 3L) && !nzchar(t$base), terms)
   for (a in ani) {
     ka <- cod(a$column)$k
     mesma_particao <- function(t) {
@@ -455,12 +511,21 @@ confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa) {
       reg <- reg[reg > 0L]
       if (!length(reg) || !any(reg > 1L)) next
       rep_a <- reg[reg > 1L]
+      # a fracao dos registros que repetem um animal (alem do primeiro de cada um): com
+      # menos de 1% o vies no h2 e pequeno, e uma linha repetida e mais provavel que um
+      # desenho de repetibilidade
+      fr <- (sum(rep_a) - length(rep_a)) / sum(reg)
+      efeito <- if (fr < 0.01)
+        sprintf(paste0(", which at this share (%.1f%% of the records repeat an animal) moves ",
+                       "h2 little: check that the rows are not duplicates, or"), 100 * fr)
+      else ", which inflates h2 by more the larger the share of repeated records;"
       avisa(sprintf(paste0(
-        "%s: %d of the %d animals with records of %s have more than one record (%d records ",
+        "%s: %d of the %d animals with records of %s %s more than one record (%d records ",
         "between them) and the model has no pe(%s): the permanent-environment covariance ",
-        "between records of the same animal goes into var(%s), which inflates h2 by more ",
-        "the larger the share of repeated records; add pe(%s), the repeatability model"),
-        rotulo_termo(a), length(rep_a), length(reg), tr, sum(rep_a), a$column, a$nome,
+        "between records of the same animal goes into var(%s)%s add pe(%s), the ",
+        "repeatability model"),
+        rotulo_termo(a), length(rep_a), length(reg), tr,
+        if (length(rep_a) == 1L) "has" else "have", sum(rep_a), a$column, a$nome, efeito,
         a$column))
       break
     }
@@ -470,7 +535,8 @@ confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa) {
 
 # UM TERMO iid DE POUCOS NIVEIS (pe(), random()): a variancia sai de poucos niveis e mal se
 # determina. O caso medido e a leitegada codificada pelo numero do parto (3 niveis no lugar
-# de 349 leitegadas): rotulos que numeram algo DENTRO de outra unidade fundem unidades
+# de uma por leitegada; validation/structure_cases.R, caso 5): rotulos que numeram algo
+# DENTRO de outra unidade fundem unidades
 # diferentes. O corte de 5 niveis e a regra de bolso dos modelos mistos (Bolker et al. 2009,
 # Trends Ecol. Evol. 24:127).
 confere_poucos_niveis <- function(terms, cod, li, avisa) {
@@ -693,14 +759,15 @@ var_scale_mf <- function(fit) {
   1 + mean(diag(G)) / 2 - mean(G)
 }
 
-# O MULTIPLICADOR DE CADA COMPONENTE na variancia fenotipica, nomeado como theta. A regra e
-# uma so para todo termo com parentesco (animal(), sire(), maternal(), genomico, kernel()): o
-# componente como saiu do ajuste, na base da sua matriz, que e a razao que BLUPF90, ASReml e
-# WOMBAT reportam; animal(id) e kernel(id, K = A) com a A do mesmo pedigree dao o mesmo
-# numero. Fora disso:
-# - `escala = TRUE` e metafundadores: os termos de pedigree vezes o var_scale, a mudanca da
-#   base de Gamma para a usual (uma reparametrizacao do mesmo modelo: o h2 e o do pedigree
-#   sem metafundador);
+# O MULTIPLICADOR DE CADA COMPONENTE na variancia fenotipica, nomeado como theta. A REGRA E
+# UMA SO para todo termo com parentesco (animal(), sire(), maternal(), genomico, H, kernel(),
+# metafundadores): o componente como saiu do ajuste, na base da sua matriz, que e a razao que
+# BLUPF90, ASReml e WOMBAT reportam. A mesma verossimilhanca da o mesmo h2: animal(id) e
+# kernel(id, K = A) com a A do mesmo pedigree, ou animal(id) com genotypes = e kernel(id,
+# K = H), dao o mesmo numero (antes um kernel() entrava vezes a diagonal media da sua K nos
+# registros e o pedigree com 1, e o mesmo ajuste dava dois h2). Fora disso:
+# - `escala = TRUE` (h2(scale = TRUE), pedido) e metafundadores: os termos de pedigree vezes o
+#   var_scale, a mudanca da base de Gamma para a usual (Legarra et al. 2015);
 # - um kernel() que e a associative_matrix() do indirect() (kernels_associativos): uma
 #   covariancia residual dos registros, que entra pela variancia que poe num registro,
 #   (n - 1)^(1 - 2d) com o n dado, ou a media nos registros sem n;
@@ -709,14 +776,15 @@ var_scale_mf <- function(fit) {
 #   media da K nos registros (antes entrava v vezes 1, como se todo registro tivesse
 #   variancia de amostragem 1);
 # - var(residual) de um ajuste com pesos: 1 / weight, ou, sem weight, a media de 1 / w nos
-#   registros (o residuo no peso harmonico medio, a variancia residual media dos registros);
-#   num ajuste de indirect_residual(), com o n dado, 1 + (n - 1)^(1 - 2d) k, o residuo de um
-#   registro numa baia de n animais.
+#   registros (o residuo no peso harmonico medio, a variancia residual media dos registros:
+#   pesos w e 10 w, a mesma verossimilhanca, dao o mesmo h2); num ajuste de
+#   indirect_residual(), com o n dado, 1 + (n - 1)^(1 - 2d) k, o residuo de um registro numa
+#   baia de n animais.
 # Uma covariancia entre dois termos leva a media geometrica dos dois multiplicadores, como
 # a covariancia direto-materno leva 1 na variancia fenotipica (Willham 1972; BLUPF90).
 # `kernels` (termo -> multiplicador) troca o de um kernel(): o valor alternativo do aviso de
 # avisa_diagonal_kernel(), com cada K na sua diagonal media.
-multiplicadores <- function(fit, weight = NULL, escala = TRUE, n = NULL, kernels = NULL) {
+multiplicadores <- function(fit, weight = NULL, escala = FALSE, n = NULL, kernels = NULL) {
   th <- fit$theta
   nm <- names(th)
   mult <- stats::setNames(rep(1, length(th)), nm)
@@ -814,6 +882,27 @@ avisa_diagonal_desconhecida <- function(fit, comps, quem) {
   invisible(NULL)
 }
 
+# Metafundadores com o var_scale mais de 10% longe de 1, e algum componente de pedigree entre
+# os lidos: o numero sai na base de Gamma (a regra de multiplicadores()), e o aviso da o da
+# base usual
+precisa_var_scale <- function(fit, comps) {
+  vs <- var_scale_mf(fit)
+  if (abs(vs - 1) <= 0.1) return(FALSE)
+  ped <- vapply(Filter(function(t) t$estrutura == 2L, termos_do_ajuste(fit)),
+                function(t) t$nome, character(1))
+  membros <- unique(sub("@.*$", "", unlist(strsplit(
+    sub("^(var|cov)\\((.*)\\)$", "\\2", comps), ",", fixed = TRUE))))
+  any(ped %in% membros)
+}
+
+avisa_var_scale <- function(quem, vs, alternativa)
+  aviso_estado(quem, ": the pedigree components of this fit with metafounders are on the base ",
+               "of Gamma, and the ratio reads them as estimated, as for any relationship ",
+               "matrix (the same likelihood gives the same number). On the usual base, times ",
+               sprintf("var_scale = %.4g", vs), " (Legarra et al. 2015), it would be ",
+               paste(format(alternativa, digits = 4), collapse = ", "),
+               ": scale = TRUE gives that, and scale = FALSE silences this warning")
+
 # O aviso da diagonal de um kernel() em h2() e t2(): diz o que foi feito (o componente como
 # estimado) e quanto daria a razao na escala dos registros, com cada K dessas na sua
 # diagonal media
@@ -835,8 +924,9 @@ nota_escala <- function(fit) {
   partes <- character(0)
   vs <- var_scale_mf(fit)
   if (vs != 1 && any(vapply(termos_do_ajuste(fit), function(t) t$estrutura == 2L, logical(1))))
-    partes <- c(partes, sprintf(paste0("the pedigree components times var_scale = %.4g, from ",
-                                       "the metafounder base to the usual one"), vs))
+    partes <- c(partes, sprintf(paste0("the pedigree components as estimated, on the base of ",
+                                       "Gamma (var_scale = %.4g to the usual base: h2(fit, ",
+                                       "scale = TRUE))"), vs))
   ka <- fit$k_associative
   for (k in names(ka))
     if (isTRUE(is.finite(fit$k_record_diag[k])))
@@ -871,7 +961,8 @@ nota_escala <- function(fit) {
 }
 
 # O GRUPO PADRAO DOS EXTRATORES (ebv(), solutions(), accuracy(), h2(), h2_curve(), plot()):
-# o do primeiro termo com pedigree ou genomica; sem nenhum, o do primeiro kernel() cuja
+# o do primeiro termo com pedigree ou genomica (o direto antes do maternal(), em qualquer
+# ordem da formula); sem nenhum, o do primeiro kernel() cuja
 # variancia e estimada e que nao e a associative_matrix() do indirect(); sem nenhum, o
 # primeiro grupo. Com random(lote) escrito antes de animal(id) o primeiro grupo era o do
 # lote, e h2() devolvia var(random) / Vp com o nome de herdabilidade; agora todos os
@@ -882,13 +973,21 @@ grupo_padrao <- function(fit) {
   termos <- termos_do_ajuste(fit)
   grupo_de <- function(t) if (nzchar(t$group)) t$group else t$nome
   for (e in c(2L, 3L)) {
-    cand <- Filter(function(t) t$estrutura == e && !isTRUE(t$social) && !variancia_dada(t) &&
-                     !t$nome %in% names(fit$k_associative), termos)
+    cand <- direto_primeiro(Filter(function(t) t$estrutura == e && !isTRUE(t$social) &&
+                                     !variancia_dada(t) &&
+                                     !t$nome %in% names(fit$k_associative), termos))
     gr <- intersect(vapply(cand, grupo_de, character(1)), g)
     if (length(gr)) return(gr[1])
   }
   g[1]
 }
+
+# Os termos com o efeito direto antes do maternal() e do indirect(), na ordem da formula
+# dentro de cada classe: com maternal(dam) escrito antes de animal(id) o grupo padrao era o
+# materno, e h2() devolvia var(maternal) / Vp (0.1 no lugar de 0.3 nos componentes dados)
+direto_primeiro <- function(termos)
+  termos[order(vapply(termos, function(t) isTRUE(t$social) ||
+                        identical(t$marcador, "maternal"), logical(1)))]
 
 # O FATOR DO NUMERADOR DE h2 pelo marcador: um sire() estima um quarto da aditiva (o pai
 # passa metade do valor genetico ao filho), entao h2 = 4 var(sire) / Vp (Falconer e Mackay

@@ -177,9 +177,13 @@ in \code{residual_draws}; with several chains all four pool the chains pooled fo
 \description{
 The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here: a
 design that does not identify a component stops the chain unless \verb{theta_fixed =} gives
-the components (measured before this version: a random term inside a fixed effect left
-the chain walking its prior, \code{var(animal)} 1.29 and \code{var(residual)} 0.04 against 0.3 and
-0.5, effective sample size 4, without a message), and the warnings go to \code{message}.
+the components (a random term inside a fixed effect leaves the chain walking the prior
+of that variance), and the warnings go to \code{message}. The h2 row of \code{summary()} and of
+\code{\link[=mcmc_diagnostics]{mcmc_diagnostics()}} follows the rule of \code{\link[=h2]{h2()}}: the first pedigree or genomic term,
+\verb{4 var(sire)} in a sire model, the components as estimated (the base of Gamma with
+metafounders), a \code{kernel(fixed =)} or an \code{\link[=associative_matrix]{associative_matrix()}} at its mean diagonal over
+the records and the grandsire part of \code{sire(mgs =)} in the denominator; with only \code{pe()}
+or \code{random()} terms there is no h2 row.
 }
 \references{
 Hobert, J.P. & Casella, G. (1996). The effect of improper priors on Gibbs

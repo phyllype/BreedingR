@@ -91,7 +91,7 @@ test_that("the AR(1) fit converges and recovers the simulated rho", {
   expect_lt(rho_est, 0.7)
   # and the iid model on the same data has a WORSE likelihood: the rho really is there
   # (o iid sem pe() avisa dos registros repetidos)
-  u <- expect_warning(model(y ~ cg + animal(id), s$data, s$ped),
+  expect_warning(u <- model(y ~ cg + animal(id), s$data, s$ped),
                       "have more than one record", class = "breedingr_estrutura")
   expect_lt(r$neg2logl, u$neg2logl - 10)
 })

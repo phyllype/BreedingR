@@ -253,7 +253,7 @@ test_that("a missing covariate value stops every fitter instead of dropping the 
   d$x[9] <- NA
   expect_error(ev_neg2(y ~ cov(x) + random(lote), d), "NA in the covariate column 'x'")
   # random(lote) de 4 lotes: o aviso de poucos niveis sai, e o portao segue
-  com <- expect_warning(model(y ~ cov(x) + random(lote), z$d, verbose = FALSE), "has 4 level", class = "breedingr_estrutura")
+  expect_warning(com <- model(y ~ cov(x) + random(lote), z$d, verbose = FALSE), "has 4 level", class = "breedingr_estrutura")
   expect_length(com$dropped_x, 0L)
   expect_true("x=x" %in% names(com$b))
   expect_equal(com$n_used, 48L)
@@ -305,7 +305,7 @@ test_that("a missing value in base= or in a nested covariate stops the engine fi
                   "term 'x': blank text in the column 'cg' in 1 row\\(s\\), the first at row 14")
   # braco: com o valor no lugar, as tres classes de cg ficam com a sua inclinacao
   d2$x[14] <- 0.5
-  f <- expect_warning(model(y ~ cov(x, nested = "cg") + random(lote), d2, verbose = FALSE),
+  expect_warning(f <- model(y ~ cov(x, nested = "cg") + random(lote), d2, verbose = FALSE),
                       "has 4 level", class = "breedingr_estrutura")
   expect_length(f$dropped_x, 0L)
   expect_setequal(names(f$b), c("intercept", "x=c1", "x=c2", "x=c3"))
@@ -599,7 +599,7 @@ test_that("a missing observation of a categorical trait drops its record, never 
   d$b[c(4, 22)] <- c("", "NaN")
   d$b <- ordered(d$b)
   set.seed(3)
-  g <- expect_warning(gibbs(b ~ cg + random(lote), d, family = "probit", n_iter = 20L,
+  expect_warning(g <- gibbs(b ~ cg + random(lote), d, family = "probit", n_iter = 20L,
                             burnin = 5L, thin = 1L, verbose = FALSE), "has 4 level", class = "breedingr_estrutura")
   expect_identical(g$binary_levels, c("doente", "sao"))
   expect_equal(g$n_used, 46L)

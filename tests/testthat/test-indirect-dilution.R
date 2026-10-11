@@ -80,10 +80,10 @@ test_that("dilution absent and dilution = 0 are the SAME fit, bit for bit", {
                     y = c(5.1, 6.2, 4.8, 7.0, 5.5, 6.8, 4.2, 6.1, 5.9, 6.4),
                     stringsAsFactors = FALSE)
   # tres baias com companheiro: o aviso de poucas baias sai em cada ajuste, e o portao segue
-  sem <- expect_warning(model(y ~ cg + animal(id, group = "g") +
+  expect_warning(sem <- model(y ~ cg + animal(id, group = "g") +
                                 indirect(id, pen = "baia", group = "g"),
                               dat, ped, verbose = FALSE, n_em = 2L), "only 3 pen", class = "breedingr_estrutura")
-  com <- expect_warning(model(y ~ cg + animal(id, group = "g") +
+  expect_warning(com <- model(y ~ cg + animal(id, group = "g") +
                                 indirect(id, pen = "baia", group = "g", dilution = 0),
                               dat, ped, verbose = FALSE, n_em = 2L), "only 3 pen", class = "breedingr_estrutura")
   expect_identical(com$neg2logl, sem$neg2logl)
@@ -92,7 +92,7 @@ test_that("dilution absent and dilution = 0 are the SAME fit, bit for bit", {
 
   # the third arm: a nonzero d must CHANGE the fit. Without it the two identities above
   # would also pass if dilution were parsed and then silently dropped on the way down.
-  dif <- expect_warning(model(y ~ cg + animal(id, group = "g") +
+  expect_warning(dif <- model(y ~ cg + animal(id, group = "g") +
                                 indirect(id, pen = "baia", group = "g", dilution = 0.7),
                               dat, ped, verbose = FALSE, n_em = 2L), "only 3 pen", class = "breedingr_estrutura")
   expect_false(isTRUE(all.equal(dif$neg2logl, sem$neg2logl)))

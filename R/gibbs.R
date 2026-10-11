@@ -18,9 +18,10 @@
 #' the components (a random term inside a fixed effect leaves the chain walking the prior
 #' of that variance), and the warnings go to `message`. The h2 row of `summary()` and of
 #' [mcmc_diagnostics()] follows the rule of [h2()]: the first pedigree or genomic term,
-#' `4 var(sire)` in a sire model, the `var_scale` of the metafounders and the grandsire
-#' part of `sire(mgs =)` in the denominator; with only `pe()` or `random()` terms there is
-#' no h2 row.
+#' `4 var(sire)` in a sire model, the components as estimated (the base of Gamma with
+#' metafounders), a `kernel(fixed =)` or an [associative_matrix()] at its mean diagonal over
+#' the records and the grandsire part of `sire(mgs =)` in the denominator; with only `pe()`
+#' or `random()` terms there is no h2 row.
 #'
 #' @param formula as in [model()] (all the same markers, including rn() and indirect())
 #' @param data data.frame
@@ -257,8 +258,8 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # found" com chains = 2, cores = 2). Avaliado uma vez, tambem nao se refaz por cadeia.
   kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
   # a estrutura que a cadeia nao identifica ou que a mascara (R/separabilidade.R): um termo
-  # dentro de um efeito fixo deixava a cadeia andar na priori (medido em f2c0d69: var(animal)
-  # 1.29 e var(residual) 0.04 contra 0.3 e 0.5, ESS 4, sem mensagem). Com theta_fixed =, so
+  # dentro de um efeito fixo deixava a cadeia andar na priori, sem mensagem do gibbs()
+  # (validation/structure_cases.R, caso 2). Com theta_fixed =, so
   # avisa
   notas <- confere_estrutura(terms, data, trait, missing_code, "gibbs()", is.null(theta_fixed),
                              kern = kern)
@@ -346,9 +347,14 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
   r$k_level_type <- tipos_kernels(terms, kern)
-  # a fracao de registros com avo conhecido de cada sire(mgs =): o h2 do summary() e dos
-  # derivados de mcmc_diagnostics() segue a regra de h2()
-  r$mgs_known <- fracao_avo_conhecido(terms, data, r$used)
+  # o que a escala de h2() le, como em model(): a diagonal media de cada K nos registros com
+  # observacao, os kernels que sao a associative_matrix() do indirect() e a fracao de
+  # registros com avo conhecido de cada sire(mgs =). O h2 do summary() e dos derivados de
+  # mcmc_diagnostics() segue a regra de h2(); antes o kernel(fixed =) entrava com
+  # coeficiente 1 so aqui, porque o gibbs() nao guardava a diagonal
+  obs <- !observacao_ausente(data[[trait]], missing_code)
+  r <- anota_escala(c(r, list(k_prior = priori_kernels(terms, kern), used = obs)), terms, data)
+  r$used <- NULL
   r <- structure(anota_estrutura(r, notas), class = "breeding_gibbs")
   # os diagnosticos ficam no ajuste (print e summary leem daqui); ess, rhat e geweke sao as
   # colunas dos componentes, so nas cadeias que foram ate o fim. Uma falha neles nao pode
