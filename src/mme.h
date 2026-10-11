@@ -568,6 +568,18 @@ struct Genotipos {
     }
   }
   void coluna(std::size_t j, double* out) const { trecho(j, 0, n, out); }
+  // um genotipo so, o do animal a no marcador j, NaN no ausente
+  double valor(std::size_t j, std::size_t a) const {
+    const std::size_t k = j * n + a;
+    if (d) return d[k];
+    if (i) {
+      const int x = i[k];
+      return x == std::numeric_limits<int>::min() ? std::numeric_limits<double>::quiet_NaN()
+                                                  : static_cast<double>(x);
+    }
+    const unsigned char x = r[k];
+    return x == 5 ? std::numeric_limits<double>::quiet_NaN() : static_cast<double>(x);
+  }
 };
 
 // tr(K^-1 Z_ab) lendo a inversa seletiva Z so onde K^-1 (triangulo inferior) tem nao-zero,
@@ -657,6 +669,19 @@ void g_dominancia(const Genotipos&, double* out);
 void genotipos_tv(const Genotipos&, const double* centro, const double* imp, const double* v,
                   std::size_t k, double* out);
 double conta_ausentes(const Genotipos&);
+// contagens de 0, 1 e 2 por marcador nos animais marcados em linha (todos com linha nula)
+void contagens_marcadores(const Genotipos&, const char* linha, double* n0, double* n1,
+                          double* n2);
+// as mesmas contagens so nas linhas dadas (base 0), lendo k x m genotipos
+void contagens_nas_linhas(const Genotipos&, const std::vector<std::size_t>& linhas,
+                          double* n0, double* n1, double* n2);
+// chamadas (genotipos presentes) por animal nos marcadores marcados em usa (todos com nulo)
+void chamadas_por_animal(const Genotipos&, const char* usa, double* chamadas);
+// pares pai-filho de genotipados: marcadores chamados nos dois e homozigotos opostos (0 contra
+// 2), um par por posicao de filho/pai (linhas em base 0), nos marcadores marcados em usa
+void conflitos_parentesco(const Genotipos&, const std::vector<std::size_t>& filho,
+                          const std::vector<std::size_t>& pai, const char* usa, double* ambos,
+                          double* opostos);
 // a linha do pedigree de cada genotipado, erro declarado para quem nao tem linha
 std::vector<std::size_t> linhas_genotipados(const Pedigree&, const std::vector<std::string>&);
 // A22^-1 X (n2 x q coluna-major) pelo Schur, sem formar A22^-1; cache opcional da simbolica

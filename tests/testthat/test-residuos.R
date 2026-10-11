@@ -7,6 +7,12 @@
 # em theta dado (maxiter = 0), salvo onde a identidade e a do otimo REML.
 
 # A tabular, pais antes dos filhos; com `mgs` a segunda coluna e o avo materno (1/4)
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 rd_a_tabular <- function(ped) {
   n <- nrow(ped)
   A <- matrix(0, n, n, dimnames = list(ped$id, ped$id))
@@ -933,7 +939,11 @@ test_that("the error tail decision: the pilot only when the pre-test rejects, an
 test_that("gibbs(probit): latent draws of variance 1, liability-scale fitted, the data guard", {
   ped <- rd_ped(80, nfilhos = 80L)
   d <- rd_dados(81, ped, tam = c(3, 4, 6))
-  d$b <- ifelse(d$y > stats::median(d$y), "sim", "nao")
+  # as duas categorias em todo cg (o nivel todo numa so e recusado, test-estrutura-e5.R; com
+  # a mediana geral 6 dos 21 cg ficavam assim), e o texto como fator ordenado: a ordem
+  # alfabetica de um fator nao ordenado roda com aviso
+  d$b <- ordered(ifelse(ave(d$y, d$cg, FUN = function(v) rank(v) %% 2) == 1, "sim", "nao"),
+                 levels = c("nao", "sim"))
   set.seed(82)
   g <- gibbs(b ~ cg + cov(x) + animal(id), d, ped, family = "probit", n_iter = 600L,
              burnin = 100L,
@@ -1171,7 +1181,11 @@ test_that("a blank, 'NaN' or Inf trait is missing in the residuals as in the fit
   # the fit". Aqui o texto vazio e o "NaN", ou o Inf e o -Inf, tem de dar o resultado do NA
   ped <- rd_ped(80, nfilhos = 80L)
   d <- rd_dados(81, ped, tam = c(3, 4, 6))
-  d$b <- ifelse(d$y > stats::median(d$y), "sim", "nao")
+  # as duas categorias em todo cg, tambem sem as linhas 5 e 17, e o texto como fator ordenado
+  # (o nivel todo numa categoria e o texto sem ordem sao recusados, e a ordem alfabetica de
+  # um fator nao ordenado roda com aviso: test-estrutura-e5.R)
+  d$b <- ordered(ifelse(ave(d$y, d$cg, FUN = function(v) rank(v) %% 2) == 1, "sim", "nao"),
+                 levels = c("nao", "sim"))
   fora <- c(5L, 17L)
   cadeia <- function(dd) {
     set.seed(82)
@@ -1184,7 +1198,9 @@ test_that("a blank, 'NaN' or Inf trait is missing in the residuals as in the fit
   dg_na <- residual_diagnostics(g_na, d_na, ped, nsim = 19L, seed = 83)
   expect_identical(dg_na$n_used, nrow(d) - 2L)
   d_txt <- d
+  d_txt$b <- as.character(d$b)
   d_txt$b[fora] <- c("", "NaN")
+  d_txt$b <- ordered(d_txt$b, levels = c("", "NaN", "nao", "sim"))
   d_num <- d
   d_num$b <- as.double(d$b == "sim")
   d_num$b[fora] <- c(Inf, -Inf)
@@ -1223,3 +1239,5 @@ test_that("a blank, 'NaN' or Inf trait is missing in the residuals as in the fit
     expect_identical(residuals(ft, dd, type = "pearson"), p_na)
   }
 })
+
+options(op_parentesco)

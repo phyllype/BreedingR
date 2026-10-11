@@ -4,12 +4,21 @@
 \alias{h2}
 \title{Heritability from the estimated components}
 \usage{
-h2(fit, group = NULL, trait = NULL, n = NULL, r = 0)
+h2(
+  fit,
+  group = NULL,
+  trait = NULL,
+  n = NULL,
+  r = 0,
+  weight = NULL,
+  scale = TRUE
+)
 }
 \arguments{
 \item{fit}{result of \code{model()}, \code{model_mt()} or \code{model_ar1()}}
 
-\item{group}{covariance group; the first one by default}
+\item{group}{covariance group; by default the group of the first term with a
+relationship (pedigree, genomic or declared K), or the first group when there is none}
 
 \item{trait}{for a multi-trait fit, which trait; all of them by default}
 
@@ -17,6 +26,13 @@ h2(fit, group = NULL, trait = NULL, n = NULL, r = 0)
 otherwise; a vector gives one value per size}
 
 \item{r}{average additive relationship between group mates, used with \code{n}}
+
+\item{weight}{for a fit with \code{weights}, the weight at which \code{var(residual)} is read;
+by default the harmonic mean of the weights of the records that entered the fit}
+
+\item{scale}{\code{TRUE} (default) puts every component on the scale of the records (the
+mean diagonal of each \code{kernel()} K, the \code{var_scale} of the metafounders); \code{FALSE}
+divides the raw components}
 }
 \value{
 a single number, or one per trait in the multi-trait case, named by trait;
@@ -52,11 +68,61 @@ either; \code{\link[=h2_observed]{h2_observed()}} and \code{\link[=h2_liability]
 
 No standard error travels with the number here; \code{\link[=se_function]{se_function()}} gives it by the delta
 method, and \code{\link[=t2]{t2()}} returns it for the indirect-effect model.
+
+THE MARKER OF THE TERM decides what the ratio is. In a sire model the sire variance is a
+quarter of the additive variance, so the heritability is \verb{4 var(sire) / Vp} (Falconer
+and Mackay 1996; Mrode and Pocrnic 2023, ch. 3), and that is what is returned for a
+\code{sire()} term. In the sire and maternal-grandsire model, \code{sire(sire, mgs = "mgs")}, a
+record carries \code{s + m / 2}, and with the sire and the grandsire unrelated the phenotypic
+variance is \code{var(sire) + var(sire) / 4 + var(residual)}, so \verb{h2 = 4 var(sire) / (1.25 var(sire) + var(residual) + others)}. Before this version both returned
+\code{var(sire) / Vp}, a quarter of the heritability. A term with no relationship matrix
+(\code{pe()}, \code{random()}) is refused: \code{var / Vp} there is a variance ratio, not a
+heritability, and the share column of \code{print(fit)} gives it.
+
+THE SCALE OF THE RECORDS (\code{scale = TRUE}). Every component enters at the variance it
+puts on a record. A \code{kernel()} component is multiplied by the mean diagonal of its K
+over the records that entered the fit, \code{mean(K[l_i, l_i])}: a partial multibreed matrix
+with diagonal 0.5 or an \code{\link[=associative_matrix]{associative_matrix()}} with diagonal 4 added with coefficient 1
+halved or quadrupled the term (measured: 0.336 where the right value is 0.157). This is
+the expected variance of the term in a record; Legarra (2016) compares variances across
+relationship models with the mean diagonal minus the mean of K, the variance in the
+reference population, which this function does not subtract. With metafounders every
+pedigree component is multiplied by \code{var_scale = 1 + mean(diag(Gamma)) / 2 - mean(Gamma)} (Legarra et al. 2015), the factor from the base of Gamma to the usual base,
+the one \code{\link[=estimate_gamma]{estimate_gamma()}} returns. A covariance between two terms takes the geometric
+mean of the two factors. \code{scale = FALSE} adds the raw components, the behaviour before
+this version.
+
+WEIGHTS. With \code{weights} in \code{\link[=model]{model()}}, \code{var(residual)} is the residual variance at
+weight 1, and a record of weight w has \code{var(residual) / w}; weights w and 10 w give the
+same breeding values and a different \code{var(residual)}. The ratio is read at \code{weight},
+by default the harmonic mean of the weights of the records that entered the fit, the
+weight whose residual variance is the mean residual variance of those records, so the
+answer does not depend on the scale of the weights. \code{weight = 1} gives the heritability
+of a record of weight 1 (the per-observation one when the weights are the numbers of
+observations averaged in each record).
+
+A FIT THAT DID NOT CONVERGE is read at its last iterate, with a warning. When the fit
+reports the information matrix SINGULAR and the variance of the numerator is in a set
+of components the data do not separate, the ratio moves along that ridge and is
+returned as \code{NA}, with a warning naming the components; a set that only touches the
+denominator (permanent environment and residual with one record per animal) leaves the
+number, with a warning. A fit with no estimates (theta \code{NA}) gives \code{NA}, saying so. A
+fit at given components (\code{maxiter = 0}) is read at those components without a word.
 }
 \references{
 Willham, R.L. (1972). The role of maternal effects in animal breeding:
 III. Biometrical aspects of maternal effects in animals. Journal of Animal Science
 35:1288-1293.
+
+Falconer, D.S. & Mackay, T.F.C. (1996). Introduction to Quantitative Genetics, 4th
+ed. Longman.
+
+Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
+Ancestral relationships using metafounders: finite ancestral populations and across
+population relationships. Genetics 200:455-468.
+
+Legarra, A. (2016). Comparing estimates of genetic variance across different
+relationship models. Theoretical Population Biology 107:26-30.
 
 Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 quantitative genetics of inheritance and response to selection. Genetics 175:277-288.

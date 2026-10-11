@@ -13,7 +13,11 @@ rg(fit, term = "animal", t1 = NULL, t2 = NULL)
 
 \item{t1}{name of the first trait}
 
-\item{t2}{name of the second}
+\item{t2}{name of the second
+A fit that did not converge is read at its last iterate, with a warning; when the fit
+reports the information matrix SINGULAR along a set of components that includes one of
+the two variances or the covariance, the correlation is returned as \code{NA}, with a
+warning naming the components, and so is a fit with no estimates.}
 }
 \value{
 a single number, the genetic correlation. No standard error travels with it, for the

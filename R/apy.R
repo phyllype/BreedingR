@@ -16,7 +16,8 @@
 
 #' Inverse of G by the APY algorithm
 #'
-#' @param m matrix of 0/1/2 genotypes (animals in rows); NA imputed by the mean
+#' @param m matrix of 0/1/2 genotypes (animals in rows); NA imputed by the mean, and an
+#'   animal with a call rate below 0.90 refused, as in [model()]
 #' @param core indices (or row names) of the core animals
 #' @param lambda shrinkage on the diagonal of G (G + lambda I) to guarantee Gcc is invertible;
 #'   the default 0.01 is the usual one and is REPORTED in the result
@@ -31,6 +32,8 @@
 #' @export
 apy_inverse <- function(m, core, lambda = 0.01) {
   if (!is.matrix(m)) stop("expected a matrix of genotypes")
+  # a mesma recusa dos ajustadores: a linha quase toda imputada pela media
+  if (is.double(m) || is.integer(m)) recusa_taxa_chamada(rownames(m), m)
   n <- nrow(m)
   if (is.character(core)) {
     if (is.null(rownames(m))) stop("core by name requires rownames on the matrix")
@@ -391,7 +394,8 @@ nucleo_apy <- function(apy_core, genotypes) {
   if (is.null(apy_core)) return(character(0))
   if (identical(apy_core, "auto")) {
     if (is.null(genotypes)) stop("apy_core = \"auto\" needs genotypes")
-    nuc <- suppressWarnings(apy_core_select(genotypes))
+    # quem chama ja conferiu os genotipos (valida_genotipos vem antes em todo ajustador)
+    nuc <- suppressWarnings(apy_core_select(ja_conferidos(genotypes)))
     fonte <- "auto"
   } else {
     nuc <- apy_core

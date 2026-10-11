@@ -258,11 +258,14 @@ to 0.055 for every check, and the combined p rejected 0.000 to 0.010 at 5\%; wit
 residual SD varying by a factor of about 1.4 across groups (2000 records) the combined p
 of \code{dispersion} rejected 1.000, of \code{normality} 0.72 (the mixture of variances is not
 normal) and of \code{koenker} against the covariate 0.005. For \code{family = "probit"} the draws
-are of the latent residual (variance 1): under the model the mean fraction of draws with
-\code{p < 0.05} was 0.037 to 0.049 and the combined p rejected none of 200 data sets
-(\code{pivotal_probit}, 640 records). The chain is checked against the data too: the design
-rebuilt from \code{data} times the posterior means must give the fitted values the chain
-stored, and each random group must have the levels of the chain. Beyond that the pedigree
+are of the latent residual (variance 1): under the model, with the contemporary group
+random and \code{by = "cg"} (\code{pivotal_probit}, 640 records; with the group fixed, a binary
+at the median leaves 7 to 27 of the 56 groups, median 17 over 200 draws of the data,
+with every record in one category, which \code{\link[=gibbs]{gibbs()}} refuses), the mean fraction of draws
+with \code{p < 0.05} was 0.042 to 0.047 and the combined p rejected none of 200 data sets.
+The chain is checked against the data too:
+the design rebuilt from \code{data} times the posterior means must give the fitted values the
+chain stored, and each random group must have the levels of the chain. Beyond that the pedigree
 and the genotypes are NOT checked against the chain (it keeps nothing of its \code{K} to
 compare with): they enter only the \code{K_jj} of the standardized breeding values, so another
 pedigree or other genotypes with the same animals change those \code{z} without an error, and

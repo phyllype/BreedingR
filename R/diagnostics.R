@@ -748,19 +748,54 @@ cadeias_do_ajuste <- function(fit) {
   }), n = nk, usadas = usadas, paradas = which(nk < esp), esperado = esp)
 }
 
-# h2 amostra a amostra com a definicao do summary(): alvo = a primeira var(), denominador =
-# a soma das var() e cov(); sem linha com indirect(), norma de reacao ([k]) ou multicaracter
-alvo_h2_gibbs <- function(nm, indireto) {
-  alvo <- grep("^var\\(", nm)[1]
-  if (is.na(alvo) || indireto || any(grepl("\\[\\d+\\]", nm)) || any(grepl("@", nm, fixed = TRUE)))
+# h2 amostra a amostra com a regra de h2() (R/extract.R, R/separabilidade.R): o termo e o do
+# grupo padrao (o primeiro com pedigree ou genomica, depois o primeiro kernel() com variancia
+# estimada; um termo iid nao e herdabilidade e nao da linha), o numerador leva 4 num sire()
+# e o denominador e a soma das var() e cov() com o var_scale dos metafundadores nos termos
+# de pedigree e, num sire(mgs =), a parte do avo materno. Antes era a primeira var() sobre a
+# soma, um quarto do h2 num modelo de touro. Sem linha com indirect(), norma de reacao ([k])
+# ou multicaracter. Um ajuste sem formula guardada (de versao anterior) usa a primeira var().
+# `peso` e o coeficiente de cada coluna no denominador e `mult` o do numerador.
+alvo_h2_gibbs <- function(nm, indireto, fit = NULL) {
+  if (indireto || any(grepl("\\[\\d+\\]", nm)) || any(grepl("@", nm, fixed = TRUE)))
     return(NULL)
-  list(alvo = alvo, den = grepl("^(var|cov)\\(", nm), nome = paste0(nm[alvo], " / phenotypic"))
+  den <- grepl("^(var|cov)\\(", nm)
+  termos <- if (is.null(fit)) list() else termos_do_ajuste(fit)
+  if (!length(termos)) {
+    alvo <- grep("^var\\(", nm)[1]
+    if (is.na(alvo)) return(NULL)
+    return(list(alvo = alvo, peso = as.double(den), mult = 1, fator = 1,
+                nome = paste0(nm[alvo], " / phenotypic")))
+  }
+  cand <- NULL
+  for (e in c(2L, 3L)) {
+    cs <- Filter(function(t) t$estrutura == e && !isTRUE(t$social) && !variancia_dada(t) &&
+                   paste0("var(", t$nome, ")") %in% nm, termos)
+    if (length(cs)) { cand <- cs[[1]]; break }
+  }
+  if (is.null(cand)) return(NULL)
+  alvo <- match(paste0("var(", cand$nome, ")"), nm)
+  m <- multiplicadores(list(theta = stats::setNames(rep(1, length(nm)), nm),
+                            formula = fit$formula, metafounders = fit$metafounders,
+                            gamma = fit$gamma))
+  peso <- unname(m) * den
+  for (k in names(fit$mgs_known)) {
+    j <- match(paste0("var(", k, ")"), nm)
+    if (!is.na(j)) peso[j] <- peso[j] + fit$mgs_known[[k]] * m[[j]] / 4
+  }
+  fator <- fator_h2(cand)
+  list(alvo = alvo, peso = peso, mult = unname(m[alvo]), fator = fator,
+       nome = paste0(if (fator != 1) paste0(fator, " "), nm[alvo], " / phenotypic"))
 }
+
+# a razao amostra a amostra de alvo_h2_gibbs(), nas colunas de m
+razao_h2_gibbs <- function(m, h)
+  h$fator * h$mult * m[, h$alvo] / drop(m %*% h$peso)
 
 # os derivados de cada cadeia: o h2 e a correlacao de cada cov(a,b) com var(a) e var(b)
 derivados_gibbs <- function(fit) {
   nm <- fit$names
-  h <- alvo_h2_gibbs(nm, tem_indireto(fit))
+  h <- alvo_h2_gibbs(nm, tem_indireto(fit), fit)
   cors <- Filter(Negate(is.null), lapply(grep("^cov\\(", nm), function(j) {
     ab <- strsplit(sub("^cov\\((.*)\\)$", "\\1", nm[j]), ",", fixed = TRUE)[[1]]
     ia <- match(paste0("var(", ab[1], ")"), nm)
@@ -770,7 +805,7 @@ derivados_gibbs <- function(fit) {
   }))
   function(m) {
     cols <- list()
-    if (!is.null(h)) cols[[h$nome]] <- m[, h$alvo] / rowSums(m[, h$den, drop = FALSE])
+    if (!is.null(h)) cols[[h$nome]] <- razao_h2_gibbs(m, h)
     for (cc in cors) cols[[cc$nome]] <- m[, cc$j] / sqrt(m[, cc$a] * m[, cc$b])
     if (!length(cols)) return(matrix(numeric(0), nrow(m), 0L))
     do.call(cbind, cols)
@@ -1049,7 +1084,8 @@ cadeias_de_dados <- function(x) {
 #' third block, the ceiling does not hold, and only the typical time is used, without
 #' calibration. A flagged level mixes slower than the ceiling allows or its chains disagree,
 #' and one case no run length fixes is a fixed effect whose posterior is improper, such as a
-#' contemporary group with every record in one category in the probit model. `ess_low` says
+#' covariate that separates the two categories in the probit model (a contemporary group
+#' with every record in one category is refused by [gibbs()] before the chain). `ess_low` says
 #' that the typical effective size of a term is below `ess_per_chain` per chain by a
 #' one-sided test at `alpha` (Bonferroni over the terms) on the median over its levels: with
 #' few levels that median is nearly one chi-square with `M - 1` degrees of freedom, and the

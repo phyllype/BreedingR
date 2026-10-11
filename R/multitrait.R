@@ -10,6 +10,13 @@
 
 #' Fits a multi-trait mixed model by AI-REML
 #'
+#' The structure checks of [model()] (see its section "Structure checks") apply here, on
+#' the rows with some trait observed and then on the rows of each trait, since the fixed
+#' effects are per trait (a random term nested in a fixed effect among the records of one
+#' trait stops the fit, naming the trait); the warning about repeated records names the
+#' first trait that has them. The univariate fits of the start run with those warnings
+#' silenced, so each is given once.
+#'
 #' @param formula with `cbind()` on the left-hand side: `cbind(p1, p2) ~ cg + animal(id)`. The
 #'   same effects apply to all traits; each covariance group gains the GENETIC
 #'   covariances between traits, and the residual becomes the full R0 matrix.
@@ -212,16 +219,21 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   }
   confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
+  if (!is.null(pedigree)) avisa_parentesco(cp, g)
   nuc <- nucleo_apy(apy_core, genotypes)
 
   kern <- monta_kernels(terms, environment(formula), data, traits, missing_code)
+  # a estrutura que o ajuste nao identifica ou que a mascara (R/separabilidade.R), uma vez:
+  # os ajustes univariados da partida rodam com esses avisos calados
+  notas <- confere_estrutura(terms, data, traits, missing_code, "model_mt()", maxiter > 0,
+                             kern = kern)
 
   t0 <- proc.time()[["elapsed"]]
   uni <- if (is.null(start) && maxiter > 0L)
-    otimos_univariados(function(f1, d1)
-      model(f1, d1, pedigree, genotypes = genotypes, blend = blend,
+    otimos_univariados(function(f1, d1) sem_avisos_estrutura(
+      model(f1, d1, pedigree, genotypes = ja_conferidos(genotypes), blend = blend,
             apy_core = nucleo_resolvido(apy_core, nuc), vecchia_k = vecchia_k,
-            metafounders = metafounders, gamma = gamma, verbose = FALSE),
+            metafounders = metafounders, gamma = gamma, verbose = FALSE)),
       formula, traits, data, missing_code, verbose) else list()
   ajusta <- function(uni) .Call(R_ajustar_mt,
              lst, names(lst), traits,
@@ -261,7 +273,11 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
   r$k_prior <- priori_kernels(terms, kern)
   r$k_level_type <- tipos_kernels(terms, kern)
-  structure(r, class = "breeding_fit_mt")
+  # o que a escala de h2(), t2() e do share le: a diagonal media de cada K nos registros,
+  # os kernels que sao a associative_matrix() do indirect() e o avo conhecido do sire(mgs =)
+  r <- anota_escala(r, terms, data)
+  r$components_given <- maxiter == 0
+  structure(anota_estrutura(r, notas), class = "breeding_fit_mt")
 }
 
 # A PARTIDA PADRAO DOS AJUSTES MULTICARACTER: o otimo univariado de cada caracteristica,
@@ -412,6 +428,11 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
 #' error is NOT given: it needs the delta method with the covariance between components, and
 #' the honesty here is the same as summary's, making the number up would be worse than not
 #' giving it.
+#'
+#' A fit that did not converge is read at its last iterate, with a warning; when the fit
+#' reports the information matrix SINGULAR along a set of components that includes one of
+#' the two variances or the covariance, the correlation is returned as `NA`, with a
+#' warning naming the components, and so is a fit with no estimates.
 #' @param fit result of model_mt()
 #' @param term name of the term (for example "animal")
 #' @param t1 name of the first trait
@@ -431,6 +452,13 @@ rg <- function(fit, term = "animal", t1 = NULL, t2 = NULL) {
   if (is.null(v1) || is.null(v2) || is.null(c12))
     stop("could not find the parameters of '", term, "' between ", t1, " and ", t2,
          "; the available names are in names(coef(fit))")
+  # o estado do ajuste (R/separabilidade.R): sem convergencia, aviso; com uma das tres
+  # componentes numa crista do veredito SINGULAR, ou sem estimativas, NA com aviso
+  nomes <- c(paste0("var(", term, "@", t1, ")"), paste0("var(", term, "@", t2, ")"),
+             paste0("cov(", term, "@", t2, ",", term, "@", t1, ")"),
+             paste0("cov(", term, "@", t1, ",", term, "@", t2, ")"))
+  if (estado_para_extrator(fit, "rg()", names(th), intersect(nomes, names(th))))
+    return(NA_real_)
   c12 / sqrt(v1 * v2)
 }
 
@@ -445,7 +473,7 @@ print.breeding_fit_mt <- function(x, ...) {
       " column(s) in the equations\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  mostra_componentes(tabela_componentes(x$theta, x$se, indireto = tem_indireto(x)))
+  mostra_componentes(tabela_componentes(x$theta, x$se, indireto = tem_indireto(x), fit = x))
   mostra_fixos(x$b, x$dropped_x)
   invisible(x)
 }

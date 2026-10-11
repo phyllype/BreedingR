@@ -89,6 +89,17 @@ covariance carries over from the other term at the same level, 0 when that covar
 is 0. A fit made before this version paired the levels of such a group by position;
 when its blocks do not carry the same level names it is refused, and it should be
 refitted either way.
+
+THE STATE OF THE FIT. A fit that did not converge is read at its last iterate, with a
+warning. When the fit reports the information matrix SINGULAR along a set of
+components that includes a variance or covariance of the group, the PEV and the
+variance move together along that ridge and the accuracy of every level is returned as
+\code{NA}, with a warning naming the components; a fit with no estimates (theta \code{NA}, the
+start was inadmissible) gives \code{NA} too, saying so (it used to stop with "no component
+'var(animal)'"). A fit at given components (\code{maxiter = 0}) is read at those components
+without a word. A PEV above the prior variance of its level beyond rounding gives
+accuracy 0 with a warning that counts those levels: the prior used is then not the one
+the level was fitted with, as for a non-genotyped animal of a single step (see above).
 }
 \references{
 Henderson, C.R. (1975). Best linear unbiased estimation and prediction

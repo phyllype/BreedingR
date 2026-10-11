@@ -143,8 +143,10 @@ test_that("model_mt() and model_ar1() carry the diagonal of K to accuracy()", {
   f <- model_mt(cbind(y, y2) ~ cg + animal(id) + kernel(id, K = K, nome = "dom"),
                 d, s$pedigree, maxiter = 4L, verbose = FALSE)
   expect_equal(f$k_prior$dom, diag(K))
+  # maxiter = 4: o ajuste nao convergiu, e accuracy() avisa (o numero e o do ultimo ponto)
   for (tr in c("y", "y2")) {
-    a <- accuracy(f, s$pedigree, "dom", trait = tr)
+    a <- expect_warning(accuracy(f, s$pedigree, "dom", trait = tr), "did not converge",
+                        class = "breedingr_estado")
     pv <- f$pev$dom[paste0(names(a), "|", tr)]
     ref <- sqrt(pmax(0, 1 - pv / (f$theta[[paste0("var(dom@", tr, ")")]] * diag(K)[names(a)])))
     expect_equal(unname(a), unname(ref), tolerance = 1e-12)
@@ -172,7 +174,7 @@ test_that("model_mt() and model_ar1() carry the diagonal of K to accuracy()", {
   }))
   fa <- model_ar1(y ~ cg + animal(id) + kernel(id, K = K, nome = "dom"),
                   dl, s$pedigree, subject = "id", time = "dia", maxiter = 4L, verbose = FALSE)
-  a <- accuracy(fa, group = "dom")
+  a <- expect_warning(accuracy(fa, group = "dom"), "did not converge", class = "breedingr_estado")
   ref <- sqrt(pmax(0, 1 - fa$pev$dom[names(a)] / (fa$theta[["var(dom)"]] * diag(K)[names(a)])))
   expect_equal(unname(a), unname(ref), tolerance = 1e-12)
 })

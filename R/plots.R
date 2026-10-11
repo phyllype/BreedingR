@@ -23,7 +23,7 @@
 h2_curve <- function(fit, group = NULL, limits, points = 101L) {
   if (!inherits(fit, "breeding_fit")) stop("expected the result of model()")
   if (missing(limits)) stop("provide the limits used in legendre(): the scale is part of the model")
-  if (is.null(group)) group <- names(fit$ebv)[1]
+  if (is.null(group)) group <- grupo_padrao(fit)
 
   th <- fit$theta
   nomes <- names(th)
@@ -91,10 +91,10 @@ plot.breeding_fit <- function(x, limits = NULL, ...) {
   e <- ebv(x)
   # numa precisao com niveis latentes (dominance_inverse()) so os animais: os efeitos de
   # subclasse estao em outra escala de variancia e nao sao valores de animal
-  tp <- x$k_level_type[[names(x$ebv)[1]]]
+  tp <- x$k_level_type[[grupo_padrao(x)]]
   if (!is.null(tp)) e <- e[names(e) %in% names(tp)[tp == "animal"]]
   graphics::hist(e, breaks = 40, col = "grey80", border = "white",
-                 xlab = "breeding value", main = paste("EBV -", names(x$ebv)[1]), ...)
+                 xlab = "breeding value", main = paste("EBV -", grupo_padrao(x)), ...)
   graphics::abline(v = 0, lty = 2)
   invisible(e)
 }

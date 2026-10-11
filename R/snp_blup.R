@@ -16,6 +16,9 @@
 #' identity `A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v` over the sparse blocks of
 #' `A^-1`, with one sparse factorization of the non-genotyped block.
 #'
+#' The structure checks of [model()] (see its section "Structure checks") run here as
+#' warnings: the components are given, so the solve exists.
+#'
 #' @param formula as in [model()]. The markers enter every relationship group and every
 #'   component of it, as `H^-1` does on the `genotypes=` path: direct-maternal in one
 #'   group, a reaction norm, direct and maternal in separate groups, the indirect effect
@@ -25,7 +28,10 @@
 #'   scalar one
 #' @param data data.frame
 #' @param pedigree data.frame animal, sire, dam (required: the model is single step)
-#' @param genotypes list with `ids` and `m` (0/1/2 matrix); NA is imputed with the mean
+#' @param genotypes list with `ids` and `m` (0/1/2 matrix); NA is imputed with the mean.
+#'   Checked as in [model()]: a repeated id, rownames that contradict `ids` or an animal
+#'   below a 0.90 call rate are refused, and a parent-offspring conflict with the pedigree
+#'   is a warning
 #' @param theta variance components, in the order [model()] reports for this formula
 #'   (each random group, then the residual). This is a solver at fixed components:
 #'   estimate them with [model()] (pedigree or single step) and solve here at scale
@@ -77,6 +83,10 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   confere_base_mf(cp$sire, cp$dam, metafounders, TRUE)
   g <- valida_genotipos(genotypes)
   if (length(g$gid) == 0) stop("snp_blup without genotypes has nothing to solve")
+  avisa_parentesco(cp, g)
+  # a estrutura que o desenho nao identifica (R/separabilidade.R): os componentes sao dados,
+  # entao so avisa
+  notas <- confere_estrutura(terms, data, trait, missing_code, "snp_blup()", FALSE)
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_snp_blup,
@@ -113,7 +123,7 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   r$rpg <- rpg
   r$formula <- formula_resolvida(formula, terms)
   r$trait <- trait
-  structure(r, class = "breeding_snp_blup")
+  structure(anota_estrutura(r, notas), class = "breeding_snp_blup")
 }
 
 #' @export

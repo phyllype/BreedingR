@@ -13,6 +13,15 @@
 
 #' Gibbs sampler for a single-trait mixed model
 #'
+#' The structure checks of [model()] (see its section "Structure checks") apply here: a
+#' design that does not identify a component stops the chain unless `theta_fixed =` gives
+#' the components (a random term inside a fixed effect leaves the chain walking the prior
+#' of that variance), and the warnings go to `message`. The h2 row of `summary()` and of
+#' [mcmc_diagnostics()] follows the rule of [h2()]: the first pedigree or genomic term,
+#' `4 var(sire)` in a sire model, the `var_scale` of the metafounders and the grandsire
+#' part of `sire(mgs =)` in the denominator; with only `pe()` or `random()` terms there is
+#' no h2 row.
+#'
 #' @param formula as in [model()] (all the same markers, including rn() and indirect())
 #' @param data data.frame
 #' @param pedigree data.frame animal, sire, dam
@@ -53,8 +62,17 @@
 #'   trait by data augmentation (Albert and Chib 1993; Sorensen, Andersen, Gianola and
 #'   Korsgaard 1995): each record gets a liability drawn from a normal truncated at 0 on
 #'   the side of its category, the residual variance is FIXED at 1 (it sets the scale of
-#'   the liability), and the implicit intercept stands for the threshold. The larger of
-#'   the two values of the trait is the upper category. A missing observation (`NA`,
+#'   the liability), and the implicit intercept stands for the threshold. The two values
+#'   are ordered by the rule of [model_threshold()], and the second is the upper
+#'   category: numbers (or logical) by value, a factor by its levels, text that reads as
+#'   numbers by value; text that is not a number is refused, with the order sorting
+#'   would give (sorted, "healthy" < "sick" happens to put the disease on top and
+#'   "diseased" < "healthy" does not), and a factor whose levels are in the alphabetical
+#'   order `factor()` gives text runs with a warning that names the upper category. A
+#'   level of a fixed class effect with every record in the same category is refused,
+#'   naming the level: with the flat prior of the fixed effects its posterior is improper
+#'   (Hoeschele and Tier 1995) and the chain drifts instead of converging; merge the
+#'   level, drop its records, or fit the effect as random. A missing observation (`NA`,
 #'   `NaN`, `Inf`, `-Inf`, blank text, the text "NaN" or `missing_code`) drops its
 #'   record, as in [model_threshold()]; it is never one of the two values. Everything
 #'   else is the chain of the Gaussian case: `kernel()`, `indirect()`, genotypes, APY and
@@ -93,6 +111,10 @@
 #'
 #'   Gelman, A. (2006). Prior distributions for variance parameters in hierarchical
 #'   models. Bayesian Analysis 1:515-534.
+#'
+#'   Hoeschele, I. & Tier, B. (1995). Estimation of variance components of threshold
+#'   characters by marginal posterior modes and means via Gibbs sampling. Genetics
+#'   Selection Evolution 27:519-540.
 #' @return samples matrix (kept iterations x parameters), posterior `mean` and `sd`,
 #'   the posterior mean/sd of every random effect (`ebv`, `ebv_sd`) and of every fixed
 #'   effect (`b`, `b_sd`, named `term=level` as in [model()], whose parametrization note
@@ -172,19 +194,33 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   })
   niveis_binarios <- NULL
   if (family == "probit") {
-    # a caracteristica vira 0/1: o MAIOR dos dois valores e o 1 (a categoria de cima da
-    # liability, como no modo conjunto do limiar)
-    # a observacao ausente pela regra do limiar (observacao_ausente(), R/indirect.R): o texto
-    # vazio era um dos dois valores e virava a classe 0
-    v <- lst[[trait]]
+    # a caracteristica vira 0/1: a SEGUNDA das duas categorias e o 1 (a de cima da
+    # liability), na ordem de ordena_categorias() (R/estrutura_categorica.R), a mesma do
+    # limiar. Antes o fator ia a texto e era ordenado em ordem alfabetica, e os niveis
+    # declarados (levels = c("low", "high")) eram ignorados: o sinal saia oposto ao do
+    # model_threshold() no mesmo dado. A observacao ausente pela regra do limiar
+    # (observacao_ausente(), R/indirect.R): o texto vazio era um dos dois valores e virava a
+    # classe 0
+    v <- data[[trait]]
     obs <- !observacao_ausente(v, missing_code)
-    niveis_binarios <- sort(unique(v[obs]))
-    if (length(niveis_binarios) != 2L)
+    n_val <- length(unique(v[obs]))
+    if (n_val != 2L)
       stop("family = \"probit\" is for a binary trait: '", trait, "' has ",
-           length(niveis_binarios), " distinct value(s)")
+           n_val, " distinct value(s)")
+    oc <- ordena_categorias(v[obs], trait, "gibbs(family = \"probit\")")
+    # binary_levels guarda o tipo de antes: double para numero e logico, texto para fator
+    niveis_binarios <- if (identical(oc$ordem, "number")) as.double(oc$categorias)
+                       else oc$categorias
     novo <- rep(NA_real_, length(v))
-    novo[obs] <- as.double(v[obs] == niveis_binarios[2])
+    novo[obs] <- as.double(oc$codes == 2L)
     lst[[trait]] <- novo
+    # a categoria extrema: com a priori plana dos efeitos fixos a posteriori do nivel e
+    # impropria e a cadeia deriva (medido em f2c0d69: b(cg=g3) 5.04, sem mensagem)
+    recusa_categoria_extrema(terms, data, obs, oc$codes, niveis_binarios,
+                             "gibbs(family = \"probit\")", paste0("'", trait, "'"),
+                             paste0(", and with the flat prior of the fixed effects its ",
+                                    "posterior is improper, so the chain drifts instead of ",
+                                    "converging (Hoeschele and Tier 1995)"))
   }
   ped_id <- ped_sire <- ped_dam <- character(0)
   if (!is.null(pedigree)) {
@@ -193,6 +229,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   }
   confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
+  if (!is.null(pedigree)) avisa_parentesco(cp, g)
   nuc <- nucleo_apy(apy_core, genotypes)
 
   # n_iter, burnin e thin inteiros: o laco do C++ faz (it - burnin) % thin, e thin = 0
@@ -219,6 +256,12 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # apontando para o global DO TRABALHADOR, onde o K nao existe (medido: "object 'Kp' not
   # found" com chains = 2, cores = 2). Avaliado uma vez, tambem nao se refaz por cadeia.
   kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
+  # a estrutura que a cadeia nao identifica ou que a mascara (R/separabilidade.R): um termo
+  # dentro de um efeito fixo deixava a cadeia andar na priori (medido em f2c0d69: var(animal)
+  # 1.29 e var(residual) 0.04 contra 0.3 e 0.5, ESS 4, sem mensagem). Com theta_fixed =, so
+  # avisa
+  notas <- confere_estrutura(terms, data, trait, missing_code, "gibbs()", is.null(theta_fixed),
+                             kern = kern)
   t0 <- proc.time()[["elapsed"]]
   # uma cadeia: com semente propria quando ha varias (sorteada do gerador de quem chama,
   # entao set.seed() governa tudo e a ordem de execucao nao muda nada)
@@ -276,8 +319,10 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     r$message <- paste0(r$message, if (nzchar(r$message)) "; " else "",
                         "probit: liabilities drawn from truncated normals (Albert and Chib ",
                         "1993), residual variance FIXED at 1, the threshold at 0 and the ",
-                        "implicit intercept in its place; '", niveis_binarios[2], "' is the ",
-                        "upper category")
+                        "implicit intercept in its place; ",
+                        if (identical(oc$ordem, "number"))
+                          paste0("'", niveis_binarios[2], "' is the upper category")
+                        else nota_categorias(oc, trait))
   }
   r$seconds <- proc.time()[["elapsed"]] - t0
   r <- anota_nucleo(r, nuc)
@@ -301,7 +346,10 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
   r$k_level_type <- tipos_kernels(terms, kern)
-  r <- structure(r, class = "breeding_gibbs")
+  # a fracao de registros com avo conhecido de cada sire(mgs =): o h2 do summary() e dos
+  # derivados de mcmc_diagnostics() segue a regra de h2()
+  r$mgs_known <- fracao_avo_conhecido(terms, data, r$used)
+  r <- structure(anota_estrutura(r, notas), class = "breeding_gibbs")
   # os diagnosticos ficam no ajuste (print e summary leem daqui); ess, rhat e geweke sao as
   # colunas dos componentes, so nas cadeias que foram ate o fim. Uma falha neles nao pode
   # custar a cadeia: o ajuste volta sem eles, e a mensagem diz por que

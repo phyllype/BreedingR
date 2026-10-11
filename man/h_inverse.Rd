@@ -17,7 +17,10 @@ h_inverse(
 \arguments{
 \item{pedigree}{data.frame animal, sire, dam (or a \code{\link[=sire_mgs]{sire_mgs()}} pedigree)}
 
-\item{genotypes}{list with \code{ids} and \code{m} (0/1/2, NA imputed by the marker mean)}
+\item{genotypes}{list with \code{ids} and \code{m} (0/1/2, NA imputed by the marker mean), checked
+as in \code{\link[=model]{model()}}: a repeated id, rownames that contradict \code{ids} or an animal below a
+0.90 call rate are refused, and a parent-offspring conflict with the pedigree is a
+warning (see \code{\link[=parentage_check]{parentage_check()}})}
 
 \item{blend}{weight of A22 in G*, the usual 0.05}
 

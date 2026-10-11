@@ -118,23 +118,45 @@
 #' level, and `exp(a)` the frailty of the animal -- POSITIVE means MORE risk of
 #' failure, so a good animal has a negative solution.
 #'
+#' The structure checks of [model()] (see its section "Structure checks") apply here, but
+#' for the warning about repeated records: the pieces of one animal are not repeated
+#' records. Without `sigma2 =` a design that does not identify a frailty component stops,
+#' with it the design is a warning.
+#'
 #' @param formula fixed class effects, `cov()` covariates, and one or more random terms
 #'   among `animal()`, `sire()`, `random()` and `indirect()` -- the frailties -- with
 #'   `group =` to put several in one covariance matrix. `rn()`, `kernel()`, `nested =`
 #'   and `sire(mgs =)` are not available here (`k_inverse=` is the door for a
 #'   relationship matrix the pedigree cannot build). The left-hand side is the time
-#'   column, strictly positive.
+#'   column, numeric and strictly positive: a factor or text time is refused, naming the
+#'   column, rather than read as its codes 1, 2, ...
 #' @param data data.frame with the columns referenced. Records with a missing time or
 #'   a missing censoring indicator are dropped and counted; they still count as pen
 #'   mates of `indirect()`. A missing level (`NA`, `NaN`, `Inf`, `-Inf`, blank text or
 #'   the text "NaN") or a missing covariate value is refused on every row, with the same
 #'   rule and message as in [model()]; a factor or text column in `cov()` is refused
-#'   rather than read as its codes.
+#'   rather than read as its codes. A level of a fixed class effect with no failure
+#'   among its records (all right-censored; with elementary records, among its pieces)
+#'   has no finite relative risk, the monotone likelihood of Heinze and Schemper (2001):
+#'   its solution runs to minus infinity, or, as a reference level held at the baseline
+#'   when `lambda` is given, the failures it lacks are loaded onto the frailties of its
+#'   animals. The fit is refused naming the level and its count: merge the level, drop
+#'   its records, or fit the effect as a random frailty. When every record is censored
+#'   there is no failure to estimate anything from, and the fit is refused unless `rho`,
+#'   `lambda` and `sigma2` are all given and there is no fixed effect; then it predicts
+#'   the frailties from the given values alone, and the fit message says so. Separation
+#'   by a `cov()` covariate (every record with a nonzero value censored) is not checked:
+#'   it shows as `converged = FALSE` with a diverging solution.
 #' @param pedigree data.frame animal, sire, dam; required with `animal()`, `sire()` or
 #'   `indirect()` unless `k_inverse` is given
 #' @param censor MANDATORY: the censoring indicator, as a column name or a vector --
 #'   1 (or TRUE) for a complete record, 0 (or FALSE) for a right-censored one. If no
-#'   record is censored, say so explicitly with a column of ones.
+#'   record is censored, say so explicitly with a column of ones. A factor or text
+#'   indicator is read by its LABELS ("0" and "1", or "TRUE" and "FALSE"), never by the
+#'   codes 1, 2, ... of the factor, and the fit message says so; any other label
+#'   ("dead", "alive") is refused with the labels it found. This differs from
+#'   `survival::Surv()`, which reads a factor event as a multi-state endpoint whose
+#'   FIRST level is censoring: here `factor(ev, levels = c(1, 0))` is still 1 complete.
 #' @param rho the Weibull shape: `NULL` (default) estimates it inside the Newton
 #'   system; a positive number fixes it (`rho = 1` is the exponential, the book's
 #'   choice in Example 16.1). Risk rises with age when `rho > 1` and falls when
@@ -161,7 +183,8 @@
 #' @param genotypes,blend,apy_core,vecchia_k single step, as in [model()]: the frailty
 #'   of a relationship term gets the `H^-1` of [h_inverse()] instead of `A^-1`
 #' @param entry column with the start of each elementary record (`0` for the first
-#'   piece of a subject observed from time zero); NULL means every row starts at 0
+#'   piece of a subject observed from time zero); NULL means every row starts at 0. It
+#'   is numeric, as the time: a factor or text column is refused
 #' @param subject column with the subject of each elementary record; required with
 #'   `entry`. The level of every frailty term other than `indirect()` must be the same
 #'   in every piece of a subject (so `random(pen)` refuses an animal that changes pen).
@@ -221,6 +244,8 @@
 #'   indirect genetic models is reduced when culled animals are omitted from the data.
 #'   Genet. Sel. Evol. 52, 8. Bijma, P. (2010) Multilevel selection 4: modeling the
 #'   relationship of indirect genetic effects and group size. Genetics 186, 1029-1031.
+#'   Heinze, G. & Schemper, M. (2001) A solution to the problem of monotone likelihood
+#'   in Cox regression. Biometrics 57, 114-119.
 #' @examples
 #' # Example 16.1 of Mrode & Pocrnic (data on p.284, solutions on p.291): length of
 #' # productive life of 12 cows in 2 herds, 4 of them censored, animal frailty with
@@ -295,18 +320,35 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
 
   falta <- setdiff(colunas_usadas(trait, terms), names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # a estrutura que o ajuste nao identifica ou que a mascara (R/separabilidade.R): para
+  # quando os componentes da fragilidade sao estimados, avisa quando sao dados; os trechos
+  # de um animal nao sao registros repetidos, e com lambda dado nao ha intercepto, entao
+  # nenhuma classe fixa absorve um termo inteiro (o primeiro nivel vale zero)
+  notas <- confere_estrutura(terms, data, trait, NULL, "model_survival()", is.null(sigma2),
+                             repeticao = FALSE, intercepto = is.null(lambda))
 
-  tv <- as.double(data[[trait]])
-  qv <- if (is.character(censor) && length(censor) == 1L) {
+  # o tempo, o inicio do trecho e o indicador pelas regras de R/estrutura_categorica.R: o
+  # fator e o texto no tempo sao recusados com o nome da coluna (antes entravam pelos codigos
+  # 1, 2, ...), e o indicador em fator e lido pelos rotulos (o fator de um nivel so "0" virava
+  # o codigo 1, completo)
+  tv <- le_tempo(data[[trait]], paste0("the time column '", trait, "'"), trait)
+  coluna_censura <- is.character(censor) && length(censor) == 1L
+  qv <- if (coluna_censura) {
     if (!censor %in% names(data)) stop("no column '", censor, "' in the data")
     data[[censor]]
   } else censor
   if (length(qv) != nrow(data))
     stop("censor must be a column name or a vector with one value per record")
-  qv <- as.double(qv)
-  if (any(!qv[!is.na(qv)] %in% c(0, 1)))
+  lc <- le_censura(qv, if (coluna_censura) paste0("the censoring indicator '", censor, "'")
+                       else "the censoring indicator")
+  qv <- lc$v
+  if (any(fora <- !is.na(qv) & !qv %in% c(0, 1)))
     stop("the censoring indicator takes 1 (complete) or 0 (right-censored), ",
-         "nothing else")
+         "nothing else: ", sum(fora), " record(s) have ",
+         lista_curta(sort(unique(qv[fora])), 5L),
+         if (all(qv[!is.na(qv)] %in% c(1, 2))) paste0(" (a 1/2 coding, as in survival::Surv, ",
+                                                       "is 1 censored and 2 complete: subtract 1)"),
+         call. = FALSE)
 
   # REGISTROS ELEMENTARES (entry, stop]: a covariavel dependente do tempo e constante
   # por trechos, e cada trecho e uma linha (Ducrocq e Solkner; o PREPARE do Survival Kit).
@@ -314,7 +356,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   ev <- if (is.null(entry)) rep(0, nrow(data)) else {
     if (!is.character(entry) || length(entry) != 1L || !entry %in% names(data))
       stop("entry must name the column of the start of each elementary record")
-    as.double(data[[entry]])
+    le_tempo(data[[entry]], paste0("the entry column '", entry, "'"), entry)
   }
   if (!is.null(entry) && is.null(subject))
     stop("with entry= the records are pieces of a subject's history: give subject= ",
@@ -352,6 +394,13 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   }
 
   fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = FALSE)
+  # sem falha nenhuma, ou um nivel fixo sem falha: o analogo da categoria extrema do limiar.
+  # Medido em f2c0d69: b(cg=g3) -195 com SE 1e41 e converged FALSE, ou, com lambda dado e o
+  # nivel de referencia sem falha, a media dos EBV dos animais dele -0.44 contra -0.32 e -0.35
+  # (verdade igual nos tres), so com a nota padrao
+  recusa_sem_falha(terms, data, keep, qv,
+                   list(rho = is.null(rho), lambda = is.null(lambda), sigma2 = is.null(sigma2)),
+                   fx$X$nomes)
   X <- fx$X
   est_lam <- is.null(lambda)
   if (est_lam) X <- xs_com_intercepto(X)
@@ -601,6 +650,10 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
     if (intervalos$n_lacunas > 0)
       paste0(intervalos$n_lacunas, " gap(s) between the elementary records of a subject ",
              "(gaps = \"allow\"): no risk is counted inside them"),
+    lc$nota,
+    if (!any(qv == 1))
+      paste0("every one of the ", n, " record(s) is right-censored: the frailties are ",
+             "predicted from the given rho, lambda and sigma2 and the censoring times alone"),
     paste0("solutions are log relative risks (exp gives the RRS); PEV and standard ",
            "errors are conditional on rho, lambda and the frailty components"))
 
@@ -633,7 +686,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
     design = list(fixed = fx$info, random = design_aleatorio(al)),
     seconds = proc.time()[["elapsed"]] - t0
   ), class = "breeding_fit_surv")
-  anota_k_inverse(anota_hinv(fit_s, hinv), k_inverse, hinv, rel)
+  anota_estrutura(anota_k_inverse(anota_hinv(fit_s, hinv), k_inverse, hinv, rel), notas)
 }
 
 
@@ -691,7 +744,8 @@ coef.breeding_fit_surv <- function(object, effects = c("components", "fixed"), .
 #'   pedigree (a sire without a record included) -- that is how the book computes the
 #'   percentage of live daughters.
 #' @param time survival mode only: the time (one number, or one per row of `newdata`)
-#'   at which to evaluate `S(t)`
+#'   at which to evaluate `S(t)`; numeric, so a factor or text is refused rather than
+#'   read as its codes (the same holds for `entry`)
 #' @param entry survival mode only: the time (one number, or one per row) the animal is
 #'   known alive at; the result is then `S(time | entry) = S(time) / S(entry)`, the
 #'   survival over the piece `(entry, time]` of an elementary record. For an animal whose
@@ -731,7 +785,9 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
   if (type == "risk") return(exp(d))
   if (is.null(time))
     stop("type = \"survival\" needs time=: S(t) is a function of the age asked about")
-  time <- as.double(time)
+  # fator ou texto em time= e entry= sao recusados, como no ajuste: antes o fator entrava
+  # pelos codigos (medido em f2c0d69: S(t) 0.94 onde a conta e 0.52)
+  time <- le_tempo(time, "time=", "time", names(newdata))
   if (length(time) == 1L) time <- rep(time, n)
   if (length(time) != n || any(!is.finite(time)) || any(time <= 0))
     stop("time must be one positive number, or one per row of newdata")
@@ -743,7 +799,7 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
   acumula <- function(t) (object$lambda * t)^object$rho
   base <- acumula(time)
   if (!is.null(entry)) {
-    entry <- as.double(entry)
+    entry <- le_tempo(entry, "entry=", "entry", names(newdata))
     if (length(entry) == 1L) entry <- rep(entry, n)
     if (length(entry) != n || any(!is.finite(entry)) || any(entry < 0) || any(entry >= time))
       stop("entry must be one number, or one per row, with 0 <= entry < time")
@@ -765,9 +821,14 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
 #'
 #' @param subjects data.frame, one row per subject: `id`, `time` (end of follow-up),
 #'   `event` (1 failure, 0 censored), the starting values of every time-dependent
-#'   covariate named in `changes`, and any time-fixed column
-#' @param changes data.frame: `id`, `at` (the time of the change, `> 0`) and the new values
-#'   of one or more time-dependent covariates (columns also present in `subjects`)
+#'   covariate named in `changes`, and any time-fixed column. `event` follows the rule of
+#'   `censor=` in [model_survival()]: a factor or text event is read by its labels ("0"
+#'   and "1", or "TRUE" and "FALSE"), never by the codes 1, 2, ... of the factor, and any
+#'   other label is refused; the output carries it as the number 0 or 1. `time` is
+#'   numeric: a factor or text time is refused, naming the column
+#' @param changes data.frame: `id`, `at` (the time of the change, `> 0`, numeric like
+#'   `time`) and the new values of one or more time-dependent covariates (columns also
+#'   present in `subjects`)
 #' @param id,time,event,at column names
 #' @return data.frame of elementary records: the subject columns, with `entry` added,
 #'   `time` holding the end of each piece and `event` its indicator, ordered by subject
@@ -792,10 +853,17 @@ survival_split <- function(subjects, changes, id = "id", time = "time", event = 
   # integer na outra era "1e+05" de um lado e "100000" do outro, e nao casava
   chave <- rotulo_motor(subjects[[id]])
   if (anyDuplicated(chave)) stop("a subject appears more than once in subjects")
-  fim <- as.double(subjects[[time]])
+  # o tempo e o evento pelas regras de model_survival() (R/estrutura_categorica.R). Medido em
+  # 12aca18: o fator de um nivel so "0" saia como um evento em cada sujeito, o fator 0/1 saia
+  # com os codigos 1 e 2, e o tempo e o `at` em fator entravam pelos codigos, calados
+  fim <- le_tempo(subjects[[time]], paste0("the time column '", time, "' of subjects"), time)
   if (any(!is.finite(fim)) || any(fim <= 0)) stop("time must be finite and > 0")
-  ev <- subjects[[event]]
-  if (any(!ev %in% c(0, 1))) stop("event must be 0 or 1")
+  ev <- le_censura(subjects[[event]], paste0("the event column '", event, "' of subjects"),
+                   "failure")$v
+  if (any(fora <- is.na(ev) | !ev %in% c(0, 1)))
+    stop("event must be 0 or 1 (1 failure, 0 censored): ", sum(fora), " subject(s) have ",
+         lista_curta(entre_aspas(sort(unique(as.character(ev[fora])), na.last = TRUE)), 5L),
+         call. = FALSE)
   de_quem <- rotulo_motor(changes[[id]])
   qual <- match(de_quem, chave)
   if (anyNA(qual)) {
@@ -803,7 +871,7 @@ survival_split <- function(subjects, changes, id = "id", time = "time", event = 
     stop("change(s) for subject(s) not in subjects: ",
          paste(utils::head(unique(de_quem[is.na(qual)]), 3), collapse = ", "))
   }
-  quando <- as.double(changes[[at]])
+  quando <- le_tempo(changes[[at]], paste0("the column '", at, "' of changes"), at)
   if (any(!is.finite(quando)) || any(quando <= 0))
     stop("at must be finite and > 0: the value at the start belongs in subjects")
   # repeticao EXATA pelas duas colunas; a chave paste(qual, quando) passava o tempo por

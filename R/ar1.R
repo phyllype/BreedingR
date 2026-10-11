@@ -8,6 +8,10 @@
 
 #' Fits a model with AR(1)/CAR(1) residual by AI-REML
 #'
+#' The structure checks of [model()] (see its section "Structure checks") apply here; the
+#' AR(1) residual with the animal as `subject` models the repetition, so repeated records
+#' of `animal()` give no warning then.
+#'
 #' @param formula as in [model()], including reaction norm (`rn(id, base = ...)`); a
 #'   `cbind(t1, t2)` left-hand side fits the multi-trait AR(1)/CAR(1) with the separable
 #'   residual `Gamma (x) R0` (full R0 between traits, one rho in time). A record with
@@ -165,17 +169,23 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
   }
   confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
+  if (!is.null(pedigree)) avisa_parentesco(cp, g)
   nuc <- nucleo_apy(apy_core, genotypes)
 
   kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
+  # a estrutura que o ajuste nao identifica ou que a mascara (R/separabilidade.R), uma vez;
+  # o AR(1) com o animal como sujeito ja modela a repeticao
+  notas <- confere_estrutura(terms, data, trait, missing_code, "model_ar1()", maxiter > 0,
+                             sujeito = subject, kern = kern)
 
   t0 <- proc.time()[["elapsed"]]
   uni <- if (is.null(start) && maxiter > 0L && length(trait) > 1L)
-    otimos_univariados(function(f1, d1)
-      model_ar1(f1, d1, pedigree, subject = subject, time = time, genotypes = genotypes,
+    otimos_univariados(function(f1, d1) sem_avisos_estrutura(
+      model_ar1(f1, d1, pedigree, subject = subject, time = time,
+                genotypes = ja_conferidos(genotypes),
                 blend = blend, apy_core = nucleo_resolvido(apy_core, nuc),
                 vecchia_k = vecchia_k, metafounders = metafounders, gamma = gamma,
-                verbose = FALSE),
+                verbose = FALSE)),
       formula, trait, data, missing_code, verbose) else list()
   ajusta <- function(uni) .Call(R_ajustar_ar1,
              lst, names(lst), trait,
@@ -223,7 +233,11 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
   # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
   r$k_prior <- priori_kernels(terms, kern)
   r$k_level_type <- tipos_kernels(terms, kern)
-  structure(r, class = "breeding_fit_ar1")
+  # o que a escala de h2(), t2() e do share le: a diagonal media de cada K nos registros,
+  # os kernels que sao a associative_matrix() do indirect() e o avo conhecido do sire(mgs =)
+  r <- anota_escala(r, terms, data)
+  r$components_given <- maxiter == 0
+  structure(anota_estrutura(r, notas), class = "breeding_fit_ar1")
 }
 
 #' Internal AR(1) evaluation, for the gates
@@ -296,7 +310,7 @@ print.breeding_fit_ar1 <- function(x, ...) {
       x$n_columns, " column(s) in the equations\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  mostra_componentes(tabela_componentes(x$theta, x$se, indireto = tem_indireto(x)))
+  mostra_componentes(tabela_componentes(x$theta, x$se, indireto = tem_indireto(x), fit = x))
   mostra_fixos(x$b, x$dropped_x)
   invisible(x)
 }

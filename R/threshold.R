@@ -118,6 +118,11 @@
 #' parameters reported in `theta` are read from G, NOT from Gc: reading h2 off Gc is
 #' the documented trap (g22 of Gc gives 0.117 where the book prints 0.18).
 #'
+#' The structure checks of [model()] (see its section "Structure checks") apply here: with
+#' `estimate = TRUE` a design that does not identify a component stops (all the records in
+#' one pen of `indirect()` kept the estimation running without end before this version),
+#' with the components given it is a warning, and the warnings go to `message`.
+#'
 #' @param formula as in [model()]: fixed class effects, `cov()` covariates, and random
 #'   terms among `animal()`, `sire()`, `random()` and `indirect()`, with `group =` to
 #'   put several terms in one covariance matrix (direct and indirect, typically). The
@@ -130,10 +135,32 @@
 #'   covariate value is refused on every row, with the same rule and message as in
 #'   [model()]; a factor or text column in `cov()` is refused rather than read as its
 #'   codes.
-#' @param data data.frame with the columns referenced. The categorical trait can be
-#'   integer codes, character or factor; categories are ordered by factor level order,
-#'   or by sort order otherwise. In the joint mode the second trait must have exactly
-#'   two values (the larger one is the "difficulty"). A missing observation (`NA`,
+#' @param data data.frame with the columns referenced. The categories of the trait run
+#'   from the lowest liability to the highest: numeric codes (or logical) by value; a
+#'   factor by its levels (an `ordered()` factor, or a factor whose levels were set in
+#'   the liability order, as MASS::polr and ordinal::clm read a factor response); text
+#'   that reads as numbers by value. Text that is not a number is REFUSED, and the
+#'   message shows the order sorting would give: text carries no order, and sorted
+#'   "low", "mid", "high" run high < low < mid, which inverts the scale. A factor whose
+#'   labels are numbers out of numeric order is refused (`factor()` of a numeric text
+#'   column gives "1" < "10" < "2"; a deliberate order such as `levels = 3:1` must be
+#'   declared with `ordered()`), and so is an `ordered()` factor whose levels are that text
+#'   order, what `ordered()` gives without `levels =`; labels that write one number twice
+#'   ("1" and "1.0") are refused too. A factor that is not ordered and whose levels are in
+#'   alphabetical order, what `factor()` and `read.csv(stringsAsFactors = TRUE)` give text
+#'   when `levels =` is not set, runs with a WARNING that shows the order used and the
+#'   count in each category (`ordered()` declares it and silences the warning; brms
+#'   refuses every unordered factor for an ordinal family, MASS::polr and ordinal::clm
+#'   take the levels silently). An `ordered()` factor is taken as the declared order, so
+#'   give it `levels =`: without them it sorts text alphabetically too, and only numeric
+#'   labels in text order are caught. When the order does not come from numbers the fit
+#'   message says which order was used, and for a binary trait which category is the
+#'   upper one. A level of a fixed class effect with every record in the lowest or in the
+#'   highest category (the extreme category problem; Misztal, Gianola and Foulley
+#'   1989) has no finite effect, and the fit is refused naming the level and its count:
+#'   merge the level, drop its records, or fit the effect as random. In the joint mode
+#'   the second trait must have exactly two values, ordered by the same rule (the upper
+#'   one is the "difficulty"), and the same check runs on it. A missing observation (`NA`,
 #'   `NaN`, `Inf`, `-Inf`, blank text, the text "NaN" or `missing_code`) drops its
 #'   record and is never a category, in either trait of the joint mode.
 #' @param pedigree data.frame animal, sire, dam; required with `animal()`, `sire()` or
@@ -221,6 +248,8 @@
 #'   197-224.
 #'   Tempelman, R.J. (1998) Generalized linear mixed models in dairy cattle breeding.
 #'   J. Dairy Sci. 81, 1428-1444.
+#'   Misztal, I., Gianola, D. & Foulley, J.L. (1989) Computing aspects of a nonlinear
+#'   method of sire evaluation for categorical data. J. Dairy Sci. 72, 1557-1568.
 #'   Bijma, P. (2010) Multilevel selection 4: modeling the relationship of indirect
 #'   genetic effects and group size. Genetics 186, 1029-1031.
 #' @examples
@@ -293,6 +322,11 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
             else deparse(lhs)
   falta <- setdiff(colunas_usadas(traits, terms), names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # a estrutura que o ajuste nao identifica ou que a mascara (R/separabilidade.R): para
+  # quando os componentes sao estimados (estimate = TRUE; a baia unica travava a estimacao
+  # por 120 s), avisa quando sao dados
+  notas <- confere_estrutura(terms, data, traits, missing_code, "model_threshold()",
+                             !conjunto && isTRUE(estimate))
 
   if (conjunto) {
     if (isTRUE(estimate))
@@ -304,9 +338,10 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
     if (!is.null(k_inverse) && length(rel) != 1L)
       stop("k_inverse replaces the A^-1 of exactly one relationship term in the joint ",
            "analysis")
-    return(anota_hinv(ajusta_limiar_conjunto(formula, traits, terms, aleat, data, pedigree,
-                                             k_inverse, start, missing_code, maxiter, tol,
-                                             verbose), hinv))
+    return(anota_estrutura(anota_hinv(ajusta_limiar_conjunto(formula, traits, terms, aleat,
+                                                             data, pedigree, k_inverse, start,
+                                                             missing_code, maxiter, tol,
+                                                             verbose), hinv), notas))
   }
   t0 <- proc.time()[["elapsed"]]
   pr <- prepara_limiar(formula, traits, terms, aleat, data, pedigree, k_inverse,
@@ -366,9 +401,11 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
       ". The Laplace approximation underestimates variances of binary traits with few ",
       "records per level (Tempelman 1998)")
   }
+  if (!is.null(pr$nota_categorias))
+    fit$message <- paste0(fit$message, "; ", pr$nota_categorias)
   fit$seconds <- proc.time()[["elapsed"]] - t0
   attr(fit, "estado") <- NULL
-  anota_k_inverse(anota_hinv(fit, hinv), k_inverse, hinv, rel)
+  anota_estrutura(anota_k_inverse(anota_hinv(fit, hinv), k_inverse, hinv, rel), notas)
 }
 
 # ------------------------------------------------------------------ shared pieces
@@ -672,16 +709,22 @@ prepara_limiar <- function(formula, trait, terms, aleat, data, pedigree, k_inver
   if (!any(keep)) stop("no record with an observed trait")
   y <- y[keep]
 
-  categorias <- if (is.factor(y)) levels(droplevels(y)) else sort(unique(y))
-  m <- length(categorias)
+  # a ordem das categorias pela regra de ordena_categorias() (R/estrutura_categorica.R): o
+  # texto que nao e numero e recusado, em vez de ordenado em ordem alfabetica
+  m <- length(unique(y))
   if (m < 2L) stop("the trait has a single category; there is nothing to model")
   if (m > 20L)
     stop("the trait has ", m, " distinct values: a threshold model is for a handful ",
          "of ORDERED categories; a continuous trait wants model()")
-  codes <- if (is.factor(y)) as.integer(droplevels(y)) else match(y, categorias)
+  oc <- ordena_categorias(y, trait, "model_threshold()")
+  categorias <- oc$categorias
+  m <- length(categorias)
+  codes <- oc$codes
   contagem <- tabulate(codes, m)
 
   fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = FALSE)
+  recusa_categoria_extrema(terms, data, keep, codes, categorias, "model_threshold()",
+                           paste0("'", trait, "'"), "")
   al <- prepara_aleatorios(aleat, data, pedigree, k_inverse, keep)
   n <- length(codes); nt <- m - 1L; p <- fx$X$p
   qs <- vapply(al$slots, function(sl) sl$q, integer(1))
@@ -692,7 +735,8 @@ prepara_limiar <- function(formula, trait, terms, aleat, data, pedigree, k_inver
     stop("the starting thresholds are not increasing and finite; a category with no ",
          "record has no estimable threshold -- merge or recode it")
   list(formula = formula, trait = trait, terms = terms, codes = codes, m = m, nt = nt,
-       categorias = categorias, contagem = contagem, fx = fx, X = fx$X, p = p, n = n,
+       categorias = categorias, contagem = contagem, nota_categorias = nota_categorias(oc, trait),
+       fx = fx, X = fx$X, p = p, n = n,
        al = al, pares = prepara_blocos(al$slots, n),
        offs = nt + p + c(0L, cumsum(qs))[seq_along(qs)], N = nt + p + sum(qs),
        tvec0 = tvec)
@@ -863,15 +907,22 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
   # o texto vazio no binario virava um terceiro valor, e o Inf no quantitativo entrava
   keep <- !observacao_ausente(y1, missing_code) & !observacao_ausente(y2raw, missing_code)
   y1 <- y1[keep]
-  vals2 <- sort(unique(as.character(y2raw[keep])))
-  if (length(vals2) != 2L)
+  # as duas categorias pela regra do modo ordinal (ordena_categorias()): antes o binario ia a
+  # texto e era ordenado em ordem alfabetica, que poe "10" antes de "9" e ignora os niveis de
+  # um fator
+  n2 <- length(unique(y2raw[keep]))
+  if (n2 != 2L)
     stop("the SECOND trait of the joint analysis must be binary (it has ",
-         length(vals2), " value(s)); an ordinal trait with more categories is fit ",
+         n2, " value(s)); an ordinal trait with more categories is fit ",
          "alone with model_threshold()")
-  y2 <- as.double(as.character(y2raw[keep]) == vals2[2])
+  oc2 <- ordena_categorias(y2raw[keep], traits[2], "model_threshold()")
+  vals2 <- oc2$categorias
+  y2 <- as.double(oc2$codes == 2L)
   n <- length(y1)
 
   fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = TRUE)
+  recusa_categoria_extrema(terms, data, keep, oc2$codes, vals2, "model_threshold()",
+                           paste0("the binary trait '", traits[2], "'"), "")
   X <- fx$X; nb <- X$p
   z <- monta_z_limiar(aleat, data, pedigree, k_inverse, keep)[[1]]
   q <- z$q
@@ -992,7 +1043,7 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
                                  stats::setNames(pev_u2, paste0(z$ids, "|", traits[2])))),
                           z$nome),
     nu = stats::setNames(nu, z$ids),
-    mean_quantitative = mean(y1), binary_levels = vals2,
+    mean_quantitative = mean(y1), binary_levels = as.character(vals2),
     design = list(fixed = fx$info,
                   random = list(list(nome = z$nome, column = z$column, ids = z$ids))),
     b_regression = breg, G = G, R = R, Gc = Gc,
@@ -1000,7 +1051,8 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
     n_used = n, n_columns = N,
     message = paste0("joint quantitative + binary analysis (Foulley et al. 1983); ",
                      "components GIVEN via start=; genetic parameters are read from ",
-                     "G, not from the reparametrized Gc"),
+                     "G, not from the reparametrized Gc",
+                     if (!is.null(nc <- nota_categorias(oc2, traits[2]))) paste0("; ", nc)),
     metafounders = NULL, gamma = NULL,
     formula = formula, type = "joint",
     seconds = NA_real_
@@ -1068,7 +1120,8 @@ coef.breeding_fit_thr <- function(object, effects = c("components", "fixed"), ..
 #' @param newdata data.frame with the fixed and random columns of the formula, the pen
 #'   column of every `indirect()` term (and, for the joint fit, the quantitative trait)
 #' @param type `"probability"` (default) for the n x m matrix of category
-#'   probabilities (joint fit: the probability of the larger binary value),
+#'   probabilities (joint fit: the probability of the upper binary category, the larger
+#'   value for numbers and the second level for a factor, `fit$binary_levels[2]`),
 #'   `"liability"` for the linear predictor, and for the joint fit `"quantitative"` for
 #'   the expected quantitative trait `x'b + u1`
 #' @param ... unused, kept for the generic

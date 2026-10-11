@@ -36,21 +36,38 @@ among \code{animal()}, \code{sire()}, \code{random()} and \code{indirect()} -- t
 \verb{group =} to put several in one covariance matrix. \code{rn()}, \code{kernel()}, \verb{nested =}
 and \code{sire(mgs =)} are not available here (\verb{k_inverse=} is the door for a
 relationship matrix the pedigree cannot build). The left-hand side is the time
-column, strictly positive.}
+column, numeric and strictly positive: a factor or text time is refused, naming the
+column, rather than read as its codes 1, 2, ...}
 
 \item{data}{data.frame with the columns referenced. Records with a missing time or
 a missing censoring indicator are dropped and counted; they still count as pen
 mates of \code{indirect()}. A missing level (\code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or
 the text "NaN") or a missing covariate value is refused on every row, with the same
 rule and message as in \code{\link[=model]{model()}}; a factor or text column in \code{cov()} is refused
-rather than read as its codes.}
+rather than read as its codes. A level of a fixed class effect with no failure
+among its records (all right-censored; with elementary records, among its pieces)
+has no finite relative risk, the monotone likelihood of Heinze and Schemper (2001):
+its solution runs to minus infinity, or, as a reference level held at the baseline
+when \code{lambda} is given, the failures it lacks are loaded onto the frailties of its
+animals. The fit is refused naming the level and its count: merge the level, drop
+its records, or fit the effect as a random frailty. When every record is censored
+there is no failure to estimate anything from, and the fit is refused unless \code{rho},
+\code{lambda} and \code{sigma2} are all given and there is no fixed effect; then it predicts
+the frailties from the given values alone, and the fit message says so. Separation
+by a \code{cov()} covariate (every record with a nonzero value censored) is not checked:
+it shows as \code{converged = FALSE} with a diverging solution.}
 
 \item{pedigree}{data.frame animal, sire, dam; required with \code{animal()}, \code{sire()} or
 \code{indirect()} unless \code{k_inverse} is given}
 
 \item{censor}{MANDATORY: the censoring indicator, as a column name or a vector --
 1 (or TRUE) for a complete record, 0 (or FALSE) for a right-censored one. If no
-record is censored, say so explicitly with a column of ones.}
+record is censored, say so explicitly with a column of ones. A factor or text
+indicator is read by its LABELS ("0" and "1", or "TRUE" and "FALSE"), never by the
+codes 1, 2, ... of the factor, and the fit message says so; any other label
+("dead", "alive") is refused with the labels it found. This differs from
+\code{survival::Surv()}, which reads a factor event as a multi-state endpoint whose
+FIRST level is censoring: here \code{factor(ev, levels = c(1, 0))} is still 1 complete.}
 
 \item{rho}{the Weibull shape: \code{NULL} (default) estimates it inside the Newton
 system; a positive number fixes it (\code{rho = 1} is the exponential, the book's
@@ -83,7 +100,8 @@ symmetric matrix with the ids as \code{dimnames}}
 Laplace -2logL when the components are being estimated}
 
 \item{entry}{column with the start of each elementary record (\code{0} for the first
-piece of a subject observed from time zero); NULL means every row starts at 0}
+piece of a subject observed from time zero); NULL means every row starts at 0. It
+is numeric, as the time: a factor or text column is refused}
 
 \item{subject}{column with the subject of each elementary record; required with
 \code{entry}. The level of every frailty term other than \code{indirect()} must be the same
@@ -234,6 +252,11 @@ factor order when the column is a factor, alphabetical order otherwise. Solution
 read as log relative risks: \code{exp(b)} is the risk ratio RRS against the reference
 level, and \code{exp(a)} the frailty of the animal -- POSITIVE means MORE risk of
 failure, so a good animal has a negative solution.
+
+The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here, but
+for the warning about repeated records: the pieces of one animal are not repeated
+records. Without \verb{sigma2 =} a design that does not identify a frailty component stops,
+with it the design is a warning.
 }
 \examples{
 # Example 16.1 of Mrode & Pocrnic (data on p.284, solutions on p.291): length of
@@ -272,4 +295,6 @@ Heidaritabar, M., Madsen, P. & Nielsen, H.M. (2020) The predictive ability of
 indirect genetic models is reduced when culled animals are omitted from the data.
 Genet. Sel. Evol. 52, 8. Bijma, P. (2010) Multilevel selection 4: modeling the
 relationship of indirect genetic effects and group size. Genetics 186, 1029-1031.
+Heinze, G. & Schemper, M. (2001) A solution to the problem of monotone likelihood
+in Cox regression. Biometrics 57, 114-119.
 }

@@ -8,7 +8,9 @@ g_matrix(genotypes)
 }
 \arguments{
 \item{genotypes}{list with \code{ids} and \code{m} (animals x markers, 0/1/2 coded); NA is
-imputed with the marker mean, and monomorphic markers are left out}
+imputed with the marker mean, and monomorphic markers are left out. A repeated id,
+rownames that contradict \code{ids} and an animal below a 0.90 call rate are refused, as
+in \code{\link[=model]{model()}}}
 }
 \value{
 genomic relationship matrix, rows and columns named by \code{ids}

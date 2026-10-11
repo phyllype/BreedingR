@@ -252,7 +252,8 @@ test_that("a missing covariate value stops every fitter instead of dropping the 
   expect_equal(ev_neg2(y ~ random(lote), d), 50.430239486919447, tolerance = 1e-10)
   d$x[9] <- NA
   expect_error(ev_neg2(y ~ cov(x) + random(lote), d), "NA in the covariate column 'x'")
-  com <- model(y ~ cov(x) + random(lote), z$d, verbose = FALSE)
+  # random(lote) de 4 lotes: o aviso de poucos niveis sai, e o portao segue
+  com <- expect_warning(model(y ~ cov(x) + random(lote), z$d, verbose = FALSE), "has 4 level", class = "breedingr_estrutura")
   expect_length(com$dropped_x, 0L)
   expect_true("x=x" %in% names(com$b))
   expect_equal(com$n_used, 48L)
@@ -304,7 +305,8 @@ test_that("a missing value in base= or in a nested covariate stops the engine fi
                   "term 'x': blank text in the column 'cg' in 1 row\\(s\\), the first at row 14")
   # braco: com o valor no lugar, as tres classes de cg ficam com a sua inclinacao
   d2$x[14] <- 0.5
-  f <- model(y ~ cov(x, nested = "cg") + random(lote), d2, verbose = FALSE)
+  f <- expect_warning(model(y ~ cov(x, nested = "cg") + random(lote), d2, verbose = FALSE),
+                      "has 4 level", class = "breedingr_estrutura")
   expect_length(f$dropped_x, 0L)
   expect_setequal(names(f$b), c("intercept", "x=c1", "x=c2", "x=c3"))
 })
@@ -557,10 +559,13 @@ test_that("a missing observation of a categorical trait drops its record, never 
   expect_equal(lim(d)$n_used, 46L)
   expect_identical(as.double(lim(d)$categories), c(1, 2, 3))
   # no fator, o NaN vira o nivel "NaN" (ausente) e o Inf o nivel "Inf", que e um NOME pela
-  # regra do texto (como na coluna de nivel): so o NaN sai
+  # regra do texto (como na coluna de nivel): so o NaN sai. Como "Inf" nao le como numero
+  # finito, os niveis em ordem alfabetica rodam com o aviso da ordem (test-estrutura-e5.R)
   d$s3 <- factor(d$s3)
-  expect_equal(lim(d)$n_used, 47L)
-  expect_identical(as.character(lim(d)$categories), c("1", "2", "3", "Inf"))
+  expect_warning(fi <- lim(d), paste0("the levels of the factor 's3' are in alphabetical ",
+                                      "order \\('1' < '2' < '3' < 'Inf'\\)"))
+  expect_equal(fi$n_used, 47L)
+  expect_identical(as.character(fi$categories), c("1", "2", "3", "Inf"))
   # braco: em f2c0d69, com "" nas linhas 4, 22 e 40, as categorias eram "" "1" "2" "3"
   # (contagens 3 10 17 18), os limiares -1.30984951163018692 -0.36770654083022036
   # 0.60406550631081390 e a -2logL 133.23306961590686, IDENTICOS aos de uma categoria "0"
@@ -577,8 +582,12 @@ test_that("a missing observation of a categorical trait drops its record, never 
   # o modo conjunto: o vazio no binario era um terceiro valor; agora e ausente
   G <- matrix(c(0.3, 0.1, 0.1, 0.2), 2)
   R <- matrix(c(1, 0.2, 0.2, 1), 2)
+  # o binario em texto vai como fator ordenado (o texto sem ordem e recusado, e o fator nao
+  # ordenado em ordem alfabetica roda com aviso: test-estrutura-e5.R): o vazio continua um
+  # nivel do fator, e o que se confere e que ele sai como ausente
   d <- transform(z$d, bin = ifelse(ev == 1, "z", "b"))
   d$bin[c(4, 22)] <- ""
+  d$bin <- ordered(d$bin)
   d$y[30] <- Inf
   j <- model_threshold(cbind(y, bin) ~ cg + animal(id), d, z$ped, start = list(G = G, R = R),
                        verbose = FALSE)
@@ -588,9 +597,10 @@ test_that("a missing observation of a categorical trait drops its record, never 
   # o probit de gibbs(): o vazio sai, e um traco so de "doente" e vazio nao e binario
   d <- transform(z$d, b = ifelse(ev == 1, "doente", "sao"))
   d$b[c(4, 22)] <- c("", "NaN")
+  d$b <- ordered(d$b)
   set.seed(3)
-  g <- gibbs(b ~ cg + random(lote), d, family = "probit", n_iter = 20L, burnin = 5L,
-             thin = 1L, verbose = FALSE)
+  g <- expect_warning(gibbs(b ~ cg + random(lote), d, family = "probit", n_iter = 20L,
+                            burnin = 5L, thin = 1L, verbose = FALSE), "has 4 level", class = "breedingr_estrutura")
   expect_identical(g$binary_levels, c("doente", "sao"))
   expect_equal(g$n_used, 46L)
   d$b <- ifelse(d$ev == 1, "doente", "")
@@ -779,6 +789,7 @@ test_that("the kernel guard of dominance_inverse(animals =) reads the observatio
   expect_identical(ajusta(d_mc, missing_code = -999)$neg2logl, f_na$neg2logl)
   d$b <- ifelse(d$y > 0, "sim", "nao")
   d$b[fora] <- c("", "NaN")
+  d$b <- ordered(d$b)
   set.seed(5)
   g <- gibbs(b ~ cg + kernel(id, Kinv = Dinv, nome = dom), d, family = "probit",
              n_iter = 30L, burnin = 10L, verbose = FALSE)

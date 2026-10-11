@@ -741,15 +741,24 @@ test_that("localizacoes no gibbs(): o efeito sem posteriori propria do probit e 
                     verbose = FALSE)
   expect_identical(controle$diagnostics$verdict, "ok")
   expect_identical(controle$diagnostics$locations$flagged, c(0L, 0L))
-  d$b[d$g2 == "g1_1"] <- 0L
+  # o NIVEL de classe todo numa categoria agora para antes da cadeia (test-estrutura-e5.R); a
+  # separacao por uma covariavel nao e conferida, e e ela que o R-hat de localizacao ainda tem
+  # de ver: x marca um subconjunto que corta todos os niveis de g2, todo na categoria 0
+  d1 <- d
+  d1$b[d1$g2 == "g1_1"] <- 0L
+  expect_error(gibbs(b ~ g2 + animal(id), d1, s$pedigree, n_iter = 50L, family = "probit",
+                     theta_fixed = c(0.3, 1), verbose = FALSE), "g2=g1_1 \\(all")
+  d$x <- as.double(seq_len(nrow(d)) %% 9 == 0)
+  d$b[d$x == 1] <- 0L
   set.seed(31)
-  g <- gibbs(b ~ g2 + animal(id), d, s$pedigree, n_iter = 1500L, burnin = 100L, thin = 1L,
-             family = "probit", theta_fixed = c(0.3, 1), chains = 3L, verbose = FALSE)
+  g <- gibbs(b ~ g2 + cov(x) + animal(id), d, s$pedigree, n_iter = 1500L, burnin = 100L,
+             thin = 1L, family = "probit", theta_fixed = c(0.3, 1), chains = 3L,
+             verbose = FALSE)
   dg <- g$diagnostics
   expect_identical(dg$verdict, "run longer")
   fx <- dg$locations[dg$locations$term == "(fixed effects)", ]
-  expect_identical(fx$flagged, 1L)          # medido: R-hat 1.149 contra o limite 1.01
-  expect_identical(names(dg$worst_levels[["(fixed effects)"]])[1], "g2=g1_1")
+  expect_identical(fx$flagged, 1L)          # medido: R-hat 1.574 contra o limite 1.032
+  expect_identical(names(dg$worst_levels[["(fixed effects)"]])[1], "x=x")
   expect_match(dg$reasons, "improper posterior, which no run length fixes", all = FALSE)
   # gaussiano com os componentes presos: as localizacoes sao iid e o teto e 1
   set.seed(32)

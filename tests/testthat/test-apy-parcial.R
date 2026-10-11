@@ -8,6 +8,12 @@
 # bater com o do ajuste no theta que ele devolve (o start= e reescalado por dentro, entao a
 # referencia usa fit$theta). O mesmo teste sem APY confere a reconstrucao da G*.
 
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 monta_caso <- function() {
   set.seed(21)
   n <- 120; n_geno <- 50
@@ -99,3 +105,5 @@ test_that("gibbs(): nucleo = todos reproduz a cadeia sem APY (a APY nao tinha po
   set.seed(5); g1 <- do.call(gibbs, c(args, list(apy_core = caso$gids)))
   expect_equal(g1$ebv, g0$ebv, tolerance = 1e-8)
 })
+
+options(op_parentesco)

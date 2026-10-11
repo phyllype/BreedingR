@@ -2406,6 +2406,121 @@ SEXP R_homozigose(SEXP gm) {
   )
 }
 
+// Uma mascara logica do R (NULL e "todos") num vetor de char de tamanho n; NA e recusado
+static std::vector<char> mascara_do_R(SEXP v, std::size_t n, const char* quem) {
+  std::vector<char> out;
+  if (v == R_NilValue) return out;
+  if (TYPEOF(v) != LGLSXP || (std::size_t) XLENGTH(v) != n)
+    throw br::Erro(std::string(quem) + ": expected a logical vector of length " +
+                   std::to_string(n));
+  out.resize(n);
+  const int* x = LOGICAL(v);
+  for (std::size_t k = 0; k < n; k++) {
+    if (x[k] == NA_LOGICAL) throw br::Erro(std::string(quem) + ": NA in the logical vector");
+    out[k] = x[k] ? 1 : 0;
+  }
+  return out;
+}
+
+// Contagens de 0, 1 e 2 por marcador nas linhas marcadas (NULL: todas), list(n0, n1, n2)
+SEXP R_contagens_marcadores(SEXP gm, SEXP linhas) {
+  GUARDA(
+    const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    const std::vector<char> lin = mascara_do_R(linhas, g.n, "rows");
+    SEXP n0 = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) g.m));
+    SEXP n1 = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) g.m));
+    SEXP n2 = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) g.m));
+    br::contagens_marcadores(g, lin.empty() ? nullptr : lin.data(), REAL(n0), REAL(n1),
+                             REAL(n2));
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 3));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 3));
+    SET_STRING_ELT(nms, 0, Rf_mkChar("n0"));
+    SET_STRING_ELT(nms, 1, Rf_mkChar("n1"));
+    SET_STRING_ELT(nms, 2, Rf_mkChar("n2"));
+    SET_VECTOR_ELT(out, 0, n0);
+    SET_VECTOR_ELT(out, 1, n1);
+    SET_VECTOR_ELT(out, 2, n2);
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(5);
+    return out;
+  )
+}
+
+// Contagens de 0, 1 e 2 por marcador so nas linhas dadas (inteiras, base 1), list(n0, n1, n2)
+SEXP R_contagens_linhas(SEXP gm, SEXP linhas) {
+  GUARDA(
+    const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    if (TYPEOF(linhas) != INTSXP) throw br::Erro("marker counts: expected integer rows");
+    const R_xlen_t k = XLENGTH(linhas);
+    std::vector<std::size_t> lin((std::size_t) k);
+    for (R_xlen_t a = 0; a < k; a++) {
+      const int x = INTEGER(linhas)[a];
+      if (x == NA_INTEGER || x < 1) throw br::Erro("marker counts: rows must be positive integers");
+      lin[(std::size_t) a] = (std::size_t) x - 1;
+    }
+    SEXP n0 = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) g.m));
+    SEXP n1 = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) g.m));
+    SEXP n2 = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) g.m));
+    br::contagens_nas_linhas(g, lin, REAL(n0), REAL(n1), REAL(n2));
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 3));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 3));
+    SET_STRING_ELT(nms, 0, Rf_mkChar("n0"));
+    SET_STRING_ELT(nms, 1, Rf_mkChar("n1"));
+    SET_STRING_ELT(nms, 2, Rf_mkChar("n2"));
+    SET_VECTOR_ELT(out, 0, n0);
+    SET_VECTOR_ELT(out, 1, n1);
+    SET_VECTOR_ELT(out, 2, n2);
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(5);
+    return out;
+  )
+}
+
+// Chamadas por animal nos marcadores marcados (NULL: todos)
+SEXP R_chamadas_animal(SEXP gm, SEXP colunas) {
+  GUARDA(
+    const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    const std::vector<char> usa = mascara_do_R(colunas, g.m, "markers");
+    SEXP cham = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) g.n));
+    br::chamadas_por_animal(g, usa.empty() ? nullptr : usa.data(), REAL(cham));
+    UNPROTECT(1);
+    return cham;
+  )
+}
+
+// Pares pai-filho: linhas em base 1 do filho e do pai nos genotipos, nos marcadores marcados
+// (NULL: todos), list(both, opposite)
+SEXP R_conflitos_parentesco(SEXP gm, SEXP filho, SEXP pai, SEXP colunas) {
+  GUARDA(
+    const br::Genotipos g = genotipos_do_R(gm, (std::size_t) Rf_nrows(gm));
+    if (TYPEOF(filho) != INTSXP || TYPEOF(pai) != INTSXP || XLENGTH(filho) != XLENGTH(pai))
+      throw br::Erro("parentage: expected two integer vectors of rows of the same length");
+    const std::vector<char> usa = mascara_do_R(colunas, g.m, "markers");
+    const R_xlen_t np = XLENGTH(filho);
+    std::vector<std::size_t> f((std::size_t) np), p((std::size_t) np);
+    for (R_xlen_t k = 0; k < np; k++) {
+      const int a = INTEGER(filho)[k], b = INTEGER(pai)[k];
+      if (a == NA_INTEGER || b == NA_INTEGER || a < 1 || b < 1)
+        throw br::Erro("parentage: rows must be positive integers");
+      f[(std::size_t) k] = (std::size_t) a - 1;
+      p[(std::size_t) k] = (std::size_t) b - 1;
+    }
+    SEXP ambos = PROTECT(Rf_allocVector(REALSXP, np));
+    SEXP opostos = PROTECT(Rf_allocVector(REALSXP, np));
+    br::conflitos_parentesco(g, f, p, usa.empty() ? nullptr : usa.data(), REAL(ambos),
+                             REAL(opostos));
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 2));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 2));
+    SET_STRING_ELT(nms, 0, Rf_mkChar("both"));
+    SET_STRING_ELT(nms, 1, Rf_mkChar("opposite"));
+    SET_VECTOR_ELT(out, 0, ambos);
+    SET_VECTOR_ELT(out, 1, opostos);
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(4);
+    return out;
+  )
+}
+
 // (M - c)' V, m x k, sem formar M - c: V e uma matriz double n x k e c um escalar (o ausente
 // vale c, isto e, nao contribui)
 SEXP R_genotipos_tv(SEXP gm, SEXP v, SEXP centro) {
@@ -2929,6 +3044,10 @@ static const R_CallMethodDef metodos[] = {
   {"R_g_matrix",   (DL_FUNC) &R_g_matrix,   1},
   {"R_g_dominancia", (DL_FUNC) &R_g_dominancia, 1},
   {"R_homozigose", (DL_FUNC) &R_homozigose, 1},
+  {"R_contagens_marcadores", (DL_FUNC) &R_contagens_marcadores, 2},
+  {"R_contagens_linhas", (DL_FUNC) &R_contagens_linhas, 2},
+  {"R_chamadas_animal", (DL_FUNC) &R_chamadas_animal, 2},
+  {"R_conflitos_parentesco", (DL_FUNC) &R_conflitos_parentesco, 4},
   {"R_genotipos_tv", (DL_FUNC) &R_genotipos_tv, 3},
   {"R_conta_ausentes", (DL_FUNC) &R_conta_ausentes, 1},
   {"R_fracoes_genes", (DL_FUNC) &R_fracoes_genes, 4},

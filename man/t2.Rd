@@ -38,12 +38,20 @@ formula the literature computes by hand (Leite et al. 2023 use it with the avera
 group size and relationship).
 }
 \details{
-Every other variance and covariance of the trait enters with coefficient 1. A
-residual indirect structure declared through \code{\link[=associative_matrix]{associative_matrix()}} is a \code{\link[=kernel]{kernel()}}
-component whose diagonal is not 1; its contribution to the phenotypic variance is
-\code{mean(diag(K))} times the component, which this function does not know and does not
-add. With pens of different sizes, give the sizes as a vector and read one row per
-size, or give the average size, the convention of the literature.
+Every other variance and covariance of the trait enters on the scale of the records,
+as in \code{\link[=h2]{h2()}}: a \code{\link[=kernel]{kernel()}} component times the mean diagonal of its K over the records
+that entered the fit (a residual indirect structure declared through
+\code{\link[=associative_matrix]{associative_matrix()}} has diagonal \code{n - 1}, and before this version it entered with
+coefficient 1), the pedigree components times the \code{var_scale} of the metafounders, and
+\code{var(residual)} at the harmonic mean weight. With pens of different sizes, give the
+sizes as a vector and read one row per size, or give the average size, the convention
+of the literature.
+
+A fit that did not converge is read at its last iterate, with a warning. When the fit
+reports the information matrix SINGULAR along a set of components that includes the
+direct or the indirect variance or their covariance, \code{t2}, \code{var_tbv} and their
+standard error are \code{NA}, and so is \code{h2_direct} when the set includes the direct
+variance, with a warning naming the components.
 
 On a \code{\link[=model_threshold]{model_threshold()}} fit the numbers are on the liability scale, with the
 residual fixed at 1 in the denominator; with pens of unequal size and an environmental

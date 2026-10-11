@@ -35,7 +35,9 @@
 #'   text or the text "NaN") is refused on every row, as a level column of [model()]; an
 #'   id that is present but not among the genotyped animals leaves its record, counted in
 #'   `dropped`
-#' @param genotypes `list(ids, m)` with dosages 0/1/2 (`NA` imputed by the marker mean)
+#' @param genotypes `list(ids, m)` with dosages 0/1/2 (`NA` imputed by the marker mean); a
+#'   repeated id, rownames that contradict `ids` or an animal below a 0.90 call rate are
+#'   refused, as in [model()]
 #' @param environment name of the environment column for the long form: each level becomes
 #'   a trait. A missing environment is refused on every row, by the same rule as `id`:
 #'   it would become one more trait, or its records would vanish uncounted

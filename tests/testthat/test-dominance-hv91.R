@@ -113,6 +113,12 @@ dados_dom <- function(ped, seed = 1, p_reg = 0.8) {
   list(d = d, D = D, rec = rec)
 }
 
+# dados_dom() tem dois registros por animal e nenhum ambiente permanente simulado: os
+# ajustadores que estimam avisam da repeticao sem pe() (test-estrutura-e6.R), e aqui o aviso
+# e conferido e o portao segue
+com_repeticao <- function(expr)
+  expect_warning(expr, "have more than one record", class = "breedingr_estrutura")
+
 # ---------------------------------------------------------------------------------- G1
 test_that("G1 HV91 Table 1: the subclass F printed on p.564 and D = .25 W F W' + .75 I", {
   # F e F^-1 impressas na p.564, na ordem impressa NxF, HxI, HxG, HxF, CxE, AxB, NxA, HxA
@@ -594,9 +600,9 @@ test_that("G4 model(): -2logL, score and AI at fixed theta equal kernel(K = D)",
     expect_lt(max(abs(e2$score - e_rr$score)), 1e-9)
   }
   # REML completo: o mesmo theta, o mesmo -2logL e os mesmos d-hat dos animais
-  f0 <- model(y ~ cg + animal(id) + kernel(id, K = D), z$d, ped, verbose = FALSE)
-  f1 <- model(y ~ cg + animal(id) + kernel(id, Kinv = dominance_inverse(ped)), z$d, ped,
-              verbose = FALSE)
+  f0 <- com_repeticao(model(y ~ cg + animal(id) + kernel(id, K = D), z$d, ped, verbose = FALSE))
+  f1 <- com_repeticao(model(y ~ cg + animal(id) + kernel(id, Kinv = dominance_inverse(ped)),
+                            z$d, ped, verbose = FALSE))
   expect_equal(unname(f1$theta), unname(f0$theta), tolerance = 1e-6)
   expect_equal(f1$neg2logl, f0$neg2logl, tolerance = 1e-10)
   d0 <- ebv(f0, "kernel")
@@ -652,15 +658,17 @@ test_that("G4 model_mt() and model_ar1(): -2logL at fixed theta equals kernel(K 
   # de D (start_scale), e nao pela de K_aug: depois de UMA iteracao os dois caminhos estao no
   # mesmo theta. Com a escala de K_aug (0.36 contra 0.93 num caso medido) partiriam de pontos
   # diferentes, e o multicaracter pode convergir para -2logL diferentes conforme a partida.
-  h0 <- model_mt(cbind(y, y2) ~ cg + animal(id) + kernel(id, K = D), z$d, ped,
-                 maxiter = 1L, verbose = FALSE)
-  h1 <- model_mt(cbind(y, y2) ~ cg + animal(id) + kernel(id, Kinv = dominance_inverse(ped)),
-                 z$d, ped, maxiter = 1L, verbose = FALSE)
+  h0 <- com_repeticao(model_mt(cbind(y, y2) ~ cg + animal(id) + kernel(id, K = D), z$d, ped,
+                               maxiter = 1L, verbose = FALSE))
+  h1 <- com_repeticao(model_mt(cbind(y, y2) ~ cg + animal(id) +
+                                 kernel(id, Kinv = dominance_inverse(ped)),
+                               z$d, ped, maxiter = 1L, verbose = FALSE))
   expect_lt(max(abs(h1$theta - h0$theta)), 1e-9)
-  g0 <- model_mt(cbind(y, y2) ~ cg + animal(id) + kernel(id, K = D), z$d, ped,
-                 maxiter = 60L, verbose = FALSE)
-  g1 <- model_mt(cbind(y, y2) ~ cg + animal(id) + kernel(id, Kinv = dominance_inverse(ped)),
-                 z$d, ped, maxiter = 60L, verbose = FALSE)
+  g0 <- com_repeticao(model_mt(cbind(y, y2) ~ cg + animal(id) + kernel(id, K = D), z$d, ped,
+                               maxiter = 60L, verbose = FALSE))
+  g1 <- com_repeticao(model_mt(cbind(y, y2) ~ cg + animal(id) +
+                                 kernel(id, Kinv = dominance_inverse(ped)),
+                               z$d, ped, maxiter = 60L, verbose = FALSE))
   expect_equal(g1$neg2logl, g0$neg2logl, tolerance = 1e-8)
   expect_equal(unname(g1$theta), unname(g0$theta), tolerance = 1e-3)
 })
@@ -672,17 +680,21 @@ test_that("G4 gibbs(): the same start as K = D, and the BLUP with the components
   Dr <- D[z$rec, z$rec]
   # A PARTIDA: a parte do kernel dividida pela media geometrica dos autovalores de D (a
   # start_scale), e nao pela de K_aug. Deterministica, e a unica coisa que a escala muda.
-  p0 <- gibbs(y ~ cg + animal(id) + kernel(id, K = D), z$d, ped, n_iter = 2L, burnin = 0L,
-              thin = 1L, verbose = FALSE)$start
-  pr <- gibbs(y ~ cg + animal(id) + kernel(id, K = Dr), z$d, ped, n_iter = 2L, burnin = 0L,
-              thin = 1L, verbose = FALSE)$start
+  p0 <- com_repeticao(gibbs(y ~ cg + animal(id) + kernel(id, K = D), z$d, ped, n_iter = 2L,
+                            burnin = 0L, thin = 1L, verbose = FALSE))$start
+  pr <- com_repeticao(gibbs(y ~ cg + animal(id) + kernel(id, K = Dr), z$d, ped, n_iter = 2L,
+                            burnin = 0L, thin = 1L, verbose = FALSE))$start
   for (rota in c("dense", "sparse")) {
-    p1 <- gibbs(y ~ cg + animal(id) + kernel(id, Kinv = dominance_inverse(ped, route = rota)),
-                z$d, ped, n_iter = 2L, burnin = 0L, thin = 1L, verbose = FALSE)$start
+    p1 <- com_repeticao(gibbs(y ~ cg + animal(id) +
+                                kernel(id, Kinv = dominance_inverse(ped, route = rota)),
+                              z$d, ped, n_iter = 2L, burnin = 0L, thin = 1L,
+                              verbose = FALSE))$start
     expect_equal(p1, p0, tolerance = 1e-12)
-    p2 <- gibbs(y ~ cg + animal(id) + kernel(id, Kinv = dominance_inverse(ped, animals = z$rec,
-                                                                            route = rota)),
-                z$d, ped, n_iter = 2L, burnin = 0L, thin = 1L, verbose = FALSE)$start
+    p2 <- com_repeticao(gibbs(y ~ cg + animal(id) +
+                                kernel(id, Kinv = dominance_inverse(ped, animals = z$rec,
+                                                                    route = rota)),
+                              z$d, ped, n_iter = 2L, burnin = 0L, thin = 1L,
+                              verbose = FALSE))$start
     expect_equal(p2, pr, tolerance = 1e-12)
   }
   # A media a posteriori com theta preso e o BLUP: localizacoes amostradas num bloco unico,

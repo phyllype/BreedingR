@@ -354,7 +354,10 @@ test_that("baias de um animal so: o indireto nao tem incidencia e estimar e recu
   form <- y ~ hy + animal(id, group = "g") + indirect(id, pen = "pen", group = "g")
   expect_error(model_threshold(form, dd, s$ped, start = c(0.3, -0.06, 0.1), estimate = TRUE,
                                verbose = FALSE), "no record has a pen mate")
-  f <- model_threshold(form, dd, s$ped, start = c(0.3, -0.06, 0.1), verbose = FALSE)
+  # nos componentes dados o ajuste roda, e o aviso diz que nada se sabe do indireto
+  f <- expect_warning(model_threshold(form, dd, s$ped, start = c(0.3, -0.06, 0.1),
+                                      verbose = FALSE),
+                      "no record has a pen mate", class = "breedingr_estrutura")
   q <- length(s$ped$id)
   expect_true(f$converged)
   # sem dado nenhum, o indireto e so a regressao no direto pela priori: (g21 / g11) u_D

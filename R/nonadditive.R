@@ -308,7 +308,9 @@ dominance_inverse <- function(ped, animals = NULL, route = c("auto", "dense", "s
 #' as the book does in its examples.
 #'
 #' @param genotypes list with `ids` and `m` (animals x markers, 0/1/2 coded); NA is
-#'   imputed with the marker mean, and monomorphic markers are left out
+#'   imputed with the marker mean, and monomorphic markers are left out. A repeated id,
+#'   rownames that contradict `ids` and an animal below a 0.90 call rate are refused, as
+#'   in [model()]
 #' @return genomic relationship matrix, rows and columns named by `ids`
 #' @examples
 #' geno <- list(ids = c("a", "b"), m = rbind(c(0, 1, 2), c(2, 1, 0)))
@@ -473,7 +475,9 @@ g_epistasis_order <- function(g, order = 2L) {
 #' genomic_inbreeding(geno)   # a: 1 - 1/3; b: 1 - 2/3
 #' @export
 genomic_inbreeding <- function(genotypes) {
-  g <- valida_genotipos(genotypes)
+  # F = 1 - het/obs le so os marcadores observados de cada animal: a taxa de chamada baixa
+  # nao imputa nada aqui, e o animal sem nenhum observado ja e recusado abaixo
+  g <- valida_genotipos(genotypes, taxa_chamada = FALSE)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
   # heterozigotos e observados por animal no C++, sem converter a matriz
   h <- .Call(R_homozigose, g$gm)

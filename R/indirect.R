@@ -257,9 +257,26 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
   # as any other start.
   avaliadas <- list()
   warm <- NULL
+  # os genotipos conferidos uma vez so (ids, taxa de chamada, o aviso de parentesco), e nao em
+  # cada ajuste da grade e da secao aurea, que repetiam o aviso a cada k. O primeiro ajuste os
+  # confere por inteiro dentro do model(), e so os seguintes recebem a marca: o argumento chega
+  # a ajusta_em() pela regra do R (nome exato, parcial como geno = g, ou posicao), e a marca
+  # vai sempre num objeto que o model() ja conferiu. Procurar o nome exato em list(...) para
+  # conferir por fora deixava geno = g passar marcado sem conferencia nenhuma.
+  conferido <- FALSE
+  ajusta_em <- function(w, genotypes = NULL, ...) {
+    if (conferido && !is.null(genotypes)) genotypes <- ja_conferidos(genotypes)
+    # os avisos de estrutura (R/separabilidade.R) saem no primeiro ajuste, e nao uma vez por
+    # ponto da grade
+    ajuste <- function() model(formula, data, pedigree, weights = w, verbose = FALSE,
+                               start = warm, genotypes = genotypes, ...)
+    f <- if (conferido) sem_avisos_estrutura(ajuste()) else ajuste()
+    conferido <<- TRUE
+    f
+  }
   perfil <- function(k) {
     w <- 1 / (1 + coef_social(n, dil) * k)
-    f <- model(formula, data, pedigree, weights = w, verbose = FALSE, start = warm, ...)
+    f <- ajusta_em(w, ...)
     if (all(is.finite(f$theta))) warm <<- unname(f$theta)
     # O jacobiano dos pesos sai NA MESMA BASE do -2logL que ele corrige: sobre as linhas
     # que o ajuste usou, e nao sobre a tabela inteira. Um registro descartado (fenotipo
@@ -297,6 +314,10 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
                          "component in this data")
   }
   fit <- avaliadas[[melhor]]$fit
+  # o residuo de um registro numa baia de n animais e s2_ED (1 + (n - 1)^(1 - 2d) k): com
+  # isto h2(fit, n =) e t2(fit, n =) leem var(residual) no tamanho de grupo pedido, e nao no
+  # peso harmonico medio dos registros
+  fit$residual_pen <- c(k = ks[melhor], dilution = dil)
   if (!fit$converged)
     mensagem <- paste(mensagem, "the fit at the estimated k did not converge")
   s2_ed <- unname(fit$theta[["var(residual)"]])

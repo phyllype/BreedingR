@@ -73,8 +73,12 @@ test_that("o que sempre funcionou continua funcionando", {
   expect_true(all(is.finite(
     model(y ~ cg + kernel(id, K = K, nome = "k1", fixed = 1), z$d, z$ped,
           maxiter = 3L, verbose = FALSE)$theta)))
+  # a baia nao pode ser o cg fixo: com o cg fixo absorvendo a soma de cada baia o direto e o
+  # indireto nao se separam, e o ajuste para (test-estrutura-e6.R); 20 baias de 4 dentro dos
+  # cg
+  z$d$baia <- paste0(z$d$cg, "_", rep(1:10, length.out = nrow(z$d)))
   expect_true(all(is.finite(
-    model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "cg", group = "g",
+    model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "baia", group = "g",
                                                       dilution = 1),
           z$d, z$ped, maxiter = 3L, verbose = FALSE)$theta)))
 })

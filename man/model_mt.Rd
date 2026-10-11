@@ -202,5 +202,8 @@ every fit (about the cost of one more REML iteration); if that pass fails, the f
 kept with \code{NA} residuals and the reason in \code{message}.
 }
 \description{
-Fits a multi-trait mixed model by AI-REML
+The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here, on
+the rows with some trait observed; the warning about repeated records names the first
+trait that has them. The univariate fits of the start run with those warnings silenced,
+so each is given once.
 }

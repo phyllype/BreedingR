@@ -7,7 +7,8 @@
 vecchia_inverse(m = NULL, k = 100, lambda = 0.01, g = NULL)
 }
 \arguments{
-\item{m}{matrix of 0/1/2 genotypes (animals in rows); NA imputed by the mean. Rows
+\item{m}{matrix of 0/1/2 genotypes (animals in rows); NA imputed by the mean, and an
+animal with a call rate below 0.90 refused, as in \code{\link[=model]{model()}}. Rows
 should come ancestors first: conditioning on the past is what the recursion means}
 
 \item{k}{neighbors per animal, chosen as the k strongest |g_ij| among the PREVIOUS

@@ -27,6 +27,81 @@ ARGS_MARCADOR <- local({
 
 #' Fit a mixed model by AI-REML
 #'
+#' @section Structure checks:
+#' Before fitting, every fitter that estimates components ([model()], [model_mt()],
+#' [model_ar1()], [gibbs()], [model_threshold()] with `estimate = TRUE` and
+#' [model_survival()] without `sigma2 =`) reads the design and STOPS on the ones the data
+#' cannot identify, naming the term, the levels and what to do:
+#' * a random term whose levels are a function of the levels of a fixed class effect (each
+#'   level of the fixed effect holds the records of a single level of the term: one sire
+#'   per contemporary group, a fixed litter with `maternal(dam)` or `pe(dam)` whenever each
+#'   litter has one dam, whatever the number of litters per dam, `cg = id`), a random term
+#'   with a single level among the records, or a term whose records all carry the unknown
+#'   code 0 in its column. The incidence of the term is then a sum of columns of X (or
+#'   zero), the fixed effect absorbs the whole term and its variance does not enter the
+#'   REML likelihood. ASReml lists a random term confounded with a fixed one among the
+#'   causes of a singular average information and stops unless `!AISINGULARITIES` is given.
+#'   The unknown 0 of a relationship column has no incidence, so a level of the fixed effect
+#'   that holds only unknown parents does not count against the nesting. In [model_mt()]
+#'   the check reads the rows with some trait observed and then the rows of each trait,
+#'   since the fixed effects are per trait. A `kernel(fixed = )` term, whose variance is
+#'   given, is not checked. The check takes one fixed effect at a time; a confounding by a
+#'   combination of fixed effects is left to the SINGULAR verdict of the fit (see [h2()]
+#'   for how the extractors read it);
+#' * `indirect()` with every pen of one animal (the indirect incidence is all zero), with
+#'   all the records in one pen, or with the pen (or anything finer) as a fixed effect: the
+#'   fixed part absorbs the sum of each pen, and what is left of the indirect incidence of
+#'   a record is minus its own indirect effect, which the direct effect of the same animal
+#'   cannot be told apart from (Cantet and Cappa 2008, J. Anim. Breed. Genet. 125:371;
+#'   Bijma 2010, Genetics 186:1013). The message suggests the pen as `random(pen)`, with
+#'   the caveat of Cantet and Cappa (2008) that a random pen does not always remove the
+#'   collinearity: what separates the two effects is families spread over several pens.
+#'   With `dilution > 0` and pens of different sizes only the dilution weights separate the
+#'   two, a very weak identification, and that is a warning.
+#'
+#' At given components (`maxiter = 0` with `n_em = 0` here, `maxiter = 0` in [model_mt()]
+#' and [model_ar1()], `theta_fixed =` in [gibbs()], `estimate = FALSE` in
+#' [model_threshold()], `sigma2 =` in [model_survival()], and [snp_blup()]) every design
+#' above is a warning instead: the BLUP exists, and the data say nothing about the term
+#' beyond the components given (with every pen of one animal, the indirect breeding values
+#' come only from their covariance with the direct ones). `maxiter = 0` with `n_em > 0`
+#' moves the start by EM, which estimates, so it stops.
+#'
+#' The fit goes on with a warning, also written in `message`, when:
+#' * an `animal()` term has repeated records of some animal and no `pe()` or `random()`
+#'   reads the same column, or a column that groups the records the same way (nor, in
+#'   [model_ar1()], is the animal the `subject`): the permanent-environment covariance
+#'   between records of the same animal goes into the additive variance and inflates h2,
+#'   by more the larger the share of repeated records. The warning counts the repeated
+#'   animals and their records, and the advice is the one of [suggest_model()];
+#' * fewer than 10 pens of `indirect()` hold more than one animal: the indirect components
+#'   rest on that many pen sums (Bijma 2010 puts the detection of indirect effects at
+#'   about 250 to 500 groups even with an optimum design);
+#' * the pens of `indirect()` split by the levels of a fixed class effect in a way chance
+#'   does not explain, which is how pens merged by a reused label look: when pen numbers
+#'   restart within each batch, pens that never met are merged into one and every record
+#'   gets mates it never had; give each pen a unique label, such as `paste(batch, pen)`.
+#'   The test: at least 90% of the pens that hold more than one level split into groups of
+#'   two or more animals per level, and that count exceeds what animals placed in the pens
+#'   regardless of the effect would give (each level at its overall proportion; the exact
+#'   multinomial chance of a pen with no group of one) with P < 0.0001. A fixed effect that
+#'   varies at random within the pens, such as sex in mixed pens of any size, gives no
+#'   warning except at that rate. The data cannot tell merged pens from pens that truly
+#'   mix levels when the groups are large: two batches of pens of 5 merged by label look
+#'   like mixed-sex pens of 10 and are not detected, while merged pens of 2 or 3 animals,
+#'   or labels reused over many batches, are. Pens balanced for the effect by design (four
+#'   of each sex in every pen of eight) are not chance either, and with more than about 150
+#'   such pens they give the warning too. `options(BreedingR.warn_pen_labels = FALSE)`
+#'   silences this check;
+#' * a `pe()` or `random()` term has fewer than 5 levels among the records: its variance
+#'   comes from that many levels and is barely determined, and labels that number
+#'   something inside another unit (the parity within each dam used as the litter) merge
+#'   units.
+#'
+#' These checks read the rows with an observed response that enter the analysis (a row
+#' whose `kernel()` level has no line in K leaves it), and, for `indirect()`, the pen
+#' membership of every row, as the incidence does.
+#'
 #' @param formula for example `peso ~ cg + sexo + animal(id)`. An unmarked term is a fixed
 #'   class effect; `cov(x)` is a fixed covariate; `animal(id)`, `maternal(dam)` and
 #'   `sire(sire)` are random with relationship, and `sire(sire, mgs = "mgs")` is the sire
@@ -165,7 +240,25 @@ ARGS_MARCADOR <- local({
 #'   as a double, integer or raw matrix. NA (5 in a raw matrix, the BLUPF90 code) is
 #'   imputed with the marker mean, never converted to zero. The matrix is read where it is,
 #'   without a copy, so a raw one costs 1 byte per genotype ([read_blupf90_snp()] and
-#'   `read_plink(storage = "raw")` return it)
+#'   `read_plink(storage = "raw")` return it). Every function that takes `genotypes =`
+#'   checks the same things and refuses, naming the animals: genotypes without animals or
+#'   without markers (pass `genotypes = NULL` for a fit on the pedigree alone), a missing
+#'   or repeated id in `ids` (one genotype per animal), rownames of `m` that contradict
+#'   `ids` (the genotype goes to the animal at its position in `ids`), and, everywhere a
+#'   missing genotype is imputed by the mean, an animal with a call rate below 0.90: such
+#'   a row is mostly marker means and looks like an average, accurately known animal. The
+#'   0.90 is the `callrateAnim` default of preGSf90, but the rate is counted over the
+#'   markers that vary (the ones that enter G), where preGSf90 counts every SNP: on a
+#'   monomorphic marker the mean imputes the genotype every animal carries. The output of
+#'   [qc_genotypes()] always passes this check; `options(BreedingR.min_call_rate_animal =)`
+#'   moves the line, and 0 turns it off. With a pedigree, a genotyped parent and offspring
+#'   with opposite homozygotes on more than 1% of the markers called in both (the
+#'   exclusion test of preGSf90, `exclusion_threshold 1`) are a warning naming the pairs,
+#'   and the fit goes on with the data as given; see [parentage_check()], which also says
+#'   how to turn the check off and why sex-chromosome markers must be left out of that
+#'   test. An optional element `genotypes$sex_markers` (column indices, names or one
+#'   logical per column, as [qc_genotypes()] returns it when given `sex_markers =`) names
+#'   them; they stay in G
 #' @param blend weight of A22 in the adjusted G, the usual 0.05
 #' @param apy_core ids of the genotyped animals that form the APY core; with it the inverse
 #'   of G* is the APY approximation (cost in the size of the core, not cubic in the
@@ -345,9 +438,15 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
 
   confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
+  if (!is.null(pedigree)) avisa_parentesco(cp, g)
   nuc <- nucleo_apy(apy_core, genotypes)
   w <- valida_pesos(weights, data)
   kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
+  # a estrutura que o ajuste nao identifica ou que a mascara (R/separabilidade.R): para
+  # quando os componentes sao estimados, avisa quando sao dados. Com maxiter = 0 e n_em > 0
+  # o EM ja move os componentes, que sao estimados, e nao dados
+  notas <- confere_estrutura(terms, data, trait, missing_code, "model()",
+                             maxiter > 0 || n_em > 0, kern = kern)
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_ajustar,
@@ -395,7 +494,12 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
   r$k_prior <- priori_kernels(terms, kern)
   r$k_level_type <- tipos_kernels(terms, kern)
-  structure(r, class = "breeding_fit")
+  # o que a escala de h2(), t2() e do share le: a diagonal media de cada K nos registros,
+  # os kernels que sao a associative_matrix() do indirect() e o avo conhecido do sire(mgs =)
+  r <- anota_escala(r, terms, data)
+  # maxiter = 0 avalia o ponto pedido: os extratores o leem sem aviso de convergencia
+  r$components_given <- maxiter == 0 && n_em == 0
+  structure(anota_estrutura(r, notas), class = "breeding_fit")
 }
 
 # Genotype validation, shared by the three fitters: 0/1/2/NA and nothing else. An unknown
@@ -441,10 +545,12 @@ recusa_auto <- function(apy_core) {
   apy_core
 }
 
-valida_genotipos <- function(genotypes) {
+valida_genotipos <- function(genotypes, taxa_chamada = TRUE) {
   gid <- character(0); gm <- matrix(numeric(0), 0, 0)
+  conferidos <- FALSE
+  sexo <- logical(0)
   if (!is.null(genotypes)) {
-    if (is.null(genotypes$ids) || is.null(genotypes$m))
+    if (!is.list(genotypes) || is.null(genotypes$ids) || is.null(genotypes$m))
       stop("genotypes must be a list with 'ids' and 'm'")
     gm <- genotypes$m
     if (!is.matrix(gm)) stop("genotypes$m must be a matrix")
@@ -462,18 +568,178 @@ valida_genotipos <- function(genotypes) {
     # recusavam, com outra mensagem
     if (nrow(gm) != length(genotypes$ids))
       stop("genotypes$ids has ", length(genotypes$ids), " identifier(s) for ", nrow(gm),
-           " row(s) of genotypes$m: give one identifier per row")
-    fora <- .Call(R_confere_genotipos, gm)
-    if (fora > 0) stop(format(fora, scientific = FALSE), " genotype value(s) outside 0, 1, 2 and NA",
-                       if (is.raw(gm)) " (5 in a raw matrix)", ". An unknown ",
-                       "code must become NA beforehand, to be imputed with the mean ",
-                       "instead of counted as the zero genotype")
+           " row(s) of genotypes$m: give one identifier per row (when m came from ",
+           "qc_genotypes() on a bare matrix, the kept ids are ids[result$rows]; ",
+           "qc_genotypes(list(ids, m)) returns them aligned)", call. = FALSE)
+    # sem animais o ajuste caia no pedigree sozinho sem dizer (os ids vazios nao marcam
+    # ninguem), e sem marcadores a recusa sairia como taxa de chamada baixa de todo animal
+    if (nrow(gm) == 0L)
+      stop("genotypes has no animals (genotypes$m has 0 rows), as when every genotyped ",
+           "animal was left out: pass genotypes = NULL for a fit on the pedigree alone",
+           call. = FALSE)
+    if (ncol(gm) == 0L)
+      stop("genotypes$m has no markers (0 columns): there is no G to build", call. = FALSE)
+    conferidos <- ja_conferidos_por_fora(genotypes)
+    if (!conferidos) {
+      fora <- .Call(R_confere_genotipos, gm)
+      if (fora > 0) stop(format(fora, scientific = FALSE), " genotype value(s) outside 0, 1, 2 ",
+                         "and NA", if (is.raw(gm)) " (5 in a raw matrix)", ". An unknown ",
+                         "code must become NA beforehand, to be imputed with the mean ",
+                         "instead of counted as the zero genotype")
+    }
     gid <- rotulo_motor(genotypes$ids)
+    if (!conferidos) {
+      recusa_ids_repetidos(gid, gm)
+      recusa_rownames_desencontrados(gid, genotypes$ids, gm)
+      if (isTRUE(taxa_chamada)) recusa_taxa_chamada(gid, gm)
+    }
+    # as colunas do cromossomo sexual, que o aviso de parentesco deixa de fora (o
+    # qc_genotypes(sex_markers = ) as deixa marcadas no resultado)
+    sexo <- colunas_marcadas(genotypes[["sex_markers", exact = TRUE]], gm,
+                             "genotypes$sex_markers")
   }
-  list(gid = gid, gm = gm)
+  list(gid = gid, gm = gm, conferidos = conferidos, sexo = sexo)
 }
 
-# Para as contas que ainda sao feitas em R (Fst, ROH e o controle de qualidade; D e F
+# OS GENOTIPOS QUE UM AJUSTE JA CONFERIU, para os ajustes que ele roda por dentro (as partidas
+# univariadas de model_mt() e model_ar1(), a grade e a secao aurea de indirect_residual(), o
+# nucleo "auto" da APY): a marca poupa refazer em cada um a conferencia dos valores, dos ids,
+# da taxa de chamada e do parentesco (T + 1 vezes num model_mt() de T caracteres), e o aviso de
+# parentesco sai uma vez so. A marca e um ambiente do pacote, que nenhum objeto do usuario traz
+# por acaso, e so quem a pos passa os genotipos adiante com ela.
+MARCA_CONFERIDOS <- new.env()
+ja_conferidos <- function(genotypes) {
+  if (!is.null(genotypes)) attr(genotypes, "br_conferidos") <- MARCA_CONFERIDOS
+  genotypes
+}
+ja_conferidos_por_fora <- function(genotypes)
+  identical(attr(genotypes, "br_conferidos", exact = TRUE), MARCA_CONFERIDOS)
+
+# O LIMIAR DA TAXA DE CHAMADA POR ANIMAL, o callrateAnim padrao do preGSf90 (0.90; PLINK
+# --mind). Abaixo dele a maior parte da linha e a media de cada marcador: o animal fica com
+# a diagonal de G encolhida (medido: 0.10 contra 0.99 num painel de 10% dos marcadores) e
+# parece medio e mais acurado do que e (PEV 0.021 contra 0.139 com o genotipo verdadeiro).
+# options(BreedingR.min_call_rate_animal) muda a linha (0 desliga), e o padrao de
+# qc_genotypes() segue a mesma opcao: a saida do controle passa sempre nos ajustadores.
+limiar_chamada_animal <- function() {
+  v <- getOption("BreedingR.min_call_rate_animal", 0.90)
+  if (!is.numeric(v) || length(v) != 1L || is.na(v) || v < 0 || v > 1)
+    stop("options(BreedingR.min_call_rate_animal) must be a single number between 0 and 1 ",
+         "(0 turns the check off), not ", deparse1(v), call. = FALSE)
+  v
+}
+
+# Os primeiros k de uma lista, com a contagem do resto (de total, quando so os primeiros
+# foram montados)
+primeiros <- function(x, k = 5L, total = length(x))
+  paste0(paste(utils::head(x, k), collapse = "; "),
+         if (total > k) paste0("; and ", total - k, " more") else "")
+
+# O mesmo id duas vezes em genotypes$ids: no passo unico A22 fica singular ("the matrix is not
+# positive-definite", sem dizer por que), e nas funcoes sem A22 a duplicata vira um animal a
+# mais (snp_blup, pegs, g_matrix, apy_core_select rodavam). Linhas iguais sao uma reamostragem
+# ou dois chips concatenados; linhas diferentes, uma troca de amostra. Os dois casos pedem a
+# decisao de quem conhece as amostras, e nao uma escolha do pacote. Um id NA viraria o animal
+# chamado "NA" (g_matrix() rodava com ele).
+recusa_ids_repetidos <- function(gid, gm) {
+  if (anyNA(gid))
+    stop("genotypes$ids has ", sum(is.na(gid)), " missing identifier(s) (row(s) ",
+         primeiros(which(is.na(gid))), "): every row of genotypes$m needs the id of its ",
+         "animal", call. = FALSE)
+  rep_ids <- unique(gid[duplicated(gid)])
+  if (!length(rep_ids)) return(invisible(NULL))
+  primeiros_rep <- utils::head(rep_ids, 5L)
+  iguais <- vapply(primeiros_rep, function(a) {
+    l <- which(gid == a)
+    all(vapply(l[-1L], function(k) identical(gm[l[1L], ], gm[k, ]), logical(1)))
+  }, logical(1))
+  descr <- vapply(seq_along(primeiros_rep), function(k)
+    paste0("'", primeiros_rep[k], "' in rows ",
+           paste(which(gid == primeiros_rep[k]), collapse = ", "),
+           if (iguais[k]) ", identical genotypes" else ", different genotypes"), character(1))
+  stop("genotypes$ids repeats ", length(rep_ids), " animal(s) (",
+       primeiros(descr, total = length(rep_ids)), "): keep one genotype per animal.",
+       if (any(iguais)) " Identical rows are a resampled animal or two chips joined: drop one.",
+       if (!all(iguais)) paste0(" Different rows under one id are a sample mix-up: keep the ",
+                                "one that belongs to the animal."),
+       " For the same IID in different families of a .fam, read_plink(id = \"fid_iid\") ",
+       "names each sample FID_IID", call. = FALSE)
+}
+
+# rownames(m) numa ordem e ids noutra (ids lidos de um .fam reordenado, a matriz de outro
+# arquivo): o motor casa o genotipo ao animal pela POSICAO em ids, e os genotipos iam para
+# outros animais sem aviso (medido: cor(EBV, TBV) 0.69 -> 0.52). Os rownames nao sao lidos
+# como ids; quando existem, tem de dizer o mesmo. Id numerico com rownames "1e+05" ou "0051"
+# e o mesmo numero escrito de outro jeito, e conta como igual.
+recusa_rownames_desencontrados <- function(gid, ids, gm) {
+  rn <- rownames(gm)
+  if (is.null(rn)) return(invisible(NULL))
+  igual <- !is.na(rn) & rn == gid
+  if (!is.character(ids) && !is.factor(ids)) {
+    num <- suppressWarnings(as.numeric(rn))
+    igual <- igual | (!is.na(num) & num == as.double(ids))
+  }
+  if (all(igual)) return(invisible(NULL))
+  k <- which(!igual)
+  stop("rownames(genotypes$m) and genotypes$ids disagree in ", length(k), " of ",
+       length(gid), " row(s) (row ", k[1L], ": '", rn[k[1L]], "' in the rownames, '",
+       gid[k[1L]], "' in ids): each genotype goes to the animal at its position in ids, ",
+       "so these rows would go to other animals. Give ids in the row order of m ",
+       "(ids = rownames(m) when the rownames are the animals), or drop the rownames ",
+       "with rownames(m) <- NULL", call. = FALSE)
+}
+
+# As contagens de 0, 1 e 2 de cada marcador nas linhas marcadas (NULL: todas), no C++; le a
+# matriz inteira
+contagens_marcadores <- function(gm, linhas = NULL) .Call(R_contagens_marcadores, gm, linhas)
+
+# As mesmas contagens so nas linhas dadas (indices em base 1), lendo so essas linhas
+contagens_nas_linhas <- function(gm, linhas) .Call(R_contagens_linhas, gm, as.integer(linhas))
+
+# As chamadas de cada animal nos marcadores marcados em usa (NULL: todos), lendo so essas
+# colunas
+chamadas_animal <- function(gm, usa) .Call(R_chamadas_animal, gm, usa)
+
+# Os marcadores que entram na G, pela regra do motor (frequencias_z): chamados em alguem e com
+# 0 < p < 1, isto e, algum genotipo acima de 0 e algum abaixo de 2. No monomorfico o ausente
+# leva o valor que todo animal tem e nao custa nada; no todo ausente nao ha G nenhuma.
+marcadores_que_variam <- function(cn) (cn$n1 + cn$n2 > 0) & (cn$n0 + cn$n1 > 0)
+
+# A taxa de chamada de cada genotipado: chamadas sobre os marcadores que entram na G.
+# markers = 0 quando nenhum varia (nao ha G, e o motor diz isso com a propria mensagem).
+taxa_chamada_animal <- function(gm) {
+  usa <- marcadores_que_variam(contagens_marcadores(gm))
+  k <- sum(usa)
+  ch <- chamadas_animal(gm, usa)
+  list(rate = if (k > 0) ch / k else rep(NA_real_, length(ch)), markers = k)
+}
+
+# a taxa escrita por baixo, em 3 casas: 0.8996 sai 0.899 e nao 0.900, que leria como acima do
+# limiar (o round tira o resto binario de x * 1000, que o floor levaria uma casa abaixo)
+escreve_taxa <- function(x) sprintf("%.3f", floor(round(x * 1000, 6)) / 1000)
+
+# gid NULL (uma matriz solta, sem ids nem rownames): o animal e dito pela linha
+recusa_taxa_chamada <- function(gid, gm) {
+  limiar <- limiar_chamada_animal()
+  if (limiar <= 0) return(invisible(NULL))
+  tx <- taxa_chamada_animal(gm)
+  if (tx$markers == 0) return(invisible(NULL))
+  baixo <- which(tx$rate < limiar)
+  if (!length(baixo)) return(invisible(NULL))
+  quem <- if (is.null(gid)) paste0("row ", baixo) else paste0("'", gid[baixo], "'")
+  stop("genotypes: ", length(baixo), " of ", length(tx$rate), " animal(s) with a call rate ",
+       "below ", format(limiar, nsmall = 2), " (",
+       primeiros(paste0(quem, ": ", escreve_taxa(tx$rate[baixo]))), "), over the ",
+       tx$markers, " marker(s) that vary. The missing markers would be imputed by the marker ",
+       "mean, which shrinks the animal's genomic relationships and makes it look average and ",
+       "more accurate than it is (preGSf90 drops animals below 0.90 by default). Drop them ",
+       "from genotypes, they stay in the pedigree, with qc_genotypes(genotypes); impute the ",
+       "low-density panel first; or, for two panels, keep only the markers both have. ",
+       "options(BreedingR.min_call_rate_animal) moves this line, and 0 turns it off",
+       call. = FALSE)
+}
+
+# Para as contas que ainda sao feitas em R (Fst e ROH; o controle de qualidade, D e F
 # genomicos, Gamma e efeitos de SNP leem a matriz no C++): a matriz raw vira integer com NA no
 # 5; double e integer passam como estao.
 genotipos_numericos <- function(gm) {
@@ -485,7 +751,7 @@ genotipos_numericos <- function(gm) {
   x
 }
 
-# fst(), roh() e qc_genotypes() recebem a matriz solta, sem ids, e fazem a conta em R. A
+# fst() e roh() recebem a matriz solta, sem ids, e fazem a conta em R. A
 # checagem dos valores e a do motor (R_confere_genotipos): le o raw com o 5 como ausente, e
 # nao cria os vetores logicos do tamanho da matriz que o %in% criava. Antes o raw caia no %in%
 # e era recusado com o total de entradas como se todas fossem invalidas. Devolve a vista
@@ -979,12 +1245,20 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
 # fenotipica de um registro depende do tamanho do grupo (Bijma et al. 2007), e a tabela nao
 # o conhece; h2(fit, n =) e t2() fazem a conta. Na sobrevivencia tambem: o modelo de
 # fragilidade nao tem variancia residual, e a unica linha saia com share 1,00.
-tabela_componentes <- function(theta, se, indireto = FALSE, sem_share = NULL) {
+#
+# Com `fit`, o share usa o MESMO denominador de h2() (multiplicadores() e extra_mgs(),
+# R/separabilidade.R): os componentes com parentesco como estimados (com metafundadores,
+# vezes o var_scale), a associative_matrix() do indirect() na sua diagonal media,
+# var(residual) no peso harmonico medio e, num sire(mgs =), a parte do avo materno no Vp;
+# a nota diz os numeros. As colunas estimate e std_error ficam como o ajuste as deu.
+tabela_componentes <- function(theta, se, indireto = FALSE, sem_share = NULL, fit = NULL) {
   if (indireto && is.null(sem_share))
     sem_share <- paste0("share left blank: with indirect() the phenotypic variance ",
                         "depends on the group size; use h2(fit, n = ) or t2(fit, n = )")
   nm <- names(theta)
   est <- unname(theta)
+  mult <- if (is.null(fit)) rep(1, length(est)) else unname(multiplicadores(fit))
+  nota_esc <- if (!is.null(fit) && is.null(sem_share)) nota_escala(fit)
   membros <- lapply(nm, function(s) strsplit(sub("^(var|cov)\\((.*)\\)$", "\\2", s), ",", fixed = TRUE)[[1]])
   traco <- function(m) if (grepl("@", m, fixed = TRUE)) sub(".*@", "", m) else ""
   tr <- vapply(membros, function(m) {
@@ -996,7 +1270,8 @@ tabela_componentes <- function(theta, se, indireto = FALSE, sem_share = NULL) {
   if (is.null(sem_share) && !any(grepl("\\[\\d+\\]", nm)))
     for (t in unique(stats::na.omit(tr))) {
       k <- which(tr == t)
-      share[k] <- est[k] / sum(est[k])
+      extra <- if (is.null(fit)) 0 else extra_mgs(fit, stats::setNames(est * mult, nm), t)
+      share[k] <- est[k] * mult[k] / (sum(est[k] * mult[k]) + extra)
     }
   vars <- stats::setNames(est[startsWith(nm, "var(")], vapply(membros[startsWith(nm, "var(")], `[`, "", 1))
   corr <- vapply(seq_along(nm), function(i) {
@@ -1007,7 +1282,7 @@ tabela_componentes <- function(theta, se, indireto = FALSE, sem_share = NULL) {
   }, 0)
   tb <- data.frame(component = nm, estimate = est, std_error = unname(se),
                    share = round(share, 4), correlation = round(corr, 4), row.names = NULL)
-  attr(tb, "nota") <- sem_share
+  attr(tb, "nota") <- c(sem_share, nota_esc)
   tb
 }
 
@@ -1068,7 +1343,7 @@ mostra_componentes <- function(tb) {
   out$share <- ifelse(is.na(tb$share), "", format(tb$share, nsmall = 4))
   out$correlation <- ifelse(is.na(tb$correlation), "", format(tb$correlation, nsmall = 4))
   print(out, right = TRUE, row.names = FALSE)
-  if (!is.null(attr(tb, "nota"))) cat("  ", attr(tb, "nota"), "\n", sep = "")
+  for (nota in attr(tb, "nota")) cat("  ", nota, "\n", sep = "")
   invisible(tb)
 }
 
@@ -1088,7 +1363,7 @@ print.breeding_fit <- function(x, ...) {
         paste(x$dropped_x, collapse = ", "), "\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  mostra_componentes(tabela_componentes(x$theta, x$se, indireto = tem_indireto(x)))
+  mostra_componentes(tabela_componentes(x$theta, x$se, indireto = tem_indireto(x), fit = x))
   mostra_fixos(x$b, x$dropped_x)
   invisible(x)
 }
@@ -1126,7 +1401,9 @@ mostra_fixos <- function(b, dropped, nota = "implicit intercept") {
 #' "level|trait"; use `trait=` to slice out one trait.
 #' @param fit result of model(), model_mt(), model_ar1(), model_threshold(),
 #'   model_survival() or snp_blup()
-#' @param group covariance group; the first one if omitted
+#' @param group covariance group; by default the group of the first pedigree or genomic
+#'   term, else of the first `kernel()` with an estimated variance, else the first group
+#'   (the same default in [ebv()], [solutions()], [accuracy()] and [h2()])
 #' @param trait multi-trait only: which trait to slice out; all of them if omitted
 #' @export
 ebv <- function(fit, group = NULL, trait = NULL) {
@@ -1134,7 +1411,9 @@ ebv <- function(fit, group = NULL, trait = NULL) {
                        "breeding_fit_thr", "breeding_fit_surv", "breeding_snp_blup")))
     stop("expected the result of model(), model_mt(), model_ar1(), ",
          "model_threshold(), model_survival() or snp_blup()")
-  if (is.null(group)) group <- names(fit$ebv)[1]
+  # o grupo padrao de todos os extratores: o do primeiro termo com parentesco
+  # (grupo_padrao(), R/separabilidade.R)
+  if (is.null(group)) group <- grupo_padrao(fit)
   v <- fit$ebv[[group]]
   if (is.null(v)) stop("there is no group '", group, "'. Available: ", paste(names(fit$ebv), collapse = ", "))
   if (!is.null(trait)) {
@@ -1180,7 +1459,8 @@ print.summary.breeding_fit <- function(x, ...) {
         ",  s2_ES ", format(x$indirect_residual[["s2_ES"]], digits = 4), "\n", sep = "")
   cat("\nshare: each variance or covariance over the phenotypic variance of its trait,\n",
       "covariances included, the same denominator as h2(); in an animal model the\n",
-      "var(animal) row is h2. A covariance BETWEEN traits, a correlation parameter such as\n",
+      "var(animal) row is h2, in a sire model h2() is four times the var(sire) row.\n",
+      "A covariance BETWEEN traits, a correlation parameter such as\n",
       "rho(residual), and every row of a model with indirect() have no share.\n",
       "correlation: each covariance over the square root of the two variances it links.\n",
       if (!is.null(x$nota_se)) x$nota_se else paste0(
@@ -1250,6 +1530,18 @@ print.summary.breeding_fit <- function(x, ...) {
 #' is 0. A fit made before this version paired the levels of such a group by position;
 #' when its blocks do not carry the same level names it is refused, and it should be
 #' refitted either way.
+#'
+#' THE STATE OF THE FIT. A fit that did not converge is read at its last iterate, with a
+#' warning. When the fit reports the information matrix SINGULAR along a set of
+#' components that includes a variance or covariance of the group, the PEV and the
+#' variance move together along that ridge and the accuracy of every level is returned as
+#' `NA`, with a warning naming the components; a fit with no estimates (theta `NA`, the
+#' start was inadmissible) gives `NA` too, saying so (it used to stop with "no component
+#' 'var(animal)'"). A fit at given components (`maxiter = 0` with `n_em = 0`) is read at
+#' those components without a word. A PEV above the prior variance of its level beyond
+#' rounding gives
+#' accuracy 0 with a warning that counts those levels: the prior used is then not the one
+#' the level was fitted with, as for a non-genotyped animal of a single step (see above).
 #' @param fit result of model(), model_mt(), model_ar1(), model_threshold() or
 #'   model_survival() (log-hazard scale, from the Laplace PEV of the frailty)
 #'   (ordinal mode; the joint threshold fit carries no PEV, a declared limit)
@@ -1257,7 +1549,9 @@ print.summary.breeding_fit <- function(x, ...) {
 #'   term reads it; for a group of `kernel()` terms, of iid terms, or of a term given a
 #'   declared `k_inverse =` other than an [h_inverse()], it may be omitted. A term fitted
 #'   with `k_inverse = h_inverse(...)` or `genotypes =` is a pedigree term and needs it
-#' @param group covariance group; the first one if omitted
+#' @param group covariance group; by default the group of the first pedigree or genomic
+#'   term, else of the first `kernel()` with an estimated variance, else the first group
+#'   (the same default in [ebv()], [solutions()], [accuracy()] and [h2()])
 #' @param trait required in the multi-trait case (`model_mt()`, or `model_ar1()` with
 #'   `cbind()`): accuracy is per trait, with the corresponding var(term@trait)
 #' @return a numeric vector named by level, in the order of `fit$pev[[group]]`; a group
@@ -1277,7 +1571,7 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
                        "breeding_fit_thr", "breeding_fit_surv")))
     stop("expected the result of model(), model_mt(), model_ar1(), model_threshold() or ",
          "model_survival()")
-  if (is.null(group)) group <- names(fit$ebv)[1]
+  if (is.null(group)) group <- grupo_padrao(fit)
   pv <- fit$pev[[group]]
   if (is.null(pv)) stop("there is no PEV for group '", group, "'")
   # multicaracter pelos nomes dos componentes: o model_ar1() com cbind() tambem e
@@ -1321,6 +1615,18 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
          "accuracy needs the same levels, in the same order, in every term of a group. ",
          "A fit made before this version paired the levels of an iid group by position; ",
          "refit it")
+  # O ESTADO DO AJUSTE (R/separabilidade.R). Sem estimativas (theta NA), ou com a variancia
+  # de um termo do grupo numa crista do veredito SINGULAR, a acuracia de cada nivel depende
+  # de um ponto arbitrario: sai NA, com aviso. Antes o theta NA parava com "no component
+  # 'var(animal)'", e o ajuste singular ou nao convergido respondia calado (acuracias de 0.98
+  # num traco constante).
+  comps_g <- componentes_do_grupo(fit, group)
+  if (mt) comps_g <- comps_g[grepl(paste0("@", trait, ","), comps_g, fixed = TRUE) |
+                               grepl(paste0("@", trait, ")"), comps_g, fixed = TRUE)]
+  if (estado_para_extrator(fit, "accuracy()", names(fit$theta), comps_g)) {
+    pv[] <- NA_real_
+    return(pv)
+  }
   # A PRIORI DE CADA NIVEL, casada pelo NOME do nivel e nunca pela posicao. Antes a priori
   # era 1 + F do pedigree para qualquer grupo, casada por posicao: num kernel(K = D) com
   # endogamia a acuracia dos animais com F = 0.25 saia 0.7282 onde o certo (diag D = 1) e
@@ -1329,6 +1635,7 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
   # os mesmos niveis, conferido acima).
   ped_prior <- NULL
   out <- pv
+  negativos <- list()
   for (k in seq_along(termos)) {
     t <- termos[[k]]
     bloco <- (k - 1L) * n + seq_len(n)
@@ -1352,9 +1659,28 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
     if (is.na(va)) stop("no component '", comp, "' to scale the accuracy of term '",
                         t$nome, "'")
     arg <- 1 - pv[bloco] / (priori * va)
-    arg[arg < 0] <- 0     # rounding near zero accuracy
+    # abaixo de zero pelo arredondamento, perto da acuracia zero, vai a zero calado; alem
+    # dele (a PEV acima da variancia a priori do nivel, que nas MME nao acontece com a
+    # priori certa) vai a zero com aviso, porque a priori usada nao e a do ajuste: o animal
+    # nao genotipado de um passo unico, dividido por 1 + F onde a priori sob H e H[i, i]
+    neg <- which(arg < -1e-6)
+    if (length(neg))
+      # unname: um arg nomeado faria do nome do elemento "razao.<nivel>", e o aviso caia
+      # num subscript out of bounds
+      negativos[[t$nome]] <- c(n = length(neg), primeiro = unname(names(pv)[bloco][neg[1]]),
+                               razao = format(unname(1 - arg[neg[1]]), digits = 4))
+    arg[arg < 0] <- 0
     out[bloco] <- sqrt(arg)
   }
+  if (length(negativos))
+    warning("accuracy(): ", paste(vapply(names(negativos), function(k) {
+      v <- negativos[[k]]
+      paste0(v[["n"]], " level(s) of term '", k, "' have a PEV above their prior variance ",
+             "times var(", k, ") (first: '", v[["primeiro"]], "', PEV / prior variance = ",
+             v[["razao"]], ")")
+    }, character(1)), collapse = "; "), ": their accuracy is set to 0. The prior variance ",
+    "used is not the one the levels were fitted with (in a single step, a non-genotyped ",
+    "animal is divided by 1 + F while its prior under H is H[i, i])", call. = FALSE)
   out
 }
 

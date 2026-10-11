@@ -496,7 +496,10 @@ legendre <- function(x, order = 1L, limits = NULL) {
 #' anywhere `k_inverse =` is taken.
 #'
 #' @param pedigree data.frame animal, sire, dam (or a [sire_mgs()] pedigree)
-#' @param genotypes list with `ids` and `m` (0/1/2, NA imputed by the marker mean)
+#' @param genotypes list with `ids` and `m` (0/1/2, NA imputed by the marker mean), checked
+#'   as in [model()]: a repeated id, rownames that contradict `ids` or an animal below a
+#'   0.90 call rate are refused, and a parent-offspring conflict with the pedigree is a
+#'   warning (see [parentage_check()])
 #' @param blend weight of A22 in G*, the usual 0.05
 #' @param apy_core ids of the APY core, `"auto"`, or the result of [apy_core_select()]
 #' @param vecchia_k neighbours per animal in the Vecchia inverse of G*
@@ -534,6 +537,7 @@ h_inverse <- function(pedigree, genotypes, blend = 0.05, apy_core = NULL,
     stop("apy_core and vecchia_k are two approximations of the same inverse: declare one")
   cp <- colunas_pedigree(pedigree)
   confere_base_mf(cp$sire, cp$dam, metafounders, TRUE)
+  avisa_parentesco(cp, g)
   r <- .Call(R_h_inversa, cp$id, cp$sire, cp$dam,
              rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),

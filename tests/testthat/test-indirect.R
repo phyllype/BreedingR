@@ -7,6 +7,12 @@
 # is the one stealing feed). There is no associative fitter: it is the same engine with a
 # different incidence.
 
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 simula_ige <- function(n_baias = 60, por_baia = 4, seed = 17,
                        vd = 0.4, vs = 0.1, cds = -0.08, ve = 0.5) {
   set.seed(seed)
@@ -370,3 +376,5 @@ test_that("pens 10, 20, 30 and '10', '20', '30' give the same indirect_residual(
   expect_equal(unname(am_n[k5, k5]), 5^(-1) * (diag(6) + 4))
   expect_true(all(am_n[1:2, -(1:2)] == 0))
 })
+
+options(op_parentesco)

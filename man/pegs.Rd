@@ -31,7 +31,9 @@ text or the text "NaN") is refused on every row, as a level column of \code{\lin
 id that is present but not among the genotyped animals leaves its record, counted in
 \code{dropped}}
 
-\item{genotypes}{\code{list(ids, m)} with dosages 0/1/2 (\code{NA} imputed by the marker mean)}
+\item{genotypes}{\code{list(ids, m)} with dosages 0/1/2 (\code{NA} imputed by the marker mean); a
+repeated id, rownames that contradict \code{ids} or an animal below a 0.90 call rate are
+refused, as in \code{\link[=model]{model()}}}
 
 \item{environment}{name of the environment column for the long form: each level becomes
 a trait. A missing environment is refused on every row, by the same rule as \code{id}:

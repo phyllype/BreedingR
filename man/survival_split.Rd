@@ -16,10 +16,15 @@ survival_split(
 \arguments{
 \item{subjects}{data.frame, one row per subject: \code{id}, \code{time} (end of follow-up),
 \code{event} (1 failure, 0 censored), the starting values of every time-dependent
-covariate named in \code{changes}, and any time-fixed column}
+covariate named in \code{changes}, and any time-fixed column. \code{event} follows the rule of
+\verb{censor=} in \code{\link[=model_survival]{model_survival()}}: a factor or text event is read by its labels ("0"
+and "1", or "TRUE" and "FALSE"), never by the codes 1, 2, ... of the factor, and any
+other label is refused; the output carries it as the number 0 or 1. \code{time} is
+numeric: a factor or text time is refused, naming the column}
 
-\item{changes}{data.frame: \code{id}, \code{at} (the time of the change, \verb{> 0}) and the new values
-of one or more time-dependent covariates (columns also present in \code{subjects})}
+\item{changes}{data.frame: \code{id}, \code{at} (the time of the change, \verb{> 0}, numeric like
+\code{time}) and the new values of one or more time-dependent covariates (columns also
+present in \code{subjects})}
 
 \item{id, time, event, at}{column names}
 }

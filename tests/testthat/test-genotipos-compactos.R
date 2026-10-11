@@ -85,10 +85,19 @@ test_that("read_blupf90_snp: a matriz raw que o escritor pos, e o subconjunto de
   expect_identical(sub$ids, ids[c(2, 6)])
   expect_identical(as.integer(sub$m), as.vector(m[c(2, 6), ]))
   expect_warning(read_blupf90_snp(f, ids = c(ids[1], "fantasma")), "not in the file")
-  # o raw lido entra direto: a G e a da matriz double com NA no lugar do 5
+  # o raw lido entra direto: a G e a da matriz double com NA no lugar do 5, nos 7 animais e
+  # nos 14 codigos 5 (com a recusa da taxa de chamada desligada, que tiraria quase todos)
   md <- m + 0
   md[md == 5] <- NA
-  expect_identical(g_matrix(list(ids = ids, m = g$m)), g_matrix(list(ids = ids, m = md)))
+  local({
+    op <- options(BreedingR.min_call_rate_animal = 0)
+    on.exit(options(op))
+    expect_identical(g_matrix(list(ids = ids, m = g$m)), g_matrix(list(ids = ids, m = md)))
+  })
+  # ligada, os animais abaixo de 0.90 sao recusados nos dois tipos, com a mesma mensagem
+  expect_identical(tryCatch(g_matrix(list(ids = ids, m = g$m)), error = conditionMessage),
+                   tryCatch(g_matrix(list(ids = ids, m = md)), error = conditionMessage))
+  expect_error(g_matrix(list(ids = ids, m = g$m)), "call rate below 0.90", fixed = TRUE)
   writeLines(sprintf("%12s %s", ids[1:2], c("0124", "0120")), f)
   expect_error(read_blupf90_snp(f), "unexpected genotype code")
   writeLines(c("a 012", "b 01"), f)

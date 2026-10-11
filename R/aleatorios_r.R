@@ -768,13 +768,21 @@ estima_por_laplace <- function(avalia, grupos, G0s, nomes_theta, max_evals = 500
          presos = presos, queda = queda)
   }
   d <- desce(par0)
-  if (d$valor >= GRANDE)
-    stop("the Laplace -2logL could not be evaluated at any point the optimizer tried: ",
-         if (falhas > 0L && falhas_conv == falhas)
-           "the inner fit did not converge at any of them, so raise maxiter="
-         else "check start=",
-         if (!is.null(ultimo_erro)) paste0(" (the last failure: ", ultimo_erro, ")"),
+  # com uma falha que nao e de convergencia, ela vem ANTES da dica de start=: uma falha que
+  # vem dos dados (um nivel separado, um sistema singular) nao se resolve trocando a partida,
+  # e a mensagem comecava mandando trocar
+  if (d$valor >= GRANDE) {
+    so_conv <- falhas > 0L && falhas_conv == falhas
+    ultima <- if (!is.null(ultimo_erro)) paste0("the last failure: ", ultimo_erro)
+    stop("the Laplace -2logL could not be evaluated at any point the optimizer tried",
+         if (so_conv)
+           paste0(": the inner fit did not converge at any of them, so raise maxiter=",
+                  if (!is.null(ultima)) paste0(" (", ultima, ")"))
+         else paste0(if (!is.null(ultima)) paste0(" (", ultima, "); if that failure is ",
+                                                  "not a property of the data, ") else ": ",
+                     "check start="),
          call. = FALSE)
+  }
 
   # o erro-padrao: Hessiana numerica nas coordenadas livres, Var(par) = 2 H^-1, delta para
   # theta. As coordenadas numa direcao plana (ou cuja curvatura nao se mede, um passo da

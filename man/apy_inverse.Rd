@@ -7,7 +7,8 @@
 apy_inverse(m, core, lambda = 0.01)
 }
 \arguments{
-\item{m}{matrix of 0/1/2 genotypes (animals in rows); NA imputed by the mean}
+\item{m}{matrix of 0/1/2 genotypes (animals in rows); NA imputed by the mean, and an
+animal with a call rate below 0.90 refused, as in \code{\link[=model]{model()}}}
 
 \item{core}{indices (or row names) of the core animals}
 

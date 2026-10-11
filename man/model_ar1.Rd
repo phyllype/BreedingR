@@ -160,7 +160,9 @@ back in the original units: \code{y} and \code{100 * y} give the same verdict, s
 errors scaled by 100^2 and the same standard error of \code{rho}
 }
 \description{
-Fits a model with AR(1)/CAR(1) residual by AI-REML
+The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here; the
+AR(1) residual with the animal as \code{subject} models the repetition, so repeated records
+of \code{animal()} give no warning then.
 }
 \references{
 Wade, K.M. & Quaas, R.L. (1993). Solutions to a system of equations

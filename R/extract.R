@@ -34,7 +34,9 @@ eh_norma_reacao <- function(theta) any(grepl("\\[\\d+\\]", names(theta)))
 #'   accuracy is per trait. A [snp_blup()] fit has no PEV (it solves by conjugate
 #'   gradients) and takes no `pedigree`; for [model_survival()] the accuracy is on the
 #'   log-hazard scale, from the Laplace PEV of the frailty
-#' @param group covariance group; the first one by default
+#' @param group covariance group; by default the group of the first pedigree or genomic
+#'   term, else of the first `kernel()` with an estimated variance, else the first group
+#'   (the same default in [ebv()], [solutions()], [accuracy()] and [h2()])
 #' @param trait for a multi-trait fit (`model_mt()`, or `model_ar1()` with `cbind()`),
 #'   which trait. Without it the table lists every trait, with ids written "level|trait",
 #'   and has no `acc` column; given a `pedigree` but no `trait =`, the call stops and
@@ -56,8 +58,13 @@ eh_norma_reacao <- function(theta) any(grepl("\\[\\d+\\]", names(theta)))
 #' @seealso [ebv()] and [accuracy()] for the pieces, [h2()] for the ratio
 #' @export
 solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
+  # o grupo padrao de todos os extratores (grupo_padrao(), R/separabilidade.R)
+  if (is.null(group)) group <- grupo_padrao(fit)
   e <- ebv(fit, group = group, trait = trait)
-  g <- if (is.null(group)) names(fit$ebv)[1] else group
+  g <- group
+  # O ESTADO DO AJUSTE, dito uma vez: os avisos de estado de accuracy() abaixo saem calados
+  # (a classe breedingr_estado), com o NA que eles explicam
+  avisa_estado_solucoes(fit, g)
   # O EFEITO DE CADA LINHA. Num grupo de varios termos (direto-materno, direto-indireto, dois
   # termos iid) ou de varios coeficientes (norma de reacao) o mesmo id aparece uma vez por
   # efeito, e o se e a acc eram casados so pelo id: todas as linhas do id recebiam os do
@@ -96,7 +103,9 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
   if (!is.null(pedigree) ||
       (length(pv) && (!eh_multicaracter(fit) || !is.null(trait)) &&
        acuracia_sem_pedigree(fit, g)))
-    out$acc <- casa(accuracy(fit, pedigree, group = group, trait = trait))
+    out$acc <- casa(withCallingHandlers(accuracy(fit, pedigree, group = group, trait = trait),
+                                        breedingr_estado = function(w)
+                                          invokeRestart("muffleWarning")))
   # O TIPO DE CADA NIVEL numa precisao com niveis latentes (dominance_inverse()): os desvios
   # dos animais e os efeitos de subclasse estao no mesmo vetor, e ordenar os dois juntos
   # punha pares "pai x mae" no meio do ranking dos animais (medido no exemplo 13.1 de Mrode
@@ -107,6 +116,37 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
   out <- data.frame(out[seq_len(k)], type = tipo, out[-seq_len(k)], row.names = NULL,
                     stringsAsFactors = FALSE)
   out[order(match(tipo, c("animal", "subclass", "ancestral")), -out$ebv), , drop = FALSE]
+}
+
+# Os avisos de solutions() sobre o estado do ajuste: sem estimativas, sem convergencia, ou
+# com componentes que os dados nao separam (os EBV sao entao os de um ponto arbitrario da
+# crista, e a acuracia sai NA onde depende deles)
+avisa_estado_solucoes <- function(fit, g) {
+  if (!length(fit$theta)) return(invisible(NULL))
+  if (sem_estimativas(fit)) {
+    aviso_estado("solutions(): this fit has no estimates (theta is NA: it stopped before a ",
+                 "first evaluation, see fit$message), so ebv, se and acc are NA")
+    return(invisible(NULL))
+  }
+  avisa_convergencia(fit, "solutions()")
+  do_grupo <- tryCatch(componentes_do_grupo(fit, g), error = function(e) character(0))
+  ss <- nao_separados(fit, names(fit$theta))
+  if (length(ss))
+    aviso_estado("solutions(): ", texto_singular(ss), ": ebv and se are those of one ",
+                 "arbitrary point of that ridge",
+                 if (length(intersect(unlist(ss), do_grupo)))
+                   ", and acc, which depends on them, is NA")
+  invisible(NULL)
+}
+
+# Os componentes (var e cov) dos termos de um grupo, com e sem o sufixo de caracter: os que
+# a acuracia do grupo le
+componentes_do_grupo <- function(fit, g) {
+  nomes <- vapply(termos_do_grupo(fit, g), function(t) t$nome, character(1))
+  nm <- names(fit$theta)
+  membros <- lapply(nm, function(s)
+    sub("@.*$", "", strsplit(sub("^(var|cov)\\((.*)\\)$", "\\2", s), ",", fixed = TRUE)[[1]]))
+  nm[grepl("^(var|cov)\\(", nm) & vapply(membros, function(m) any(m %in% nomes), logical(1))]
 }
 
 # O tipo ("animal", "subclass", "ancestral") de cada linha de solutions(), pelo termo e pelo
@@ -180,17 +220,98 @@ efeito_por_linha <- function(fit, g, n_total, trait) {
 #' No standard error travels with the number here; [se_function()] gives it by the delta
 #' method, and [t2()] returns it for the indirect-effect model.
 #'
+#' THE MARKER OF THE TERM decides what the ratio is. In a sire model the sire variance is a
+#' quarter of the additive variance, so the heritability is `4 var(sire) / Vp` (Falconer
+#' and Mackay 1996; Mrode and Pocrnic 2023, ch. 3), and that is what is returned for a
+#' `sire()` term. In the sire and maternal-grandsire model, `sire(sire, mgs = "mgs")`, a
+#' record with a known grandsire carries `s + m / 2` and one with the grandsire unknown
+#' carries `s` alone, so with the sire and the grandsire unrelated the mean phenotypic
+#' variance of the records is `(1 + f / 4) var(sire) + var(residual) + others`, with `f`
+#' the fraction of the records that entered the fit with a known grandsire (stored in
+#' `fit$mgs_known`), and `h2 = 4 var(sire)` over that. The relationship between sire and
+#' grandsire is ignored there. A term with no relationship matrix (`pe()`, `random()`) is
+#' refused: `var / Vp` there is a variance ratio, not a heritability, and the share column
+#' of `print(fit)` gives it.
+#'
+#' THE SCALE OF THE COMPONENTS. Every term with a relationship matrix, pedigree, genomic
+#' or a declared [kernel()] K, enters with its component as estimated, the variance on the
+#' base of its matrix (diagonal 1 for a non-inbred base animal): that is the ratio
+#' BLUPF90, ASReml and WOMBAT report from the components, and `animal(id)` and
+#' `kernel(id, K = A)` with the A of the same pedigree give the same number. A declared K
+#' whose mean diagonal over the records that entered the fit is more than 10% away from 1
+#' (a partial multibreed matrix, whose diagonal is about the breed fraction, or an
+#' unscaled kernel) gives a warning with the mean diagonal and the value the ratio would
+#' take with each such K at its mean diagonal over the records; scaling K to mean diagonal
+#' 1 makes the two agree. Two cases change the multiplier, because there the component
+#' is not on that base:
+#' * with metafounders and `scale = TRUE` (the default), every pedigree component is
+#'   multiplied by `var_scale = 1 + mean(diag(Gamma)) / 2 - mean(Gamma)`, the factor from
+#'   the base of Gamma to the usual base (Legarra et al. 2015), the one [estimate_gamma()]
+#'   returns. The model with metafounders is a reparametrization of the same model, and
+#'   with this factor its h2 is the h2 of the fit without them; `scale = FALSE` gives the
+#'   raw ratio on the base of Gamma;
+#' * a `kernel()` that is the [associative_matrix()] of the `indirect()` term of the same
+#'   fit (recognised by its diagonal, `(n_i - 1)^(1 - 2d)` on every record) is a residual
+#'   covariance of the records and not a relationship, so it enters at the variance it puts
+#'   on a record: `(n - 1)^(1 - 2d)` times the component at the group size `n` asked for;
+#' * a `kernel(fixed = v)` term, the known covariance of a two-stage analysis (the sampling
+#'   variances of the first-stage estimates), is a covariance of the records too, and
+#'   enters at `v` times the mean diagonal of its K over the records, the mean sampling
+#'   variance, and not at `v`.
+#' A covariance between two terms takes the geometric mean of the two factors.
+#'
+#' WEIGHTS. With `weights` in [model()], `var(residual)` is the residual variance at
+#' weight 1, and a record of weight w has `var(residual) / w`; weights w and 10 w give the
+#' same breeding values and a different `var(residual)`. BLUPF90 (airemlf90), ASReml and
+#' WOMBAT report the components, that is, the residual at weight 1, and the ratio from
+#' them depends on the scale of the weights. Here the ratio is read at `weight`, by default
+#' the harmonic mean of the weights of the records that entered the fit: `var(residual)`
+#' times `mean(1 / w)` is the mean residual variance of those records, so the answer does
+#' not depend on the scale of the weights. The arithmetic mean weight would put
+#' `var(residual) / mean(w)` in the denominator, which is the residual variance of no
+#' record and is below the mean one. `weight = 1` gives the ratio of the components as
+#' estimated, the number airemlf90 gives (the per-observation heritability when the
+#' weights are the numbers of observations averaged in each record). A fit made by
+#' [indirect_residual()] reads its residual at the group size: `1 + (n - 1)^(1 - 2d) k`
+#' times `var(residual)`. `weight =` on a fit without weights is refused.
+#'
+#' A FIT THAT DID NOT CONVERGE is read at its last iterate, with a warning. When the fit
+#' reports the information matrix SINGULAR and the variance of the numerator is in a set
+#' of components the data do not separate, the ratio moves along that ridge and is
+#' returned as `NA`, with a warning naming the components; a set that only touches the
+#' denominator (permanent environment and residual with one record per animal) leaves the
+#' number, with a warning. A fit with no estimates (theta `NA`) gives `NA`, saying so. A
+#' fit at given components (`maxiter = 0` and `n_em = 0` in [model()], `maxiter = 0` in
+#' [model_mt()] and [model_ar1()]) is read at those components without a word; with
+#' `n_em > 0` the EM rounds moved the start, and the fit is read as an estimate.
+#'
 #' @param fit result of `model()`, `model_mt()` or `model_ar1()`
-#' @param group covariance group; the first one by default
+#' @param group covariance group; by default the group of the first pedigree or genomic
+#'   term, else of the first `kernel()` with an estimated variance, else the first group,
+#'   the same default as [ebv()], [solutions()] and [accuracy()]
 #' @param trait for a multi-trait fit, which trait; all of them by default
 #' @param n group size, required when the model has an `indirect()` term and ignored
 #'   otherwise; a vector gives one value per size
 #' @param r average additive relationship between group mates, used with `n`
+#' @param weight for a fit with `weights`, the weight at which `var(residual)` is read;
+#'   by default the harmonic mean of the weights of the records that entered the fit.
+#'   `weight = 1` is the ratio of the components as estimated
+#' @param scale `TRUE` (default) puts the pedigree components of a fit with metafounders on
+#'   the usual base (`var_scale`); `FALSE` reads them on the base of Gamma. Without
+#'   metafounders it changes nothing. The residual is read at `weight` either way, so
+#'   `scale = FALSE, weight = 1` is the raw ratio of the components
 #' @return a single number, or one per trait in the multi-trait case, named by trait;
 #'   with a vector `n`, one per size
 #' @references Willham, R.L. (1972). The role of maternal effects in animal breeding:
 #'   III. Biometrical aspects of maternal effects in animals. Journal of Animal Science
 #'   35:1288-1293.
+#'
+#'   Falconer, D.S. & Mackay, T.F.C. (1996). Introduction to Quantitative Genetics, 4th
+#'   ed. Longman.
+#'
+#'   Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
+#'   Ancestral relationships using metafounders: finite ancestral populations and across
+#'   population relationships. Genetics 200:455-468.
 #'
 #'   Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 #'   quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
@@ -200,9 +321,11 @@ efeito_por_linha <- function(fit, g, n_total, trait) {
 #' @seealso [h2_curve()] for a reaction norm, [rg()] for the genetic correlation, [t2()]
 #'   for the indirect-effect model
 #' @export
-h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0) {
+h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
+               scale = TRUE) {
   if (!inherits(fit, c("breeding_fit", "breeding_fit_mt", "breeding_fit_ar1")))
     stop("expected the result of model(), model_mt() or model_ar1()")
+  confere_peso_escala(fit, weight, scale)
   th <- fit$theta
   if (eh_norma_reacao(th))
     stop("this fit has a reaction norm, and there the heritability is a function of the ",
@@ -212,31 +335,92 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0) {
     stop("this fit has an indirect() term, and the phenotypic variance of a record depends ",
          "on its group size (Bijma et al. 2007): give n = (and r =, the relationship ",
          "between group mates), or use t2()")
-  if (is.null(group)) group <- names(fit$ebv)[1]
+  termos <- termos_do_ajuste(fit)
+  if (is.null(group)) group <- grupo_padrao(fit)
   # um grupo NOMEADO com mais de um termo (direto e indireto, direto e materno) nao tem
   # var(<grupo>): a variancia e de cada termo. O h2 e do PRIMEIRO termo do grupo, que e o
   # efeito direto na convencao de toda formula do pacote (animal() antes do outro termo).
   mt <- any(grepl("@", names(th), fixed = TRUE))
   sufixo <- if (mt) "@" else ")"
   if (!any(startsWith(names(th), paste0("var(", group, sufixo)))) {
-    no_grupo <- Filter(function(t) identical(t$group, group) && t$estrutura != 0L,
-                       termos_do_ajuste(fit))
+    no_grupo <- Filter(function(t) identical(t$group, group) && t$estrutura != 0L, termos)
     if (length(no_grupo)) group <- no_grupo[[1]]$nome
   }
+  # O MARCADOR DO TERMO decide o que a razao e: 4 var(sire) / Vp num sire() (fator_h2), e
+  # no sire(mgs =) o Vp ganha a parte do avo (extra_mgs). Num termo sem parentesco (pe(),
+  # random()) var / Vp e uma razao de variancias (um c2, uma parte da repetibilidade) e nao
+  # herdabilidade: recusa.
+  alvo_t <- Filter(function(t) identical(t$nome, group) && t$estrutura != 0L, termos)
+  alvo_t <- if (length(alvo_t)) alvo_t[[1]] else NULL
+  if (!is.null(alvo_t) && alvo_t$estrutura == 1L)
+    stop("'", group, "' is ", rotulo_termo(alvo_t), ", a term with no relationship ",
+         "matrix: var(", group, ") / Vp is a variance ratio (a c2, or part of the ",
+         "repeatability), not a heritability. The share column of print(fit) gives it",
+         call. = FALSE)
+  fator <- fator_h2(alvo_t)
   # o multicaracter se reconhece pelo "@" nos nomes, e nao pela classe: o model_ar1()
   # multicaracter e da classe AR(1) e caia no ramo univariado, que morria
   if (mt && length(n) > 1L)
     stop("a multi-trait fit takes one group size at a time; call h2() once per n")
   tr <- if (!mt) "" else if (is.null(trait)) tracos_do_theta(th) else trait
+  if (sem_estimativas(fit)) {
+    aviso_estado("h2(): this fit has no estimates (theta is NA: it stopped before a first ",
+                 "evaluation, see fit$message), so the value is NA")
+    return(if (mt) stats::setNames(rep(NA_real_, length(tr)), tr)
+           else if (length(n) > 1L) stats::setNames(rep(NA_real_, length(n)), paste0("n=", n))
+           else NA_real_)
+  }
+  avisa_convergencia(fit, "h2()")
+  ns <- if (is.null(n)) list(NULL) else as.list(n)
+  razao <- function(t, alvo, kernels = NULL)
+    vapply(ns, function(nn) {
+      the <- th * multiplicadores(fit, weight, isTRUE(scale), nn, kernels)
+      vp <- variancia_fenotipica(the, t, ige, if (is.null(nn)) NA_real_ else nn, r) +
+        extra_mgs(fit, the, t)
+      fator * the[[alvo]] / vp
+    }, numeric(1))
+  lidos <- character(0)
   vals <- lapply(tr, function(t) {
     alvo <- nome_comp("var", group, t)
     if (!alvo %in% names(th))
       stop("there is no '", alvo, "'. Available: ", paste(names(th), collapse = ", "))
-    th[[alvo]] / variancia_fenotipica(th, t, ige, if (is.null(n)) NA_real_ else n, r)
+    comps <- names(th)[componentes_do_traco(th, t)]
+    lidos <<- c(lidos, comps)
+    if (estado_para_extrator(fit, "h2()", comps, alvo, convergencia = FALSE))
+      return(rep(NA_real_, length(ns)))
+    razao(t, alvo)
   })
+  # a K de um kernel() com diagonal media longe de 1: o numero fica, e o aviso diz o outro
+  kd <- kernels_fora_de_um(fit, lidos)
+  if (length(kd)) {
+    alt <- unlist(lapply(tr, function(t) {
+      alvo <- nome_comp("var", group, t)
+      if (anyNA(vals[[match(t, tr)]])) NA_real_ else razao(t, alvo, kd)
+    }))
+    avisa_diagonal_kernel("h2()", kd, alt)
+  }
+  avisa_diagonal_desconhecida(fit, lidos, "h2()")
   if (mt) return(stats::setNames(unlist(vals), tr))
   out <- vals[[1]]
   if (length(out) > 1L) stats::setNames(out, paste0("n=", n)) else unname(out)
+}
+
+# weight = e scale = de h2() e t2(): scale e TRUE ou FALSE, e weight e um numero positivo,
+# so num ajuste com pesos (sem pesos var(residual) ja e a variancia de todo registro, e um
+# weight mudaria a razao sem que o ajuste tenha peso nenhum)
+confere_peso_escala <- function(fit, weight, scale) {
+  if (!isTRUE(scale) && !isFALSE(scale))
+    stop("scale must be TRUE (the pedigree components of a fit with metafounders on the ",
+         "usual base) or FALSE (on the base of Gamma)", call. = FALSE)
+  if (is.null(weight)) return(invisible(NULL))
+  if (!is.numeric(weight) || length(weight) != 1L || !is.finite(weight) || weight <= 0)
+    stop("weight must be one positive number, the weight at which var(residual) is read",
+         call. = FALSE)
+  if (!length(fit$weights))
+    stop("this fit has no weights, so var(residual) is already the residual variance of ",
+         "every record and weight = has nothing to set; it is for a fit made with ",
+         "weights = in model()", call. = FALSE)
+  invisible(NULL)
 }
 
 #' Total heritable variance and T2 of a model with indirect genetic effects
@@ -255,12 +439,23 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0) {
 #' formula the literature computes by hand (Leite et al. 2023 use it with the average
 #' group size and relationship).
 #'
-#' Every other variance and covariance of the trait enters with coefficient 1. A
-#' residual indirect structure declared through [associative_matrix()] is a [kernel()]
-#' component whose diagonal is not 1; its contribution to the phenotypic variance is
-#' `mean(diag(K))` times the component, which this function does not know and does not
-#' add. With pens of different sizes, give the sizes as a vector and read one row per
-#' size, or give the average size, the convention of the literature.
+#' Every other variance and covariance of the trait enters as in [h2()], at the same group
+#' size `n`: the components with a relationship matrix as estimated (with metafounders,
+#' times `var_scale`), and a residual indirect structure declared through
+#' [associative_matrix()] at the variance it puts on a record of a pen of `n` animals,
+#' `(n - 1)^(1 - 2d)` times its component (before this version it entered with
+#' coefficient 1). `var(residual)` is read at `weight`, by default the harmonic mean
+#' weight of the records; a fit made by [indirect_residual()] reads it at the group size,
+#' `1 + (n - 1)^(1 - 2d) k` times `var(residual)`. With pens of different sizes, give the
+#' sizes as a vector and read one row per size, or give the average size, the convention
+#' of the literature.
+#'
+#' A fit that did not converge is read at its last iterate, with a warning. When the fit
+#' reports the information matrix SINGULAR along a set of components that includes the
+#' direct or the indirect variance or their covariance, `t2`, `var_tbv` and `se_t2` are
+#' `NA`; `h2_direct` and `se_h2_direct` are `NA` when the set includes the direct
+#' variance, the numerator, as in [h2()], and are kept otherwise. The warning names the
+#' components and says which columns are `NA`.
 #'
 #' On a [model_threshold()] fit the numbers are on the liability scale, with the
 #' residual fixed at 1 in the denominator; with pens of unequal size and an environmental
@@ -274,6 +469,7 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0) {
 #' @param n group size, one number or a vector of sizes
 #' @param r average additive relationship between group mates (0 for unrelated mates)
 #' @param trait for a multi-trait fit, which trait; all of them by default
+#' @param weight,scale as in [h2()]
 #' @return data.frame with one row per trait and size: `trait`, `n`, `r`, `var_tbv`,
 #'   `var_p`, `t2`, `h2_direct` (`sigma2_AD / sigma2_P`) and the delta-method standard
 #'   errors `se_t2` and `se_h2_direct` (NA when the fit carries no covariance of the
@@ -287,7 +483,7 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0) {
 #'   Leite, N.G. et al. (2023). Genetics Selection Evolution 55:47.
 #' @seealso [h2()], [se_function()]
 #' @export
-t2 <- function(fit, n, r = 0, trait = NULL) {
+t2 <- function(fit, n, r = 0, trait = NULL, weight = NULL, scale = TRUE) {
   # a fragilidade nao tem residuo: a soma dos componentes nao e variancia fenotipica de
   # coisa nenhuma, e o T2 sairia um numero sem sentido
   if (inherits(fit, "breeding_fit_surv"))
@@ -300,27 +496,84 @@ t2 <- function(fit, n, r = 0, trait = NULL) {
     stop("n must be one or more finite group sizes >= 1")
   if (!is.numeric(r) || length(r) != 1L || !is.finite(r) || r < -1 || r > 1)
     stop("r must be one number in [-1, 1]")
+  confere_peso_escala(fit, weight, scale)
   th <- fit$theta
   mt <- any(grepl("@", names(th), fixed = TRUE))
   tr <- if (!mt) "" else if (is.null(trait)) tracos_do_theta(th) else trait
-  linhas <- list()
-  for (t in tr) for (nn in n) {
-    f_tbv <- function(x) var_tbv(x, t, ige, nn)
-    f_p <- function(x) variancia_fenotipica(x, t, ige, nn, r)
+  avisa_convergencia(fit, "t2()")
+  # a escala de h2(), no tamanho de grupo de cada linha (multiplicadores(), n = nn): o
+  # var_scale dos metafundadores, a associative_matrix() em (n - 1)^(1 - 2d), o residuo no
+  # peso pedido ou no tamanho de grupo do indirect_residual()
+  linha <- function(t, nn, estado, kernels = NULL) {
+    mult <- multiplicadores(fit, weight, isTRUE(scale), nn, kernels)
+    vd <- nome_comp("var", ige$direto, t)
+    f_tbv <- function(x) var_tbv(x * mult, t, ige, nn)
+    f_p <- function(x) variancia_fenotipica(x * mult, t, ige, nn, r) + extra_mgs(fit, x * mult, t)
     f_t2 <- function(x) f_tbv(x) / f_p(x)
-    f_h2 <- function(x) x[[nome_comp("var", ige$direto, t)]] / f_p(x)
+    f_h2 <- function(x) (x * mult)[[vd]] / f_p(x)
     se <- function(f) {
       if (is.null(fit$vcov) || all(is.na(fit$vcov))) return(NA_real_)
       se_function(fit, f)$se
     }
-    linhas[[length(linhas) + 1L]] <- data.frame(
-      trait = if (nzchar(t)) t else NA_character_, n = nn, r = r,
-      var_tbv = f_tbv(th), var_p = f_p(th), t2 = f_t2(th), h2_direct = f_h2(th),
-      se_t2 = se(f_t2), se_h2_direct = se(f_h2), stringsAsFactors = FALSE)
+    data.frame(trait = if (nzchar(t)) t else NA_character_, n = nn, r = r,
+               var_tbv = if (estado$na_t2) NA_real_ else f_tbv(th), var_p = f_p(th),
+               t2 = if (estado$na_t2) NA_real_ else f_t2(th),
+               h2_direct = if (estado$na_h2) NA_real_ else f_h2(th),
+               se_t2 = if (estado$na_t2) NA_real_ else se(f_t2),
+               se_h2_direct = if (estado$na_h2) NA_real_ else se(f_h2),
+               stringsAsFactors = FALSE)
+  }
+  linhas <- list()
+  lidos <- character(0)
+  estados <- list()
+  for (t in tr) {
+    comps <- names(th)[componentes_do_traco(th, t)]
+    lidos <- c(lidos, comps)
+    estados[[length(estados) + 1L]] <- estado_t2(fit, comps, ige, t)
+    for (nn in n) linhas[[length(linhas) + 1L]] <- linha(t, nn, estados[[length(estados)]])
   }
   out <- do.call(rbind, linhas)
+  # a K de um kernel() com diagonal media longe de 1 (fora a associative_matrix(), que
+  # entra pela diagonal): o numero fica, e o aviso diz o t2 com cada K na diagonal media
+  kd <- kernels_fora_de_um(fit, lidos)
+  if (length(kd)) {
+    alt <- unlist(lapply(seq_along(tr), function(j)
+      vapply(n, function(nn) linha(tr[j], nn, estados[[j]], kd)$t2, numeric(1))))
+    avisa_diagonal_kernel("t2()", kd, alt)
+  }
+  avisa_diagonal_desconhecida(fit, lidos, "t2()")
   if (!mt) out$trait <- NULL
   out
+}
+
+# O ESTADO DO AJUSTE PARA t2(), uma vez por caracteristica: o t2 depende dos tres
+# componentes do bloco direto-indireto, e o h2 direto do numerador, a variancia direta
+# (a regra de h2()). Um conjunto do veredito SINGULAR que toca o bloco leva t2, var_tbv e
+# se_t2; um que toca a variancia direta leva tambem h2_direct; um que so toca o resto da
+# variancia fenotipica deixa os numeros, com aviso.
+estado_t2 <- function(fit, comps, ige, t) {
+  th <- fit$theta
+  if (sem_estimativas(fit, comps)) {
+    aviso_estado("t2(): this fit has no estimates (theta is NA: it stopped before a first ",
+                 "evaluation, see fit$message), so the values are NA")
+    return(list(na_t2 = TRUE, na_h2 = TRUE))
+  }
+  vd <- nome_comp("var", ige$direto, t)
+  bloco <- c(vd, nome_comp("var", ige$indireto, t), pega_cov(th, ige$indireto, ige$direto, t)$nome)
+  ss <- nao_separados(fit, comps)
+  if (!length(ss)) return(list(na_t2 = FALSE, na_h2 = FALSE))
+  na_t2 <- any(vapply(ss, function(s) any(s %in% bloco), logical(1)))
+  na_h2 <- any(vapply(ss, function(s) vd %in% s, logical(1)))
+  aviso_estado("t2(): ", texto_singular(ss), ": ",
+               if (na_t2) paste0("t2, var_tbv and se_t2 depend on ",
+                                 paste(intersect(unlist(ss), bloco), collapse = ", "),
+                                 " along that ridge and are returned as NA")
+               else "t2 and var_tbv use those components only through the phenotypic variance",
+               if (na_h2) "; h2_direct and se_h2_direct, whose numerator is in that set, are NA too"
+               else paste0("; h2_direct is kept, as its numerator ", vd, " is not in that set"),
+               if (!na_t2 || !na_h2)
+                 ", and holds only where the ridge leaves the phenotypic variance unchanged")
+  list(na_t2 = na_t2, na_h2 = na_h2)
 }
 
 # Os termos da formula do ajuste, ou lista vazia se ela nao estiver guardada
@@ -407,7 +660,8 @@ resumo_comum <- function(object, titulo, extra = list()) {
                 converged = object$converged,
                 components = tabela_componentes(object$theta, object$se,
                                                 indireto = tem_indireto(object),
-                                                sem_share = nota_share(object)),
+                                                sem_share = nota_share(object),
+                                                fit = object),
                 fixed = object$b, dropped_x = object$dropped_x,
                 nota_fixos = nota_fixos(object), nota_se = nota_se(object)),
            extra)
@@ -475,20 +729,22 @@ summary.breeding_gibbs <- function(object, probs = c(0.025, 0.5, 0.975), ...) {
     if (!is.null(cd)) comp <- cbind(comp, cd)
   }
   # o h2 amostra a amostra: a posteriori da razao, e nao a razao das medias. Com indirect()
-  # ou norma de reacao nao ha um numero so, e a linha nao sai. A definicao e a mesma dos
-  # derivados de mcmc_diagnostics() (alvo_h2_gibbs), que da os diagnosticos da linha.
+  # ou norma de reacao nao ha um numero so, e a linha nao sai. A definicao e a de h2() (4
+  # var(sire) num modelo de touro, o var_scale dos metafundadores, o avo do sire(mgs =)), a
+  # mesma dos derivados de mcmc_diagnostics() (alvo_h2_gibbs), que da os diagnosticos da
+  # linha.
   h <- NULL
   nm <- colnames(s)
-  ah <- alvo_h2_gibbs(nm, tem_indireto(object))
+  ah <- alvo_h2_gibbs(nm, tem_indireto(object), object)
   if (!is.null(ah)) {
-    r <- s[, ah$alvo] / rowSums(s[, ah$den, drop = FALSE])
+    r <- razao_h2_gibbs(s, ah)
     h <- data.frame(ratio = ah$nome, mean = mean(r), sd = stats::sd(r),
                     t(stats::setNames(stats::quantile(r, probs, names = FALSE), colnames(q))),
                     row.names = NULL, check.names = FALSE)
     # sem a linha do h2 na tabela (0 amostras, ou derived = FALSE) o h2 sai sem os
     # diagnosticos, e nao com erro
     cd <- colunas_diag(match(ah$nome, d$table$parameter),
-                       t(mcse_q(function(m) m[, ah$alvo] / rowSums(m[, ah$den, drop = FALSE]))))
+                       t(mcse_q(function(m) razao_h2_gibbs(m, ah))))
     if (!is.null(cd)) h <- cbind(h, cd)
   }
   structure(list(titulo = paste0(if (isTRUE(object$chains > 1L))

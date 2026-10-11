@@ -406,12 +406,18 @@ residuals.breeding_fit_surv <- function(object, data, censor,
   if (missing(data) || !is.data.frame(data))
     stop("data must be the data.frame of the fit", call. = FALSE)
   if (missing(censor)) stop("censor= is needed, as given to model_survival()", call. = FALSE)
-  tv <- as.double(data[[object$trait]])
-  qv <- if (is.character(censor) && length(censor) == 1L) data[[censor]] else censor
+  # o tempo e o indicador pelas mesmas regras do ajuste (R/estrutura_categorica.R): o
+  # indicador em fator pelos rotulos, e nao pelos codigos, e o tempo em fator ou texto recusado
+  tv <- le_tempo(data[[object$trait]], paste0("the time column '", object$trait, "'"),
+                 object$trait)
+  coluna_censura <- is.character(censor) && length(censor) == 1L
+  qv <- if (coluna_censura) data[[censor]] else censor
   if (length(qv) != nrow(data))
     stop("censor must be a column name or one value per record", call. = FALSE)
-  qv <- as.double(qv)
-  ev <- if (is.null(entry)) rep(0, nrow(data)) else as.double(data[[entry]])
+  qv <- le_censura(qv, if (coluna_censura) paste0("the censoring indicator '", censor, "'")
+                       else "the censoring indicator")$v
+  ev <- if (is.null(entry)) rep(0, nrow(data))
+        else le_tempo(data[[entry]], paste0("the entry column '", entry, "'"), entry)
   sv <- if (is.null(subject)) seq_len(nrow(data)) else rotulo_motor(data[[subject]])
   usa <- !is.na(tv) & !is.na(qv) & !is.na(ev) & !is.na(sv)
   if (sum(usa) != object$n_used)
@@ -991,11 +997,14 @@ cauda_de <- function(k, normalidade) {
 #' residual SD varying by a factor of about 1.4 across groups (2000 records) the combined p
 #' of `dispersion` rejected 1.000, of `normality` 0.72 (the mixture of variances is not
 #' normal) and of `koenker` against the covariate 0.005. For `family = "probit"` the draws
-#' are of the latent residual (variance 1): under the model the mean fraction of draws with
-#' `p < 0.05` was 0.037 to 0.049 and the combined p rejected none of 200 data sets
-#' (`pivotal_probit`, 640 records). The chain is checked against the data too: the design
-#' rebuilt from `data` times the posterior means must give the fitted values the chain
-#' stored, and each random group must have the levels of the chain. Beyond that the pedigree
+#' are of the latent residual (variance 1): under the model, with the contemporary group
+#' random and `by = "cg"` (`pivotal_probit`, 640 records; with the group fixed, a binary
+#' at the median leaves 7 to 27 of the 56 groups, median 17 over 200 draws of the data,
+#' with every record in one category, which [gibbs()] refuses), the mean fraction of draws
+#' with `p < 0.05` was 0.042 to 0.047 and the combined p rejected none of 200 data sets.
+#' The chain is checked against the data too:
+#' the design rebuilt from `data` times the posterior means must give the fitted values the
+#' chain stored, and each random group must have the levels of the chain. Beyond that the pedigree
 #' and the genotypes are NOT checked against the chain (it keeps nothing of its `K` to
 #' compare with): they enter only the `K_jj` of the standardized breeding values, so another
 #' pedigree or other genotypes with the same animals change those `z` without an error, and

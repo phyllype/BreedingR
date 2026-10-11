@@ -161,7 +161,25 @@ records}
 as a double, integer or raw matrix. NA (5 in a raw matrix, the BLUPF90 code) is
 imputed with the marker mean, never converted to zero. The matrix is read where it is,
 without a copy, so a raw one costs 1 byte per genotype (\code{\link[=read_blupf90_snp]{read_blupf90_snp()}} and
-\code{read_plink(storage = "raw")} return it)}
+\code{read_plink(storage = "raw")} return it). Every function that takes \verb{genotypes =}
+checks the same things and refuses, naming the animals: genotypes without animals or
+without markers (pass \code{genotypes = NULL} for a fit on the pedigree alone), a missing
+or repeated id in \code{ids} (one genotype per animal), rownames of \code{m} that contradict
+\code{ids} (the genotype goes to the animal at its position in \code{ids}), and, everywhere a
+missing genotype is imputed by the mean, an animal with a call rate below 0.90: such
+a row is mostly marker means and looks like an average, accurately known animal. The
+0.90 is the \code{callrateAnim} default of preGSf90, but the rate is counted over the
+markers that vary (the ones that enter G), where preGSf90 counts every SNP: on a
+monomorphic marker the mean imputes the genotype every animal carries. The output of
+\code{\link[=qc_genotypes]{qc_genotypes()}} always passes this check; \code{options(BreedingR.min_call_rate_animal =)}
+moves the line, and 0 turns it off. With a pedigree, a genotyped parent and offspring
+with opposite homozygotes on more than 1\% of the markers called in both (the
+exclusion test of preGSf90, \verb{exclusion_threshold 1}) are a warning naming the pairs,
+and the fit goes on with the data as given; see \code{\link[=parentage_check]{parentage_check()}}, which also says
+how to turn the check off and why sex-chromosome markers must be left out of that
+test. An optional element \code{genotypes$sex_markers} (column indices, names or one
+logical per column, as \code{\link[=qc_genotypes]{qc_genotypes()}} returns it when given \verb{sex_markers =}) names
+them; they stay in G}
 
 \item{blend}{weight of A22 in the adjusted G, the usual 0.05}
 
@@ -306,6 +324,69 @@ differences between levels of the same factor, never on the raw values.
 \description{
 Fit a mixed model by AI-REML
 }
+\section{Structure checks}{
+
+Before fitting, every fitter that estimates components (\code{\link[=model]{model()}}, \code{\link[=model_mt]{model_mt()}},
+\code{\link[=model_ar1]{model_ar1()}}, \code{\link[=gibbs]{gibbs()}}, \code{\link[=model_threshold]{model_threshold()}} with \code{estimate = TRUE} and
+\code{\link[=model_survival]{model_survival()}} without \verb{sigma2 =}) reads the design and STOPS on the ones the data
+cannot identify, naming the term, the levels and what to do:
+\itemize{
+\item a random term whose levels are a function of the levels of a fixed class effect (each
+level of the fixed effect holds the records of a single level of the term: one sire
+per contemporary group, a fixed litter with \code{maternal(dam)} or \code{pe(dam)} and one
+litter per dam, \code{cg = id}), or a random term with a single level among the records.
+The incidence of the term is then a sum of columns of X, the fixed effect absorbs the
+whole term and its variance does not enter the REML likelihood (measured before this
+version: \code{var(sire)} walking to 4e6, or 300 iterations and a stop). ASReml lists a
+random term confounded with a fixed one among the causes of a singular average
+information and stops unless \code{!AISINGULARITIES} is given. The check takes one fixed
+effect at a time; a confounding by a combination of fixed effects is left to the
+SINGULAR verdict of the fit (see \code{\link[=h2]{h2()}} for how the extractors read it);
+\item \code{indirect()} with every pen of one animal (the indirect incidence is all zero), with
+all the records in one pen, or with the pen (or anything finer) as a fixed effect: the
+fixed part absorbs the sum of each pen, and what is left of the indirect incidence of
+a record is minus its own indirect effect, which the direct effect of the same animal
+cannot be told apart from (Cantet and Cappa 2008, J. Anim. Breed. Genet. 125:371;
+Bijma 2010, Genetics 186:1013). Fit the pen as \code{random(pen)}. With \code{dilution > 0} and
+pens of different sizes only the dilution weights separate the two, a very weak
+identification, and that is a warning.
+}
+
+At given components (\code{maxiter = 0} here and in \code{\link[=model_mt]{model_mt()}} and \code{\link[=model_ar1]{model_ar1()}},
+\verb{theta_fixed =} in \code{\link[=gibbs]{gibbs()}}, \code{estimate = FALSE} in \code{\link[=model_threshold]{model_threshold()}}, \verb{sigma2 =} in
+\code{\link[=model_survival]{model_survival()}}, and \code{\link[=snp_blup]{snp_blup()}}) the same designs are a warning: the BLUP exists,
+and the data say nothing about the term beyond the components given.
+
+The fit goes on with a warning, also written in \code{message}, when:
+\itemize{
+\item an \code{animal()} term has repeated records of some animal and no \code{pe()} or \code{random()}
+uses the same column (nor, in \code{\link[=model_ar1]{model_ar1()}}, is the animal the \code{subject}): the
+permanent-environment covariance between records of the same animal is loaded onto
+the additive variance and h2 inflates (measured: 0.70 without \code{pe()} against 0.32 with
+it, true value 0.30). The text is the one of \code{\link[=suggest_model]{suggest_model()}};
+\item fewer than 10 pens of \code{indirect()} hold more than one animal: the indirect components
+rest on that many pen sums (Bijma 2010 puts the detection of indirect effects at
+about 250 to 500 groups even with an optimum design);
+\item the pens of \code{indirect()} hold records of more than one level of a fixed class effect,
+each level a group of two or more animals (at least 90\% of the pens that mix levels
+split that way), which is how pens merged by a reused label look. When pen numbers
+restart within each batch, pens that never met are merged into one and every record
+gets mates it never had (measured: pens of 10 seen where there were 5, and the
+correlation of the indirect breeding value with the true one down from 0.45 to 0.28);
+give each pen a unique label, such as \code{paste(batch, pen)}. A fixed effect that varies
+at random within the pens leaves pieces of one animal and gives no warning; pens that
+truly mix levels in groups (both sexes in a pen of 10) cannot be told apart from
+merged pens, so \code{options(BreedingR.warn_pen_labels = FALSE)} silences this check;
+\item a \code{pe()} or \code{random()} term has fewer than 5 levels among the records: its variance
+comes from that many levels and is barely determined, and labels that number
+something inside another unit (the parity within each dam used as the litter: 3
+levels where there were 349 litters) merge units.
+}
+
+These checks read the rows with an observed response (for \code{indirect()}, the pen
+membership of every row, as the incidence does).
+}
+
 \references{
 Patterson, H.D. & Thompson, R. (1971). Recovery of inter-block
 information when block sizes are unequal. Biometrika 58:545-554.

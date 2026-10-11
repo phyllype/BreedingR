@@ -15,6 +15,12 @@
 
 # populacao de dimensao baixa: cada animal e um mosaico de poucos haplotipos fundadores
 # em blocos longos, o que concentra a variancia de G em poucos autovalores
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 geno_mosaico <- function(n, n_hap = 6, n_bloco = 4, tam = 100, semente = 3) {
   set.seed(semente)
   hap <- lapply(seq_len(n_bloco), function(b)
@@ -313,3 +319,5 @@ test_that("a rota lanczos: mesma semente, mesmo nucleo; 1 e 4 threads, o mesmo r
   expect_identical(runif(1), x)
   expect_identical(attr(suppressWarnings(apy_core_select(geno)), "method"), "exact")
 })
+
+options(op_parentesco)

@@ -155,7 +155,8 @@ genomic model, no probit, nothing at scale. In the probit model the latent liabi
 third block, the ceiling does not hold, and only the typical time is used, without
 calibration. A flagged level mixes slower than the ceiling allows or its chains disagree,
 and one case no run length fixes is a fixed effect whose posterior is improper, such as a
-contemporary group with every record in one category in the probit model. \code{ess_low} says
+covariate that separates the two categories in the probit model (a contemporary group
+with every record in one category is refused by \code{\link[=gibbs]{gibbs()}} before the chain). \code{ess_low} says
 that the typical effective size of a term is below \code{ess_per_chain} per chain by a
 one-sided test at \code{alpha} (Bonferroni over the terms) on the median over its levels: with
 few levels that median is nearly one chi-square with \code{M - 1} degrees of freedom, and the

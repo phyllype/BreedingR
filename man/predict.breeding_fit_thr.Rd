@@ -18,7 +18,8 @@
 column of every \code{indirect()} term (and, for the joint fit, the quantitative trait)}
 
 \item{type}{\code{"probability"} (default) for the n x m matrix of category
-probabilities (joint fit: the probability of the larger binary value),
+probabilities (joint fit: the probability of the upper binary category, the larger
+value for numbers and the second level for a factor, \code{fit$binary_levels[2]}),
 \code{"liability"} for the linear predictor, and for the joint fit \code{"quantitative"} for
 the expected quantitative trait \verb{x'b + u1}}
 

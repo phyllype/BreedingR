@@ -5,6 +5,12 @@
 # genotipados entre os ancestrais; o mesmo num pedigree pai / avo materno, onde o caminho do
 # avo pesa 1/4; e a22_inverse() (Schur esparso) contra a inversa densa de A22.
 
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 ped_endogamico <- function(seed = 21, n = 260, nf = 12) {
   set.seed(seed)
   id <- sprintf("a%03d", seq_len(n)); pa <- ma <- rep("0", n)
@@ -54,3 +60,5 @@ test_that("a22_inverse() (Schur esparso) = inversa densa de A22", {
   a22i <- a22_inverse(ped, match(gid, pedigree(ped)$id))
   expect_lt(max(abs(a22i - solve(z$A[gid, gid]))), 1e-8)
 })
+
+options(op_parentesco)

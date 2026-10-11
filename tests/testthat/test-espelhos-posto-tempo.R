@@ -20,13 +20,16 @@ caso_cg_fora <- function() {
 
 test_that("CG so de animais fora do pedigree: os tres ajustadores derrubam o nivel", {
   z <- caso_cg_fora()
-  u <- model(y1 ~ cg + animal(id), z$d, z$ped, verbose = FALSE)
+  # varios registros por animal sem pe(): o aviso de repeticao sai, e o portao segue
+  u <- expect_warning(model(y1 ~ cg + animal(id), z$d, z$ped, verbose = FALSE),
+                      "have more than one record", class = "breedingr_estrutura")
   expect_true("cg=gX" %in% u$dropped_x)
   a <- model_ar1(y1 ~ cg + animal(id), z$d, z$ped, subject = "id", time = "dia",
                  verbose = FALSE)
   expect_true("cg=gX" %in% a$dropped_x)
   expect_true(a$converged)
-  m <- model_mt(cbind(y1, y2) ~ cg + animal(id), z$d, z$ped, verbose = FALSE)
+  m <- expect_warning(model_mt(cbind(y1, y2) ~ cg + animal(id), z$d, z$ped, verbose = FALSE),
+                      "have more than one record", class = "breedingr_estrutura")
   expect_true(any(startsWith(m$dropped_x, "cg=gX")))
   expect_true(m$converged)
   expect_false(grepl("SINGULAR", m$message, fixed = TRUE))

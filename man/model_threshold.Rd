@@ -41,10 +41,32 @@ covariate value is refused on every row, with the same rule and message as in
 \code{\link[=model]{model()}}; a factor or text column in \code{cov()} is refused rather than read as its
 codes.}
 
-\item{data}{data.frame with the columns referenced. The categorical trait can be
-integer codes, character or factor; categories are ordered by factor level order,
-or by sort order otherwise. In the joint mode the second trait must have exactly
-two values (the larger one is the "difficulty"). A missing observation (\code{NA},
+\item{data}{data.frame with the columns referenced. The categories of the trait run
+from the lowest liability to the highest: numeric codes (or logical) by value; a
+factor by its levels (an \code{ordered()} factor, or a factor whose levels were set in
+the liability order, as MASS::polr and ordinal::clm read a factor response); text
+that reads as numbers by value. Text that is not a number is REFUSED, and the
+message shows the order sorting would give: text carries no order, and sorted
+"low", "mid", "high" run high < low < mid, which inverts the scale. A factor whose
+labels are numbers out of numeric order is refused (\code{factor()} of a numeric text
+column gives "1" < "10" < "2"; a deliberate order such as \code{levels = 3:1} must be
+declared with \code{ordered()}), and so is an \code{ordered()} factor whose levels are that text
+order, what \code{ordered()} gives without \verb{levels =}; labels that write one number twice
+("1" and "1.0") are refused too. A factor that is not ordered and whose levels are in
+alphabetical order, what \code{factor()} and \code{read.csv(stringsAsFactors = TRUE)} give text
+when \verb{levels =} is not set, runs with a WARNING that shows the order used and the
+count in each category (\code{ordered()} declares it and silences the warning; brms
+refuses every unordered factor for an ordinal family, MASS::polr and ordinal::clm
+take the levels silently). An \code{ordered()} factor is taken as the declared order, so
+give it \verb{levels =}: without them it sorts text alphabetically too, and only numeric
+labels in text order are caught. When the order does not come from numbers the fit
+message says which order was used, and for a binary trait which category is the
+upper one. A level of a fixed class effect with every record in the lowest or in the
+highest category (the extreme category problem; Misztal, Gianola and Foulley
+1989) has no finite effect, and the fit is refused naming the level and its count:
+merge the level, drop its records, or fit the effect as random. In the joint mode
+the second trait must have exactly two values, ordered by the same rule (the upper
+one is the "difficulty"), and the same check runs on it. A missing observation (\code{NA},
 \code{NaN}, \code{Inf}, \code{-Inf}, blank text, the text "NaN" or \code{missing_code}) drops its
 record and is never a category, in either trait of the joint mode.}
 
@@ -240,6 +262,11 @@ the EBV of the binary trait is \code{u2 = nu + b1 * u1} -- the value the book re
 for ranking (p.281), already using the quantitative information. The genetic
 parameters reported in \code{theta} are read from G, NOT from Gc: reading h2 off Gc is
 the documented trap (g22 of Gc gives 0.117 where the book prints 0.18).
+
+The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here: with
+\code{estimate = TRUE} a design that does not identify a component stops (all the records in
+one pen of \code{indirect()} kept the estimation running for more than 120 s before this
+version), with the components given it is a warning, and the warnings go to \code{message}.
 }
 \examples{
 # Example 15.1 of Mrode & Pocrnic: calving ease in three categories, sire model,
@@ -277,6 +304,8 @@ estimation of parameters for n polygenic binary traits. Genet. Sel. Evol. 19,
 197-224.
 Tempelman, R.J. (1998) Generalized linear mixed models in dairy cattle breeding.
 J. Dairy Sci. 81, 1428-1444.
+Misztal, I., Gianola, D. & Foulley, J.L. (1989) Computing aspects of a nonlinear
+method of sire evaluation for categorical data. J. Dairy Sci. 72, 1557-1568.
 Bijma, P. (2010) Multilevel selection 4: modeling the relationship of indirect
 genetic effects and group size. Genetics 186, 1029-1031.
 }

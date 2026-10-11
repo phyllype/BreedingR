@@ -97,8 +97,11 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
     stop(sum(desconhecido), " animal(s) have an unknown parent that is not a metafounder (",
          paste(utils::head(cp$id[desconhecido], 5), collapse = ", "), "): with metafounders ",
          "every unknown parent is assigned to one of them")
-  g <- valida_genotipos(genotypes)
+  # sem a recusa da taxa de chamada: este estimador nao imputa, e recusa qualquer ausente
+  # logo abaixo com a propria mensagem
+  g <- valida_genotipos(genotypes, taxa_chamada = FALSE)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
+  avisa_parentesco(cp, g)
   # a matriz fica no tipo em que veio (double, integer ou raw): toda conta com ela e no C++,
   # marcador a marcador, sem formar Z = M - 1 (que custava ~17 bytes por genotipo)
   if (.Call(R_conta_ausentes, g$gm) > 0)
