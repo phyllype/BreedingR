@@ -178,6 +178,7 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
   std::size_t n_amostras = 0;
   std::size_t total_cols = 0;
   std::vector<double> media_u, m2_u;   // Welford (1962) para media e variancia das localizacoes
+  std::vector<double> media_b(d.x.ncol, 0.0), m2_b(d.x.ncol, 0.0), b_dado(d.x.ncol, 0.0);
 
   // O residuo realizado da iteracao (e_s = y - W loc_s; no probit a liability nova menos
   // W loc_s), a media dele nas amostras guardadas, e os sorteios das discrepancias pivotais:
@@ -349,6 +350,15 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
         media_u[k] += delta / na;
         m2_u[k] += delta * (loc[k] - media_u[k]);
       }
+      // b desta amostra na unidade do dado (fixos.cpp), e o Welford dele
+      for (std::size_t k = 0; k < d.x.ncol && k < total_cols; k++) b_dado[k] = loc[k];
+      desfaz_escala_b(d.volta_x[0], [](std::size_t j) { return (int) j; },
+                      b_dado.data(), true);
+      for (std::size_t k = 0; k < d.x.ncol && k < total_cols; k++) {
+        const double delta = b_dado[k] - media_b[k];
+        media_b[k] += delta / na;
+        m2_b[k] += delta * (b_dado[k] - media_b[k]);
+      }
       for (std::size_t r : usadas) media_e[r] += (e_iter[r] - media_e[r]) / na;
       if (prox_pdm < quais_pdm.size() && quais_pdm[prox_pdm] == n_amostras - 1) {
         const double sd = std::sqrt(theta[d.modelo.offset_residual]);
@@ -366,6 +376,13 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
   if (n_amostras > 1)
     for (std::size_t k = 0; k < total_cols; k++)
       S.var_loc[k] = m2_u[k] / static_cast<double>(n_amostras - 1);
+  if (n_amostras > 0 && total_cols >= d.x.ncol) {
+    S.media_b = media_b;
+    S.var_b.assign(d.x.ncol, std::nan(""));
+    if (n_amostras > 1)
+      for (std::size_t k = 0; k < d.x.ncol; k++)
+        S.var_b[k] = m2_b[k] / static_cast<double>(n_amostras - 1);
+  }
   S.media_residuo.assign(d.nlin, std::nan(""));
   if (n_amostras > 0)
     for (std::size_t r : usadas) S.media_residuo[r] = media_e[r];

@@ -34,9 +34,15 @@ FixosCandidatos colunas_fixas(const Modelo& m, const Tabela& t) {
   }
   x.colptr.push_back(x.linha.size());
   f.nomes.push_back("intercept");
+  f.covar.push_back(0);
+  f.termo.push_back(SEM_PAR);
+  // o nivel de cada coluna, para casar a covariavel aninhada com a classe do mesmo nivel
+  std::vector<std::string> nivel(1);
   for (std::size_t k = 0; k < m.termos.size(); k++) {
     if (m.termos[k].aleatorio()) continue;
     const DesenhoTermo dt = monta_termo(m, k, t, nullptr);
+    const Termo& tm = m.termos[k];
+    const int tipo = tm.efeito != Efeito::Covariavel ? 0 : (tm.aninhado.empty() ? 1 : 2);
     x.linha.reserve(x.linha.size() + dt.z.nnz());
     x.valor.reserve(x.valor.size() + dt.z.nnz());
     for (std::size_t j = 0; j < dt.z.ncol; j++) {
@@ -45,11 +51,202 @@ FixosCandidatos colunas_fixas(const Modelo& m, const Tabela& t) {
         x.valor.push_back(dt.z.valor[p]);
       }
       x.colptr.push_back(x.linha.size());
-      f.nomes.push_back(dt.nome + "=" + dt.niveis[j % std::max<std::size_t>(dt.n_niveis, 1)]);
+      const std::string& nv = dt.niveis[j % std::max<std::size_t>(dt.n_niveis, 1)];
+      f.nomes.push_back(dt.nome + "=" + nv);
+      f.covar.push_back(tipo);
+      f.termo.push_back(k);
+      nivel.push_back(nv);
     }
   }
   x.ncol = f.nomes.size();
+  f.centro.assign(x.ncol, 0.0);
+  f.escala.assign(x.ncol, 1.0);
+  // a classe de aninhamento como termo fixo de classe (o primeiro com a mesma coluna): a
+  // coluna dela do mesmo nivel e o par de cada coluna aninhada
+  f.par_classe.assign(x.ncol, SEM_PAR);
+  for (std::size_t j = 0; j < x.ncol; j++) {
+    if (f.covar[j] != 2) continue;
+    const std::string& col = m.termos[f.termo[j]].aninhado;
+    std::size_t kc = SEM_PAR;
+    for (std::size_t k = 0; k < m.termos.size() && kc == SEM_PAR; k++) {
+      const Termo& tm = m.termos[k];
+      if (!tm.aleatorio() && tm.efeito == Efeito::Classe && tm.coluna == col) kc = k;
+    }
+    if (kc == SEM_PAR) continue;
+    for (std::size_t j2 = 0; j2 < x.ncol; j2++)
+      if (f.termo[j2] == kc && nivel[j2] == nivel[j]) { f.par_classe[j] = j2; break; }
+  }
   return f;
+}
+
+// A media e o dp de cada covariavel sobre as linhas usadas, e a coluna reescrita. A simples
+// passa a ter entrada em toda linha cujo valor difere da media (o zero do dado vira -m / s);
+// a aninhada centrada a tem em toda linha do nivel (as linhas vem da coluna da classe, que poe
+// 1 em cada uma), e a outra so e dividida. O dp e a media de uma aninhada sao os da covariavel
+// inteira, todos os niveis juntos, os mesmos para as colunas do termo. As contas andam em
+// ordem fixa de linha, numa thread so.
+void padroniza_covariaveis(FixosCandidatos& fx, const std::vector<char>& usa,
+                           const std::vector<std::size_t>& sem_centro) {
+  Csc& x = fx.x;
+  const std::size_t n = x.nlin, p = x.ncol;
+  if (fx.covar.size() != p) return;
+  bool alguma = false;
+  for (int c : fx.covar) alguma = alguma || c != 0;
+  if (!alguma) return;
+  // o valor da covariavel por linha, de um termo inteiro: a aninhada poe no maximo um nao-zero
+  // por linha entre as colunas dele, entao a soma das colunas e o proprio x
+  auto valores_do_termo = [&](std::size_t k) {
+    std::vector<double> v(n, 0.0);
+    for (std::size_t j = 0; j < p; j++) {
+      if (fx.termo[j] != k || fx.covar[j] == 0) continue;
+      for (std::size_t e = x.colptr[j]; e < x.colptr[j + 1]; e++) v[x.linha[e]] += x.valor[e];
+    }
+    return v;
+  };
+  std::vector<double> centro(p, 0.0), escala(p, 1.0);
+  std::vector<char> visto(p, 0);
+  std::vector<std::vector<double> > valor_termo(p);
+  for (std::size_t j = 0; j < p; j++) {
+    if (fx.covar[j] == 0 || visto[j]) continue;
+    const std::size_t k = fx.termo[j];
+    std::vector<double> v = valores_do_termo(k);
+    double soma = 0.0, maior = 0.0;
+    std::size_t nu = 0;
+    for (std::size_t i = 0; i < n; i++)
+      if (usa[i]) { soma += v[i]; maior = std::max(maior, std::fabs(v[i])); nu++; }
+    double s = 0.0;
+    const double m = nu ? soma / static_cast<double>(nu) : 0.0;
+    if (nu > 1) {
+      double q = 0.0;
+      for (std::size_t i = 0; i < n; i++)
+        if (usa[i]) q += (v[i] - m) * (v[i] - m);
+      s = std::sqrt(q / static_cast<double>(nu - 1));
+    }
+    // sem variacao alem do arredondamento a coluna fica como esta, e o posto a derruba contra
+    // o intercepto como antes: reescala-la faria do ruido de representacao uma covariavel
+    const bool padroniza = std::isfinite(s) &&
+                           s > 100.0 * std::numeric_limits<double>::epsilon() * maior;
+    const bool centra_aninhada =
+        std::find(sem_centro.begin(), sem_centro.end(), k) == sem_centro.end();
+    for (std::size_t j2 = j; j2 < p; j2++) {
+      if (fx.termo[j2] != k || fx.covar[j2] == 0) continue;
+      visto[j2] = 1;
+      if (!padroniza) continue;
+      escala[j2] = s;
+      if (fx.covar[j2] == 1 || (centra_aninhada && fx.par_classe[j2] != SEM_PAR))
+        centro[j2] = m;
+    }
+    if (padroniza) valor_termo[j] = std::move(v);
+  }
+  // a CSC reescrita, coluna a coluna
+  Csc nx(n, p);
+  nx.linha.reserve(x.linha.size());
+  nx.valor.reserve(x.valor.size());
+  const std::vector<double>* vt = nullptr;
+  for (std::size_t j = 0; j < p; j++) {
+    if (fx.covar[j] != 0 && !valor_termo[j].empty()) vt = &valor_termo[j];
+    if (centro[j] != 0.0 && fx.covar[j] == 1) {
+      for (std::size_t i = 0; i < n; i++) {
+        const double z = ((*vt)[i] - centro[j]) / escala[j];
+        if (z == 0.0) continue;
+        nx.linha.push_back(static_cast<std::uint32_t>(i));
+        nx.valor.push_back(z);
+      }
+    } else if (centro[j] != 0.0) {
+      // as linhas do nivel sao as da coluna da classe, em ordem crescente
+      const std::size_t c = fx.par_classe[j];
+      for (std::size_t e = x.colptr[c]; e < x.colptr[c + 1]; e++) {
+        const std::size_t i = x.linha[e];
+        const double z = ((*vt)[i] - centro[j]) / escala[j];
+        if (z == 0.0) continue;
+        nx.linha.push_back(static_cast<std::uint32_t>(i));
+        nx.valor.push_back(z);
+      }
+    } else {
+      for (std::size_t e = x.colptr[j]; e < x.colptr[j + 1]; e++) {
+        nx.linha.push_back(x.linha[e]);
+        nx.valor.push_back(escala[j] != 1.0 ? x.valor[e] / escala[j] : x.valor[e]);
+      }
+    }
+    nx.colptr[j + 1] = nx.linha.size();
+  }
+  fx.x = std::move(nx);
+  fx.centro = std::move(centro);
+  fx.escala = std::move(escala);
+}
+
+namespace {
+// a coluna candidata tem registro nas linhas dadas
+bool tem_registro(const Csc& x, std::size_t j, const std::vector<char>& linhas) {
+  for (std::size_t e = x.colptr[j]; e < x.colptr[j + 1]; e++)
+    if (linhas[x.linha[e]] && x.valor[e] != 0.0) return true;
+  return false;
+}
+// os niveis da classe (colunas candidatas do termo kc) com registro e fora de mantida
+std::vector<std::size_t> niveis_fora(const FixosCandidatos& fx, std::size_t kc,
+                                     const std::vector<char>& mantida,
+                                     const std::vector<char>& linhas) {
+  std::vector<std::size_t> out;
+  for (std::size_t j = 0; j < fx.x.ncol; j++)
+    if (fx.termo[j] == kc && !mantida[j] && tem_registro(fx.x, j, linhas)) out.push_back(j);
+  return out;
+}
+}  // namespace
+
+std::vector<std::size_t> aninhadas_sem_volta(const FixosCandidatos& fx,
+                                             const std::vector<char>& mantida,
+                                             const std::vector<char>& linhas) {
+  std::vector<std::size_t> out;
+  for (std::size_t j = 0; j < fx.x.ncol; j++) {
+    if (fx.covar[j] != 2 || fx.centro[j] == 0.0 || !mantida[j]) continue;
+    const std::size_t c = fx.par_classe[j];
+    if (mantida[c]) continue;
+    // o nivel da classe caiu: a volta pede que ele seja o UNICO nivel com registro fora
+    if (niveis_fora(fx, fx.termo[c], mantida, linhas).size() == 1) continue;
+    if (std::find(out.begin(), out.end(), fx.termo[j]) == out.end()) out.push_back(fx.termo[j]);
+  }
+  return out;
+}
+
+VoltaB monta_volta(const FixosCandidatos& fx, const std::vector<std::size_t>& fica,
+                   const std::vector<char>& mantida, const std::vector<char>& linhas) {
+  VoltaB v;
+  const std::size_t p = fica.size();
+  v.escala.assign(p, 1.0);
+  v.absorve.assign(p, {});
+  std::vector<std::size_t> onde(fx.x.ncol, SEM_PAR);
+  for (std::size_t jj = 0; jj < p; jj++) onde[fica[jj]] = jj;
+  for (std::size_t jj = 0; jj < p; jj++) {
+    const std::size_t j = fica[jj];
+    if (j >= fx.escala.size()) continue;
+    v.escala[jj] = fx.escala[j];
+    const double m = fx.centro[j];
+    if (m == 0.0) continue;
+    if (fx.covar[j] == 1) {
+      v.absorve[jj].push_back({0, -m});
+      continue;
+    }
+    const std::size_t c = fx.par_classe[j];
+    if (mantida[c] && onde[c] != SEM_PAR) {
+      v.absorve[jj].push_back({onde[c], -m});
+      continue;
+    }
+    // o nivel r da classe caiu (a referencia): I_r = 1 - soma dos outros niveis com registro,
+    // todos em fica (aninhadas_sem_volta garantiu)
+    v.absorve[jj].push_back({0, -m});
+    for (std::size_t j2 = 0; j2 < fx.x.ncol; j2++)
+      if (fx.termo[j2] == fx.termo[c] && j2 != c && mantida[j2] && onde[j2] != SEM_PAR &&
+          tem_registro(fx.x, j2, linhas))
+        v.absorve[jj].push_back({onde[j2], m});
+  }
+  return v;
+}
+
+double logdet_escala(const std::vector<double>& escala) {
+  double s = 0.0;
+  for (double e : escala)
+    if (e != 1.0) s += 2.0 * std::log(e);
+  return s;
 }
 
 namespace {

@@ -144,7 +144,7 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
   }
 
   // X por registro, esparso (fixos.cpp); a expansao por caracteristica e na montagem
-  const FixosCandidatos fx = colunas_fixas(m, tab);
+  FixosCandidatos fx = colunas_fixas(m, tab);
   // AS LINHAS SEM PAR CAEM ANTES DO POSTO DE X, como em model() (mme.cpp). Antes caiam
   // depois: um CG cujos animais nao estao no pedigree ficava com coluna em X, o posto nao
   // a via como dependente, e a coluna chegava vazia na montagem. model() derrubava o nivel
@@ -182,64 +182,93 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
   // cada queda leva o motivo em saiu_motivo. Sem nenhum nivel incompleto a ordem e a de
   // sempre, e nada muda.
   // O posto e o esparso, na ordem acima (posto_referencia_completa, fixos.cpp).
-  std::vector<std::size_t> fica, sai;
-  {
-    std::vector<std::string> motivo;
-    posto_referencia_completa(fx, d.usa, d.obs, d.t, 1e-9, fica, sai, motivo);
-    d.saiu_motivo = std::move(motivo);
-  }
-  d.x = fixas_por_linha(fx.x, fica);
-  for (std::size_t j : fica) d.nomes_x.push_back(fx.nomes[j]);
-  for (std::size_t j : sai) d.saiu_x.push_back(fx.nomes[j]);
-
-  // POSTO DE X POR CARACTER, e nao so ausencia de registro por caracter.
-  //
-  // O posto acima e medido sobre as linhas USADAS, e uma linha conta como usada quando
-  // QUALQUER caracter foi observado nela. Isso deixa passar o caso que aparece em dado de
-  // verdade quando dois caracteres foram medidos em coortes diferentes. Medido no desenho que
-  // motivou isto, CG aninhado no caracter: X tem posto 8 de 8 sobre as linhas usadas e 4 de 8
-  // DENTRO de cada caracter. As equacoes sao montadas por caracter, entao a deficiencia
-  // aparece la, a matriz de coeficientes fica singular e a Cholesky morre tres passos longe
-  // da causa.
-  //
-  // O univariado ja derruba coluna inestimavel e a reporta em dropped_x. Aqui a coluna pode
-  // ser estimavel para um caracter e nao para outro, entao a unidade que cai e o PAR
-  // (coluna, caracter).
-  //
-  // NAO BASTA testar se o par tem registro: depois de tirar os pares vazios, o que sobra para
-  // um caracter continua podendo ser COLINEAR. No desenho acima y1 fica com intercepto mais
-  // CG1..CG4, que somam ao intercepto: posto 4 e nao 5. Por isso aqui roda o mesmo
-  // posto_esparso() de cima, uma vez por caracter, sobre as linhas em que aquele caracter foi
-  // observado. Ausencia de registro e o caso particular de coluna nula, que o posto ja pega.
-  //
-  // A numeracao final segue a ordem antiga, j externo e tau interno, entao quando nada cai
-  // eq_fixa[k] == k e n_fixa == x.ncol * t: o layout antigo e caso particular deste, e nenhum
-  // ajuste que ja andava muda de numero.
-  d.eq_fixa.assign(d.nomes_x.size() * d.t, -1);
-  {
-    const Csc xc = fixas_por_coluna(d.x);
-    for (std::size_t tau = 0; tau < d.t; tau++) {
-      std::vector<char> lin_tau(d.nlin, 0);
-      for (std::size_t i = 0; i < d.nlin; i++)
-        lin_tau[i] = d.usa[i] && d.obs[i * d.t + tau];
-      std::vector<std::size_t> fica_t, sai_t;
-      posto_esparso(xc, lin_tau, 1e-9, fica_t, sai_t, false, nullptr, &d.nomes_x);
-      for (std::size_t j : fica_t) d.eq_fixa[j * d.t + tau] = -2;
-      for (std::size_t j : sai_t) {
-        d.saiu_x.push_back(d.nomes_x[j] + "|" + d.alvos[tau]);
-        bool vazia = true;
-        for (std::size_t k = xc.colptr[j]; k < xc.colptr[j + 1]; k++)
-          if (lin_tau[xc.linha[k]] && xc.valor[k] != 0.0) { vazia = false; break; }
-        d.saiu_motivo.push_back((vazia ? "no record of " : "aliased within ") + d.alvos[tau]);
-      }
+  // AS COVARIAVEIS PADRONIZADAS ANTES DO POSTO (padroniza_covariaveis, fixos.cpp), e a volta de
+  // b por caracter. Uma aninhada cujo centro nao volta pela classe em algum caracter (a classe
+  // confundida com outro efeito fixo, aninhadas_sem_volta) e refeita so escalada, com os dois
+  // postos de novo.
+  std::vector<std::size_t> fica, sai, sem_centro;
+  for (;;) {
+    padroniza_covariaveis(fx, d.usa, sem_centro);
+    d.nomes_x.clear();
+    d.saiu_x.clear();
+    {
+      std::vector<std::string> motivo;
+      posto_referencia_completa(fx, d.usa, d.obs, d.t, 1e-9, fica, sai, motivo);
+      d.saiu_motivo = std::move(motivo);
     }
-    int prox = 0;
-    for (std::size_t j = 0; j < d.x.ncol; j++)
-      for (std::size_t tau = 0; tau < d.t; tau++)
-        if (d.eq_fixa[j * d.t + tau] == -2) d.eq_fixa[j * d.t + tau] = prox++;
-    d.n_fixa = static_cast<std::size_t>(prox);
+    d.x = fixas_por_linha(fx.x, fica);
+    for (std::size_t j : fica) d.nomes_x.push_back(fx.nomes[j]);
+    for (std::size_t j : sai) d.saiu_x.push_back(fx.nomes[j]);
+
+    // POSTO DE X POR CARACTER, e nao so ausencia de registro por caracter.
+    //
+    // O posto acima e medido sobre as linhas USADAS, e uma linha conta como usada quando
+    // QUALQUER caracter foi observado nela. Isso deixa passar o caso que aparece em dado de
+    // verdade quando dois caracteres foram medidos em coortes diferentes. Medido no desenho que
+    // motivou isto, CG aninhado no caracter: X tem posto 8 de 8 sobre as linhas usadas e 4 de 8
+    // DENTRO de cada caracter. As equacoes sao montadas por caracter, entao a deficiencia
+    // aparece la, a matriz de coeficientes fica singular e a Cholesky morre tres passos longe
+    // da causa.
+    //
+    // O univariado ja derruba coluna inestimavel e a reporta em dropped_x. Aqui a coluna pode
+    // ser estimavel para um caracter e nao para outro, entao a unidade que cai e o PAR
+    // (coluna, caracter).
+    //
+    // NAO BASTA testar se o par tem registro: depois de tirar os pares vazios, o que sobra para
+    // um caracter continua podendo ser COLINEAR. No desenho acima y1 fica com intercepto mais
+    // CG1..CG4, que somam ao intercepto: posto 4 e nao 5. Por isso aqui roda o mesmo
+    // posto_esparso() de cima, uma vez por caracter, sobre as linhas em que aquele caracter foi
+    // observado. Ausencia de registro e o caso particular de coluna nula, que o posto ja pega.
+    //
+    // A numeracao final segue a ordem antiga, j externo e tau interno, entao quando nada cai
+    // eq_fixa[k] == k e n_fixa == x.ncol * t: o layout antigo e caso particular deste, e nenhum
+    // ajuste que ja andava muda de numero.
+    d.eq_fixa.assign(d.nomes_x.size() * d.t, -1);
+    {
+      const Csc xc = fixas_por_coluna(d.x);
+      for (std::size_t tau = 0; tau < d.t; tau++) {
+        std::vector<char> lin_tau(d.nlin, 0);
+        for (std::size_t i = 0; i < d.nlin; i++)
+          lin_tau[i] = d.usa[i] && d.obs[i * d.t + tau];
+        std::vector<std::size_t> fica_t, sai_t;
+        posto_esparso(xc, lin_tau, 1e-9, fica_t, sai_t, false, nullptr, &d.nomes_x);
+        for (std::size_t j : fica_t) d.eq_fixa[j * d.t + tau] = -2;
+        for (std::size_t j : sai_t) {
+          d.saiu_x.push_back(d.nomes_x[j] + "|" + d.alvos[tau]);
+          bool vazia = true;
+          for (std::size_t k = xc.colptr[j]; k < xc.colptr[j + 1]; k++)
+            if (lin_tau[xc.linha[k]] && xc.valor[k] != 0.0) { vazia = false; break; }
+          d.saiu_motivo.push_back((vazia ? "no record of " : "aliased within ") + d.alvos[tau]);
+        }
+      }
+      int prox = 0;
+      for (std::size_t j = 0; j < d.x.ncol; j++)
+        for (std::size_t tau = 0; tau < d.t; tau++)
+          if (d.eq_fixa[j * d.t + tau] == -2) d.eq_fixa[j * d.t + tau] = prox++;
+      d.n_fixa = static_cast<std::size_t>(prox);
+    }
+
+    std::vector<std::size_t> falha;
+    d.volta_x.clear();
+    for (std::size_t tau = 0; tau < d.t; tau++) {
+      std::vector<char> lin_tau(d.nlin, 0), mantida(fx.x.ncol, 0);
+      for (std::size_t i = 0; i < d.nlin; i++) lin_tau[i] = d.usa[i] && d.obs[i * d.t + tau];
+      for (std::size_t jj = 0; jj < fica.size(); jj++)
+        mantida[fica[jj]] = d.eq_fixa[jj * d.t + tau] >= 0;
+      for (std::size_t k : aninhadas_sem_volta(fx, mantida, lin_tau))
+        if (std::find(falha.begin(), falha.end(), k) == falha.end()) falha.push_back(k);
+      d.volta_x.push_back(monta_volta(fx, fica, mantida, lin_tau));
+    }
+    if (falha.empty()) break;
+    sem_centro.insert(sem_centro.end(), falha.begin(), falha.end());
+    fx = colunas_fixas(m, tab);
   }
   if (d.n_fixa == 0) throw Erro("no estimable fixed effect for any trait");
+  // o termo do -2logL da padronizacao: cada par (coluna, caracter) com equacao conta uma vez
+  for (std::size_t j = 0; j < d.x.ncol; j++)
+    for (std::size_t tau = 0; tau < d.t; tau++)
+      if (d.eq_fixa[j * d.t + tau] >= 0 && d.volta_x[tau].escala[j] != 1.0)
+        d.logdet_escala_x += 2.0 * std::log(d.volta_x[tau].escala[j]);
 
   if (d.n_usadas() == 0) throw Erro("no row enters the analysis");
 

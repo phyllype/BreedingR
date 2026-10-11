@@ -254,6 +254,11 @@ struct Desenho {
   Csr x;
   std::vector<std::string> nomes_x;
   std::vector<std::string> saiu_x;
+  // a padronizacao das covariaveis (padroniza_covariaveis, fixos.cpp): x guarda as colunas
+  // padronizadas e b sai do motor nessa escala; volta_x leva b a unidade do dado (uma por
+  // caracteristica, aqui uma so) e logdet_escala_x devolve o -2logL a escala do dado
+  std::vector<VoltaB> volta_x;
+  double logdet_escala_x = 0.0;
   std::vector<DesenhoTermo> aleatorios;
   std::vector<Csc> kinv;
   std::vector<double> kinv_logdet;
@@ -729,6 +734,10 @@ struct GibbsSaida {
   std::size_t n_amostras = 0, ntheta = 0;
   std::vector<double> amostras;    // n_amostras x ntheta, por linha
   std::vector<double> media_loc, var_loc;
+  // media e variancia a posteriori de b na unidade do dado: cada amostra de b volta da escala
+  // padronizada das covariaveis antes de entrar (o intercepto leva o centro, entao o dp dele
+  // pede a covariancia com as inclinacoes, que so a amostra tem)
+  std::vector<double> media_b, var_b;
   std::vector<double> partida;     // theta com que a cadeia comeca (a primeira iteracao)
   std::string mensagem;
   // residuo realizado e_s = y - W loc_s (no probit, a liability menos W loc_s): a media a
@@ -771,6 +780,10 @@ struct DesenhoMT {
   Csr x;   // por registro, como no Desenho
   std::vector<std::string> nomes_x;
   std::vector<std::string> saiu_x;
+  // a padronizacao das covariaveis: a volta de b por caracteristica e o termo do -2logL (ver
+  // Desenho)
+  std::vector<VoltaB> volta_x;
+  double logdet_escala_x = 0.0;
   // o motivo de cada queda, paralelo a saiu_x: "no record" / "aliased" para a coluna global,
   // "no record of <caracter>" / "aliased within <caracter>" para o par (coluna, caracter)
   std::vector<std::string> saiu_motivo;
@@ -930,6 +943,10 @@ struct DesenhoAR {
   Csr x;   // por registro, como no Desenho
   std::vector<std::string> nomes_x;
   std::vector<std::string> saiu_x;
+  // a padronizacao das covariaveis: a volta de b por caracteristica (todas iguais aqui, toda
+  // coluna tem equacao em toda caracteristica) e o termo do -2logL (ver Desenho)
+  std::vector<VoltaB> volta_x;
+  double logdet_escala_x = 0.0;
   // o motivo de cada queda, paralelo a saiu_x: "no record" ou "aliased" (aqui so ha queda
   // global: um par (coluna, caracteristica) sem registro e recusado na montagem)
   std::vector<std::string> saiu_motivo;

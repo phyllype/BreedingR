@@ -110,7 +110,7 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   }
 
   // X (esparso, fixos.cpp) e aleatorios como no caminho comum
-  const FixosCandidatos fx = colunas_fixas(m, tab);
+  FixosCandidatos fx = colunas_fixas(m, tab);
   // AS LINHAS SEM PAR CAEM ANTES DO POSTO DE X, como em model() (mme.cpp). Antes caiam
   // depois: um CG cujos animais nao estao no pedigree ficava com coluna em X, o posto nao
   // a via como dependente, e a coluna chegava vazia na montagem. model() derrubava o nivel
@@ -140,11 +140,26 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   // e a recusa passa a nomear o nivel que de fato nao tem registro, e nao um vizinho dele
   // que virou a referencia daquela caracteristica. Com t = 1, ou sem nivel incompleto, a
   // ordem e a de sempre. O posto e o esparso (posto_referencia_completa, fixos.cpp).
-  std::vector<std::size_t> fica, sai;
-  {
-    std::vector<std::string> motivo;
-    posto_referencia_completa(fx, d.usa, d.obs, t, 1e-9, fica, sai, motivo);
-    d.saiu_motivo = std::move(motivo);
+  // As covariaveis padronizadas antes do posto (padroniza_covariaveis, fixos.cpp), e a volta de
+  // b, a mesma em toda caracteristica (aqui toda coluna tem equacao em todas). Uma aninhada
+  // cujo centro nao volta pela classe e refeita so escalada, com o posto de novo.
+  std::vector<std::size_t> fica, sai, sem_centro;
+  for (;;) {
+    padroniza_covariaveis(fx, d.usa, sem_centro);
+    {
+      std::vector<std::string> motivo;
+      posto_referencia_completa(fx, d.usa, d.obs, t, 1e-9, fica, sai, motivo);
+      d.saiu_motivo = std::move(motivo);
+    }
+    std::vector<char> mantida(fx.x.ncol, 0);
+    for (std::size_t j : fica) mantida[j] = 1;
+    const std::vector<std::size_t> falha = aninhadas_sem_volta(fx, mantida, d.usa);
+    if (falha.empty()) {
+      d.volta_x.assign(t, monta_volta(fx, fica, mantida, d.usa));
+      break;
+    }
+    sem_centro.insert(sem_centro.end(), falha.begin(), falha.end());
+    fx = colunas_fixas(m, tab);
   }
   d.x = fixas_por_linha(fx.x, fica);
   for (std::size_t j : fica) d.nomes_x.push_back(fx.nomes[j]);
@@ -168,6 +183,8 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
     }
   }
   if (d.n_usadas() == 0) throw Erro("no row enters the analysis");
+  // o termo do -2logL da padronizacao: toda coluna tem equacao em toda caracteristica aqui
+  d.logdet_escala_x = static_cast<double>(t) * logdet_escala(d.volta_x[0].escala);
 
   // POSTO DE X POR CARACTERISTICA sobre as celulas OBSERVADAS. Com celula ausente, um nivel
   // fixo pode ficar sem nenhuma observacao numa caracteristica, e a coluna dele naquela

@@ -216,8 +216,76 @@ void posto_completo(const Densa& x, double tol, std::vector<std::size_t>& fica,
 struct FixosCandidatos {
   Csc x;
   std::vector<std::string> nomes;
+  // por coluna: 0 o intercepto ou o nivel de uma classe, 1 a covariavel simples, 2 uma coluna
+  // de covariavel aninhada; termo e o indice do termo de origem (o intercepto leva o maior
+  // size_t); par_classe, numa coluna aninhada, e a coluna candidata do MESMO nivel da classe
+  // de aninhamento quando essa coluna tambem e um termo fixo de classe, senao SEM_PAR. centro
+  // e escala sao os de padroniza_covariaveis(): a coluna guardada e (x - centro) / escala, e a
+  // intocada tem centro 0 e escala 1.
+  std::vector<int> covar;
+  std::vector<std::size_t> termo, par_classe;
+  std::vector<double> centro, escala;
 };
+constexpr std::size_t SEM_PAR = static_cast<std::size_t>(-1);
 FixosCandidatos colunas_fixas(const Modelo& m, const Tabela& t);
+// A PADRONIZACAO DAS COVARIAVEIS, antes do posto, como o WOMBAT faz com as covariaveis
+// (Meyer, manual 2017, secao 4.8.1.1, desvia registros e covariaveis das medias antes da
+// analise). A covariavel simples vira (x - m) / s, com a media m e o dp s das linhas usadas
+// (usa), e o posto e as MME passam a viver nessa escala. Um deslocamento grande (datas,
+// carimbos de tempo) ou uma escala minuscula estragavam as duas coisas: com idade + 1e9 o theta
+// de partida saia INADMISSIVEL, com + 3e8 a regressao saia 5,90 contra 0,0102, com + 1e11 ou
+// x 1e-12 a coluna saia em dropped_x como dependente. Centrar e reparametrizacao porque o
+// intercepto esta sempre no modelo. A aninhada em c vira (x - m) I_c / s quando c tambem e
+// termo fixo de classe (o deslocamento cai nos niveis de c), e x I_c / s quando nao e, ou
+// quando o termo esta em sem_centro (a volta de b nao fecha, ver aninhadas_sem_volta()). A
+// coluna sem variacao real (dp ate 100 eps do maior |x|) fica como esta.
+void padroniza_covariaveis(FixosCandidatos& fx, const std::vector<char>& usa,
+                           const std::vector<std::size_t>& sem_centro);
+// A VOLTA DE b a unidade do dado, de uma caracteristica: por coluna de x (a numeracao do
+// posto), a escala e as colunas que absorvem o centro, com o coeficiente: b_j = b'_j / s_j e,
+// para cada (alvo, coef), b_alvo += coef b_j. A covariavel simples manda -m ao intercepto; a
+// aninhada no nivel k manda -m a coluna do nivel k da classe quando ela ficou, e quando o nivel
+// k e o que caiu (r, a referencia), I_r = 1 - soma dos outros niveis manda -m ao intercepto e
+// +m a cada outro nivel que ficou. Os alvos nao sao covariaveis, entao a ordem nao importa.
+struct VoltaB {
+  std::vector<double> escala;
+  std::vector<std::vector<std::pair<std::size_t, double> > > absorve;
+  bool vazia() const { return escala.empty(); }
+};
+// mantida: por coluna CANDIDATA, se ela ficou e tem equacao nesta caracteristica; linhas: as
+// linhas em que a caracteristica entra. Devolve os termos aninhados cuja centragem nao volta
+// pela classe: mais de um nivel da classe com registro fora de mantida (a classe confundida com
+// outro efeito fixo). Esses sao refeitos sem centro.
+std::vector<std::size_t> aninhadas_sem_volta(const FixosCandidatos& fx,
+                                             const std::vector<char>& mantida,
+                                             const std::vector<char>& linhas);
+// a volta de b na numeracao de fica (as colunas que ficaram), para uma caracteristica
+VoltaB monta_volta(const FixosCandidatos& fx, const std::vector<std::size_t>& fica,
+                   const std::vector<char>& mantida, const std::vector<char>& linhas);
+// b de uma caracteristica entre a escala padronizada e a do dado. pos(j) da a posicao em b da
+// coluna j de x, ou -1 quando o par nao tem equacao. para_dado = true leva a solucao do motor a
+// unidade do dado; false faz o caminho de volta, para um b do ajuste que vai reentrar num
+// desenho remontado (b'_alvo = b_alvo - coef b_j, b'_j = s_j b_j).
+template <class F>
+void desfaz_escala_b(const VoltaB& v, F pos, double* b, bool para_dado) {
+  for (std::size_t j = 0; j < v.escala.size(); j++) {
+    if (v.escala[j] == 1.0 && v.absorve[j].empty()) continue;
+    const int ij = pos(j);
+    if (ij < 0) continue;
+    if (para_dado) b[ij] /= v.escala[j];
+    for (const auto& ac : v.absorve[j]) {
+      const int ia = pos(ac.first);
+      if (ia < 0) continue;
+      if (para_dado) b[ia] += ac.second * b[ij];
+      else b[ia] -= ac.second * b[ij];
+    }
+    if (!para_dado) b[ij] *= v.escala[j];
+  }
+}
+// 2 soma log(escala) das colunas padronizadas com equacao: o -2logL do REML na escala do dado
+// e o da padronizada mais isto (log|X'V^-1 X| muda por 2 log|det T| com X' = X T, e o centro
+// e um cisalhamento, de determinante 1)
+double logdet_escala(const std::vector<double>& escala);
 // As colunas de posto completo sobre as linhas ativas, na ordem dada: a coluna j fica quando
 // a distancia dela ao espaco das que ficaram antes passa de tol * max(||x_j||, 1), o criterio
 // do Gram-Schmidt de antes (posto_completo), entao a coluna que sai de um conjunto dependente

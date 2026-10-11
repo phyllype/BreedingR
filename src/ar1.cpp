@@ -515,7 +515,8 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
       if (!d.usa[r]) continue;
       for (std::size_t a = 0; a < t; a++) ere += ehat.at(r, a) * re.at(r, a);
     }
-    A.neg2logl = parte_fixa + ere + upen;
+    // + o termo da padronizacao das covariaveis (fixos.cpp)
+    A.neg2logl = parte_fixa + ere + upen + d.logdet_escala_x;
   }
 
   // ---- parametros residuais, unificados: dR = D (x) S
@@ -959,7 +960,7 @@ double neg2logl_densa_V_ar1(const DesenhoAR& d, const std::vector<double>& theta
   double quad = 0.0;
   for (std::size_t a = 0; a < p; a++)
     for (std::size_t b = 0; b < p; b++) quad += XtViy[a] * Xi.at(a, b) * XtViy[b];
-  return ldV + ldX + (yViy - quad);
+  return ldV + ldX + (yViy - quad) + d.logdet_escala_x;
 }
 
 // ---------------------------------------------------------------- residuos no otimo

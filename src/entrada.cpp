@@ -1108,6 +1108,9 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
       REAL(bfix)[k] = r.solucao.empty() ? NA_REAL : r.solucao[k];
       SET_STRING_ELT(bnms, (R_xlen_t) k, Rf_mkChar(d.nomes_x[k].c_str()));
     }
+    // o motor resolve com as covariaveis padronizadas; b volta a unidade do dado
+    br::desfaz_escala_b(d.volta_x[0], [](std::size_t j) { return (int) j; },
+                        REAL(bfix), true);
     Rf_setAttrib(bfix, R_NamesSymbol, bnms);
 
     // O residuo condicional, os ajustados e a alavanca por linha da tabela, NA nas linhas
@@ -1402,6 +1405,11 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
         const std::string nm = d.nomes_x[j] + "|" + d.alvos[tau];
         SET_STRING_ELT(bnms, (R_xlen_t) e, Rf_mkChar(nm.c_str()));
       }
+    // b de cada caracteristica na unidade do dado: o intercepto dela absorve o centro
+    for (std::size_t tau = 0; tau < d.t; tau++)
+      br::desfaz_escala_b(d.volta_x[tau],
+                          [&](std::size_t j) { return d.eq_fixa[j * d.t + tau]; },
+                          REAL(bfix), true);
     Rf_setAttrib(bfix, R_NamesSymbol, bnms);
     SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
     for (std::size_t k = 0; k < d.saiu_x.size(); k++)
@@ -1647,6 +1655,10 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
         if (d.t > 1) nm += "|" + d.alvos[tau];
         SET_STRING_ELT(bnms, (R_xlen_t) k, Rf_mkChar(nm.c_str()));
       }
+    for (std::size_t tau = 0; tau < d.t; tau++)
+      br::desfaz_escala_b(d.volta_x[tau],
+                          [&](std::size_t j) { return (int) (j * d.t + tau); },
+                          REAL(bfix), true);
     Rf_setAttrib(bfix, R_NamesSymbol, bnms);
     SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
     for (std::size_t k = 0; k < d.saiu_x.size(); k++)
@@ -1911,7 +1923,9 @@ SEXP R_residuos_prepara(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol
                                       ks.empty() ? nullptr : &ks);
     std::vector<br::KernelDecl>().swap(ks);
     genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk);
-    const std::vector<double> bv = b_conferido(b, bnomes, d.nomes_x);
+    std::vector<double> bv = b_conferido(b, bnomes, d.nomes_x);
+    br::desfaz_escala_b(d.volta_x[0], [](std::size_t j) { return (int) j; },
+                        bv.data(), false);
     const std::vector<std::string> grupos = nomes_grupos(d);
     if (XLENGTH(theta) == 0) {
       // a conferencia da cadeia: W loc com o loc dela, e a diagonal de cada K
@@ -1923,11 +1937,14 @@ SEXP R_residuos_prepara(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol
       std::size_t acc = d.x.ncol;
       for (std::size_t g = 0; g < m.grupos.size(); g++) { off[g] = acc; acc += d.largura(g); }
       const br::LinhasW W = br::linhas_w(d, off);
+      std::vector<double> lv(REAL(loc), REAL(loc) + XLENGTH(loc));
+      br::desfaz_escala_b(d.volta_x[0], [](std::size_t j) { return (int) j; },
+                          lv.data(), false);
       std::vector<double> ajust;
       for (std::size_t i = 0; i < d.nlin; i++) {
         if (!d.usa[i]) continue;
         double v = 0.0;
-        for (std::size_t p = W.ptr[i]; p < W.ptr[i + 1]; p++) v += W.val[p] * REAL(loc)[W.col[p]];
+        for (std::size_t p = W.ptr[i]; p < W.ptr[i + 1]; p++) v += W.val[p] * lv[W.col[p]];
         ajust.push_back(v);
       }
       const std::vector<std::vector<double>> dk = br::diagonais_k(d.kinv);
@@ -1976,7 +1993,9 @@ SEXP R_residuos_prepara_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP 
     if (th.size() != d.modelo.ntheta)
       throw br::Erro("theta with " + std::to_string(th.size()) + " entries; the layout asks for " +
                      std::to_string(d.modelo.ntheta));
-    const std::vector<double> bv = b_conferido(b, bnomes, d.nomes_x);
+    std::vector<double> bv = b_conferido(b, bnomes, d.nomes_x);
+    br::desfaz_escala_b(d.volta_x[0], [](std::size_t j) { return (int) j; },
+                        bv.data(), false);
     const std::vector<std::string> grupos = nomes_grupos(d);
     return entrega_preparo(br::prepara_nulos_ar1(std::move(d), th, bv), grupos);
   )
@@ -2099,8 +2118,8 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
     SEXP bsd  = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) d.x.ncol));
     SEXP bnms = PROTECT(Rf_allocVector(STRSXP,  (R_xlen_t) d.x.ncol));
     for (std::size_t k = 0; k < d.x.ncol; k++) {
-      REAL(bfix)[k] = S.media_loc.empty() ? NA_REAL : S.media_loc[k];
-      REAL(bsd)[k]  = S.var_loc.empty() ? NA_REAL : std::sqrt(S.var_loc[k]);
+      REAL(bfix)[k] = S.media_b.size() == d.x.ncol ? S.media_b[k] : NA_REAL;
+      REAL(bsd)[k]  = S.var_b.size() == d.x.ncol ? std::sqrt(S.var_b[k]) : NA_REAL;
       SET_STRING_ELT(bnms, (R_xlen_t) k, Rf_mkChar(d.nomes_x[k].c_str()));
     }
     Rf_setAttrib(bfix, R_NamesSymbol, bnms);
@@ -2195,6 +2214,9 @@ SEXP R_snp_blup(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP t
       REAL(bfix)[k] = S.solucao[k];
       SET_STRING_ELT(bnms, (R_xlen_t) k, Rf_mkChar(d.nomes_x[k].c_str()));
     }
+    if (S.n_fixo == d.x.ncol)
+      br::desfaz_escala_b(d.volta_x[0], [](std::size_t j) { return (int) j; },
+                          REAL(bfix), true);
     Rf_setAttrib(bfix, R_NamesSymbol, bnms);
 
     SEXP ebv = PROTECT(Rf_allocVector(VECSXP, (R_xlen_t) m.grupos.size()));
