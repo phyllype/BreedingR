@@ -199,6 +199,9 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
+  # no traco e na covariavel (R/valores.R)
+  confere_numeros(data, traits, terms, missing_code)
 
   lst <- lapply(data[used_columns], function(col) {
     if (is.factor(col)) as.character(col)
@@ -304,7 +307,8 @@ otimos_univariados <- function(ajusta1, formula, traits, data, missing_code, ver
     s <- if (is.finite(s) && s > 0) 2^(floor(log2(s)) + 1) else 1
     d1 <- data
     d1[[tr]] <- ifelse(ok, y / s, NA_real_)
-    fit <- tryCatch(ajusta1(f1, d1), error = function(e) NULL)
+    # os dados ja passaram pelas conferencias de R/valores.R no ajuste de fora
+    fit <- tryCatch(sem_conferencia(ajusta1(f1, d1)), error = function(e) NULL)
     if (is.null(fit) || !all(is.finite(fit$theta))) return(NULL)
     th <- as.double(unname(fit$theta))
     variancia <- !grepl("^rho[(]", names(fit$theta))
@@ -378,6 +382,9 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
   # "undefined columns selected" do R, que nao diz qual coluna falta
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
+  # no traco e na covariavel (R/valores.R)
+  confere_numeros(data, traits, terms, missing_code)
   lst <- lapply(data[used_columns], function(col) {
     if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
   })

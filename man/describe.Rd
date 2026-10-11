@@ -22,12 +22,28 @@ describe(
 
 \item{pedigree}{data.frame or NULL}
 
-\item{covariates}{covariate columns to check against the missing-value code}
+\item{covariates}{covariate columns to check against the missing-value code and for
+values that look like one (see Value)}
 
-\item{missing_code}{missing-value code for the trait observations. When given together with
-\code{covariates}, each covariate is checked: the code only applies to the trait, and
-a -999 in a covariate enters the regression LITERALLY, in real data this once went
-unnoticed past two programs at the same time}
+\item{missing_code}{missing-value code for the trait observations: the records holding
+it are missing, as in every fitter, and stay out of the descriptives. When given
+together with \code{covariates}, each covariate is checked: the code only applies to the
+trait, and a -999 in a covariate enters the regression LITERALLY, in real data this
+once went unnoticed past two programs at the same time}
+}
+\value{
+an object of class \code{br_describe}: \code{n} (the observed records: not \code{NA}, \code{NaN},
+\code{Inf}, \code{-Inf} or \code{missing_code}) and \code{n_na} (the missing ones), \code{mean}, \code{sd},
+\code{quartiles}, the Tukey \code{fences} and \code{outside_fences} on the observed records, and,
+when asked, \code{classes}, \code{pedigree} and \code{leak} (per covariate, the records with the
+trait observed and the covariate at the missing-value code). \code{suspect} lists the
+findings the fitters warn about before a fit (see \code{\link[=model]{model()}}), on the observed
+records: a common missing-value code (-9, -99, -999, -9999, their positive
+counterparts, or -123456789) held by two records or more, outside the range of the
+other values and at least 3 robust SDs (the median absolute deviation, scaled to the
+SD) from their median; and the other records more than 10 robust SDs from the median.
+\code{suspect_cov} does the same per covariate, on the records with the trait observed.
+The print shows each finding as a WARNING line
 }
 \description{
 A variance component is an answer about a set of data; whoever has not looked at the set

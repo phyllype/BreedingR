@@ -38,8 +38,13 @@ terms of a group share one set of levels: the relationship levels for
 takes one relationship term and neither \code{indirect()} nor \verb{group =}. A missing
 level (\code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or the text "NaN") or a missing
 covariate value is refused on every row, with the same rule and message as in
-\code{\link[=model]{model()}}; a factor or text column in \code{cov()} is refused rather than read as its
-codes.}
+\code{\link[=model]{model()}}; a factor or text column in \code{cov()}, or as the quantitative trait of the
+joint mode, is refused rather than read as its codes. A covariate enters
+standardized, as in \code{\link[=model]{model()}}: the thresholds take its centre in the ordinal mode,
+and the levels of the first class (or the intercept) in the joint mode; \code{b},
+\code{se_b}, the thresholds and their standard errors come back in the unit of the data.
+The missing-value rule and the warnings about values that look like a code are those
+of \code{\link[=model]{model()}}.}
 
 \item{data}{data.frame with the columns referenced. The categorical trait can be
 integer codes, character or factor; categories are ordered by factor level order,

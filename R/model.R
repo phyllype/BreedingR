@@ -75,11 +75,35 @@ ARGS_MARCADOR <- local({
 #'   before the fit. A missing observation (`NA`, `NaN`, `Inf` or `-Inf` in the trait,
 #'   or `missing_code`) with its levels and covariates present only drops its record.
 #'   `missing_code` is the code of the OBSERVATION only, as `OPTION missing` is in
-#'   BLUPF90: a covariate holding it is fitted as that number without a word (a BLUPF90
-#'   data file with -999 for an unknown age in a `cov` column regresses those records on
-#'   an age of -999), and a level column holding it is one more level "-999". Turn those
-#'   cells into `NA`, which stops the fit with the column and the first row, and then
-#'   drop or fill those records.
+#'   BLUPF90, where a data file with -999 for an unknown age in a `cov` column regresses
+#'   those records on an age of -999. Here a covariate cell equal to `missing_code` is
+#'   refused on every row, like `NA`, with the term, the count and the first row, when the
+#'   code lies more than 10 robust SDs (the median absolute deviation, scaled to the SD)
+#'   from the median of the other cells of the column, the signature of a code. Closer to
+#'   them it may be a real value (the 0 of a 0/1 covariate under `missing_code = 0`, the
+#'   BLUPF90 default), and the fit goes on with a warning that the cells enter as that
+#'   value; WOMBAT likewise stops on a covariable of zero until told whether it is a value
+#'   (`COVZER FIT`) or a missing record (`IGN`) (Meyer, WOMBAT manual, 2017, section
+#'   4.10.6.2). A level column holding the code is one more level "-999". Turn those cells
+#'   into `NA`, which stops the fit with the column and the first row, and then drop or
+#'   fill those records.
+#'   VALUES THAT LOOK LIKE A CODE. Before the fit, every fitter that reads a numeric trait
+#'   ([model()], [model_mt()], [model_ar1()], [gibbs()], [snp_blup()], the `eval_internal`
+#'   family, [model_threshold()], [model_survival()] and [pegs()]) warns about two patterns
+#'   among the observed records, naming the trait, the count, the first row and the value:
+#'   a common missing-value code (-9, -99, -999, -9999, -99999, their positive
+#'   counterparts, or -123456789, the WOMBAT default) held by two records or more, outside
+#'   the range of the other values and at least 3 robust SDs from their median; and
+#'   records more than 10 robust SDs from the median (not for the survival time, whose
+#'   tail is long by nature, nor for the categories of an ordinal threshold trait, which
+#'   have no absurd value). The same two patterns in a covariate, on the records with
+#'   the trait observed, give a warning that names the covariate. On simulated data, ten
+#'   records at -999, or three records 1e4 above the rest, took the heritability from 0.35
+#'   to 1e-10 without a word before this check. [describe()] reports the same findings.
+#'   A NUMBER STAYS A NUMBER: a factor or text column read as a number (the trait, a
+#'   covariate, the time and `entry=` of [model_survival()], the quantitative trait of the
+#'   joint threshold mode, the traits of [pegs()], the `time=` and `entry=` of
+#'   [predict()]) is refused with the column, and not read as its codes 1, 2, ...
 #'   `indirect(id, pen = "pen")` is the indirect
 #'   (associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a
 #'   record marks the animal's DISTINCT pen mates, and it shares a group with `animal()`
@@ -159,8 +183,9 @@ ARGS_MARCADOR <- local({
 #'   that same number the fit stops with an error rather than dropping the animal's
 #'   records
 #' @param missing_code missing-value code for observations, for example -999. It applies
-#'   to the trait only: in a covariate or a level column the code is an ordinary value
-#'   (see the missing-value rule under `formula`)
+#'   to the trait only: in a level column the code is an ordinary level, and in a
+#'   covariate a cell at the code is refused when it lies far from the other values and
+#'   warned about otherwise (see the missing-value rule under `formula`)
 #' @param genotypes list with `ids` and `m` for single-step: animals x markers coded 0/1/2,
 #'   as a double, integer or raw matrix. NA (5 in a raw matrix, the BLUPF90 code) is
 #'   imputed with the marker mean, never converted to zero. The matrix is read where it is,
@@ -269,8 +294,23 @@ ARGS_MARCADOR <- local({
 #'   of the free components at the final point) and `message`. PARAMETRIZATION OF `b`, and it matters when comparing against
 #'   a book or another program: the model carries an implicit intercept and drops
 #'   linearly dependent columns (listed in `dropped_x`; a dropped level has solution
-#'   zero). The columns are taken in the order they entered, over the records that enter
-#'   the fit (with `weights`, scaled by the square root of the weight), and a column goes
+#'   zero). COVARIATES ARE STANDARDIZED INSIDE: a `cov()` column enters the equations as
+#'   (x - mean) / SD of the used rows, as WOMBAT deviates covariables from their means
+#'   (Meyer, WOMBAT manual, 2017, section 4.8.1.1), and `b` comes back in the unit of the
+#'   data, the intercept taking the centre, so it equals the fit of hand-centred data
+#'   back-transformed, and -2logL keeps its value. `cov(x, nested = "c")` is centred too
+#'   when `c` is also a fixed class of the model (the levels of `c`, or through the
+#'   reference level the intercept and the other levels, take the centre); when it is
+#'   not, or when the levels of `c` are aliased with other fixed effects, the nested
+#'   covariate is only scaled, and a warning names it when its values sit more than 1e3
+#'   SDs from zero. A date, a POSIXct moving by minutes or a timestamp in milliseconds is
+#'   thereby fitted at full precision: before, age + 1e9 left the starting theta
+#'   inadmissible, age + 3e8 gave a regression of 5.90 against 0.0102, and age + 1e11 or
+#'   age x 1e-12 went to `dropped_x`. A column with no variation beyond rounding (SD up
+#'   to 100 machine epsilons of its largest value) is left as it is. The columns are
+#'   taken in the order they entered, over the records that enter
+#'   the fit (with `weights`, scaled by the square root of the weight), on the
+#'   standardized scale of the covariates, and a column goes
 #'   when its distance to the span of the columns kept before it is below 1e-9 of its norm
 #'   (1e-9 itself when the norm is below 1), so of a dependent set the LAST column goes:
 #'   the last level of a class against the intercept, a level with no used record, a
@@ -329,6 +369,9 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
+  # no traco e na covariavel (R/valores.R)
+  confere_numeros(data, trait, terms, missing_code)
 
   # only the used columns cross over; factor becomes text so no level identity is lost
   lst <- lapply(data[used_columns], function(col) {
@@ -926,6 +969,9 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
   # "undefined columns selected" do R, que nao diz qual coluna falta
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
+  # no traco e na covariavel (R/valores.R)
+  confere_numeros(data, trait, terms, missing_code)
   lst <- lapply(data[used_columns], function(col) {
     if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
   })

@@ -331,29 +331,28 @@ test_that("a covariate is checked on every row, also where the trait is missing"
 })
 
 test_that("missing_code is the code of the observation only, as OPTION missing in BLUPF90", {
-  # O que a pagina de model() promete: o codigo de ausente vale so para a observacao. Numa
-  # coluna cov o -999 e um NUMERO, ajustado calado (a idade -999 de um arquivo do BLUPF90
-  # entra na regressao), e numa coluna de nivel e o nivel "-999". Com e sem missing_code a
-  # -2logL e a mesma quando so a covariavel ou o nivel tem o codigo, e o registro entra no
-  # ajuste: tira-lo muda a -2logL.
+  # O que a pagina de model() promete: o codigo de ausente vale so para a observacao, e numa
+  # coluna de nivel e o nivel "-999". Numa coluna cov o -999 era um NUMERO ajustado calado (a
+  # idade -999 de um arquivo do BLUPF90 entrava na regressao); agora, com missing_code, a celula
+  # igual ao codigo e longe dos outros valores e recusada em todo ajustador, e sem missing_code
+  # o valor absurdo da aviso e entra (a regra e os portoes em test-estrutura-e4.R).
   z <- caso_rot()
   d <- z$d
   d$x[3] <- -999
   cod <- function(f, dd) eval_internal(f, dd, theta = c(0.3, 1), missing_code = -999,
                                        with_dense = FALSE)$neg2logl
-  a <- cod(y ~ cov(x) + random(lote), d)
-  expect_identical(a, ev_neg2(y ~ cov(x) + random(lote), d))
-  expect_gt(abs(ev_neg2(y ~ cov(x) + random(lote), d[-3, ]) - a), 1e-3)
-  f <- model(y ~ cov(x) + random(lote), d, start = c(0.3, 1), maxiter = 0L, n_em = 0L,
-             missing_code = -999, verbose = FALSE)
-  expect_equal(f$n_used, 48L)
-  expect_length(f$dropped_x, 0L)
-  expect_true("x=x" %in% names(f$b))
-  # nos ajustadores em R, o mesmo: o registro fica, e o ajuste e o de sem missing_code
+  msg <- "cov\\(x\\): 1 row\\(s\\) hold the missing-value code -999 \\(the first at row 3\\)"
+  expect_error(cod(y ~ cov(x) + random(lote), d), msg)
+  expect_error(model(y ~ cov(x) + random(lote), d, start = c(0.3, 1), maxiter = 0L, n_em = 0L,
+                     missing_code = -999, verbose = FALSE), msg)
   lim <- function(dd, ...) model_threshold(s3 ~ cov(x) + random(lote), dd, start = 0.3,
                                            verbose = FALSE, ...)
-  expect_equal(lim(d, missing_code = -999)$n_used, 48L)
-  expect_identical(lim(d, missing_code = -999)$neg2logl, lim(d)$neg2logl)
+  expect_error(lim(d, missing_code = -999), msg)
+  expect_warning(f <- model(y ~ cov(x) + random(lote), d, start = c(0.3, 1), maxiter = 0L,
+                            n_em = 0L, verbose = FALSE),
+                 "cov\\(x\\): 1 row\\(s\\) more than 10 robust SDs from the median")
+  expect_equal(f$n_used, 48L)
+  expect_true("x=x" %in% names(f$b))
   # na coluna de nivel, um nivel como outro qualquer (o motor, bit a bit, na mesma ordem de
   # aparicao), numerico ou texto
   d2 <- z$d
@@ -367,6 +366,7 @@ test_that("missing_code is the code of the observation only, as OPTION missing i
   dz$g[c(4, 9)] <- 7
   expect_identical(cod(y ~ cg + random(g), d2), ev_neg2(y ~ cg + random(g), dz))
   # na observacao, o codigo tira so o registro, como o NA
+  d <- z$d
   d$y[5] <- -999
   dna <- d
   dna$y[5] <- NA

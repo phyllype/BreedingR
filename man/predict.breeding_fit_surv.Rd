@@ -22,7 +22,7 @@ pedigree (a sire without a record included) -- that is how the book computes the
 percentage of live daughters.}
 
 \item{time}{survival mode only: the time (one number, or one per row of \code{newdata})
-at which to evaluate \code{S(t)}}
+at which to evaluate \code{S(t)}; a factor or text is refused, not read as its codes}
 
 \item{type}{\code{"risk"} (default) for the relative risk \code{exp(d)}, \code{"survival"} for
 \code{S(time)}}

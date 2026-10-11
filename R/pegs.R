@@ -30,7 +30,11 @@
 #' @param data data.frame with one row per animal and the traits in columns (`traits =`),
 #'   or, with `environment =`, one row per record of one trait in long form (each animal at
 #'   most once per environment); `NA` is a missing record
-#' @param traits names of the trait columns (wide form), or the single trait column (long)
+#' @param traits names of the trait columns (wide form), or the single trait column
+#'   (long). A factor or text trait is refused rather than read as its codes. There is no
+#'   `missing_code` here: a missing record is `NA`, and a value that looks like a code
+#'   (-999 held by two records or more, outside the range of the others) or lies more than
+#'   10 robust SDs from the median is warned about with the first row, as in [model()]
 #' @param id name of the animal column. A missing id (`NA`, `NaN`, `Inf`, `-Inf`, blank
 #'   text or the text "NaN") is refused on every row, as a level column of [model()]; an
 #'   id that is present but not among the genotyped animals leaves its record, counted in
@@ -76,6 +80,11 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
     nivel_ausente(data[[environment]], "", environment, "environment",
                   paste0("a record without an environment has no trait to enter, and those ",
                          "rows would form one more trait; drop those rows or fill them"))
+  # o traco entra como numero: o fator e recusado (em forma longa os codigos 1, 2, ... davam
+  # mu 28,3 contra 10,1; em forma larga o erro era o REAL() do C), e o codigo de ausente
+  # aparente da aviso. pegs() nao tem missing_code: o registro ausente e o NA (R/valores.R)
+  for (tr in traits) recusa_nao_numerico(data[[tr]], tr)
+  for (tr in traits) avisa_traco(data[[tr]], tr, conselho = "turn those records into NA")
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
   # o animal como o motor escreve o id dos genotipos: 100000 e "100000", nao "1e+05"

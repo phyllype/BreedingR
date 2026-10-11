@@ -105,8 +105,7 @@ valor_ausente <- function(x, termo, coluna, onde = paste0("the covariate column 
                                          "lose the likelihood without a word; drop those rows ",
                                          "or fill them")) {
   na_textual(x, coluna)
-  if (is.factor(x) || is.character(x))
-    stop("column '", coluna, "' is text and was requested as numeric", call. = FALSE)
+  recusa_nao_numerico(x, coluna)
   if (!is.null(falta <- sem_rotulo(as.double(x), onde)))
     stop("term '", termo, "': ", falta, ": ", razao, call. = FALSE)
   invisible(NULL)
@@ -117,11 +116,33 @@ valor_ausente <- function(x, termo, coluna, onde = paste0("the covariate column 
 # newdata era lido pelos codigos 1, 2, ..., e a predicao saia outra, calada (o portao em
 # test-rotulo-ausente.R compara com a covariavel numerica), e o modo conjunto devolvia NA
 # para o valor ausente, sem conferir.
+#
+# O CODIGO DE AUSENTE E O VALOR ABSURDO em newdata (R/valores.R): o ajuste guarda no info a
+# media e o dp das linhas usadas e o missing_code. Uma celula igual ao missing_code e a mais de
+# 10 dp da media do ajuste e o codigo, e e recusada como o NA; qualquer celula a mais de 10 dp
+# da media extrapola a regressao, e da aviso.
 covariavel_newdata <- function(col, info) {
   valor_ausente(col, info$nome, info$column,
                 paste0("the covariate column '", info$column, "' of newdata"),
                 "a row without the value has no prediction; drop it or fill it")
-  as.double(col)
+  v <- as.double(col)
+  if (is.null(info$dp) || !(is.finite(info$dp) && info$dp > 0)) return(v)
+  longe <- abs(v - info$media) > 10 * info$dp
+  if (!is.null(info$missing_code)) {
+    em <- longe & abs(v - as.double(info$missing_code)) < 1e-9
+    if (any(em))
+      stop("cov(", info$column, ") in newdata: ", sum(em), " row(s) hold the missing-value ",
+           "code ", format(info$missing_code, scientific = FALSE), " of the fit (the first ",
+           "at row ", which(em)[1L], "): a row without the value has no prediction; drop it ",
+           "or fill it", call. = FALSE)
+  }
+  if (any(longe))
+    warning("cov(", info$column, ") in newdata: ", sum(longe), " row(s) more than 10 SDs ",
+            "of the fitted records from their mean (the first at row ", which(longe)[1L],
+            ", value ", format(v[which(longe)[1L]], digits = 6), "): the prediction ",
+            "extrapolates the regression there; if it is a missing-value code, drop that ",
+            "row or give it its value", call. = FALSE)
+  v
 }
 
 # A OBSERVACAO AUSENTE de um traco categorico (o limiar, ordinal ou conjunto, e o probit de
@@ -257,9 +278,14 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
   # as any other start.
   avaliadas <- list()
   warm <- NULL
+  # um aviso de R/valores.R por dado, no primeiro ajuste da grade, e nao um por ponto
+  conferido <- FALSE
   perfil <- function(k) {
     w <- 1 / (1 + coef_social(n, dil) * k)
-    f <- model(formula, data, pedigree, weights = w, verbose = FALSE, start = warm, ...)
+    ajusta <- function()
+      model(formula, data, pedigree, weights = w, verbose = FALSE, start = warm, ...)
+    f <- if (conferido) sem_conferencia(ajusta()) else ajusta()
+    conferido <<- TRUE
     if (all(is.finite(f$theta))) warm <<- unname(f$theta)
     # O jacobiano dos pesos sai NA MESMA BASE do -2logL que ele corrige: sobre as linhas
     # que o ajuste usou, e nao sobre a tabela inteira. Um registro descartado (fenotipo

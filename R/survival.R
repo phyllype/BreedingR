@@ -128,8 +128,15 @@
 #'   a missing censoring indicator are dropped and counted; they still count as pen
 #'   mates of `indirect()`. A missing level (`NA`, `NaN`, `Inf`, `-Inf`, blank text or
 #'   the text "NaN") or a missing covariate value is refused on every row, with the same
-#'   rule and message as in [model()]; a factor or text column in `cov()` is refused
-#'   rather than read as its codes.
+#'   rule and message as in [model()]; a factor or text column in `cov()`, in the time
+#'   or in `entry=` is refused rather than read as its codes. There is no `missing_code`
+#'   here: a missing time is `NA`, and a common missing-value code in the time (9999 held
+#'   by two records or more, outside the range of the others) is warned about, with the
+#'   first row (see the rule under `formula` in [model()]). A `cov()` covariate enters
+#'   standardized, as in [model()]: centred and scaled when `lambda` is estimated (the
+#'   intercept takes the centre), only scaled when `lambda` is given (there is no
+#'   intercept, and a warning names a covariate whose values sit more than 1e3 SDs from
+#'   zero); `b`, `se_b` and `lambda` come back in the unit of the data.
 #' @param pedigree data.frame animal, sire, dam; required with `animal()`, `sire()` or
 #'   `indirect()` unless `k_inverse` is given
 #' @param censor MANDATORY: the censoring indicator, as a column name or a vector --
@@ -296,6 +303,16 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   falta <- setdiff(colunas_usadas(trait, terms), names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
 
+  # o tempo, a entrada e as covariaveis entram como numero (R/valores.R): o fator e recusado
+  # (os codigos 1, 2, ... no lugar dos tempos davam outro ajuste, calado), e o tempo e as
+  # covariaveis com um codigo de ausente aparente dao aviso. Sem missing_code aqui, o tempo
+  # ausente e o NA.
+  recusa_nao_numerico(data[[trait]], trait)
+  if (is.character(entry) && length(entry) == 1L && entry %in% names(data))
+    recusa_nao_numerico(data[[entry]], entry)
+  confere_numeros(data, trait, terms,
+                  conselho = "turn those records into NA (a missing time is NA here)",
+                  longe = FALSE)
   tv <- as.double(data[[trait]])
   qv <- if (is.character(censor) && length(censor) == 1L) {
     if (!censor %in% names(data)) stop("no column '", censor, "' in the data")
@@ -351,9 +368,19 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
       stop(par, " must be NULL (estimate it) or one positive number")
   }
 
-  fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = FALSE)
-  X <- fx$X
+  # com lambda estimado o intercepto absorve o centro das covariaveis padronizadas; com
+  # lambda dado nao ha intercepto, e a covariavel so e escalada
   est_lam <- is.null(lambda)
+  fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = FALSE, centra = est_lam)
+  X <- fx$X
+  if (!est_lam && !conferencia_calada())
+    for (tm in Filter(function(t2) isTRUE(t2$covariavel), terms)) {
+      txt <- texto_deslocamento(as.double(data[[tm$column]])[keep], paste0("cov(", tm$column,
+                                ")"), "with lambda given the model has no intercept to take its centre")
+      if (!is.null(txt)) warning(txt, "; subtract a reference value from ", tm$column,
+                                 " (it moves the baseline lambda stands for), or estimate ",
+                                 "lambda", call. = FALSE)
+    }
   if (est_lam) X <- xs_com_intercepto(X)
   al <- prepara_aleatorios(aleat, data, pedigree, k_inverse, keep, intervalo)
   escalar <- al$ntheta == length(al$slots)
@@ -578,7 +605,6 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   b <- if (p) stats::setNames(f$u[seq_len(p)], X$nomes)
        else stats::setNames(numeric(0), character(0))
   rho_est <- exp(f$r)
-  lambda_est <- if (est_lam) exp(unname(b["intercept"]) / rho_est) else lambda
 
   se_tudo <- rep(NA_real_, Nu)
   si <- tryCatch(selected_inverse(f$C), error = function(e) NULL)
@@ -586,6 +612,17 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
     diag_ <- si$i == si$j
     se_tudo[si$i[diag_]] <- sqrt(pmax(si$x[diag_], 0))
   }
+  # b na unidade do dado (as covariaveis entraram padronizadas, monta_x_limiar): a inclinacao
+  # dividida pela escala, e o intercepto, quando ha, com - soma c_j b_j e o erro-padrao da
+  # combinacao pela inversa seletiva
+  if (p) {
+    vb <- volta_b_limiar(b, se_tudo[seq_len(p)], escalas_de(fx$info, X$nomes),
+                         alvo = if (est_lam) match("intercept", X$nomes) else integer(0),
+                         covb = covariancia_seletiva(si, Nu))
+    b[] <- vb$loc
+    se_tudo[seq_len(p)] <- vb$se
+  }
+  lambda_est <- if (est_lam) exp(unname(b["intercept"]) / rho_est) else lambda
 
   mensagens <- c(
     if (estimou) est$avisos,
@@ -691,7 +728,7 @@ coef.breeding_fit_surv <- function(object, effects = c("components", "fixed"), .
 #'   pedigree (a sire without a record included) -- that is how the book computes the
 #'   percentage of live daughters.
 #' @param time survival mode only: the time (one number, or one per row of `newdata`)
-#'   at which to evaluate `S(t)`
+#'   at which to evaluate `S(t)`; a factor or text is refused, not read as its codes
 #' @param entry survival mode only: the time (one number, or one per row) the animal is
 #'   known alive at; the result is then `S(time | entry) = S(time) / S(entry)`, the
 #'   survival over the piece `(entry, time]` of an elementary record. For an animal whose
@@ -731,6 +768,7 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
   if (type == "risk") return(exp(d))
   if (is.null(time))
     stop("type = \"survival\" needs time=: S(t) is a function of the age asked about")
+  recusa_nao_numerico(time, "time", "argument")
   time <- as.double(time)
   if (length(time) == 1L) time <- rep(time, n)
   if (length(time) != n || any(!is.finite(time)) || any(time <= 0))
@@ -740,16 +778,23 @@ predict.breeding_fit_surv <- function(object, newdata, time = NULL,
   # entra aqui, pela forma de Eqn 16.4: (lambda t)^rho = t^rho exp(intercepto), com o
   # lambda do ajuste, dado ou estimado. Antes, com lambda estimado, a base era t^rho e o
   # intercepto ficava de fora (medido: 6.0e-161 onde a conta e 0.227).
-  acumula <- function(t) (object$lambda * t)^object$rho
+  # Na escala do log: (lambda t)^rho exp(d) = exp(rho log t + rho log lambda + d), com
+  # rho log lambda = o intercepto quando lambda foi estimado. Com uma covariavel de
+  # deslocamento grande o intercepto e x'b sao enormes e de sinais opostos, e lambda e exp(d)
+  # em separado davam 0 * Inf
+  lr <- if (!isTRUE(object$lambda_given) && "intercept" %in% names(object$b))
+    object$b[["intercept"]] else object$rho * log(object$lambda)
+  acumula <- function(t) exp(object$rho * log(t) + lr + d)
   base <- acumula(time)
   if (!is.null(entry)) {
+    recusa_nao_numerico(entry, "entry", "argument")
     entry <- as.double(entry)
     if (length(entry) == 1L) entry <- rep(entry, n)
     if (length(entry) != n || any(!is.finite(entry)) || any(entry < 0) || any(entry >= time))
       stop("entry must be one number, or one per row, with 0 <= entry < time")
     base <- base - acumula(entry)
   }
-  exp(-base * exp(d))
+  exp(-base)
 }
 
 #' Elementary survival records from subjects and covariate changes

@@ -42,8 +42,15 @@ column, strictly positive.}
 a missing censoring indicator are dropped and counted; they still count as pen
 mates of \code{indirect()}. A missing level (\code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or
 the text "NaN") or a missing covariate value is refused on every row, with the same
-rule and message as in \code{\link[=model]{model()}}; a factor or text column in \code{cov()} is refused
-rather than read as its codes.}
+rule and message as in \code{\link[=model]{model()}}; a factor or text column in \code{cov()}, in the time
+or in \verb{entry=} is refused rather than read as its codes. There is no \code{missing_code}
+here: a missing time is \code{NA}, and a common missing-value code in the time (9999 held
+by two records or more, outside the range of the others) is warned about, with the
+first row (see the rule under \code{formula} in \code{\link[=model]{model()}}). A \code{cov()} covariate enters
+standardized, as in \code{\link[=model]{model()}}: centred and scaled when \code{lambda} is estimated (the
+intercept takes the centre), only scaled when \code{lambda} is given (there is no
+intercept, and a warning names a covariate whose values sit more than 1e3 SDs from
+zero); \code{b}, \code{se_b} and \code{lambda} come back in the unit of the data.}
 
 \item{pedigree}{data.frame animal, sire, dam; required with \code{animal()}, \code{sire()} or
 \code{indirect()} unless \code{k_inverse} is given}

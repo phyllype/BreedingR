@@ -72,11 +72,35 @@ because "0" may be a real name: drop those records, or give them their levels,
 before the fit. A missing observation (\code{NA}, \code{NaN}, \code{Inf} or \code{-Inf} in the trait,
 or \code{missing_code}) with its levels and covariates present only drops its record.
 \code{missing_code} is the code of the OBSERVATION only, as \verb{OPTION missing} is in
-BLUPF90: a covariate holding it is fitted as that number without a word (a BLUPF90
-data file with -999 for an unknown age in a \code{cov} column regresses those records on
-an age of -999), and a level column holding it is one more level "-999". Turn those
-cells into \code{NA}, which stops the fit with the column and the first row, and then
-drop or fill those records.
+BLUPF90, where a data file with -999 for an unknown age in a \code{cov} column regresses
+those records on an age of -999. Here a covariate cell equal to \code{missing_code} is
+refused on every row, like \code{NA}, with the term, the count and the first row, when the
+code lies more than 10 robust SDs (the median absolute deviation, scaled to the SD)
+from the median of the other cells of the column, the signature of a code. Closer to
+them it may be a real value (the 0 of a 0/1 covariate under \code{missing_code = 0}, the
+BLUPF90 default), and the fit goes on with a warning that the cells enter as that
+value; WOMBAT likewise stops on a covariable of zero until told whether it is a value
+(\verb{COVZER FIT}) or a missing record (\code{IGN}) (Meyer, WOMBAT manual, 2017, section
+4.10.6.2). A level column holding the code is one more level "-999". Turn those cells
+into \code{NA}, which stops the fit with the column and the first row, and then drop or
+fill those records.
+VALUES THAT LOOK LIKE A CODE. Before the fit, every fitter that reads a numeric trait
+(\code{\link[=model]{model()}}, \code{\link[=model_mt]{model_mt()}}, \code{\link[=model_ar1]{model_ar1()}}, \code{\link[=gibbs]{gibbs()}}, \code{\link[=snp_blup]{snp_blup()}}, the \code{eval_internal}
+family, \code{\link[=model_threshold]{model_threshold()}}, \code{\link[=model_survival]{model_survival()}} and \code{\link[=pegs]{pegs()}}) warns about two patterns
+among the observed records, naming the trait, the count, the first row and the value:
+a common missing-value code (-9, -99, -999, -9999, -99999, their positive
+counterparts, or -123456789, the WOMBAT default) held by two records or more, outside
+the range of the other values and at least 3 robust SDs from their median; and
+records more than 10 robust SDs from the median (not for the survival time, whose
+tail is long by nature, nor for the categories of an ordinal threshold trait, which
+have no absurd value). The same two patterns in a covariate, on the records with
+the trait observed, give a warning that names the covariate. On simulated data, ten
+records at -999, or three records 1e4 above the rest, took the heritability from 0.35
+to 1e-10 without a word before this check. \code{\link[=describe]{describe()}} reports the same findings.
+A NUMBER STAYS A NUMBER: a factor or text column read as a number (the trait, a
+covariate, the time and \verb{entry=} of \code{\link[=model_survival]{model_survival()}}, the quantitative trait of the
+joint threshold mode, the traits of \code{\link[=pegs]{pegs()}}, the \verb{time=} and \verb{entry=} of
+\code{\link[=predict]{predict()}}) is refused with the column, and not read as its codes 1, 2, ...
 \code{indirect(id, pen = "pen")} is the indirect
 (associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a
 record marks the animal's DISTINCT pen mates, and it shares a group with \code{animal()}
@@ -179,8 +203,9 @@ result message says it is an approximation and with which k. Mutually exclusive
 with \code{apy_core}}
 
 \item{missing_code}{missing-value code for observations, for example -999. It applies
-to the trait only: in a covariate or a level column the code is an ordinary value
-(see the missing-value rule under \code{formula})}
+to the trait only: in a level column the code is an ordinary level, and in a
+covariate a cell at the code is refused when it lies far from the other values and
+warned about otherwise (see the missing-value rule under \code{formula})}
 
 \item{maxiter}{maximum number of iterations of the damped step. The default 300 was
 raised from 100 after a measured case: a direct-indirect model warm-started from
@@ -282,8 +307,23 @@ fields (\code{converged}, \code{iters}, \code{reldelta}, and \code{newton_dec}, 
 of the free components at the final point) and \code{message}. PARAMETRIZATION OF \code{b}, and it matters when comparing against
 a book or another program: the model carries an implicit intercept and drops
 linearly dependent columns (listed in \code{dropped_x}; a dropped level has solution
-zero). The columns are taken in the order they entered, over the records that enter
-the fit (with \code{weights}, scaled by the square root of the weight), and a column goes
+zero). COVARIATES ARE STANDARDIZED INSIDE: a \code{cov()} column enters the equations as
+(x - mean) / SD of the used rows, as WOMBAT deviates covariables from their means
+(Meyer, WOMBAT manual, 2017, section 4.8.1.1), and \code{b} comes back in the unit of the
+data, the intercept taking the centre, so it equals the fit of hand-centred data
+back-transformed, and -2logL keeps its value. \code{cov(x, nested = "c")} is centred too
+when \code{c} is also a fixed class of the model (the levels of \code{c}, or through the
+reference level the intercept and the other levels, take the centre); when it is
+not, or when the levels of \code{c} are aliased with other fixed effects, the nested
+covariate is only scaled, and a warning names it when its values sit more than 1e3
+SDs from zero. A date, a POSIXct moving by minutes or a timestamp in milliseconds is
+thereby fitted at full precision: before, age + 1e9 left the starting theta
+inadmissible, age + 3e8 gave a regression of 5.90 against 0.0102, and age + 1e11 or
+age x 1e-12 went to \code{dropped_x}. A column with no variation beyond rounding (SD up
+to 100 machine epsilons of its largest value) is left as it is. The columns are
+taken in the order they entered, over the records that enter
+the fit (with \code{weights}, scaled by the square root of the weight), on the
+standardized scale of the covariates, and a column goes
 when its distance to the span of the columns kept before it is below 1e-9 of its norm
 (1e-9 itself when the norm is below 1), so of a dependent set the LAST column goes:
 the last level of a class against the intercept, a level with no used record, a

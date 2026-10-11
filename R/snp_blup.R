@@ -69,6 +69,9 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
+  # no traco e na covariavel (R/valores.R)
+  confere_numeros(data, trait, terms, missing_code)
   lst <- lapply(data[used_columns], function(col) {
     if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
   })

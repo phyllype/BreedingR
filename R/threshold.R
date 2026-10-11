@@ -128,8 +128,13 @@
 #'   takes one relationship term and neither `indirect()` nor `group =`. A missing
 #'   level (`NA`, `NaN`, `Inf`, `-Inf`, blank text or the text "NaN") or a missing
 #'   covariate value is refused on every row, with the same rule and message as in
-#'   [model()]; a factor or text column in `cov()` is refused rather than read as its
-#'   codes.
+#'   [model()]; a factor or text column in `cov()`, or as the quantitative trait of the
+#'   joint mode, is refused rather than read as its codes. A covariate enters
+#'   standardized, as in [model()]: the thresholds take its centre in the ordinal mode,
+#'   and the levels of the first class (or the intercept) in the joint mode; `b`,
+#'   `se_b`, the thresholds and their standard errors come back in the unit of the data.
+#'   The missing-value rule and the warnings about values that look like a code are those
+#'   of [model()].
 #' @param data data.frame with the columns referenced. The categorical trait can be
 #'   integer codes, character or factor; categories are ordered by factor level order,
 #'   or by sort order otherwise. In the joint mode the second trait must have exactly
@@ -294,6 +299,13 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
   falta <- setdiff(colunas_usadas(traits, terms), names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
 
+  # o que entra como numero (R/valores.R): o traco quantitativo do modo conjunto e recusado
+  # como fator ou texto; o traco ordinal de categorias numericas e o quantitativo dao aviso de
+  # codigo de ausente; as covariaveis, a regra de missing_code e o aviso. No traco ordinal so
+  # o codigo de costume conta: categorias nao tem valor absurdo, e com quase todo registro na
+  # mesma categoria a escala robusta e minuscula
+  confere_numeros(data, if (conjunto) traits[1] else character(0), terms, missing_code,
+                  avisa = traits[1], resposta = traits, longe = conjunto)
   if (conjunto) {
     if (isTRUE(estimate))
       stop("estimate = TRUE is for the ordinal mode: the joint mode takes G and R as ",
@@ -511,7 +523,15 @@ xs_com_intercepto <- function(xs) {
 # used before (qr(), the LINPACK dqrdc2 of R: a column goes when its distance to the
 # columns kept before it falls below 1e-7 of its norm), from the sparse rank of the engine
 # (posto_esparso, src/fixos.cpp).
-monta_x_limiar <- function(terms, data, keep, primeiro_cheio) {
+#
+# A covariavel entra PADRONIZADA, (x - media) / dp das linhas usadas, como no motor
+# (padroniza_covariaveis, src/fixos.cpp), e o posto decide nessa escala; o centro e a escala vao
+# no info, e quem devolve b a unidade do dado e volta_b_limiar() (R/valores.R). centra = FALSE so
+# escala, para um X sem termo que absorva o centro (a sobrevivencia com lambda dado, ou o modo
+# conjunto cuja primeira classe perdeu um nivel no posto). missing_code vai no info para o
+# predict() conferir a covariavel de newdata pela mesma regra do ajuste.
+monta_x_limiar <- function(terms, data, keep, primeiro_cheio, centra = TRUE,
+                           missing_code = NULL) {
   fixos <- Filter(function(tm) tm$estrutura == 0L, terms)
   n <- sum(keep)
   blocos <- list(); nomes <- character(0); info <- list()
@@ -523,10 +543,15 @@ monta_x_limiar <- function(terms, data, keep, primeiro_cheio) {
     col <- data[[tm$column]][keep]
     if (tm$covariavel) {
       v <- as.double(col)
+      esc <- escala_covariavel(v, centra)
       nomes <- c(nomes, tm$nome)
-      blocos[[length(blocos) + 1L]] <- list(col = rep(length(nomes), n), val = v)
+      blocos[[length(blocos) + 1L]] <- list(col = rep(length(nomes), n),
+                                            val = (v - esc[1]) / esc[2])
       info[[length(info) + 1L]] <- list(nome = tm$nome, column = tm$column,
-                                        covariavel = TRUE, niveis = character(0))
+                                        covariavel = TRUE, niveis = character(0),
+                                        centro = esc[1], escala = esc[2],
+                                        media = mean(v), dp = stats::sd(v),
+                                        missing_code = missing_code)
     } else {
       valores <- rotulo_motor(col)
       lv <- if (is.factor(col)) levels(droplevels(col)) else sort(unique(valores))
@@ -681,7 +706,9 @@ prepara_limiar <- function(formula, trait, terms, aleat, data, pedigree, k_inver
   codes <- if (is.factor(y)) as.integer(droplevels(y)) else match(y, categorias)
   contagem <- tabulate(codes, m)
 
-  fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = FALSE)
+  # os limiares absorvem o centro das covariaveis (P(y <= k) = F(t_k - x'b))
+  fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = FALSE, centra = TRUE,
+                       missing_code = missing_code)
   al <- prepara_aleatorios(aleat, data, pedigree, k_inverse, keep)
   n <- length(codes); nt <- m - 1L; p <- fx$X$p
   qs <- vapply(al$slots, function(sl) sl$q, integer(1))
@@ -787,6 +814,8 @@ ajusta_limiar_ordinal <- function(pr, Gs, maxiter, tol, verbose, warm = NULL, pe
   }
 
   # o sistema no ponto final: PEV pela inversa generalizada (p.271) e o log|C| do Laplace
+  estado_t <- tvec
+  estado_b <- b
   gf <- pecas_gf(eta(b, us), tvec, pr$codes, pr$m)
   monta <- sistema_limiar(pr, Gs, gf, us)$monta
   se_tudo <- rep(NA_real_, pr$N)
@@ -813,6 +842,20 @@ ajusta_limiar_ordinal <- function(pr, Gs, maxiter, tol, verbose, warm = NULL, pe
   ebv_ <- por_grupo(al, us)
   pev_ <- por_grupo(al, lapply(seq_along(al$slots), function(s)
     se_tudo[offs[s] + seq_len(al$slots[[s]]$q)]^2))
+  # limiares e b na unidade do dado (as covariaveis entraram padronizadas, monta_x_limiar):
+  # o limiar recebe + soma c_j b_j, e o erro-padrao dele a covariancia com as inclinacoes; o
+  # -2logL de Laplace volta pelo log-determinante da escala (log|C| muda por 2 log|det T|)
+  e <- escalas_de(pr$fx$info, X$nomes)
+  e$j <- nt + e$j
+  if (length(e$j)) {
+    covb <- covariancia_seletiva(si, pr$N)
+    vb <- volta_b_limiar(c(tvec, b), se_tudo[seq_len(nt + p)], e, alvo = seq_len(nt),
+                         sinal = 1, covb = covb)
+    tvec <- vb$loc[seq_len(nt)]
+    b <- vb$loc[nt + seq_len(p)]
+    se_tudo[seq_len(nt + p)] <- vb$se
+    neg2logl <- neg2logl + 2 * sum(log(e$s))
+  }
 
   out <- structure(list(
     trait = pr$trait, categories = pr$categorias, counts = pr$contagem,
@@ -832,7 +875,8 @@ ajusta_limiar_ordinal <- function(pr, Gs, maxiter, tol, verbose, warm = NULL, pe
     design = list(fixed = pr$fx$info, random = design_aleatorio(al)),
     seconds = NA_real_
   ), class = "breeding_fit_thr")
-  attr(out, "estado") <- list(tvec = tvec, b = b, us = us)
+  # a partida quente da estimacao segue na escala padronizada, a do sistema
+  attr(out, "estado") <- list(tvec = estado_t, b = estado_b, us = us)
   out
 }
 
@@ -857,6 +901,7 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
       stop(nm, " must be a symmetric positive-definite 2x2 matrix")
   }
 
+  recusa_nao_numerico(data[[traits[1]]], traits[1])
   y1 <- as.double(data[[traits[1]]])
   y2raw <- data[[traits[2]]]
   # a observacao ausente de cada traco, pela regra do modo ordinal (observacao_ausente()):
@@ -871,7 +916,16 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
   y2 <- as.double(as.character(y2raw[keep]) == vals2[2])
   n <- length(y1)
 
-  fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = TRUE)
+  # o centro das covariaveis padronizadas (monta_x_limiar) cai nos niveis da primeira classe,
+  # que somam o intercepto, ou no intercepto do modo; uma primeira classe que perdeu um nivel
+  # no posto nao o absorve, e o X e refeito so escalado
+  fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = TRUE, missing_code = missing_code)
+  alvo_c <- alvos_conjunto(fx)
+  if (is.null(alvo_c)) {
+    fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = TRUE, centra = FALSE,
+                         missing_code = missing_code)
+    alvo_c <- integer(0)
+  }
   X <- fx$X; nb <- X$p
   z <- monta_z_limiar(aleat, data, pedigree, k_inverse, keep)[[1]]
   q <- z$q
@@ -978,6 +1032,10 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
   theta <- stats::setNames(c(G[1, 1], G[1, 2], G[2, 2], R[1, 1], R[1, 2], R[2, 2]),
                            nomes_theta)
 
+  # b dos dois tracos na unidade do dado: o alvo recebe - soma c_j b_j
+  e <- escalas_de(fx$info, X$nomes)
+  b1 <- volta_b_limiar(b1, NULL, e, alvo_c)$loc
+  tt <- volta_b_limiar(tt, NULL, e, alvo_c)$loc
   out_conj <- structure(list(
     traits = traits, trait = paste(traits, collapse = ", "),
     theta = theta,
@@ -1156,6 +1214,7 @@ prediz_conjunto <- function(object, newdata, type) {
   if (!q1 %in% names(newdata))
     stop("the joint probability is conditional on the quantitative trait: newdata needs ",
          "a column '", q1, "' (Eqn 15.25)")
+  recusa_nao_numerico(newdata[[q1]], q1)
   lia <- unname(parte_fixa(object$traits[2]) + object$nu[ids] +
                   object$b_regression * (as.double(newdata[[q1]]) - object$mean_quantitative))
   if (type == "liability") return(lia)

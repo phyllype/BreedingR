@@ -24,7 +24,11 @@ pegs(
 or, with \verb{environment =}, one row per record of one trait in long form (each animal at
 most once per environment); \code{NA} is a missing record}
 
-\item{traits}{names of the trait columns (wide form), or the single trait column (long)}
+\item{traits}{names of the trait columns (wide form), or the single trait column
+(long). A factor or text trait is refused rather than read as its codes. There is no
+\code{missing_code} here: a missing record is \code{NA}, and a value that looks like a code
+(-999 held by two records or more, outside the range of the others) or lies more than
+10 robust SDs from the median is warned about with the first row, as in \code{\link[=model]{model()}}}
 
 \item{id}{name of the animal column. A missing id (\code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank
 text or the text "NaN") is refused on every row, as a level column of \code{\link[=model]{model()}}; an

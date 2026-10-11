@@ -107,25 +107,46 @@ plot.breeding_fit <- function(x, limits = NULL, ...) {
 #' @param trait trait column
 #' @param classes class columns to tabulate
 #' @param pedigree data.frame or NULL
-#' @param covariates covariate columns to check against the missing-value code
-#' @param missing_code missing-value code for the trait observations. When given together with
-#'   `covariates`, each covariate is checked: the code only applies to the trait, and
-#'   a -999 in a covariate enters the regression LITERALLY, in real data this once went
-#'   unnoticed past two programs at the same time
+#' @param covariates covariate columns to check against the missing-value code and for
+#'   values that look like one (see Value)
+#' @param missing_code missing-value code for the trait observations: the records holding
+#'   it are missing, as in every fitter, and stay out of the descriptives. When given
+#'   together with `covariates`, each covariate is checked: the code only applies to the
+#'   trait, and a -999 in a covariate enters the regression LITERALLY, in real data this
+#'   once went unnoticed past two programs at the same time
+#' @return an object of class `br_describe`: `n` (the observed records: not `NA`, `NaN`,
+#'   `Inf`, `-Inf` or `missing_code`) and `n_na` (the missing ones), `mean`, `sd`,
+#'   `quartiles`, the Tukey `fences` and `outside_fences` on the observed records, and,
+#'   when asked, `classes`, `pedigree` and `leak` (per covariate, the records with the
+#'   trait observed and the covariate at the missing-value code). `suspect` lists the
+#'   findings the fitters warn about before a fit (see [model()]), on the observed
+#'   records: a common missing-value code (-9, -99, -999, -9999, their positive
+#'   counterparts, or -123456789) held by two records or more, outside the range of the
+#'   other values and at least 3 robust SDs (the median absolute deviation, scaled to the
+#'   SD) from their median; and the other records more than 10 robust SDs from the median.
+#'   `suspect_cov` does the same per covariate, on the records with the trait observed.
+#'   The print shows each finding as a WARNING line
 #' @export
 describe <- function(data, trait, classes = NULL, pedigree = NULL,
                       covariates = NULL, missing_code = NULL) {
   if (!trait %in% names(data)) stop("no column '", trait, "'")
-  y <- data[[trait]]
+  # o traco entra como numero (R/valores.R), e a observacao ausente e a de todo ajustador:
+  # NA, NaN, Inf, -Inf e missing_code. Antes o missing_code nao saia do traco, e o -999 entrava
+  # na media, no dp e nos quartis
+  recusa_nao_numerico(data[[trait]], trait)
+  y <- as.double(data[[trait]])
+  obs <- !observacao_ausente(y, missing_code)
+  yo <- y[obs]
   out <- list(trait = trait,
-              n = sum(is.finite(y)),
-              n_na = sum(!is.finite(y)),
-              mean = mean(y, na.rm = TRUE),
-              sd = stats::sd(y, na.rm = TRUE),
-              quartiles = stats::quantile(y, c(0, .25, .5, .75, 1), na.rm = TRUE))
+              n = sum(obs),
+              n_na = sum(!obs),
+              mean = mean(yo),
+              sd = stats::sd(yo),
+              quartiles = stats::quantile(yo, c(0, .25, .5, .75, 1)))
   iqr <- out$quartiles[4] - out$quartiles[2]
   out$fences <- c(out$quartiles[2] - 1.5 * iqr, out$quartiles[4] + 1.5 * iqr)
-  out$outside_fences <- sum(y < out$fences[1] | y > out$fences[2], na.rm = TRUE)
+  out$outside_fences <- sum(yo < out$fences[1] | yo > out$fences[2])
+  out$suspect <- unlist(lapply(valores_suspeitos(yo, which(obs)), texto_traco, traco = trait))
   if (!is.null(classes)) {
     out$classes <- lapply(classes, function(cl) {
       tb <- table(data[[cl]])
@@ -141,8 +162,17 @@ describe <- function(data, trait, classes = NULL, pedigree = NULL,
                          f_mean = mean(p$F), f_max = max(p$F),
                          inbred = sum(p$F > 1e-9))
   }
+  if (!is.null(covariates)) {
+    out$suspect_cov <- unlist(lapply(covariates, function(cv) {
+      if (!cv %in% names(data)) stop("no column '", cv, "'")
+      recusa_nao_numerico(data[[cv]], cv)
+      v <- as.double(data[[cv]])
+      fora <- if (is.null(missing_code)) FALSE else abs(v - missing_code) < 1e-9
+      lin <- which(obs & !(fora %in% TRUE))
+      lapply(valores_suspeitos(v[lin], lin), texto_covariavel, rotulo = paste0("cov(", cv, ")"))
+    }))
+  }
   if (!is.null(covariates) && !is.null(missing_code)) {
-    obs <- is.finite(y) & abs(y - missing_code) > 1e-9
     out$leak <- lapply(covariates, function(cv) {
       if (!cv %in% names(data)) stop("no column '", cv, "'")
       v <- data[[cv]]
@@ -157,7 +187,7 @@ describe <- function(data, trait, classes = NULL, pedigree = NULL,
 #' @export
 print.br_describe <- function(x, ...) {
   cat("Trait '", x$trait, "': ", x$n, " record(s)",
-      if (x$n_na) paste0(", ", x$n_na, " non-finite"), "\n", sep = "")
+      if (x$n_na) paste0(", ", x$n_na, " missing"), "\n", sep = "")
   cat("  mean ", format(x$mean, digits = 5), ", sd ", format(x$sd, digits = 5),
       "\n  quartiles ", paste(format(x$quartiles, digits = 4), collapse = " / "), "\n", sep = "")
   if (x$outside_fences)
@@ -170,6 +200,7 @@ print.br_describe <- function(x, ...) {
     cat("  pedigree: ", x$pedigree$n, " animals, ", x$pedigree$founders,
         " founder(s), mean F ", format(x$pedigree$f_mean, digits = 4),
         ", maximum ", format(x$pedigree$f_max, digits = 4), "\n", sep = "")
+  for (s in c(x$suspect, x$suspect_cov)) cat("  WARNING: ", s, "\n", sep = "")
   for (vz in x$leak)
     if (vz$n)
       cat("  WARNING: covariate '", vz$column, "' has ", vz$n, " record(s) with the ",
