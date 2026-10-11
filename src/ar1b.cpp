@@ -70,11 +70,20 @@ static void eixo_tempo_ar1(DesenhoAR& d) {
   const double menor = gaps.front();
   const double eps = std::numeric_limits<double>::epsilon();
   const unsigned long long qmax = 1000;
-  // g e um numero inteiro de passos h = menor / q?
+  // g e um numero inteiro de passos h = menor / q? O erro de k = g / h vem do erro da subtracao
+  // em g e em menor (cada um ate 2 eps tmax): 2 eps tmax (1 / h + k / menor) = 2 eps tmax (1 +
+  // k / q) / h, com folga de 2. Antes o termo era (1 + k) / h, q vezes maior no segundo termo:
+  // com a origem em 1.7e9 (um POSIXct de hoje) a folga de um q grande passava de 0.04 passo, e a
+  // busca sempre achava uma convergente de mentira (intervalos de 60, 120 e 3622.37 s davam passo
+  // 60/59 s, e tempo continuo na origem 0). Com q > 1 o passo so vale se o dado o resolve (ruido
+  // ate 1e-4 passo); com q = 1 (o menor intervalo e o passo) a folga e a de sempre
   auto inteiro = [&](double g, unsigned long long q) {
-    const double h = menor / static_cast<double>(q);
+    const double qd = static_cast<double>(q);
+    const double h = menor / qd;
     const double k = g / h;
-    return std::fabs(k - std::floor(k + 0.5)) <= 1e-6 + 4.0 * eps * tmax * (1.0 + k) / h;
+    const double ruido = 4.0 * eps * tmax * (1.0 + k / qd) / h;
+    if (q > 1 && ruido > 1e-4) return false;
+    return std::fabs(k - std::floor(k + 0.5)) <= 1e-6 + ruido;
   };
   unsigned long long Q = 0;
   if (menor > 0.0 && std::isfinite(menor) && std::isfinite(tmax)) {
@@ -535,8 +544,9 @@ static std::vector<double> partida_ar1(const DesenhoAR& d) {
 // abaixo de 1e-4 da partida automatica parte de 1% dela. O rho de cada univariado e POR PASSO
 // da grade das linhas daquela caracteristica (eixo_tempo_ar1), e a grade do multicaracter e a
 // das linhas com alguma caracteristica: y todo dia e y2 so em dia impar dao passos 1 e 2, e a
-// media de um rho por dia com um por 2 dias nao e um rho de nada (medido: -0.402 e +0.120 davam
-// a partida -0.141, contra -0.4 simulado). Quando algum passo difere do deste desenho o rho
+// media de um rho por dia com um por 2 dias nao e um rho de nada (medido no portao de
+// test-estrutura-e3.R: 12aca18 dava os univariados -0.393 e -4e-7 e a partida -0.196, contra -0.4
+// simulado). Quando algum passo difere do deste desenho o rho
 // parte da automatica, e os componentes continuam vindo dos univariados.
 std::vector<double> partida_univariados_ar1(const DesenhoAR& d,
                                             const std::vector<std::vector<double> >& uni,

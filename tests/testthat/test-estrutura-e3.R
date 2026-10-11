@@ -87,7 +87,8 @@ test_that("E3 time x 2, x 3 and weekly Dates: rho is per step, the same as in da
     dk <- d
     dk$t <- (d$t - 1) * k
     f <- suppressMessages(ajusta_e3(dk))
-    # 12aca18: x 2 dava rho -5e-6 e -2logL 866.61, converged TRUE; x 3, o mesmo ajuste com o rho
+    # 12aca18: x 2 dava rho perto de 0 (-5e-6 no Windows, -6e-6 no Linux) e -2logL 866.61,
+    # converged TRUE; x 3, o mesmo ajuste com o rho
     # por unidade (-0.746, o cubo e o rho por dia)
     expect_equal(f$time_step, k)
     mesmo_ajuste_e3(f, base)
@@ -127,8 +128,9 @@ test_that("E3 the step is read from the ratios of the gaps: weeks, halves and te
 test_that("E3 a decimal grid with gaps of one and two steps: every gap is rounded, at any origin", {
   # um dia faltando por sujeito (intervalos de 1 e 2 dias), escrito como t * 0.3 e com a origem
   # em 1e6 e em 1e10: a mesma grade, o mesmo ajuste. Sem o arredondamento de cada intervalo o k
-  # de 2 passos saia 1.9999999 (medido num mutante: rho -0.370 e -2logL 989.78 contra -0.381 e
-  # 987.15); com a folga fixa de 1e-6 passo, a origem em 1e10 virava tempo continuo e parava (o
+  # de 2 passos saia 1.9999999 (medido num mutante, em outro dado que o deste portao: rho -0.370
+  # e -2logL 989.78 contra -0.381 e 987.15; neste dado 12aca18 da -0.396 e 822.53 em dias); com
+  # a folga fixa de 1e-6 passo, a origem em 1e10 virava tempo continuo e parava (o
   # erro da subtracao escala com |t|: e o caso de um sensor de 4 Hz em POSIXct, passo 0.25 s
   # com t perto de 1.7e9)
   d <- serie_e3(nd = 7, rho = -0.4, seed = 8)
@@ -168,7 +170,8 @@ test_that("E3 one gap of half a day among daily records: the error names the sub
   base <- ajusta_e3(d)
   d2 <- d
   d2$t[d2$id == "S001" & d2$t == 4] <- 4.5
-  # 12aca18: rho 3e-27 por meio dia, -2logL 867.06, "did NOT converge" sem dizer a causa
+  # 12aca18: rho perto de 0 por meio dia (3e-27 no Windows, 9e-27 no Linux), -2logL 867.06,
+  # "did NOT converge" sem dizer a causa
   e <- erro_e3(ajusta_e3(d2))
   expect_type(e, "character")
   expect_match(e, "time 't': the data carry a NEGATIVE serial correlation")
@@ -354,14 +357,18 @@ test_that("E3 the gaps cited are the first in the order of the data, and the mes
   dl$t <- as.POSIXct("2024-01-01", tz = "America/Sao_Paulo") + (d$t - 1) * 86400
   el <- erro_e3(ajusta_e3(dl))
   expect_match(el, "NEGATIVE serial correlation")
-  fim <- regexpr("give the order of the records within subject as time", el, fixed = TRUE)
+  # em bytes: o R imprime 993 bytes de um erro com call. = FALSE (o "Error: " usa 7 dos 1000)
+  fim <- regexpr("give the order of the records within subject as time", el, fixed = TRUE,
+                 useBytes = TRUE)
   expect_gt(fim, 0)
-  expect_lt(fim + 60, 1000)
+  expect_lt(fim + 60, 993)
 })
 
 test_that("E3 the bivariate start: univariate rhos on different steps are not averaged", {
   # y todo dia, y2 so nos dias impares: o univariado de y2 e uma grade de passo 2, o do
-  # bivariado de passo 1. 12aca18 tirava a media (-0.402 por dia com +0.120 por 2 dias)
+  # bivariado de passo 1. 12aca18 tirava a media dos rhos (neste dado -0.393 por dia e -4e-7,
+  # partida -0.196, contra -0.4 simulado); aqui os univariados dao -0.393 por dia e -0.095 por 2
+  # dias, e o rho parte da automatica
   d <- serie_e3(rho = -0.4, seed = 3)
   d$y2[d$t %% 2 == 0] <- NA
   f <- suppressMessages(ajusta_e3(d, cbind(y, y2) ~ pe(id)))
@@ -408,10 +415,13 @@ test_that("E3 the check: its trigger and its decision", {
   expect_false(g2$perto)
   expect_equal(g2$fora, 599:600)
   expect_equal(g2$dom$m, 2)
-  # 95% dos intervalos impares: o eixo faz negativa quase toda correlacao consecutiva
-  g3 <- gat(c(rep(3, 95), rep(2, 5)), c(rep(3, 95), rep(2, 5)), 0.01, passo = 1)
-  expect_true(g3$pode_neg)
-  expect_false(g3$perto)
+  # 95% dos intervalos impares com intervalos de 1 passo: o eixo faz negativa quase toda
+  # correlacao consecutiva, e rho = 0 nao prende a caminhada
+  expect_null(gat(c(rep(1, 95), rep(2, 5)), c(rep(1, 95), rep(2, 5)), 0.01, passo = 1))
+  # sem intervalo de 1 passo rho = 0 e ponto estacionario: "perto" roda mesmo com 95% impares
+  g3b <- gat(c(rep(3, 95), rep(2, 5)), c(rep(3, 95), rep(2, 5)), 0.01, passo = 1)
+  expect_true(g3b$pode_neg)
+  expect_true(g3b$perto)
   # segunda, quarta e sexta em meios dias (4, 4, 6 passos) com uma quarta ao meio-dia (5, 3): a
   # grade dominante e de 2 passos, embora todo intervalo de 6 passos fique fora do tipico (4)
   k4 <- c(rep(c(4, 4, 6), 400)[-(1:2)], 5, 3)
@@ -556,7 +566,7 @@ test_that("E3 the step does not depend on the order of the gaps nor on the label
 test_that("E3 records with no time: the check compares fits on the same records", {
   # 60 linhas a mais com t = NA (o AR(1) as deixa de fora) e y / 100. A versao anterior do item
   # ajustava o modelo sem correlacao no dado inteiro, 780 registros contra 720, e com ele 504.97
-  # abaixo devolvia rho -0.001 por meio dia e "the axis stands". 12aca18: rho 1e-28, -2logL
+  # abaixo devolvia rho -0.001 por meio dia e "the axis stands". 12aca18: rho perto de 0 (1e-28 no Windows, 5e-29 no Linux), -2logL
   # -5755.17, converged FALSE
   d <- serie_e3()
   d$t[d$id == "S001" & d$t == 4] <- 4.5
@@ -577,9 +587,11 @@ test_that("E3 records with no time: the check compares fits on the same records"
 test_that("E3 one record off the Monday, Wednesday and Friday grid: the dominant grid finds it", {
   # um registro de S010 ao meio-dia faz a grade de meio dia, onde nenhum intervalo de 2 ou 3 dias
   # e um numero impar de passos; so 2 dos 1200 intervalos sao impares (o espelho nao roda) e todo
-  # intervalo de 3 dias fica fora do tipico (o gatilho de "poucos fora" nao rodava). 12aca18 e a
-  # versao anterior do item: quarta ao meio-dia rho +0.747 por meio dia, -2logL 1418.62,
-  # converged TRUE, so a nota do passo; sexta ao meio-dia, tempo continuo, +0.558 e 1418.84
+  # intervalo de 3 dias fica fora do tipico (o gatilho de "poucos fora" nao rodava). A versao
+  # anterior do item: quarta ao meio-dia rho +0.747 por meio dia, -2logL 1418.62, converged TRUE,
+  # so a nota do passo; sexta ao meio-dia, tempo continuo, +0.558 e 1418.84. 12aca18, que nao tem
+  # grade de passo: quarta ao meio-dia tempo continuo, rho +0.558 por dia (+0.747 por meio dia),
+  # -2logL 1418.54, converged TRUE, nada dito
   mwf <- c(0, 2, 4, 7, 9, 11, 14, 16, 18)
   m <- dias_e3(150, mwf, -0.6, 11)
   base <- ajusta_e3(m)                                   # -0.614 e 1367.96
@@ -622,7 +634,8 @@ test_that("E3 daylight saving with long labels: the advice and the hint fit in t
   e <- erro_e3(ajusta_e3(d))
   expect_type(e, "character")
   expect_gt(nchar(e, "bytes"), 1000)
-  impresso <- substr(e, 1, 1000)
+  # os 993 bytes que o R imprime (o "Error: " usa 7 dos 1000)
+  impresso <- rawToChar(charToRaw(e)[1:993])
   expect_match(impresso, "give the order of the records within subject as time.", fixed = TRUE)
   expect_match(impresso, "a daylight-saving change puts records at the same clock time 23 or 25 h apart",
                fixed = TRUE)
@@ -732,4 +745,73 @@ test_that("E3 a fixed design above 3000 columns gives its size before the fit", 
   expect_message(BreedingR:::nota_desenho_fixo(termos, d, "model_ar1()"),
                  "model_ar1\\(\\): the fixed-effect design has about 3502 columns \\('cg' alone has 3500\\).*random effect")
   expect_silent(BreedingR:::nota_desenho_fixo(termos, d[1:2000, ], "model_ar1()"))
+})
+
+test_that("E3 the step does not depend on the time origin: a step the data cannot resolve is no grid", {
+  # intervalos de 60, 120 e 3622.37 s: o maior divisor comum e 0.01 s, 6000 vezes menor que o
+  # menor intervalo, e o eixo e continuo. A versao anterior do item tinha a folga de "inteiro" com
+  # (1 + k) / h, q vezes maior que o erro da subtracao: na origem 1.7e9 (um POSIXct de hoje) a busca
+  # aceitava uma convergente de mentira, passo 60/59 s, e na origem 0 o tempo era continuo
+  passo <- function(t0) {
+    set.seed(1)
+    d <- do.call(rbind, lapply(1:30, function(s)
+      data.frame(id = sprintf("S%03d", s), t = t0 + c(0, cumsum(c(60, 120, 3622.37, 60, 60))))))
+    d$y <- stats::rnorm(nrow(d))
+    suppressMessages(model_ar1(y ~ pe(id), d, subject = "id", time = "t", maxiter = 0L,
+                               verbose = FALSE))$time_step
+  }
+  for (t0 in c(0, 1.7e9)) expect_true(is.na(passo(t0)))
+  # (controle) uma grade de q > 1 que o dado resolve fica grade na mesma origem
+  um <- function(tt) {
+    d <- data.frame(id = rep(c("A", "B"), each = length(tt)), t = c(tt, tt),
+                    y = stats::rnorm(2 * length(tt)))
+    suppressMessages(model_ar1(y ~ pe(id), d, subject = "id", time = "t", maxiter = 0L,
+                               verbose = FALSE))$time_step
+  }
+  expect_equal(um(1.7e9 + c(0, cumsum(c(60, 90, 75, 60)))), 15, tolerance = 1e-9)
+  expect_equal(um(1e6 + c(0, cumsum(c(2, 2, 3, 2, 2.5)))), 0.5, tolerance = 1e-9)
+})
+
+test_that("E3 records off the Monday, Wednesday and Friday grid in many subjects: the check still runs", {
+  # a quarta (t = 9) ao meio-dia em 31 dos 150 sujeitos: 62 dos 1200 intervalos (5.2%) fora da
+  # grade de 1 dia. A versao anterior do item tinha o mesmo teto de 5% para os valores que
+  # definem a grade e para os intervalos fora, e passava calada: rho +0.745 por meio dia, -2logL
+  # 1417.69, converged TRUE (12aca18: +0.555 por dia no tempo continuo, 1417.69)
+  mwf <- c(0, 2, 4, 7, 9, 11, 14, 16, 18)
+  m <- dias_e3(150, mwf, -0.6, 11)
+  ref <- ajusta_e3(m)
+  m$t[m$id %in% sprintf("S%03d", seq(2, by = 3, length.out = 31)) & m$t == 9] <- 9.5
+  e <- erro_e3(ajusta_e3(m))
+  expect_type(e, "character")
+  expect_match(e, "NEGATIVE serial correlation")
+  expect_match(e, paste0("62 of the 1200 gaps between consecutive records (in 31 subject(s)) are ",
+                         "not a whole number of 1, the step of every other gap: subject S002, ",
+                         "t = 7 to 9.5 (gap 2.5)"), fixed = TRUE)
+  expect_match(e, sprintf("rho = %s per gap of 1 and -2logL %.2f, against",
+                          format(signif(ref$theta[["rho(residual)"]], 3)), ref$neg2logl),
+               fixed = TRUE)
+})
+
+test_that("E3 weekly weighings with no gap of one step: a walk stopped at rho = 0 is refitted", {
+  # pesagens semanais, um intervalo de 8 ou 10 dias em cerca de 60% dos sujeitos, rho -0.9 por
+  # dia: 93.6% dos intervalos impares, e nenhum de 1 passo, onde rho = 0 e ponto estacionario
+  # (a derivada de rho^k e 0 em 0 para k > 1). A versao anterior do item e 12aca18 paravam em rho
+  # +0.029 e -2logL 3518.38 com converged TRUE; partindo de -0.9 o ajuste chega a -0.900 e
+  # 2946.46
+  set.seed(1)
+  d <- do.call(rbind, lapply(1:300, function(s) {
+    g <- rep(7, 9)
+    if (stats::runif(1) < 0.6) g[sample(9, 1)] <- sample(c(8, 10), 1)
+    dias <- c(0, cumsum(g))
+    e <- numeric(max(dias) + 1); e[1] <- stats::rnorm(1)
+    for (k in 2:length(e)) e[k] <- -0.9 * e[k - 1] + stats::rnorm(1, 0, sqrt(1 - 0.81))
+    data.frame(id = sprintf("S%03d", s), t = dias, y = 10 + stats::rnorm(1, 0, 0.5) + e[dias + 1])
+  }))
+  f <- ajusta_e3(d)
+  ref <- ajusta_e3(d, start = c(0.3, 1, -0.9))
+  expect_lt(f$theta[["rho(residual)"]], -0.8)
+  expect_equal(f$neg2logl, ref$neg2logl, tolerance = 1e-6)
+  # 174 dos 2700 intervalos fora da grade de 7 dias: a grade dominante a pega; com mais de 20%
+  # fora, "perto" (sem intervalo de 1 passo) faz o mesmo pela ordem (o portao do gatilho, acima)
+  expect_identical(f$start_from, "refit from the dominant grid")
 })

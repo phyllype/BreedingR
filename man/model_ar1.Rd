@@ -79,8 +79,9 @@ point with \code{rho} of the other sign; when it is lower, a second walk starts 
 the better fit is returned (\code{start_from} "sign-flipped rho", the first fit in
 \code{message}).
 
-The fit is then CHECKED in two situations. (1) A few gaps (at most 5\% of them, or one)
-are not whole numbers of a step H that every other gap is a whole number of, H larger
+The fit is then CHECKED in two situations. (1) A few gaps (at most 20\% of them, or one,
+and each gap length among them in at most 5\% of the gaps) are not whole numbers of a step
+H that every other gap is a whole number of, H larger
 than the step of the grid (on a continuous axis, any such H that leaves some gap out; H is
 the largest step that leaves at most those few out): the trace of a few records with a
 wrong time. One record at t = 4.5 among daily records makes the grid half days, where
@@ -92,7 +93,8 @@ record has no free point between its neighbours the order of the records within 
 is the time instead). (2) Some gap is not a whole number of the typical (median) gap and
 the correlation at the typical gap is near 0, |rho^k| < 0.05, on an axis that cannot make
 it negative for nearly all consecutive records (continuous, or fewer than 90\% of the gaps
-an odd number of steps): the data are fitted once more with the order of the records
+an odd number of steps), or on one that can but where no gap is a single step (there
+\code{rho = 0} is a stationary point the walk can stop at): the data are fitted once more with the order of the records
 within subject as time (equally spaced levels, as \code{AR1} of ASReml reads them). Either way
 the new time goes in a new column, and the time column stays in the data for the formula,
 which may read it as a class or a covariate. The data are also fitted with no serial
@@ -116,8 +118,10 @@ a positive correlation is the second case. With one trait the check costs two mo
 (three when the axis is fitted again), and only when it runs, which includes ordinary
 data: weekly records with an occasional gap of 8 or 10 days (the first situation) and
 irregular integer-day records with a weak correlation at the typical gap (the second);
-under \code{cbind()} the refit is itself a multi-trait AR(1) fit with its own univariate
-starts, and the fit with no serial correlation a \code{\link[=model_mt]{model_mt()}} fit. The fit on such an
+under \code{cbind()} with t traits it costs 2(t + 1) more fits (the refit is a multi-trait
+AR(1) fit with its own t univariate AR(1) starts, and the fit with no serial correlation
+a \code{\link[=model_mt]{model_mt()}} fit with its own t univariate starts), one more when the axis is fitted
+again. The fit on such an
 axis can itself take every iteration of \code{maxiter} before the check, with \code{rho} flipping
 sign around 0. With \code{POSIXct} clock times in a time zone with daylight saving, records at
 the same clock time are 23 or 25 h apart across the change, so the step becomes 1 h; the

@@ -59,8 +59,9 @@
 #'   the better fit is returned (`start_from` "sign-flipped rho", the first fit in
 #'   `message`).
 #'
-#'   The fit is then CHECKED in two situations. (1) A few gaps (at most 5% of them, or one)
-#'   are not whole numbers of a step H that every other gap is a whole number of, H larger
+#'   The fit is then CHECKED in two situations. (1) A few gaps (at most 20% of them, or one,
+#'   and each gap length among them in at most 5% of the gaps) are not whole numbers of a step
+#'   H that every other gap is a whole number of, H larger
 #'   than the step of the grid (on a continuous axis, any such H that leaves some gap out; H is
 #'   the largest step that leaves at most those few out): the trace of a few records with a
 #'   wrong time. One record at t = 4.5 among daily records makes the grid half days, where
@@ -72,7 +73,8 @@
 #'   is the time instead). (2) Some gap is not a whole number of the typical (median) gap and
 #'   the correlation at the typical gap is near 0, |rho^k| < 0.05, on an axis that cannot make
 #'   it negative for nearly all consecutive records (continuous, or fewer than 90% of the gaps
-#'   an odd number of steps): the data are fitted once more with the order of the records
+#'   an odd number of steps), or on one that can but where no gap is a single step (there
+#'   `rho = 0` is a stationary point the walk can stop at): the data are fitted once more with the order of the records
 #'   within subject as time (equally spaced levels, as `AR1` of ASReml reads them). Either way
 #'   the new time goes in a new column, and the time column stays in the data for the formula,
 #'   which may read it as a class or a covariate. The data are also fitted with no serial
@@ -96,8 +98,10 @@
 #'   (three when the axis is fitted again), and only when it runs, which includes ordinary
 #'   data: weekly records with an occasional gap of 8 or 10 days (the first situation) and
 #'   irregular integer-day records with a weak correlation at the typical gap (the second);
-#'   under `cbind()` the refit is itself a multi-trait AR(1) fit with its own univariate
-#'   starts, and the fit with no serial correlation a [model_mt()] fit. The fit on such an
+#'   under `cbind()` with t traits it costs 2(t + 1) more fits (the refit is a multi-trait
+#'   AR(1) fit with its own t univariate AR(1) starts, and the fit with no serial correlation
+#'   a [model_mt()] fit with its own t univariate starts), one more when the axis is fitted
+#'   again. The fit on such an
 #'   axis can itself take every iteration of `maxiter` before the check, with `rho` flipping
 #'   sign around 0. With `POSIXct` clock times in a time zone with daylight saving, records at
 #'   the same clock time are 23 or 25 h apart across the change, so the step becomes 1 h; the
@@ -393,14 +397,20 @@ gatilho_eixo_ar1 <- function(dt, k, rho, passo = NA_real_, tmax = 0) {
           else which(abs(dt / tipico - round(dt / tipico)) > 1e-6)
   dom <- grade_dominante_ar1(dt, k, passo, tmax)
   pode_neg <- grade && mean(k %% 2 == 1) >= 0.9
-  perto <- length(fora) > 0L && !pode_neg && abs(rho)^ktip < 0.05
+  # com 90% impares rho < 0 ja faz negativa quase toda correlacao consecutiva; o gatilho fica
+  # so quando nenhum intervalo e de 1 passo: ai rho = 0 e ponto estacionario (a derivada de rho^k
+  # e 0 em 0 para k > 1), e a caminhada para nele. Medido: 300 x 10 pesagens semanais com um
+  # intervalo de 8 ou 10 dias em 60% dos sujeitos e rho -0.9 por dia, o ajuste parava em rho
+  # +0.029 e -2logL 3518.38, converged TRUE, contra -0.900 e 2946.46 partindo de -0.9 (12aca18
+  # igual)
+  perto <- length(fora) > 0L && abs(rho)^ktip < 0.05 && (!pode_neg || min(k) > 1)
   if (!perto && is.null(dom)) return(NULL)
   list(tipico = tipico, ktip = ktip, fora = if (is.null(dom)) fora else dom$fora,
        pode_neg = pode_neg, perto = perto, dom = dom)
 }
 
-# A GRADE DOMINANTE: o maior passo H tal que todo intervalo, menos uns poucos (ate 5% deles, ou
-# um), e um numero inteiro de H, quando H e maior que o passo do eixo (na grade) ou existe (no
+# A GRADE DOMINANTE: o maior passo H tal que todo intervalo, menos uns poucos (ate 20% deles, ou
+# um, cada valor de intervalo fora com no maximo 5%), e um numero inteiro de H, quando H e maior que o passo do eixo (na grade) ou existe (no
 # tempo continuo). E o rastro de uns poucos registros com o tempo fora da grade dos outros. O
 # caso: registros de segunda, quarta e sexta com UMA quarta ao meio-dia fazem a grade do eixo de
 # meio dia, onde nenhum par de dias (2 passos) e nenhum intervalo de 2 ou 3 dias (4 e 6 passos)
@@ -418,6 +428,12 @@ gatilho_eixo_ar1 <- function(dt, k, rho, passo = NA_real_, tmax = 0) {
 # intervalos que nao sao multiplos de H).
 grade_dominante_ar1 <- function(dt, k, passo, tmax) {
   poucos <- max(1, 0.05 * length(dt))
+  # quantos podem ficar fora: cada valor fora tem no maximo os poucos (senao entrava no MDC), mas
+  # juntos ate 20%. Com o mesmo teto de 5% para os dois, uma quarta ao meio-dia em 31 dos 150
+  # sujeitos do portao (62 dos 1200 intervalos, 5.2%) voltava ao ajuste errado calado (rho
+  # +0.745 por meio dia, -2logL 1417.69), e em 30 sujeitos parava: a decisao e a razao de
+  # verossimilhanca, e um teto maior so custa os dois ajustes
+  ate_fora <- max(1, 0.2 * length(dt))
   if (!is.null(k)) {
     nk <- table(k)
     freq <- as.double(names(nk))[nk > poucos]
@@ -437,11 +453,13 @@ grade_dominante_ar1 <- function(dt, k, passo, tmax) {
     for (m in sort(unique(c(d, G / d)), decreasing = TRUE)) {
       if (m <= 1) break
       fora <- fora0[k[fora0] %% m != 0]
-      if (length(fora) <= poucos) return(list(H = m * passo, m = m, fora = fora))
+      if (length(fora) <= ate_fora) return(list(H = m * passo, m = m, fora = fora))
     }
     return(NULL)
   }
-  folga <- function(x, H) 1e-6 + 4 * .Machine$double.eps * tmax * (1 + abs(x)) / H
+  # a folga do motor (eixo_tempo_ar1): o erro de x = dt / H, H = menor / Q, e 2 eps tmax (1 +
+  # x / Q) / H, com folga de 2, e com Q > 1 o passo so vale se o dado o resolve (1e-4 de H)
+  ruido <- function(x, H, Q) 4 * .Machine$double.eps * tmax * (1 + abs(x) / Q) / H
   grupos <- split(dt, round(dt / stats::median(dt), 6))
   rep_ <- vapply(grupos[lengths(grupos) > poucos], stats::median, numeric(1))
   if (!length(rep_)) return(NULL)
@@ -450,15 +468,17 @@ grade_dominante_ar1 <- function(dt, k, passo, tmax) {
   for (Q in seq_len(1000L)) {
     H <- menor / Q
     x <- rep_ / H
-    if (any(abs(x - round(x)) > folga(x, H))) next
+    rx <- ruido(x, H, Q)
+    if (Q > 1 && any(rx > 1e-4)) next
+    if (any(abs(x - round(x)) > 1e-6 + rx)) next
     cand <- if (is.null(fora0)) seq_along(dt) else fora0
     xa <- dt[cand] / H
-    fora <- cand[abs(xa - round(xa)) > folga(xa, H)]
+    fora <- cand[abs(xa - round(xa)) > 1e-6 + ruido(xa, H, Q)]
     if (is.null(fora0)) fora0 <- fora
     # uma grade que segura TODO intervalo seria o eixo do motor, nao uma grade de "todos menos
     # uns poucos": no tempo continuo ela so aparece pela folga, e nao e o caso aqui
     if (!length(fora)) return(NULL)
-    if (length(fora) <= poucos) return(list(H = H, m = NA_real_, fora = fora))
+    if (length(fora) <= ate_fora) return(list(H = H, m = NA_real_, fora = fora))
   }
   NULL
 }
@@ -531,7 +551,8 @@ decide_eixo_ar1 <- function(eixo, iid, ordem, rho_ordem, pode_neg = FALSE) {
 # O EIXO DO TEMPO E A CORRELACAO NEGATIVA (o eixo e decidido em eixo_tempo_ar1, src/ar1b.cpp).
 # Na grade o rho e por passo e so e negativo entre registros a um numero IMPAR de passos; em
 # tempo continuo (CAR(1)) nunca e negativo. O GATILHO (gatilho_eixo_ar1) pede uma de duas coisas:
-#   - UMA GRADE DOMINANTE (grade_dominante_ar1): todo intervalo menos uns poucos (ate 5%, ou um)
+#   - UMA GRADE DOMINANTE (grade_dominante_ar1): todo intervalo menos uns poucos (ate 20%, cada
+#     valor de intervalo fora com no maximo 5% deles, ou um)
 #     e um numero inteiro de um passo H maior que o do eixo (ou, no tempo continuo, de algum H):
 #     uns poucos registros refizeram o eixo, e um so registro com o tempo errado basta para
 #     distorcer o ajuste com a correlacao longe de zero. Medido no portao (test-estrutura-e3.R,
@@ -542,9 +563,10 @@ decide_eixo_ar1 <- function(eixo, iid, ordem, rho_ordem, pode_neg = FALSE) {
 #     segunda, quarta e sexta (todo intervalo de 3 dias fica fora do tipico de 2);
 #   - a correlacao no tipico perto de zero, |rho^k| < 0.05, com algum intervalo fora do tipico,
 #     num eixo que nao a faz negativa em quase todo par consecutivo (continuo, ou menos de 90%
-#     dos intervalos com um numero impar de passos: com 90% impares rho < 0 ja faz negativa quase
-#     toda correlacao consecutiva, e uma semana de pesagens com um intervalo de 10 dias ocasional
-#     nao paga dois ajustes).
+#     dos intervalos com um numero impar de passos), ou num que faz mas onde nenhum intervalo e
+#     de 1 passo (rho = 0 e ponto estacionario e a caminhada para nele: pesagens semanais com um
+#     intervalo de 8 ou 10 dias ocasional e correlacao fraca a uma semana pagam os dois ajustes
+#     por aqui; com o intervalo ocasional raro elas ja os pagam pela grade dominante de 7 dias).
 # Ai o mesmo dado e AJUSTADO DE NOVO, com o tempo numa coluna NOVA: a coluna do tempo fica no
 # dado para a formula, que pode le-la como classe (CG de dia) ou covariavel (antes ela era
 # sobrescrita, e com y ~ t + pe(id) a conferencia comparava REML de X diferentes e deixava passar
@@ -558,9 +580,9 @@ decide_eixo_ar1 <- function(eixo, iid, ordem, rho_ordem, pode_neg = FALSE) {
 # y / 100, "the axis stands" com o sem correlacao 504.97 abaixo, em 780 registros contra 720). A
 # REFERENCIA e o melhor dos ajustes que nao representam a correlacao do refeito, o do eixo e o
 # sem correlacao: o sem correlacao e o do eixo com rho = 0, e o caminhante do eixo pode parar
-# longe dele. Medido: 4000 sujeitos x 6 dias com um meio dia, o eixo de meio dia parou em 300
-# iteracoes com rho trocando de sinal em torno de 0 e -2logL 32494.45, contra 28827.00 sem
-# correlacao. Contra essa referencia o ganho do refeito e a razao de verossimilhanca de rho = 0
+# longe dele. Medido (uma medida, numa versao anterior do item): 4000 sujeitos x 6 dias com um
+# meio dia, o eixo de meio dia parou em 300 iteracoes com rho trocando de sinal em torno de 0 e
+# -2logL 32494.45, contra 28827.00 sem correlacao (outro dado que o serie_e3() do portao). Contra essa referencia o ganho do refeito e a razao de verossimilhanca de rho = 0
 # nele (1 gl, rho = 0 no interior). A DECISAO (decide_eixo_ar1):
 #   - rho do refeito NEGATIVO, num eixo que nao o representa, e ganho acima de 10.83
 #     (qui-quadrado de 1 gl a 0.1%): o eixo do dado esconde uma correlacao negativa e o ajuste
@@ -575,7 +597,7 @@ decide_eixo_ar1 <- function(eixo, iid, ordem, rho_ordem, pode_neg = FALSE) {
 #     dado com o registro em 2.001 faz uma grade de passo 0.001, e o ajuste devolvia rho -0.291
 #     por passo com converged TRUE e -2logL 677.71, contra 522.66 com o registro de volta a grade
 #     de 1 dia (rho +0.669).
-# Medido em 12aca18 no dado do portao (120 x 6, rho -0.4): UM registro em t = 4.5 dava rho 3e-27
+# Medido em 12aca18 no dado do portao (120 x 6, rho -0.4): UM registro em t = 4.5 dava rho perto de 0 (3e-27 no Windows, 9e-27 no Linux)
 # por meio dia e -2logL 867.06, contra rho -0.415 e 784.00 no mesmo dado sem o meio dia. Na grade
 # de passo diferente de 1 uma mensagem diz o passo. `refaz(tipo, d2, tempo, st)` ajusta "ordem"
 # (o AR(1) em d2 com o tempo da coluna `tempo`), "iid" (o modelo sem correlacao em d2) ou "eixo"
@@ -670,7 +692,12 @@ confere_eixo_ar1 <- function(r, data, subject, time, refaz) {
     sprintf("%d of the %d gaps are an even number of steps of %s%s", sum(k %% 2 == 0),
             length(dt), num(passo), unidade)
   else "continuous time"
-  porque_perto <- sprintf(paste0(
+  porque_perto <- if (gat$pode_neg)
+    sprintf(paste0(
+      "the correlation at the typical gap %s%s came out near 0, and no gap is a single step of ",
+      "%s%s, where rho = 0 is a stationary point the walk can stop at"), num(tipico), unidade,
+      num(passo), unidade)
+  else sprintf(paste0(
     "the correlation at the typical gap %s%s came out near 0 on an axis that cannot make it ",
     "negative for nearly all consecutive records (%s)"), num(tipico), unidade, sem_neg)
   porque_fora <- sprintf("%d of the %d gaps are not a whole number of %s", length(fora),

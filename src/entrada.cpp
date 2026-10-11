@@ -1521,15 +1521,15 @@ SEXP R_avaliar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     // um rho negativo no tempo continuo: a mesma recusa da partida em R_ajustar_ar1 (abaixo),
     // porque o CAR(1) tem o parametro em [0, 1) e "|rho| >= 1" nao dizia a causa
     if (!a.ok && !d.tempo_inteiro && d.offset_rho < th.size() && th[d.offset_rho] < 0.0) {
-      char buf[600];
-      std::snprintf(buf, sizeof buf,
-                    "theta INADMISSIBLE: rho(residual) = %.4g is negative, but the time '%s' "
-                    "is continuous "
-                    "here (the gaps between consecutive records of a subject are not whole "
-                    "numbers of one step), and on a continuous axis the correlation rho^dt "
-                    "(CAR(1): corCAR1 of nlme, EXP of ASReml) exists only for rho in [0, 1)",
-                    th[d.offset_rho], CHAR(STRING_ELT(tempo, 0)));
-      throw br::Erro(buf);
+      // a mensagem em std::string: num buffer fixo um nome de coluna longo cortava a causa
+      char num[32];
+      std::snprintf(num, sizeof num, "%.4g", th[d.offset_rho]);
+      throw br::Erro(std::string("theta INADMISSIBLE: rho(residual) = ") + num +
+                     " is negative, but the time '" + CHAR(STRING_ELT(tempo, 0)) +
+                     "' is continuous here (the gaps between consecutive records of a subject "
+                     "are not whole numbers of one step), and on a continuous axis the "
+                     "correlation rho^dt (CAR(1): corCAR1 of nlme, EXP of ASReml) exists only "
+                     "for rho in [0, 1)");
     }
     if (!a.ok) Rf_error("theta INADMISSIBLE (s2e <= 0 or |rho| >= 1)");
     const bool faz_densa = pede_densa == TRUE || (pede_densa == NA_LOGICAL && n_v <= 2000);
@@ -1599,16 +1599,17 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     // parametro em [0, 1): a partida e recusada dizendo isso
     if (!th0.empty() && !d.tempo_inteiro && d.offset_rho < th0.size() &&
         th0[d.offset_rho] < 0.0) {
-      char buf[700];
-      std::snprintf(buf, sizeof buf,
-                    "start: rho(residual) = %.4g is negative, but the time '%s' is continuous "
-                    "here (the gaps between consecutive records of a subject are not whole "
-                    "numbers of one step), and on a continuous axis the correlation rho^dt "
-                    "(CAR(1): corCAR1 of nlme, EXP of ASReml) exists only for rho in [0, 1). "
-                    "Give a start with rho in [0, 1), or put the times on a grid where every "
-                    "gap is a whole number of one step",
-                    th0[d.offset_rho], CHAR(STRING_ELT(tempo, 0)));
-      throw br::Erro(buf);
+      char num[32];
+      std::snprintf(num, sizeof num, "%.4g", th0[d.offset_rho]);
+      throw br::Erro(std::string("start: rho(residual) = ") + num +
+                     " is negative, but the time '" + CHAR(STRING_ELT(tempo, 0)) +
+                     "' is continuous here (the gaps between consecutive records of a subject "
+                     "are not whole numbers of one step), and on a continuous axis the "
+                     "correlation rho^dt (CAR(1): corCAR1 of nlme, EXP of ASReml) exists only "
+                     "for rho in [0, 1). Give a start with rho in [0, 1), or put the times on a "
+                     "grid where every gap is a whole number of one step; fitted without "
+                     "start=, the check of the time axis names the records whose gaps are off "
+                     "the grid of the others");
     }
     // a partida padrao a partir dos otimos univariados AR(1) que o R ajustou (cbind() sem
     // start=); vazia quando nao casa, e ai fica a automatica
