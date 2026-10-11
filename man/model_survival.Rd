@@ -36,21 +36,54 @@ among \code{animal()}, \code{sire()}, \code{random()} and \code{indirect()} -- t
 \verb{group =} to put several in one covariance matrix. \code{rn()}, \code{kernel()}, \verb{nested =}
 and \code{sire(mgs =)} are not available here (\verb{k_inverse=} is the door for a
 relationship matrix the pedigree cannot build). The left-hand side is the time
-column, strictly positive.}
+column, numeric and strictly positive: a factor or text time is refused, naming the
+column, rather than read as its codes 1, 2, ...}
 
 \item{data}{data.frame with the columns referenced. Records with a missing time or
 a missing censoring indicator are dropped and counted; they still count as pen
 mates of \code{indirect()}. A missing level (\code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or
 the text "NaN") or a missing covariate value is refused on every row, with the same
-rule and message as in \code{\link[=model]{model()}}; a factor or text column in \code{cov()} is refused
-rather than read as its codes.}
+rule and message as in \code{\link[=model]{model()}}; a factor or text column in \code{cov()}, in the time
+or in \verb{entry=} is refused rather than read as its codes. There is no \code{missing_code}
+here: a missing time is \code{NA}, and a common missing-value code in the time (9999 held
+by two records or more, outside the range of the others) is warned about, with the
+first row (see the rule under \code{formula} in \code{\link[=model]{model()}}). A \code{cov()} covariate enters
+standardized, as in \code{\link[=model]{model()}}: centred and scaled when \code{lambda} is estimated (the
+intercept takes the centre), only scaled when \code{lambda} is given (there is no
+intercept, and a warning names a covariate whose values sit more than 1e3 SDs from
+zero); \code{b}, \code{se_b} and \code{lambda} come back in the unit of the data.
+A level of a fixed class effect with no failure
+among its records (all right-censored; with elementary records, among its pieces)
+has no finite relative risk, the monotone likelihood of Heinze and Schemper (2001):
+its solution runs to minus infinity, or, as a reference level held at the baseline
+when \code{lambda} is given, the failures it lacks are loaded onto the frailties of its
+animals. The fit is refused naming the level and its count: merge the level, drop
+its records, or fit the effect as a random frailty. When every record is censored
+there is no failure to estimate anything from, and the fit is refused unless \code{rho},
+\code{lambda} and \code{sigma2} are all given and there is no fixed effect; then it predicts
+the frailties from the given values alone, and the fit message says so. Separation
+by a \code{cov()} covariate (every record with a nonzero value censored) is not checked:
+it shows as \code{converged = FALSE} with a diverging solution.}
 
 \item{pedigree}{data.frame animal, sire, dam; required with \code{animal()}, \code{sire()} or
-\code{indirect()} unless \code{k_inverse} is given}
+\code{indirect()} unless \code{k_inverse} is given. The ids are
+matched to the data by the rule of \code{\link[=model]{model()}} (see \code{pedigree} there): an absent
+animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+stops the fit, and the pedigree is pruned to the data, the genotyped and their
+ancestors
+(with \verb{k_inverse =} the levels are the ids of that K, an id outside it stops
+the fit, and the unknown 0 is no effect, counted by the same message). The records
+with an unknown 0, the founders' records and the blocks are counted on the records
+the fit uses, those with the time, the censoring indicator and \code{entry} observed}
 
 \item{censor}{MANDATORY: the censoring indicator, as a column name or a vector --
 1 (or TRUE) for a complete record, 0 (or FALSE) for a right-censored one. If no
-record is censored, say so explicitly with a column of ones.}
+record is censored, say so explicitly with a column of ones. A factor or text
+indicator is read by its LABELS ("0" and "1", or "TRUE" and "FALSE"), never by the
+codes 1, 2, ... of the factor, and the fit message says so; any other label
+("dead", "alive") is refused with the labels it found. This differs from
+\code{survival::Surv()}, which reads a factor event as a multi-state endpoint whose
+FIRST level is censoring: here \code{factor(ev, levels = c(1, 0))} is still 1 complete.}
 
 \item{rho}{the Weibull shape: \code{NULL} (default) estimates it inside the Newton
 system; a positive number fixes it (\code{rho = 1} is the exponential, the book's
@@ -83,14 +116,20 @@ symmetric matrix with the ids as \code{dimnames}}
 Laplace -2logL when the components are being estimated}
 
 \item{entry}{column with the start of each elementary record (\code{0} for the first
-piece of a subject observed from time zero); NULL means every row starts at 0}
+piece of a subject observed from time zero); NULL means every row starts at 0. It
+is numeric, as the time: a factor or text column is refused}
 
 \item{subject}{column with the subject of each elementary record; required with
 \code{entry}. The level of every frailty term other than \code{indirect()} must be the same
 in every piece of a subject (so \code{random(pen)} refuses an animal that changes pen).
 A missing subject (\code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or the text "NaN") is
 refused on every row, as the subject of \code{\link[=model_ar1]{model_ar1()}}: those pieces would form one
-history}
+history. So is the unknown code 0 on the records the fit uses (time, censoring
+indicator and \code{entry} observed) when the subject column is also the column of a
+relationship term (\code{animal(id)} with \code{subject = "id"}): there 0 is an unknown animal,
+and the pieces of distinct unknown animals would be read as the history of one
+subject. Give them ids of their own (an id with no line in the pedigree enters as a
+founder) or drop those rows}
 
 \item{gaps}{\code{"error"} (default) refuses a gap between two pieces of a subject;
 \code{"allow"} accepts it as time out of observation, in which no risk is counted}
@@ -234,6 +273,15 @@ factor order when the column is a factor, alphabetical order otherwise. Solution
 read as log relative risks: \code{exp(b)} is the risk ratio RRS against the reference
 level, and \code{exp(a)} the frailty of the animal -- POSITIVE means MORE risk of
 failure, so a good animal has a negative solution.
+
+The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here, but
+for the warning about repeated records: the pieces of one animal are not repeated
+records. Without \verb{sigma2 =} a design that does not identify a frailty component stops,
+with it the design is a warning. With \code{lambda} given there is no intercept and the first
+level of each fixed class effect is held at the baseline: a frailty term nested in a
+fixed effect is then informed by the single level of the term in that reference level
+alone, which does not determine its variance, and the fit goes on with a warning that
+says so.
 }
 \examples{
 # Example 16.1 of Mrode & Pocrnic (data on p.284, solutions on p.291): length of
@@ -272,4 +320,6 @@ Heidaritabar, M., Madsen, P. & Nielsen, H.M. (2020) The predictive ability of
 indirect genetic models is reduced when culled animals are omitted from the data.
 Genet. Sel. Evol. 52, 8. Bijma, P. (2010) Multilevel selection 4: modeling the
 relationship of indirect genetic effects and group size. Genetics 186, 1029-1031.
+Heinze, G. & Schemper, M. (2001) A solution to the problem of monotone likelihood
+in Cox regression. Biometrics 57, 114-119.
 }

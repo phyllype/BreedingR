@@ -4,7 +4,11 @@
 \alias{read_plink}
 \title{Read PLINK genotypes into the \verb{genotypes=} shape}
 \usage{
-read_plink(prefix, storage = c("double", "integer", "raw"))
+read_plink(
+  prefix,
+  storage = c("double", "integer", "raw"),
+  id = c("iid", "fid_iid")
+)
 }
 \arguments{
 \item{prefix}{path without extension}
@@ -13,10 +17,16 @@ read_plink(prefix, storage = c("double", "integer", "raw"))
 missing), \code{"integer"} (4 bytes) or \code{"raw"} (1 byte, 5 for missing, the BLUPF90 code).
 Every \verb{genotypes=} argument takes the three without converting, so \code{"raw"} is the
 one for a large genotyped set}
+
+\item{id}{\code{"iid"} (the default) takes the IID as the animal id and refuses an IID
+repeated in the file; \code{"fid_iid"} takes \code{paste(FID, IID, sep = "_")}, for files where
+the same IID appears in different families}
 }
 \value{
-list with \code{ids} (from the .fam IID or .raw IID) and \code{m} (dosage matrix with
-marker names), ready for \verb{genotypes=}
+list with \code{ids} (character, from the .fam or .raw IID, or FID_IID), \code{m}
+(dosage matrix with marker names), ready for \verb{genotypes=}, and, from a .bed, \code{map}
+(the .bim as a data.frame \code{chr}, \code{snp}, \code{cm}, \code{pos}, \code{a1}, \code{a2}, one row per column
+of \code{m}; a .raw has no map)
 }
 \description{
 Reads the binary trio \code{prefix.bed} / \code{prefix.bim} / \code{prefix.fam} (SNP-major .bed), or
@@ -24,4 +34,27 @@ a \code{prefix.raw} from \verb{plink --recode A}. Dosages COUNT THE A1 ALLELE of
 the .bed encoding: 00 = A1A1 -> 2, 10 = het -> 1, 11 = A2A2 -> 0, 01 = missing ->
 NA). Stated because half the silent bugs in genomic pipelines are an allele-counting
 convention nobody wrote down.
+}
+\details{
+The .fam, .bim and the identifier columns of a .raw are read as TEXT, exactly as
+written: an IID \code{0001} stays \code{0001} (not \code{1}), \code{T} and \code{F} stay letters (not
+\code{TRUE}/\code{FALSE}), \code{NA} is the animal named \code{NA}, and \verb{#} or a quote inside an id is part
+of it. PLINK tells samples apart by FID and IID together, so the same IID in two families
+is legal there and would be the same animal twice here: it is refused, naming the IID
+and its families, unless \code{id = "fid_iid"} names each sample \code{FID_IID}. A line with the
+wrong number of fields is refused with its line number.
+
+The .bim comes back as \code{map}, so the markers of the sex chromosomes can be told apart:
+PLINK codes a male hemizygous X as homozygous, which makes a sire and his son opposite
+homozygotes on about \verb{2pq} of the X markers without any error. preGSf90 leaves the sex
+chromosomes out of its parentage test (\code{sex_chr}) and recommends dropping them from the
+evaluation (\code{excludeCHR}); the chromosome code of the X depends on the species set PLINK
+was run with (\code{23} in the human default, \code{X} with \code{--output-chr}).
+}
+\examples{
+\dontrun{
+g <- read_plink("chip")
+# the autosomes only, for a species whose X is coded 19
+g$m <- g$m[, !g$map$chr \%in\% c("19", "X")]
+}
 }

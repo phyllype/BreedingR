@@ -239,12 +239,17 @@ test_that("the rank never passes the number of used rows", {
   # 1 a 40, b tinha 11 colunas para os 10 registros
   for (seed in 1:40) {
     set.seed(seed)
+    # o random() so faz o model() ter um termo aleatorio: um lote por registro (o sorteio de
+    # antes fica, para a sequencia aleatoria nao mudar), que nunca cabe dentro de um nivel do
+    # cg nem tem poucos niveis; e os componentes dados de fato, com n_em = 0 (com n_em > 0 o
+    # EM os moveria, e o desenho aninhado pararia)
     d <- data.frame(x = 1000 + runif(10), cg = paste0("g", sample(1:8, 10, TRUE)),
-                    c3 = paste0("t", sample(1:3, 10, TRUE)), lote = paste0("l", sample(1:3, 10, TRUE)),
+                    c3 = paste0("t", sample(1:3, 10, TRUE)),
+                    lote = paste0("l", sample(1:3, 10, TRUE), "_", 1:10),
                     stringsAsFactors = FALSE)
     d$x2 <- d$x^2
     d$y <- rnorm(10)
-    f <- model(y ~ cov(x) + cov(x2) + cg + c3 + random(lote), d, maxiter = 0L,
+    f <- model(y ~ cov(x) + cov(x2) + cg + c3 + random(lote), d, maxiter = 0L, n_em = 0L,
                start = c(0.1, 1), verbose = FALSE)
     expect_lte(length(f$b), 10L)
   }

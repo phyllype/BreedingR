@@ -243,9 +243,12 @@ std::vector<DesenhoTermo> monta_aleatorios(const Modelo& m, const Tabela& t,
     if (g.estrutura != Estrutura::Diagonal || g.termos.size() < 2) continue;
     std::vector<std::string> niveis;
     std::unordered_set<std::string> visto;
-    for (std::size_t tk : g.termos)
+    // o "0" de uma coluna de parentesco nao e nivel do grupo iid (zera_desconhecido)
+    for (std::size_t tk : g.termos) {
+      const bool zera = zera_desconhecido(m, m.termos[tk]);
       for (const std::string& r : t.rotulos(m.termos[tk].coluna))
-        if (visto.insert(r).second) niveis.push_back(r);
+        if (!(zera && nivel_desconhecido(r)) && visto.insert(r).second) niveis.push_back(r);
+    }
     std::sort(niveis.begin(), niveis.end(), rotulo_antes);
     for (std::size_t tk : g.termos) {
       uniao[tk] = niveis;
@@ -279,6 +282,39 @@ std::vector<DesenhoTermo> monta_aleatorios(const Modelo& m, const Tabela& t,
       }
   }
   return out;
+}
+
+std::string sem_linhas(const Modelo& m, const Tabela& t,
+                       const std::vector<DesenhoTermo>& aleatorios,
+                       const std::vector<char>& sem_obs, const std::string& oque_obs) {
+  const std::size_t n = t.nlin;
+  if (n == 0) return "no row enters the analysis: the data has no rows";
+  std::size_t na = 0;
+  for (std::size_t i = 0; i < n && i < sem_obs.size(); i++) na += sem_obs[i] ? 1 : 0;
+  std::string msg = "no row enters the analysis: of " + std::to_string(n) + " row(s), " +
+                    std::to_string(na) + " have " + oque_obs;
+  for (const DesenhoTermo& a : aleatorios) {
+    const Termo& tm = m.termos[a.termo];
+    const std::string& col =
+        (!tm.aninhado.empty() && !tm.social && !tm.mgs) ? tm.aninhado : tm.coluna;
+    const Coluna* c = t.acha(col);
+    std::size_t k = 0, primeira = n;
+    for (std::size_t i = 0; i < n; i++)
+      if (!a.casou[i] && !(i < sem_obs.size() && sem_obs[i])) {
+        if (k++ == 0) primeira = i;
+      }
+    if (k == 0) continue;
+    const std::string onde = tm.estrutura == Estrutura::Parentesco ? "the pedigree"
+                           : tm.estrutura == Estrutura::Declarada ? "the rownames of its K"
+                                                                   : "its levels";
+    msg += "; " + std::to_string(k) + " have a level of term '" + tm.nome + "' (column '" +
+           col + "') that is not in " + onde + " (first in the data: '" +
+           (c ? c->rotulo(primeira) : std::string("?")) + "'" +
+           (a.niveis.empty() ? std::string(", and the term has no level at all")
+                             : "; first level: '" + a.niveis[0] + "'") + ")";
+  }
+  return msg + ". Check that the ids are written the same way in the data and in the "
+               "structure (the same type, no spaces, the same leading zeros)";
 }
 
 // A COVARIANCIA DE DOIS TERMOS IID SO EXISTE NA VEROSSIMILHANCA ATRAVES DOS NIVEIS COMUNS. Num
@@ -752,7 +788,7 @@ Neg2LogL neg2logl_esparsa(const Desenho& d, const std::vector<double>& theta) {
   // o VALOR sai errado, o que arruina qualquer comparacao com outro programa sem arruinar as
   // estimativas. Invisivel num teste de recuperacao, fatal num de -2logL.
   r.valor = (n - p) * std::log(M.s2e) + M.logdet_g + r.logdet_c + (yy - bry) / M.s2e
-            - d.logdet_peso;
+            - d.logdet_peso + d.logdet_escala_x;
   r.perm = std::move(perm);
   r.L = std::move(L);
   r.ok = true;
@@ -873,7 +909,8 @@ double neg2logl_densa_V(const Desenho& d, const std::vector<double>& theta) {
     for (std::size_t b = 0; b < p; b++) quad += XtMiy[a] * XtMiXinv.at(a, b) * XtMiy[b];
 
   const double nn = static_cast<double>(n), pp = static_cast<double>(p);
-  return (nn - pp) * std::log(s2e) + logdet_M + logdet_X + (yMiy - quad) / s2e;
+  return (nn - pp) * std::log(s2e) + logdet_M + logdet_X + (yMiy - quad) / s2e +
+         d.logdet_escala_x;
 }
 
 
@@ -963,16 +1000,22 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
         (m.tem_ausente && std::fabs(d.y[i] - m.codigo_ausente) < 1e-9);
     if (falta) { d.usa[i] = 0; d.y[i] = 0.0; }
   }
+  std::vector<char> sem_obs(d.nlin, 0);
+  for (std::size_t i = 0; i < d.nlin; i++) sem_obs[i] = d.usa[i] ? 0 : 1;
   for (const DesenhoTermo& a : d.aleatorios)
     for (std::size_t i = 0; i < d.nlin; i++)
       if (!a.casou[i]) d.usa[i] = 0;
-  if (d.n_usadas() == 0) throw Erro("no row enters the analysis");
+  if (d.n_usadas() == 0)
+    throw Erro(sem_linhas(m, t, d.aleatorios, sem_obs,
+                          "the trait '" + m.alvo + "' missing (NA, NaN, Inf or the missing "
+                          "code)"));
 
   // PESOS, como escala de linha por sqrt(w). Um registro de peso w tem residual s2e/w;
   // multiplicar a linha inteira (y, X e cada Z) por sqrt(w) transforma o modelo
   // ponderado no modelo homocedastico das mesmas equacoes normais. A verossimilhanca do
   // modelo ORIGINAL difere da escalada pelo jacobiano soma(log w), constante em theta:
   // nao move o otimo, mas e guardada para o -2logL sair no valor certo.
+  std::vector<double> raiz;
   if (peso) {
     if (peso->size() != d.nlin) throw Erro("weights with the wrong length");
     for (std::size_t i = 0; i < d.nlin; i++) {
@@ -985,13 +1028,12 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
     // a raiz de cada linha, e cada entrada de y, X e Z multiplicada pela da sua linha numa
     // passada so. A versao anterior varria todas as entradas de cada Z por LINHA pesada, O(n
     // nnz(Z)); a conta de cada entrada e a mesma (uma multiplicacao pela mesma raiz).
-    std::vector<double> raiz(d.nlin, 1.0);
+    // (o X recebe a raiz depois da padronizacao das covariaveis, logo abaixo)
+    raiz.assign(d.nlin, 1.0);
     for (std::size_t i = 0; i < d.nlin; i++)
       if (d.usa[i]) raiz[i] = std::sqrt((*peso)[i]);
     for (std::size_t i = 0; i < d.nlin; i++)
       if (raiz[i] != 1.0) d.y[i] *= raiz[i];
-    for (std::size_t k = 0; k < fx.x.nnz(); k++)
-      if (raiz[fx.x.linha[k]] != 1.0) fx.x.valor[k] *= raiz[fx.x.linha[k]];
     for (DesenhoTermo& a : d.aleatorios)
       for (std::size_t k = 0; k < a.z.nnz(); k++)
         if (raiz[a.z.linha[k]] != 1.0) a.z.valor[k] *= raiz[a.z.linha[k]];
@@ -1007,11 +1049,32 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
   // avaliacao sem theta, e a travessia ainda tentava montar as MME com esse theta vazio.
   // Medindo o posto onde o modelo de fato vive, a coluna sai como dependente e e
   // REPORTADA em dropped_x, que e o comportamento correto e visivel.
-  std::vector<std::size_t> fica, sai;
-  posto_esparso(fx.x, d.usa, 1e-9, fica, sai, false, nullptr, &fx.nomes);
+  //
+  // AS COVARIAVEIS PADRONIZADAS ANTES DOS PESOS E DO POSTO (padroniza_covariaveis, fixos.cpp):
+  // o posto decide na escala das linhas usadas, e as MME vivem nela. Uma aninhada cujo centro
+  // nao volta pela classe (a classe confundida com outro efeito fixo, aninhadas_sem_volta) e
+  // refeita so escalada, com o posto de novo.
+  std::vector<std::size_t> fica, sai, sem_centro;
+  for (;;) {
+    padroniza_covariaveis(fx, d.usa, sem_centro);
+    if (!raiz.empty())
+      for (std::size_t k = 0; k < fx.x.nnz(); k++)
+        if (raiz[fx.x.linha[k]] != 1.0) fx.x.valor[k] *= raiz[fx.x.linha[k]];
+    posto_esparso(fx.x, d.usa, 1e-9, fica, sai, false, nullptr, &fx.nomes);
+    std::vector<char> mantida(fx.x.ncol, 0);
+    for (std::size_t j : fica) mantida[j] = 1;
+    const std::vector<std::size_t> falha = aninhadas_sem_volta(fx, mantida, d.usa);
+    if (falha.empty()) {
+      d.volta_x.assign(1, monta_volta(fx, fica, mantida, d.usa));
+      break;
+    }
+    sem_centro.insert(sem_centro.end(), falha.begin(), falha.end());
+    fx = colunas_fixas(m, t);
+  }
   d.x = fixas_por_linha(fx.x, fica);
   for (std::size_t j : fica) d.nomes_x.push_back(fx.nomes[j]);
   for (std::size_t j : sai) d.saiu_x.push_back(fx.nomes[j]);
+  d.logdet_escala_x = logdet_escala(d.volta_x[0].escala);
   return d;
 }
 

@@ -20,7 +20,13 @@ accuracy is per trait. A \code{\link[=snp_blup]{snp_blup()}} fit has no PEV (it 
 gradients) and takes no \code{pedigree}; for \code{\link[=model_survival]{model_survival()}} the accuracy is on the
 log-hazard scale, from the Laplace PEV of the frailty}
 
-\item{group}{covariance group; the first one by default}
+\item{group}{covariance group; by default the group of the direct genetic term: the
+first pedigree or genomic term that is not \code{maternal()} or \code{indirect()}, else the first
+\code{kernel()} with an estimated variance over the animals (most of its levels are
+animals of the pedigree, or there is no pedigree term), else the first \code{maternal()}
+term, else the first other \code{kernel()} with an estimated variance, else the first
+group; the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}}, \code{\link[=h2]{h2()}} and
+\code{\link[=h2_curve]{h2_curve()}}}
 
 \item{trait}{for a multi-trait fit (\code{model_mt()}, or \code{model_ar1()} with \code{cbind()}),
 which trait. Without it the table lists every trait, with ids written "level|trait",
@@ -40,7 +46,10 @@ that effect. A group with one effect per level has no \code{term} column. A grou
 precision has latent levels besides the animals, \code{kernel(id, Kinv = dominance_inverse(ped))}, has a \code{type} column after \code{id} (and \code{term}), \code{"animal"},
 \code{"subclass"} or \code{"ancestral"}, and lists the animals first, each type sorted by \code{ebv}:
 the dominance deviations of the animals are ranked among themselves, not among the
-sire x dam effects.
+sire x dam effects. When the fit warned that its records form blocks with no
+genetic link between them, whose difference the fixed effects absorb (see
+\code{pedigree} in \code{\link[=model]{model()}}), a \code{block} column gives the block of each animal (1 is
+the block with the most records): breeding values compare only within a block.
 }
 \description{
 One call for what an evaluation is for. \code{ebv()} returns a named vector and \code{accuracy()}

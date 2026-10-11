@@ -37,15 +37,26 @@ desconhecido <- function(v) is.na(v) | v %in% c("0", "", "NA")
 # texto dos niveis, texto fica como esta, o resto vira double. NA segue NA. Um numero que
 # nao e inteiro exato sai na menor escrita que volta ao mesmo double ("1.5", "1234567.5"),
 # entao dois numeros distintos nunca dividem um rotulo, em nenhuma coluna nem entre colunas.
-rotulo_motor <- function(x) {
+#
+# O texto sai em UTF-8 (enc2utf8): o motor compara bytes, e o mesmo id em latin1 marcado de
+# um lado e em UTF-8 do outro nao casava (o R diz que sao iguais, o motor nao). integer64 sai
+# com os digitos exatos. Com `onde` (a coluna de id que a mensagem nomeia: o pedigree, os
+# genotipos) um numero acima de 2^53 e recusado (recusa_grandes(), em R/estrutura.R); sem
+# ele o rotulo e so o rotulo, de qualquer numero.
+rotulo_motor <- function(x, onde = NULL) {
   if (is.null(x)) return(character(0))
-  if (is.factor(x) || is.character(x)) return(as.character(x))
-  .Call(R_rotulos, as.double(x))
+  if (inherits(x, "integer64")) return(texto_integer64(x, onde))
+  if (is.factor(x) || is.character(x)) return(enc2utf8(as.character(x)))
+  x <- as.double(x)
+  if (!is.null(onde)) recusa_grandes(x, onde)
+  .Call(R_rotulos, x)
 }
 
 # "1e+05", "1.5e+07": a forma que o as.character() e o factor() dao a um double inteiro
-# redondo, a que o motor confere em confere_rotulos_cientificos (src/mme.cpp)
-eh_cientifico <- function(x) grepl("^-?[1-9](\\.[0-9]+)?e\\+[0-9]+$", x)
+# redondo, a que o motor confere em confere_rotulos_cientificos (src/mme.cpp). Por bytes: um
+# id latin1 sem marca nao e numero, e o grepl() por caracteres dava dois avisos genericos do
+# R por id ("unable to translate ... to a wide string", "input string k is invalid")
+eh_cientifico <- function(x) grepl("^-?[1-9](\\.[0-9]+)?e\\+[0-9]+$", x, useBytes = TRUE)
 
 # O conferido do motor para um casamento feito em R: `fora` sao os rotulos que nao acharam
 # par em `niveis`. Um deles em notacao cientifica com o inteiro do outro lado, ou o
@@ -82,8 +93,28 @@ recusa_cientifico <- function(fora, niveis, lado_fora, lado_niveis) {
   invisible(NULL)
 }
 
-colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
-  pega <- function(k) { v <- rotulo_motor(ped[[k]]); v[is.na(v)] <- "0"; v }
+# o pedigree que nao e data.frame: uma matriz caia em ped[[k]], que da UM elemento, e a
+# recusa saia como "parent ... is cited and has no line" ou "subscript out of bounds"
+recusa_nao_df <- function(ped)
+  stop("the pedigree must be a data.frame with the animal, sire and dam columns, not a ",
+       class(ped)[1L], ": as.data.frame() it", call. = FALSE)
+
+# `mf` sao os rotulos dos metafundadores, pais sem linha por definicao: com eles a
+# conferencia dos pais citados sem linha (confere_pais_citados(), R/estrutura.R) nao os
+# confunde com um id escrito de outro jeito. Um pedigree ja preparado por um ajustador
+# (fundadores acrescentados, podado; pedigree_preparado()) volta como esta.
+colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L, mf = NULL) {
+  if (inherits(ped, "br_ped_preparado")) return(attr(ped, "cp"))
+  if (!is.data.frame(ped)) recusa_nao_df(ped)
+  if (ncol(ped) < 3L)
+    stop("the pedigree has ", ncol(ped), " column(s): it needs three, the animal, the ",
+         "sire and the dam (0 or NA for an unknown parent)", call. = FALSE)
+  nome_col <- function(k) if (is.character(k)) k else names(ped)[k]
+  pega <- function(k) {
+    v <- rotulo_motor(ped[[k]], paste0("the pedigree column '", nome_col(k), "'"))
+    v[is.na(v)] <- "0"
+    v
+  }
   mgs <- inherits(ped, "br_ped_mgs")
   if (mgs) {
     # declarado: o segundo progenitor e o avo materno; no pedigree MISTO e a mae quando ela
@@ -98,7 +129,10 @@ colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
       p2 <- k
     }
     attr(p2, "mgs") <- pelo_avo
-    return(list(id = pega("id"), sire = pega("sire"), dam = p2, mgs = TRUE))
+    out <- list(id = pega("id"), sire = pega("sire"), dam = p2, mgs = TRUE)
+    confere_pais_citados(out, mf, list(sire = "sire", dam = if ("dam" %in% names(ped))
+      "dam / mgs" else "mgs"))
+    return(out)
   }
   if (!mgs) {
     nome <- if (is.character(dam)) dam else names(ped)[dam]
@@ -107,9 +141,15 @@ colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
            "GRANDSIRE: declare it with sire_mgs(ped) or pedigree(type = \"sire_mgs\"), or ",
            "rename the column if it really holds the dam", call. = FALSE)
   }
+  # na ordem das colunas, para a recusa de uma coluna (inteiros acima de 2^53) nomear a
+  # primeira que tem o problema
+  v_id <- pega(id)
+  v_pai <- pega(sire)
   d <- pega(dam)
   if (mgs) attr(d, "mgs") <- rep(TRUE, length(d))
-  list(id = pega(id), sire = pega(sire), dam = d, mgs = mgs)
+  out <- list(id = v_id, sire = v_pai, dam = d, mgs = mgs)
+  confere_pais_citados(out, mf, list(sire = nome_col(sire), dam = nome_col(dam)))
+  out
 }
 
 #' Declare a pedigree of sires and maternal grandsires
@@ -158,7 +198,7 @@ colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L) {
 #' pedigree(sire_mgs(touros))
 #' @export
 sire_mgs <- function(ped, id = 1L, sire = 2L, mgs = 3L, dam = NULL) {
-  if (!is.data.frame(ped)) stop("expected a data.frame")
+  if (!is.data.frame(ped)) recusa_nao_df(ped)
   pega <- function(k) rotulo_motor(ped[[k]])
   out <- data.frame(id = pega(id), sire = pega(sire), mgs = pega(mgs),
                     stringsAsFactors = FALSE)
@@ -249,13 +289,18 @@ recusa_materno_mgs <- function(terms, ped) {
 #' sex, which is why every reference program asks for a declaration; a third column NAMED
 #' like a grandsire column (mgs, mgsire, maternal_grandsire) is refused unless declared.
 #'
-#' @param ped data.frame with animal, sire and dam. An unknown sire or dam enters as "0" or NA.
+#' @param ped data.frame with animal, sire and dam. An unknown sire or dam enters as "0" or
+#'   NA. A parent with no line that matches a line written another way (a trailing space
+#'   or carriage return, the case, leading zeros), and a 0 written another way (with a
+#'   carriage return or a space, or "00" with no line), stop with both spellings; a
+#'   numeric id column at or above
+#'   2^53 (16- or 17-digit ids read as numbers) is refused, since its last digits are
+#'   already lost: read the id columns as text.
 #' @param type `"sire_dam"` (default) or `"sire_mgs"`, the third column read as the
 #'   maternal grandsire; the same as passing [sire_mgs()]`(ped)`
 #' @return data.frame with id, sire, dam (1-based indices, NA if unknown) and F; with a
 #'   grandsire pedigree the third column is named `mgs`, and the attribute `type` says
 #'   which it is
-#' @param ped data.frame with animal, sire and dam
 #' @param id the animal column (position or name)
 #' @param sire the sire column
 #' @param dam the dam column
@@ -285,13 +330,13 @@ recusa_materno_mgs <- function(terms, ped) {
 pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L,
                      metafounders = NULL, gamma = NULL,
                      type = c("sire_dam", "sire_mgs")) {
-  if (!is.data.frame(ped)) stop("expected a data.frame")
+  if (!is.data.frame(ped)) recusa_nao_df(ped)
   type <- match.arg(type)
   if (type == "sire_mgs" && !inherits(ped, "br_ped_mgs")) {
     ped <- sire_mgs(ped, id, sire, dam)
     id <- 1L; sire <- 2L; dam <- 3L
   }
-  cp <- colunas_pedigree(ped, id, sire, dam)
+  cp <- colunas_pedigree(ped, id, sire, dam, mf = rotulo_motor(metafounders))
   r <- .Call(R_pedigree, cp$id, cp$sire, cp$dam,
         rotulo_motor(metafounders),
         if (is.null(gamma)) numeric(0) else as.double(gamma))
@@ -357,8 +402,8 @@ print.br_pedigree <- function(x, ...) {
 #' @export
 a_inverse <- function(ped, id = 1L, sire = 2L, dam = 3L,
                       metafounders = NULL, gamma = NULL) {
-  if (!is.data.frame(ped)) stop("expected a data.frame")
-  cp <- colunas_pedigree(ped, id, sire, dam)
+  if (!is.data.frame(ped)) recusa_nao_df(ped)
+  cp <- colunas_pedigree(ped, id, sire, dam, mf = rotulo_motor(metafounders))
   .Call(R_a_inversa, cp$id, cp$sire, cp$dam,
         rotulo_motor(metafounders),
         if (is.null(gamma)) numeric(0) else as.double(gamma))
@@ -496,7 +541,10 @@ legendre <- function(x, order = 1L, limits = NULL) {
 #' anywhere `k_inverse =` is taken.
 #'
 #' @param pedigree data.frame animal, sire, dam (or a [sire_mgs()] pedigree)
-#' @param genotypes list with `ids` and `m` (0/1/2, NA imputed by the marker mean)
+#' @param genotypes list with `ids` and `m` (0/1/2, NA imputed by the marker mean), checked
+#'   as in [model()]: a repeated id, rownames that contradict `ids` or an animal below a
+#'   0.90 call rate are refused, and a parent-offspring conflict with the pedigree is a
+#'   warning (see [parentage_check()])
 #' @param blend weight of A22 in G*, the usual 0.05
 #' @param apy_core ids of the APY core, `"auto"`, or the result of [apy_core_select()]
 #' @param vecchia_k neighbours per animal in the Vecchia inverse of G*
@@ -532,8 +580,17 @@ h_inverse <- function(pedigree, genotypes, blend = 0.05, apy_core = NULL,
   nuc <- nucleo_apy(apy_core, genotypes)
   if (length(nuc) && !is.null(vecchia_k))
     stop("apy_core and vecchia_k are two approximations of the same inverse: declare one")
-  cp <- colunas_pedigree(pedigree)
+  cp <- colunas_pedigree(pedigree, mf = rotulo_motor(metafounders))
   confere_base_mf(cp$sire, cp$dam, metafounders, TRUE)
+  # o genotipado sem linha escrito de outro jeito que uma linha: a recusa diz as duas grafias
+  # (sem par nenhum, o motor recusa como sempre, "genotyped animal '...' is not in the
+  # pedigree")
+  fg <- g$gid[!(g$gid %in% cp$id)]
+  if (length(fg))
+    confere_grafias(fg, cp$id, "genotypes$ids", "the pedigree",
+                    function(v) length(unique(v)),
+                    "stop as genotyped animals outside the pedigree", cientifico = FALSE)
+  avisa_parentesco(cp, g)
   r <- .Call(R_h_inversa, cp$id, cp$sire, cp$dam,
              rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),

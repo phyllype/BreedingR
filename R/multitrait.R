@@ -10,13 +10,24 @@
 
 #' Fits a multi-trait mixed model by AI-REML
 #'
+#' The structure checks of [model()] (see its section "Structure checks") apply here, on
+#' the rows with some trait observed and then on the rows of each trait, since the fixed
+#' effects are per trait (a random term nested in a fixed effect among the records of one
+#' trait stops the fit, naming the trait); the warning about repeated records names the
+#' first trait that has them. The univariate fits of the start run with those warnings
+#' silenced, so each is given once.
+#'
 #' @param formula with `cbind()` on the left-hand side: `cbind(p1, p2) ~ cg + animal(id)`. The
 #'   same effects apply to all traits; each covariance group gains the GENETIC
 #'   covariances between traits, and the residual becomes the full R0 matrix.
 #'   A missing trait (NA or the `missing_code` code) does not drop the record: it enters
 #'   with the R0 submatrix of its observation pattern.
 #' @param data data.frame
-#' @param pedigree data.frame animal, sire, dam
+#' @param pedigree data.frame animal, sire, dam. The ids are
+#'   matched to the data by the rule of [model()] (see `pedigree` there): an absent
+#'   animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+#'   stops the fit, and the pedigree is pruned to the data, the genotyped and their
+#'   ancestors
 #' @param genotypes list with `ids` and `m` (0/1/2 matrix) for single-step; NA is imputed
 #'   by the mean, as in [model()]
 #' @param blend weight of A22 in the G blend (0.05 by default)
@@ -199,29 +210,40 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
+  # no traco e na covariavel (R/valores.R)
+  confere_numeros(data, traits, terms, missing_code)
 
-  lst <- lapply(data[used_columns], function(col) {
-    if (is.factor(col)) as.character(col)
-    else if (is.character(col)) col
-    else as.double(col)
-  })
-  ped_id <- ped_sire <- ped_dam <- character(0)
-  if (!is.null(pedigree)) {
-    cp <- colunas_pedigree(pedigree)
-    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
-  }
-  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes))
+  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
 
   kern <- monta_kernels(terms, environment(formula), data, traits, missing_code)
+  # ids dos dados contra o pedigree: a regra de model() (prepara_estrutura, R/estrutura.R)
+  pe <- prepara_estrutura(terms, data, lst, pedigree, traits, missing_code, metafounders,
+                          kern, g$gid)
+  ped_id <- ped_sire <- ped_dam <- character(0)
+  if (!is.null(pe$cp)) {
+    ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
+  }
+  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes), ped_id,
+                  pe$info$founders)
+  # os pares genotipados de pai e filho contra o pedigree (R/io_qc.R)
+  if (!is.null(pe$cp)) avisa_parentesco(pe$cp, g)
+  # a estrutura que o ajuste nao identifica ou que a mascara (R/separabilidade.R), uma vez:
+  # os ajustes univariados da partida rodam com esses avisos calados
+  notas <- confere_estrutura(terms, data, traits, missing_code, "model_mt()", maxiter > 0,
+                             kern = kern)
 
   t0 <- proc.time()[["elapsed"]]
+  # as partidas univariadas sobre o pedigree JA preparado, e caladas: os avisos de estrutura
+  # saem uma vez, pelo ajuste multicaracter
   uni <- if (is.null(start) && maxiter > 0L)
-    otimos_univariados(function(f1, d1)
-      model(f1, d1, pedigree, genotypes = genotypes, blend = blend,
+    otimos_univariados(function(f1, d1) calado_estrutura(
+      model(f1, d1, if (is.null(pe$cp)) pedigree else pedigree_preparado(pe$cp),
+            genotypes = ja_conferidos(genotypes), blend = blend,
             apy_core = nucleo_resolvido(apy_core, nuc), vecchia_k = vecchia_k,
-            metafounders = metafounders, gamma = gamma, verbose = FALSE),
+            metafounders = metafounders, gamma = gamma, verbose = FALSE)),
       formula, traits, data, missing_code, verbose) else list()
   ajusta <- function(uni) .Call(R_ajustar_mt,
              lst, names(lst), traits,
@@ -261,7 +283,11 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
   r$k_prior <- priori_kernels(terms, kern)
   r$k_level_type <- tipos_kernels(terms, kern)
-  structure(r, class = "breeding_fit_mt")
+  # o que a escala de h2(), t2() e do share le: a diagonal media de cada K nos registros,
+  # os kernels que sao a associative_matrix() do indirect() e o avo conhecido do sire(mgs =)
+  r <- anota_escala(r, terms, data, traits, missing_code)
+  r$components_given <- maxiter == 0 && !is.null(start)
+  structure(anota_separabilidade(anota_estrutura(r, pe), notas), class = "breeding_fit_mt")
 }
 
 # A PARTIDA PADRAO DOS AJUSTES MULTICARACTER: o otimo univariado de cada caracteristica,
@@ -304,7 +330,8 @@ otimos_univariados <- function(ajusta1, formula, traits, data, missing_code, ver
     s <- if (is.finite(s) && s > 0) 2^(floor(log2(s)) + 1) else 1
     d1 <- data
     d1[[tr]] <- ifelse(ok, y / s, NA_real_)
-    fit <- tryCatch(ajusta1(f1, d1), error = function(e) NULL)
+    # os dados ja passaram pelas conferencias de R/valores.R no ajuste de fora
+    fit <- tryCatch(sem_conferencia(ajusta1(f1, d1)), error = function(e) NULL)
     if (is.null(fit) || !all(is.finite(fit$theta))) return(NULL)
     th <- as.double(unname(fit$theta))
     variancia <- !grepl("^rho[(]", names(fit$theta))
@@ -359,7 +386,8 @@ partida_de_reserva <- function(r, ajusta, maxiter) {
 #' @param pedigree data.frame or NULL
 #' @param theta vector of components at which to evaluate
 #' @param missing_code missing-value code, or NULL
-#' @param with_dense TRUE also computes the dense V form
+#' @param with_dense TRUE also computes the dense V form, with no size limit, unlike
+#'   [eval_internal_ar1()], whose default skips it above 2000 cells
 #' @param metafounders as in [model()]
 #' @param gamma as in [model()]
 #' @export
@@ -378,13 +406,16 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
   # "undefined columns selected" do R, que nao diz qual coluna falta
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
-  lst <- lapply(data[used_columns], function(col) {
-    if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
-  })
+  # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
+  # no traco e na covariavel (R/valores.R)
+  confere_numeros(data, traits, terms, missing_code)
+  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
+  kern <- monta_kernels(terms, environment(formula), data, traits, missing_code)
+  pe <- prepara_estrutura(terms, data, lst, pedigree, traits, missing_code, metafounders,
+                          kern)
   ped_id <- ped_sire <- ped_dam <- character(0)
-  if (!is.null(pedigree)) {
-    cp <- colunas_pedigree(pedigree)
-    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
+  if (!is.null(pe$cp)) {
+    ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
   }
   .Call(R_avaliar_mt,
         lst, names(lst), traits,
@@ -402,7 +433,7 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
              rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
-             monta_kernels(terms, environment(formula), data, traits, missing_code),
+             kern,
              vapply(terms, function(t) t$dilution, numeric(1)))
 }
 
@@ -412,6 +443,11 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
 #' error is NOT given: it needs the delta method with the covariance between components, and
 #' the honesty here is the same as summary's, making the number up would be worse than not
 #' giving it.
+#'
+#' A fit that did not converge is read at its last iterate, with a warning; when the fit
+#' reports the information matrix SINGULAR along a set of components that includes one of
+#' the two variances or the covariance, the correlation is returned as `NA`, with a
+#' warning naming the components, and so is a fit with no estimates.
 #' @param fit result of model_mt()
 #' @param term name of the term (for example "animal")
 #' @param t1 name of the first trait
@@ -431,6 +467,14 @@ rg <- function(fit, term = "animal", t1 = NULL, t2 = NULL) {
   if (is.null(v1) || is.null(v2) || is.null(c12))
     stop("could not find the parameters of '", term, "' between ", t1, " and ", t2,
          "; the available names are in names(coef(fit))")
+  # o estado do ajuste (R/separabilidade.R): sem convergencia, aviso; com uma das tres
+  # componentes numa crista do veredito SINGULAR, ou sem estimativas, NA com aviso
+  nomes <- c(paste0("var(", term, "@", t1, ")"), paste0("var(", term, "@", t2, ")"),
+             paste0("cov(", term, "@", t2, ",", term, "@", t1, ")"),
+             paste0("cov(", term, "@", t1, ",", term, "@", t2, ")"))
+  # rg() le so as tres componentes do termo: um conjunto fora delas nao lhe diz respeito
+  if (estado_para_extrator(fit, "rg()", intersect(nomes, names(th))))
+    return(NA_real_)
   c12 / sqrt(v1 * v2)
 }
 
@@ -445,7 +489,7 @@ print.breeding_fit_mt <- function(x, ...) {
       " column(s) in the equations\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")
-  mostra_componentes(tabela_componentes(x$theta, x$se, indireto = tem_indireto(x)))
+  mostra_componentes(tabela_componentes(x$theta, x$se, indireto = tem_indireto(x), fit = x))
   mostra_fixos(x$b, x$dropped_x)
   invisible(x)
 }

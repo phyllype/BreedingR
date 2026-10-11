@@ -14,6 +14,12 @@
 # por niveis; (11) a coluna LARGA (256 linhas ou mais) cortada em pedacos fixos, num nivel
 # estreito (paralela dentro da coluna) e num largo (em serie dentro da thread).
 
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 matriz_com_cauda <- function(n_esp, T, seed = 7, pd = TRUE) {
   set.seed(seed)
   n <- n_esp + T
@@ -240,3 +246,5 @@ test_that("a coluna larga da recorrencia: exata e a mesma com 1 e 4 threads", {
   Ai <- solve(A)
   expect_lt(max(abs(s1$x - Ai[cbind(s1$i, s1$j)])), 1e-10)
 })
+
+options(op_parentesco)

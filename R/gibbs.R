@@ -13,9 +13,23 @@
 
 #' Gibbs sampler for a single-trait mixed model
 #'
+#' The structure checks of [model()] (see its section "Structure checks") apply here: a
+#' design that does not identify a component stops the chain unless `theta_fixed =` gives
+#' the components (a random term inside a fixed effect leaves the chain walking the prior
+#' of that variance), and the warnings go to `message`. The h2 row of `summary()` and of
+#' [mcmc_diagnostics()] follows the rule of [h2()]: the direct genetic term,
+#' `4 var(sire)` in a sire model, the components as estimated (the base of Gamma with
+#' metafounders), a `kernel(fixed =)` or an [associative_matrix()] at its mean diagonal over
+#' the records and the grandsire part of `sire(mgs =)` in the denominator; with only `pe()`
+#' or `random()` terms there is no h2 row.
+#'
 #' @param formula as in [model()] (all the same markers, including rn() and indirect())
 #' @param data data.frame
-#' @param pedigree data.frame animal, sire, dam
+#' @param pedigree data.frame animal, sire, dam. The ids are
+#'   matched to the data by the rule of [model()] (see `pedigree` there): an absent
+#'   animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+#'   stops the fit, and the pedigree is pruned to the data, the genotyped and their
+#'   ancestors
 #' @param genotypes single step as in [model()]
 #' @param blend as in [model()]
 #' @param apy_core as in [model()]
@@ -53,8 +67,17 @@
 #'   trait by data augmentation (Albert and Chib 1993; Sorensen, Andersen, Gianola and
 #'   Korsgaard 1995): each record gets a liability drawn from a normal truncated at 0 on
 #'   the side of its category, the residual variance is FIXED at 1 (it sets the scale of
-#'   the liability), and the implicit intercept stands for the threshold. The larger of
-#'   the two values of the trait is the upper category. A missing observation (`NA`,
+#'   the liability), and the implicit intercept stands for the threshold. The two values
+#'   are ordered by the rule of [model_threshold()], and the second is the upper
+#'   category: numbers (or logical) by value, a factor by its levels, text that reads as
+#'   numbers by value; text that is not a number is refused, with the order sorting
+#'   would give (sorted, "healthy" < "sick" happens to put the disease on top and
+#'   "diseased" < "healthy" does not), and a factor whose levels are in the alphabetical
+#'   order `factor()` gives text runs with a warning that names the upper category. A
+#'   level of a fixed class effect with every record in the same category is refused,
+#'   naming the level: with the flat prior of the fixed effects its posterior is improper
+#'   (Hoeschele and Tier 1995) and the chain drifts instead of converging; merge the
+#'   level, drop its records, or fit the effect as random. A missing observation (`NA`,
 #'   `NaN`, `Inf`, `-Inf`, blank text, the text "NaN" or `missing_code`) drops its
 #'   record, as in [model_threshold()]; it is never one of the two values. Everything
 #'   else is the chain of the Gaussian case: `kernel()`, `indirect()`, genotypes, APY and
@@ -93,6 +116,10 @@
 #'
 #'   Gelman, A. (2006). Prior distributions for variance parameters in hierarchical
 #'   models. Bayesian Analysis 1:515-534.
+#'
+#'   Hoeschele, I. & Tier, B. (1995). Estimation of variance components of threshold
+#'   characters by marginal posterior modes and means via Gibbs sampling. Genetics
+#'   Selection Evolution 27:519-540.
 #' @return samples matrix (kept iterations x parameters), posterior `mean` and `sd`,
 #'   the posterior mean/sd of every random effect (`ebv`, `ebv_sd`) and of every fixed
 #'   effect (`b`, `b_sd`, named `term=level` as in [model()], whose parametrization note
@@ -167,33 +194,53 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
-  lst <- lapply(data[used_columns], function(col) {
-    if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
-  })
+  # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
+  # no traco e na covariavel (R/valores.R)
+  confere_numeros(data, if (family == "gaussian") trait else character(0), terms,
+                  missing_code, avisa = if (family == "gaussian") trait else character(0),
+                  resposta = trait)
+  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
+  # o K= e avaliado AQUI, no processo de quem chamou, e nao dentro da cadeia: com cores > 1
+  # a cadeia roda num trabalhador PSOCK, e uma formula escrita no ambiente global chega la
+  # apontando para o global DO TRABALHADOR, onde o K nao existe (medido: "object 'Kp' not
+  # found" com chains = 2, cores = 2). Avaliado uma vez, tambem nao se refaz por cadeia.
+  # Montado antes do probit, que conta a categoria extrema so nas linhas que entram.
+  kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
   niveis_binarios <- NULL
   if (family == "probit") {
-    # a caracteristica vira 0/1: o MAIOR dos dois valores e o 1 (a categoria de cima da
-    # liability, como no modo conjunto do limiar)
-    # a observacao ausente pela regra do limiar (observacao_ausente(), R/indirect.R): o texto
-    # vazio era um dos dois valores e virava a classe 0
-    v <- lst[[trait]]
+    # a caracteristica vira 0/1: a SEGUNDA das duas categorias e o 1 (a de cima da
+    # liability), na ordem de ordena_categorias() (R/estrutura_categorica.R), a mesma do
+    # limiar. Antes o fator ia a texto e era ordenado em ordem alfabetica, e os niveis
+    # declarados (levels = c("low", "high")) eram ignorados: o sinal saia oposto ao do
+    # model_threshold() no mesmo dado. A observacao ausente pela regra do limiar
+    # (observacao_ausente(), R/indirect.R): o texto vazio era um dos dois valores e virava a
+    # classe 0
+    v <- data[[trait]]
     obs <- !observacao_ausente(v, missing_code)
-    niveis_binarios <- sort(unique(v[obs]))
-    if (length(niveis_binarios) != 2L)
+    n_val <- length(unique(v[obs]))
+    if (n_val != 2L)
       stop("family = \"probit\" is for a binary trait: '", trait, "' has ",
-           length(niveis_binarios), " distinct value(s)")
+           n_val, " distinct value(s)")
+    oc <- ordena_categorias(v[obs], trait, "gibbs(family = \"probit\")")
+    # binary_levels guarda o tipo de antes: double para numero e logico, texto para fator
+    niveis_binarios <- if (identical(oc$ordem, "number")) as.double(oc$categorias)
+                       else oc$categorias
     novo <- rep(NA_real_, length(v))
-    novo[obs] <- as.double(v[obs] == niveis_binarios[2])
+    novo[obs] <- as.double(oc$codes == 2L)
     lst[[trait]] <- novo
+    # a categoria extrema: com a priori plana dos efeitos fixos a posteriori do nivel e
+    # impropria e a cadeia deriva (medido em f2c0d69: b(cg=g3) 5.04, sem mensagem). A conta e
+    # nas linhas que a cadeia usa, pela K de cada kernel() (linhas_kernel_da_cadeia(), abaixo).
+    # Contado em toda linha, um nivel todo em 1 dentro da K com registros em 0 fora dela
+    # passava e derivava, e um nivel so de registros fora da K era recusado sem nunca entrar.
+    # oc$codes e das linhas com observacao, por isso o recorte e entra[obs]
+    entra <- linhas_kernel_da_cadeia(terms, kern, lst)
+    recusa_categoria_extrema(terms, data, obs & entra, oc$codes[entra[obs]], niveis_binarios,
+                             "gibbs(family = \"probit\")", paste0("'", trait, "'"),
+                             paste0(", and with the flat prior of the fixed effects its ",
+                                    "posterior is improper, so the chain drifts instead of ",
+                                    "converging (Hoeschele and Tier 1995)"))
   }
-  ped_id <- ped_sire <- ped_dam <- character(0)
-  if (!is.null(pedigree)) {
-    cp <- colunas_pedigree(pedigree)
-    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
-  }
-  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes))
-  g <- valida_genotipos(genotypes)
-  nuc <- nucleo_apy(apy_core, genotypes)
 
   # n_iter, burnin e thin inteiros: o laco do C++ faz (it - burnin) % thin, e thin = 0
   # derrubava o processo do R
@@ -214,11 +261,25 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     stop("chains must be a positive integer")
   if (length(cores) != 1L || is.na(cores) || cores < 1L)
     stop("cores must be a positive integer")
-  # o K= e avaliado AQUI, no processo de quem chamou, e nao dentro da cadeia: com cores > 1
-  # a cadeia roda num trabalhador PSOCK, e uma formula escrita no ambiente global chega la
-  # apontando para o global DO TRABALHADOR, onde o K nao existe (medido: "object 'Kp' not
-  # found" com chains = 2, cores = 2). Avaliado uma vez, tambem nao se refaz por cadeia.
-  kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
+  g <- valida_genotipos(genotypes)
+  nuc <- nucleo_apy(apy_core, genotypes)
+  # ids dos dados contra o pedigree: a regra de model() (prepara_estrutura, R/estrutura.R)
+  pe <- prepara_estrutura(terms, data, lst, pedigree, trait, missing_code, metafounders,
+                          kern, g$gid)
+  ped_id <- ped_sire <- ped_dam <- character(0)
+  if (!is.null(pe$cp)) {
+    ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
+  }
+  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes), ped_id,
+                  pe$info$founders)
+  # os pares genotipados de pai e filho contra o pedigree (R/io_qc.R)
+  if (!is.null(pe$cp)) avisa_parentesco(pe$cp, g)
+  # a estrutura que a cadeia nao identifica ou que a mascara (R/separabilidade.R): um termo
+  # dentro de um efeito fixo deixava a cadeia andar na priori, sem mensagem do gibbs()
+  # (validation/structure_cases.R, caso 2). Com theta_fixed =, so
+  # avisa
+  notas <- confere_estrutura(terms, data, trait, missing_code, "gibbs()", is.null(theta_fixed),
+                             kern = kern)
   t0 <- proc.time()[["elapsed"]]
   # uma cadeia: com semente propria quando ha varias (sorteada do gerador de quem chama,
   # entao set.seed() governa tudo e a ordem de execucao nao muda nada)
@@ -276,8 +337,10 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     r$message <- paste0(r$message, if (nzchar(r$message)) "; " else "",
                         "probit: liabilities drawn from truncated normals (Albert and Chib ",
                         "1993), residual variance FIXED at 1, the threshold at 0 and the ",
-                        "implicit intercept in its place; '", niveis_binarios[2], "' is the ",
-                        "upper category")
+                        "implicit intercept in its place; ",
+                        if (identical(oc$ordem, "number"))
+                          paste0("'", niveis_binarios[2], "' is the upper category")
+                        else nota_categorias(oc, trait))
   }
   r$seconds <- proc.time()[["elapsed"]] - t0
   r <- anota_nucleo(r, nuc)
@@ -301,7 +364,15 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
   r$k_level_type <- tipos_kernels(terms, kern)
-  r <- structure(r, class = "breeding_gibbs")
+  # o que a escala de h2() le, como em model(): a diagonal media de cada K nos registros com
+  # observacao, os kernels que sao a associative_matrix() do indirect() e a fracao de
+  # registros com avo conhecido de cada sire(mgs =). O h2 do summary() e dos derivados de
+  # mcmc_diagnostics() segue a regra de h2(); antes o kernel(fixed =) entrava com
+  # coeficiente 1 so aqui, porque o gibbs() nao guardava a diagonal
+  obs <- !observacao_ausente(data[[trait]], missing_code) & linhas_do_kernel(terms, kern, data)
+  r <- anota_escala(c(r, list(k_prior = priori_kernels(terms, kern), used = obs)), terms, data)
+  r$used <- NULL
+  r <- structure(anota_separabilidade(anota_estrutura(r, pe), notas), class = "breeding_gibbs")
   # os diagnosticos ficam no ajuste (print e summary leem daqui); ess, rhat e geweke sao as
   # colunas dos componentes, so nas cadeias que foram ate o fim. Uma falha neles nao pode
   # custar a cadeia: o ajuste volta sem eles, e a mensagem diz por que
@@ -318,6 +389,39 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   r$rhat <- if (is.null(comp)) na else stats::setNames(comp$rhat, r$names)
   r$geweke <- if (is.null(comp)) na else stats::setNames(comp$geweke_z, r$names)
   r
+}
+
+# As linhas que a cadeia usa pela K de cada kernel(), com a regra de prepara_estrutura()
+# (R/estrutura.R, AS LINHAS QUE ENTRAM), que nao devolve as linhas: o registro cujo nivel de
+# kernel() nao esta nos rotulos da K sai do motor, MENOS o do codigo desconhecido (o 0, ou o
+# texto "NA"; o branco do avo materno nao, que o kernel() recusa) quando a coluna do kernel()
+# e tambem a de um termo com parentesco (maternal(dam) + kernel(dam, K =), sire(sire) +
+# kernel(sire, K =), sire(sire, mgs = mgs) + kernel(mgs, K =)). Ali o 0 e o animal
+# desconhecido: o registro fica na cadeia com incidencia zero nos dois termos.
+# linhas_do_kernel() (R/separabilidade.R) tira esse registro, e a categoria extrema contada
+# com ela deixava passar um nivel so de registros de mae 0, todos numa categoria (a cadeia
+# derivava calada), e recusava um nivel que, com eles, tem as duas. No gibbs() todo termo com
+# parentesco tem pedigree (recusado antes sem ele), entao o 0 e sempre o desconhecido aqui.
+# `lst` e a lista de colunas_para_motor(), a mesma que prepara_estrutura() le
+linhas_kernel_da_cadeia <- function(terms, kern, lst) {
+  entra <- rep(TRUE, length(lst[[1L]]))
+  if (!length(kern)) return(entra)
+  # o desconhecido de cada coluna com parentesco, a do avo materno inclusive, como o desc_col
+  # de prepara_estrutura(): rotulo "0" ou "NA" sem ser ausente (NA, branco, "NaN", Inf)
+  desc_col <- list()
+  for (e in colunas_parentesco(terms)) {
+    col <- lst[[e$coluna]]
+    desc_col[[e$coluna]] <- !Reduce(`|`, tipos_rotulo_ausente(col)) &
+      rotulos_lst(col) %in% c("0", "NA")
+  }
+  for (k in seq_along(terms)) {
+    if (k > length(kern) || is.null(kern[[k]])) next
+    cn <- terms[[k]]$column
+    casa <- rotulos_lst(lst[[cn]]) %in% kern[[k]][[1]]
+    if (!is.null(desc_col[[cn]])) casa <- casa | desc_col[[cn]]
+    entra <- entra & casa
+  }
+  entra
 }
 
 # As cadeias em serie ou num cluster PSOCK (o do pacote parallel, que funciona no Windows).

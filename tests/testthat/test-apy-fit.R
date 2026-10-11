@@ -5,6 +5,12 @@
 # number, not a similar number. An approximate path that does not collapse onto the exact
 # one when the approximation vanishes is silently wrong.
 
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 test_that("APY inside model(): core = all reproduces the exact fit", {
   set.seed(9)
   n <- 250; n_geno <- 60
@@ -42,3 +48,5 @@ test_that("an APY core id that is not genotyped is a declared error", {
             apy_core = c(gids[1], "a001")),
     "not among the genotyped")
 })
+
+options(op_parentesco)

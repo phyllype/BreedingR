@@ -498,7 +498,8 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
       if (!d.usa[r]) continue;
       for (std::size_t a = 0; a < t; a++) ere += ehat.at(r, a) * re.at(r, a);
     }
-    A.neg2logl = parte_fixa + ere + upen;
+    // + o termo da padronizacao das covariaveis (fixos.cpp)
+    A.neg2logl = parte_fixa + ere + upen + d.logdet_escala_x;
 
     // clique de cada registro (colunas e caracteristica), reconstruido como na montagem
     std::vector<std::vector<std::pair<std::uint32_t, double>>> zl2;
@@ -888,7 +889,7 @@ double neg2logl_densa_V_mt(const DesenhoMT& d, const std::vector<double>& theta)
   for (std::size_t a = 0; a < p; a++)
     for (std::size_t b = 0; b < p; b++) quad += XtViy[a] * XtViXinv.at(a, b) * XtViy[b];
 
-  return logdet_V + logdet_X + (yViy - quad);
+  return logdet_V + logdet_X + (yViy - quad) + d.logdet_escala_x;
 }
 
 // Residuos no theta final: as linhas de W na mesma convencao da montagem (X na coluna

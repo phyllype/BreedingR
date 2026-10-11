@@ -30,7 +30,11 @@ with the R0 submatrix of its observation pattern.}
 
 \item{data}{data.frame}
 
-\item{pedigree}{data.frame animal, sire, dam}
+\item{pedigree}{data.frame animal, sire, dam. The ids are
+matched to the data by the rule of \code{\link[=model]{model()}} (see \code{pedigree} there): an absent
+animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+stops the fit, and the pedigree is pruned to the data, the genotyped and their
+ancestors}
 
 \item{genotypes}{list with \code{ids} and \code{m} (0/1/2 matrix) for single-step; NA is imputed
 by the mean, as in \code{\link[=model]{model()}}}
@@ -202,5 +206,10 @@ every fit (about the cost of one more REML iteration); if that pass fails, the f
 kept with \code{NA} residuals and the reason in \code{message}.
 }
 \description{
-Fits a multi-trait mixed model by AI-REML
+The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here, on
+the rows with some trait observed and then on the rows of each trait, since the fixed
+effects are per trait (a random term nested in a fixed effect among the records of one
+trait stops the fit, naming the trait); the warning about repeated records names the
+first trait that has them. The univariate fits of the start run with those warnings
+silenced, so each is given once.
 }

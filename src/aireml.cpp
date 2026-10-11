@@ -349,7 +349,8 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
   // certa e o pior dos mundos: converge, reporta convergencia, e estima outra coisa.
   const double nreg_d = static_cast<double>(nreg);
   // y'Py = (e'e + b'Pen b) / s2e, com e e b do proprio ajuste (ver o -2logL acima)
-  A.neg2logl = parte_fixa + ete / s2e + upen;
+  // + o termo da padronizacao das covariaveis: o -2logL sai na escala do dado (fixos.cpp)
+  A.neg2logl = parte_fixa + ete / s2e + upen + d.logdet_escala_x;
   A.score[d.modelo.offset_residual] =
       (nreg_d - pfixo - static_cast<double>(q_ordem) + trpen_total) / s2e
       - ete / (s2e * s2e);

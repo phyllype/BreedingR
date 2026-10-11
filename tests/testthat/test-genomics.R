@@ -3,6 +3,12 @@
 # with A^-1. If A22^-1 is wrong, for example by being block 22 of A^-1 instead of the Schur
 # complement, the equality breaks, and breaks by a lot.
 
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 tabular <- function(p) {
   n <- nrow(p); A <- matrix(0, n, n)
   for (i in seq_len(n)) {
@@ -118,3 +124,5 @@ test_that("NA in the genotype is imputed by the mean and the report says how man
                 genotypes = list(ids = s$gids, m = m))
   expect_match(ss$message, "imputed")
 })
+
+options(op_parentesco)

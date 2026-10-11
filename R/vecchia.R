@@ -13,7 +13,8 @@
 
 #' Inverse of G by the Vecchia recursion
 #'
-#' @param m matrix of 0/1/2 genotypes (animals in rows); NA imputed by the mean. Rows
+#' @param m matrix of 0/1/2 genotypes (animals in rows); NA imputed by the mean, and an
+#'   animal with a call rate below 0.90 refused, as in [model()]. Rows
 #'   should come ancestors first: conditioning on the past is what the recursion means
 #' @param k neighbors per animal, chosen as the k strongest |g_ij| among the PREVIOUS
 #'   rows (deterministic ties by index). `k >= n - 1` reproduces the exact inverse
@@ -34,6 +35,8 @@
 vecchia_inverse <- function(m = NULL, k = 100, lambda = 0.01, g = NULL) {
   if (is.null(g)) {
     if (!is.matrix(m)) stop("expected a matrix of genotypes (or a ready g=)")
+    # a mesma recusa dos ajustadores: a linha quase toda imputada pela media
+    if (is.double(m) || is.integer(m)) recusa_taxa_chamada(rownames(m), m)
     p <- colMeans(m, na.rm = TRUE) / 2
     usa <- is.finite(p) & p > 0 & p < 1
     Z <- m[, usa, drop = FALSE]

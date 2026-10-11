@@ -118,6 +118,12 @@
 #' parameters reported in `theta` are read from G, NOT from Gc: reading h2 off Gc is
 #' the documented trap (g22 of Gc gives 0.117 where the book prints 0.18).
 #'
+#' The structure checks of [model()] (see its section "Structure checks") apply here: with
+#' `estimate = TRUE` a design that does not identify a component stops (all the records in
+#' one pen of `indirect()` gave components the data do not identify, reported as converged,
+#' before this version),
+#' with the components given it is a warning, and the warnings go to `message`.
+#'
 #' @param formula as in [model()]: fixed class effects, `cov()` covariates, and random
 #'   terms among `animal()`, `sire()`, `random()` and `indirect()`, with `group =` to
 #'   put several terms in one covariance matrix (direct and indirect, typically). The
@@ -128,16 +134,52 @@
 #'   takes one relationship term and neither `indirect()` nor `group =`. A missing
 #'   level (`NA`, `NaN`, `Inf`, `-Inf`, blank text or the text "NaN") or a missing
 #'   covariate value is refused on every row, with the same rule and message as in
-#'   [model()]; a factor or text column in `cov()` is refused rather than read as its
-#'   codes.
-#' @param data data.frame with the columns referenced. The categorical trait can be
-#'   integer codes, character or factor; categories are ordered by factor level order,
-#'   or by sort order otherwise. In the joint mode the second trait must have exactly
-#'   two values (the larger one is the "difficulty"). A missing observation (`NA`,
+#'   [model()]; a factor or text column in `cov()`, or as the quantitative trait of the
+#'   joint mode, is refused rather than read as its codes. A covariate enters
+#'   standardized, as in [model()]: the thresholds take its centre in the ordinal mode,
+#'   and the levels of the first class (or the intercept) in the joint mode; `b`,
+#'   `se_b`, the thresholds and their standard errors come back in the unit of the data.
+#'   The missing-value rule and the warnings about values that look like a code are those
+#'   of [model()].
+#' @param data data.frame with the columns referenced. The categories of the trait run
+#'   from the lowest liability to the highest: numeric codes (or logical) by value; a
+#'   factor by its levels (an `ordered()` factor, or a factor whose levels were set in
+#'   the liability order, as MASS::polr and ordinal::clm read a factor response); text
+#'   that reads as numbers by value. Text that is not a number is REFUSED, and the
+#'   message shows the order sorting would give: text carries no order, and sorted
+#'   "low", "mid", "high" run high < low < mid, which inverts the scale. A factor whose
+#'   labels are numbers out of numeric order is refused (`factor()` of a numeric text
+#'   column gives "1" < "10" < "2"; a deliberate order such as `levels = 3:1` must be
+#'   declared with `ordered()`), and so is an `ordered()` factor whose levels are that text
+#'   order, what `ordered()` gives without `levels =`; labels that write one number twice
+#'   ("1" and "1.0") are refused too. A factor that is not ordered and whose levels are in
+#'   alphabetical order, what `factor()` and `read.csv(stringsAsFactors = TRUE)` give text
+#'   when `levels =` is not set, runs with a WARNING that shows the order used and the
+#'   count in each category (`ordered()` declares it and silences the warning; brms
+#'   refuses every unordered factor for an ordinal family, MASS::polr and ordinal::clm
+#'   take the levels silently). An `ordered()` factor is taken as the declared order, so
+#'   give it `levels =`: without them it sorts text alphabetically too, and only numeric
+#'   labels in text order are caught. When the order does not come from numbers the fit
+#'   message says which order was used, and for a binary trait which category is the
+#'   upper one. A level of a fixed class effect with every record in the lowest or in the
+#'   highest category (the extreme category problem; Misztal, Gianola and Foulley
+#'   1989) has no finite effect, and the fit is refused naming the level and its count:
+#'   merge the level, drop its records, or fit the effect as random. In the joint mode
+#'   the second trait must have exactly two values, ordered by the same rule (the upper
+#'   one is the "difficulty"), and the same check runs on it. A missing observation (`NA`,
 #'   `NaN`, `Inf`, `-Inf`, blank text, the text "NaN" or `missing_code`) drops its
 #'   record and is never a category, in either trait of the joint mode.
 #' @param pedigree data.frame animal, sire, dam; required with `animal()`, `sire()` or
-#'   `indirect()` unless `k_inverse` is given
+#'   `indirect()` unless `k_inverse` is given. The ids are
+#'   matched to the data by the rule of [model()] (see `pedigree` there): an absent
+#'   animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+#'   stops the fit, and the pedigree is pruned to the data, the genotyped and their
+#'   ancestors
+#'   (with `k_inverse =` the levels are the ids of that K, an id outside it stops
+#'   the fit, and the unknown 0 is no effect, counted by the same message). The joint mode
+#'   refuses an unknown 0 in its relationship term on the records it fits, those with
+#'   both traits observed (a 0 on a record that misses a trait leaves with that record),
+#'   and counts the founders' records and the blocks on those records too
 #' @param start MANDATORY. Ordinal mode: the components on the liability scale (the
 #'   residual is fixed at 1 and is not in `start`), in the order of [model()]: the
 #'   covariance groups declared with `group =` in order of first appearance, then each
@@ -221,6 +263,8 @@
 #'   197-224.
 #'   Tempelman, R.J. (1998) Generalized linear mixed models in dairy cattle breeding.
 #'   J. Dairy Sci. 81, 1428-1444.
+#'   Misztal, I., Gianola, D. & Foulley, J.L. (1989) Computing aspects of a nonlinear
+#'   method of sire evaluation for categorical data. J. Dairy Sci. 72, 1557-1568.
 #'   Bijma, P. (2010) Multilevel selection 4: modeling the relationship of indirect
 #'   genetic effects and group size. Genetics 186, 1029-1031.
 #' @examples
@@ -265,8 +309,6 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
                       c(!missing(max_evals), !missing(tol_estimate), !missing(profile))],
                     "here they are given (estimate = FALSE)", max_evals, tol_estimate,
                     profile)
-  hinv <- hinv_para_motor(pedigree, genotypes, blend, apy_core, vecchia_k, k_inverse)
-  if (!is.null(hinv)) k_inverse <- hinv
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side: score ~ herd + sire(sire)")
   lhs <- formula[[2]]
@@ -293,20 +335,65 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
             else deparse(lhs)
   falta <- setdiff(colunas_usadas(traits, terms), names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # o modo conjunto usa so as linhas com os DOIS tracos observados (o keep de
+  # ajusta_limiar_conjunto), e a regra abaixo conta nelas o 0, os fundadores e os blocos. Com
+  # as linhas de algum traco observado, o 0 numa linha que o proprio modo conjunto tira parava
+  # o ajuste, que em 12aca18 so a deixava de fora
+  obs_conj <- if (conjunto)
+    Reduce(`&`, lapply(traits, function(v) !observacao_ausente(data[[v]], missing_code)))
+  if (conjunto && !any(obs_conj)) {
+    # a especificacao do modo conjunto para antes desta parada: um terceiro traco todo
+    # ausente, ou um random() no lugar do termo de parentesco, davam esta mensagem no lugar
+    # do erro que diz o que o modo conjunto aceita. O mesmo com genotypes= e k_inverse=
+    # juntos (hinv_para_motor(), mais abaixo) e com o dado sem linha
+    confere_conjunto(traits, terms, aleat, rel, start, estimate,
+                     !is.null(k_inverse) || !is.null(genotypes))
+    if (!is.null(genotypes) && !is.null(k_inverse))
+      stop("give genotypes= (the single step is built here) or k_inverse=, not both")
+    if (!nrow(data)) stop("the data has no rows", call. = FALSE)
+    stop("no row enters the analysis: the joint mode takes only the rows with both traits (",
+         paste0("'", traits, "'", collapse = " and "), ") observed, and none of the ",
+         nrow(data), " row(s) has both (NA, NaN, Inf",
+         if (is.null(missing_code)) " and blank text"
+         else paste0(", blank text and the missing code ", missing_code),
+         " count as missing)", call. = FALSE)
+  }
+  # ids dos dados contra o pedigree, a regra de model() (prepara_estrutura, R/estrutura.R):
+  # fundadores, o desconhecido "0", grafias, poda e blocos. Com k_inverse = os niveis sao
+  # os da K declarada, e nada se acrescenta nem se poda.
+  pe <- prepara_estrutura_r(terms, data, pedigree, traits, missing_code, k_inverse,
+                            genotypes, recusa_0 = if (conjunto)
+                              paste0("the joint threshold mode takes a known level on every ",
+                                     "record: fit the traits one at a time (the ordinal mode ",
+                                     "takes the 0 as no effect), or drop those records"),
+                            obs = obs_conj,
+                            obs_fora = if (conjunto) "have a trait missing"
+                                       else "have the trait missing")
+  if (!is.null(pe$cp)) pedigree <- pedigree_preparado(pe$cp)
+  hinv <- hinv_para_motor(pedigree, genotypes, blend, apy_core, vecchia_k, k_inverse)
+  if (!is.null(hinv)) k_inverse <- hinv
+  if (!is.null(hinv) && !length(rel))
+    stop("k_inverse replaces the A^-1 of the relationship terms; the model has none")
 
+  # a estrutura que o ajuste nao identifica ou que a mascara (R/separabilidade.R): para
+  # quando os componentes sao estimados (estimate = TRUE; a baia unica dava componentes sem
+  # sentido com converged = TRUE, validation/structure_cases.R, caso 6), avisa quando sao
+  # dados
+  notas <- confere_estrutura(terms, data, traits, missing_code, "model_threshold()",
+                             !conjunto && isTRUE(estimate))
+
+  # o que entra como numero (R/valores.R): o traco quantitativo do modo conjunto e recusado
+  # como fator ou texto; o traco ordinal de categorias numericas e o quantitativo dao aviso de
+  # codigo de ausente; as covariaveis, a regra de missing_code e o aviso. No traco ordinal so
+  # o codigo de costume conta: categorias nao tem valor absurdo, e com quase todo registro na
+  # mesma categoria a escala robusta e minuscula
+  confere_numeros(data, if (conjunto) traits[1] else character(0), terms, missing_code,
+                  avisa = traits[1], resposta = traits, longe = conjunto)
   if (conjunto) {
-    if (isTRUE(estimate))
-      stop("estimate = TRUE is for the ordinal mode: the joint mode takes G and R as ",
-           "given (the residual covariance with the liability is not estimated here)")
-    if (any(vapply(terms, function(tm) isTRUE(tm$social) || nzchar(tm$group), logical(1))))
-      stop("indirect() and group= are for the ordinal mode: the joint analysis is the ",
-           "book's model, one relationship term shared by the two traits")
-    if (!is.null(k_inverse) && length(rel) != 1L)
-      stop("k_inverse replaces the A^-1 of exactly one relationship term in the joint ",
-           "analysis")
-    return(anota_hinv(ajusta_limiar_conjunto(formula, traits, terms, aleat, data, pedigree,
-                                             k_inverse, start, missing_code, maxiter, tol,
-                                             verbose), hinv))
+    confere_conjunto(traits, terms, aleat, rel, start, estimate, !is.null(k_inverse))
+    return(anota_separabilidade(anota_estrutura(anota_hinv(ajusta_limiar_conjunto(
+      formula, traits, terms, aleat, data, pedigree, k_inverse, start, missing_code,
+      maxiter, tol, verbose), hinv), pe), notas))
   }
   t0 <- proc.time()[["elapsed"]]
   pr <- prepara_limiar(formula, traits, terms, aleat, data, pedigree, k_inverse,
@@ -366,9 +453,12 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
       ". The Laplace approximation underestimates variances of binary traits with few ",
       "records per level (Tempelman 1998)")
   }
+  if (!is.null(pr$nota_categorias))
+    fit$message <- paste0(fit$message, "; ", pr$nota_categorias)
   fit$seconds <- proc.time()[["elapsed"]] - t0
   attr(fit, "estado") <- NULL
-  anota_k_inverse(anota_hinv(fit, hinv), k_inverse, hinv, rel)
+  fit <- anota_k_inverse(anota_hinv(fit, hinv), k_inverse, hinv, rel)
+  anota_separabilidade(anota_estrutura(fit, pe), notas)
 }
 
 # ------------------------------------------------------------------ shared pieces
@@ -511,7 +601,15 @@ xs_com_intercepto <- function(xs) {
 # used before (qr(), the LINPACK dqrdc2 of R: a column goes when its distance to the
 # columns kept before it falls below 1e-7 of its norm), from the sparse rank of the engine
 # (posto_esparso, src/fixos.cpp).
-monta_x_limiar <- function(terms, data, keep, primeiro_cheio) {
+#
+# A covariavel entra PADRONIZADA, (x - media) / dp das linhas usadas, como no motor
+# (padroniza_covariaveis, src/fixos.cpp), e o posto decide nessa escala; o centro e a escala vao
+# no info, e quem devolve b a unidade do dado e volta_b_limiar() (R/valores.R). centra = FALSE so
+# escala, para um X sem termo que absorva o centro (a sobrevivencia com lambda dado, ou o modo
+# conjunto cuja primeira classe perdeu um nivel no posto). missing_code vai no info para o
+# predict() conferir a covariavel de newdata pela mesma regra do ajuste.
+monta_x_limiar <- function(terms, data, keep, primeiro_cheio, centra = TRUE,
+                           missing_code = NULL) {
   fixos <- Filter(function(tm) tm$estrutura == 0L, terms)
   n <- sum(keep)
   blocos <- list(); nomes <- character(0); info <- list()
@@ -523,10 +621,15 @@ monta_x_limiar <- function(terms, data, keep, primeiro_cheio) {
     col <- data[[tm$column]][keep]
     if (tm$covariavel) {
       v <- as.double(col)
+      esc <- escala_covariavel(v, centra)
       nomes <- c(nomes, tm$nome)
-      blocos[[length(blocos) + 1L]] <- list(col = rep(length(nomes), n), val = v)
+      blocos[[length(blocos) + 1L]] <- list(col = rep(length(nomes), n),
+                                            val = (v - esc[1]) / esc[2])
       info[[length(info) + 1L]] <- list(nome = tm$nome, column = tm$column,
-                                        covariavel = TRUE, niveis = character(0))
+                                        covariavel = TRUE, niveis = character(0),
+                                        centro = esc[1], escala = esc[2],
+                                        media = mean(v), dp = stats::sd(v),
+                                        missing_code = missing_code)
     } else {
       valores <- rotulo_motor(col)
       lv <- if (is.factor(col)) levels(droplevels(col)) else sort(unique(valores))
@@ -581,6 +684,15 @@ monta_z_limiar <- function(aleat, data, pedigree, k_inverse, keep) {
     valores <- rotulo_motor(data[[tm$column]][keep])
     if (tm$estrutura == 2L) {
       ai <- if (is.null(k_inverse)) a_inverse(pedigree) else valida_k_inverse(k_inverse)
+      # o modo conjunto le um nivel por registro (o indice entra direto nas somas): o
+      # desconhecido "0", que os outros ajustadores tomam por incidencia zero, e recusado
+      # aqui com o que fazer
+      if (any(desc <- valores %in% c("0", "NA")))
+        stop("term '", tm$nome, "' (column '", tm$column, "'): ", sum(desc), " record(s) ",
+             "hold the unknown code 0 (the first at row ", which(keep)[which(desc)[1L]],
+             "), and the joint threshold mode takes a known level on every record: fit ",
+             "the traits one at a time (the ordinal mode takes the 0 as no effect), or ",
+             "drop those records", call. = FALSE)
       idx <- match(valores, ai$id)
       if (anyNA(idx)) {
         quem <- unique(valores[is.na(idx)])
@@ -611,8 +723,11 @@ valida_k_inverse <- function(k) {
     baixo <- which(lower.tri(k, diag = TRUE), arr.ind = TRUE)
     x <- k[baixo]
     fica <- x != 0
+    # os rownames pelo rotulo do motor, como os triplos: em UTF-8 (o motor compara bytes, e
+    # um id latin1 marcado nos rownames nao casava com o mesmo id dos dados, ja em UTF-8:
+    # medido, 100 de 120 registros entravam, calados) e o numero como o motor o escreve
     return(list(i = baixo[fica, 1], j = baixo[fica, 2], x = x[fica], n = n,
-                id = rownames(k)))
+                id = rotulo_motor(rownames(k))))
   }
   if (!is.list(k) || !all(c("i", "j", "x", "n", "id") %in% names(k)))
     stop("k_inverse must be a dense matrix with dimnames, or triplets ",
@@ -672,16 +787,24 @@ prepara_limiar <- function(formula, trait, terms, aleat, data, pedigree, k_inver
   if (!any(keep)) stop("no record with an observed trait")
   y <- y[keep]
 
-  categorias <- if (is.factor(y)) levels(droplevels(y)) else sort(unique(y))
-  m <- length(categorias)
+  # a ordem das categorias pela regra de ordena_categorias() (R/estrutura_categorica.R): o
+  # texto que nao e numero e recusado, em vez de ordenado em ordem alfabetica
+  m <- length(unique(y))
   if (m < 2L) stop("the trait has a single category; there is nothing to model")
   if (m > 20L)
     stop("the trait has ", m, " distinct values: a threshold model is for a handful ",
          "of ORDERED categories; a continuous trait wants model()")
-  codes <- if (is.factor(y)) as.integer(droplevels(y)) else match(y, categorias)
+  oc <- ordena_categorias(y, trait, "model_threshold()")
+  categorias <- oc$categorias
+  m <- length(categorias)
+  codes <- oc$codes
   contagem <- tabulate(codes, m)
 
-  fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = FALSE)
+  # os limiares absorvem o centro das covariaveis (P(y <= k) = F(t_k - x'b))
+  fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = FALSE, centra = TRUE,
+                       missing_code = missing_code)
+  recusa_categoria_extrema(terms, data, keep, codes, categorias, "model_threshold()",
+                           paste0("'", trait, "'"), "")
   al <- prepara_aleatorios(aleat, data, pedigree, k_inverse, keep)
   n <- length(codes); nt <- m - 1L; p <- fx$X$p
   qs <- vapply(al$slots, function(sl) sl$q, integer(1))
@@ -692,7 +815,8 @@ prepara_limiar <- function(formula, trait, terms, aleat, data, pedigree, k_inver
     stop("the starting thresholds are not increasing and finite; a category with no ",
          "record has no estimable threshold -- merge or recode it")
   list(formula = formula, trait = trait, terms = terms, codes = codes, m = m, nt = nt,
-       categorias = categorias, contagem = contagem, fx = fx, X = fx$X, p = p, n = n,
+       categorias = categorias, contagem = contagem, nota_categorias = nota_categorias(oc, trait),
+       fx = fx, X = fx$X, p = p, n = n,
        al = al, pares = prepara_blocos(al$slots, n),
        offs = nt + p + c(0L, cumsum(qs))[seq_along(qs)], N = nt + p + sum(qs),
        tvec0 = tvec)
@@ -787,6 +911,8 @@ ajusta_limiar_ordinal <- function(pr, Gs, maxiter, tol, verbose, warm = NULL, pe
   }
 
   # o sistema no ponto final: PEV pela inversa generalizada (p.271) e o log|C| do Laplace
+  estado_t <- tvec
+  estado_b <- b
   gf <- pecas_gf(eta(b, us), tvec, pr$codes, pr$m)
   monta <- sistema_limiar(pr, Gs, gf, us)$monta
   se_tudo <- rep(NA_real_, pr$N)
@@ -813,6 +939,20 @@ ajusta_limiar_ordinal <- function(pr, Gs, maxiter, tol, verbose, warm = NULL, pe
   ebv_ <- por_grupo(al, us)
   pev_ <- por_grupo(al, lapply(seq_along(al$slots), function(s)
     se_tudo[offs[s] + seq_len(al$slots[[s]]$q)]^2))
+  # limiares e b na unidade do dado (as covariaveis entraram padronizadas, monta_x_limiar):
+  # o limiar recebe + soma c_j b_j, e o erro-padrao dele a covariancia com as inclinacoes; o
+  # -2logL de Laplace volta pelo log-determinante da escala (log|C| muda por 2 log|det T|)
+  e <- escalas_de(pr$fx$info, X$nomes)
+  e$j <- nt + e$j
+  if (length(e$j)) {
+    covb <- covariancia_seletiva(si, pr$N)
+    vb <- volta_b_limiar(c(tvec, b), se_tudo[seq_len(nt + p)], e, alvo = seq_len(nt),
+                         sinal = 1, covb = covb)
+    tvec <- vb$loc[seq_len(nt)]
+    b <- vb$loc[nt + seq_len(p)]
+    se_tudo[seq_len(nt + p)] <- vb$se
+    neg2logl <- neg2logl + 2 * sum(log(e$s))
+  }
 
   out <- structure(list(
     trait = pr$trait, categories = pr$categorias, counts = pr$contagem,
@@ -832,15 +972,28 @@ ajusta_limiar_ordinal <- function(pr, Gs, maxiter, tol, verbose, warm = NULL, pe
     design = list(fixed = pr$fx$info, random = design_aleatorio(al)),
     seconds = NA_real_
   ), class = "breeding_fit_thr")
-  attr(out, "estado") <- list(tvec = tvec, b = b, us = us)
+  # a partida quente da estimacao segue na escala padronizada, a do sistema
+  attr(out, "estado") <- list(tvec = estado_t, b = estado_b, us = us)
   out
 }
 
 # ------------------------------------------------------------------ joint mode
 
-ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree,
-                                   k_inverse, start, missing_code, maxiter, tol,
-                                   verbose, sistema = FALSE) {
+# A especificacao do modo conjunto, que nao depende dos dados: o modelo do livro (Foulley et
+# al. 1983), com dois tracos, um so termo de parentesco e G e R dados. `troca_a` diz que uma
+# K^-1 substitui a A^-1 (k_inverse = ou o H^-1 de genotypes =). model_threshold() a roda
+# antes de ajusta_limiar_conjunto() e, quando nenhuma linha tem os dois tracos, antes da
+# parada que o diz, que de outro modo escondia o erro de especificacao
+confere_conjunto <- function(traits, terms, aleat, rel, start, estimate, troca_a) {
+  if (isTRUE(estimate))
+    stop("estimate = TRUE is for the ordinal mode: the joint mode takes G and R as ",
+         "given (the residual covariance with the liability is not estimated here)")
+  if (any(vapply(terms, function(tm) isTRUE(tm$social) || nzchar(tm$group), logical(1))))
+    stop("indirect() and group= are for the ordinal mode: the joint analysis is the ",
+         "book's model, one relationship term shared by the two traits")
+  if (troca_a && length(rel) != 1L)
+    stop("k_inverse replaces the A^-1 of exactly one relationship term in the joint ",
+         "analysis")
   if (length(traits) != 2L)
     stop("the joint analysis takes exactly TWO traits: cbind(quantitative, binary)")
   if (length(aleat) != 1L || aleat[[1]]$estrutura != 2L)
@@ -849,29 +1002,54 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
   if (!is.list(start) || !all(c("G", "R") %in% names(start)))
     stop("in the joint mode start = list(G =, R =) with the 2x2 genetic and ",
          "residual matrices; R[2,2] is the residual on the liability scale")
-  G <- start$G; R <- start$R
   for (nm in c("G", "R")) {
-    M <- get(nm)
+    M <- start[[nm]]
     if (!is.matrix(M) || any(dim(M) != 2L) || abs(M[1, 2] - M[2, 1]) > 1e-12 ||
         any(eigen(M, symmetric = TRUE, only.values = TRUE)$values <= 0))
       stop(nm, " must be a symmetric positive-definite 2x2 matrix")
   }
+  invisible(NULL)
+}
 
+ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree,
+                                   k_inverse, start, missing_code, maxiter, tol,
+                                   verbose, sistema = FALSE) {
+  # a especificacao (dois tracos, um termo de parentesco, G e R) ja passou por
+  # confere_conjunto(), em model_threshold()
+  G <- start$G; R <- start$R
+
+  recusa_nao_numerico(data[[traits[1]]], traits[1])
   y1 <- as.double(data[[traits[1]]])
   y2raw <- data[[traits[2]]]
   # a observacao ausente de cada traco, pela regra do modo ordinal (observacao_ausente()):
   # o texto vazio no binario virava um terceiro valor, e o Inf no quantitativo entrava
   keep <- !observacao_ausente(y1, missing_code) & !observacao_ausente(y2raw, missing_code)
   y1 <- y1[keep]
-  vals2 <- sort(unique(as.character(y2raw[keep])))
-  if (length(vals2) != 2L)
+  # as duas categorias pela regra do modo ordinal (ordena_categorias()): antes o binario ia a
+  # texto e era ordenado em ordem alfabetica, que poe "10" antes de "9" e ignora os niveis de
+  # um fator
+  n2 <- length(unique(y2raw[keep]))
+  if (n2 != 2L)
     stop("the SECOND trait of the joint analysis must be binary (it has ",
-         length(vals2), " value(s)); an ordinal trait with more categories is fit ",
+         n2, " value(s)); an ordinal trait with more categories is fit ",
          "alone with model_threshold()")
-  y2 <- as.double(as.character(y2raw[keep]) == vals2[2])
+  oc2 <- ordena_categorias(y2raw[keep], traits[2], "model_threshold()")
+  vals2 <- oc2$categorias
+  y2 <- as.double(oc2$codes == 2L)
   n <- length(y1)
 
-  fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = TRUE)
+  # o centro das covariaveis padronizadas (monta_x_limiar) cai nos niveis da primeira classe,
+  # que somam o intercepto, ou no intercepto do modo; uma primeira classe que perdeu um nivel
+  # no posto nao o absorve, e o X e refeito so escalado
+  fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = TRUE, missing_code = missing_code)
+  alvo_c <- alvos_conjunto(fx)
+  if (is.null(alvo_c)) {
+    fx <- monta_x_limiar(terms, data, keep, primeiro_cheio = TRUE, centra = FALSE,
+                         missing_code = missing_code)
+    alvo_c <- integer(0)
+  }
+  recusa_categoria_extrema(terms, data, keep, oc2$codes, vals2, "model_threshold()",
+                           paste0("the binary trait '", traits[2], "'"), "")
   X <- fx$X; nb <- X$p
   z <- monta_z_limiar(aleat, data, pedigree, k_inverse, keep)[[1]]
   q <- z$q
@@ -978,6 +1156,10 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
   theta <- stats::setNames(c(G[1, 1], G[1, 2], G[2, 2], R[1, 1], R[1, 2], R[2, 2]),
                            nomes_theta)
 
+  # b dos dois tracos na unidade do dado: o alvo recebe - soma c_j b_j
+  e <- escalas_de(fx$info, X$nomes)
+  b1 <- volta_b_limiar(b1, NULL, e, alvo_c)$loc
+  tt <- volta_b_limiar(tt, NULL, e, alvo_c)$loc
   out_conj <- structure(list(
     traits = traits, trait = paste(traits, collapse = ", "),
     theta = theta,
@@ -992,7 +1174,7 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
                                  stats::setNames(pev_u2, paste0(z$ids, "|", traits[2])))),
                           z$nome),
     nu = stats::setNames(nu, z$ids),
-    mean_quantitative = mean(y1), binary_levels = vals2,
+    mean_quantitative = mean(y1), binary_levels = as.character(vals2),
     design = list(fixed = fx$info,
                   random = list(list(nome = z$nome, column = z$column, ids = z$ids))),
     b_regression = breg, G = G, R = R, Gc = Gc,
@@ -1000,7 +1182,8 @@ ajusta_limiar_conjunto <- function(formula, traits, terms, aleat, data, pedigree
     n_used = n, n_columns = N,
     message = paste0("joint quantitative + binary analysis (Foulley et al. 1983); ",
                      "components GIVEN via start=; genetic parameters are read from ",
-                     "G, not from the reparametrized Gc"),
+                     "G, not from the reparametrized Gc",
+                     if (!is.null(nc <- nota_categorias(oc2, traits[2]))) paste0("; ", nc)),
     metafounders = NULL, gamma = NULL,
     formula = formula, type = "joint",
     seconds = NA_real_
@@ -1068,7 +1251,8 @@ coef.breeding_fit_thr <- function(object, effects = c("components", "fixed"), ..
 #' @param newdata data.frame with the fixed and random columns of the formula, the pen
 #'   column of every `indirect()` term (and, for the joint fit, the quantitative trait)
 #' @param type `"probability"` (default) for the n x m matrix of category
-#'   probabilities (joint fit: the probability of the larger binary value),
+#'   probabilities (joint fit: the probability of the upper binary category, the larger
+#'   value for numbers and the second level for a factor, `fit$binary_levels[2]`),
 #'   `"liability"` for the linear predictor, and for the joint fit `"quantitative"` for
 #'   the expected quantitative trait `x'b + u1`
 #' @param ... unused, kept for the generic
@@ -1156,6 +1340,7 @@ prediz_conjunto <- function(object, newdata, type) {
   if (!q1 %in% names(newdata))
     stop("the joint probability is conditional on the quantitative trait: newdata needs ",
          "a column '", q1, "' (Eqn 15.25)")
+  recusa_nao_numerico(newdata[[q1]], q1)
   lia <- unname(parte_fixa(object$traits[2]) + object$nu[ids] +
                   object$b_regression * (as.double(newdata[[q1]]) - object$mean_quantitative))
   if (type == "liability") return(lia)

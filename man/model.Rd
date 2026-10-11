@@ -28,8 +28,9 @@ model(
 class effect; \code{cov(x)} is a fixed covariate; \code{animal(id)}, \code{maternal(dam)} and
 \code{sire(sire)} are random with relationship, and \code{sire(sire, mgs = "mgs")} is the sire
 and maternal-grandsire model, 1 on the sire and 1/2 on the maternal grandsire of the
-record in the same effect (an unknown grandsire, "0", leaves the sire only; a
-missing value in that column is refused, see below); \code{pe(id)}
+record in the same effect (an unknown grandsire, "0", leaves the sire only, and an
+unknown sire the grandsire only; a missing value in that column is refused, see
+below); \code{pe(id)}
 and \code{random(lote)} are random
 without relationship. \code{group = "nome"} puts two random terms in the SAME covariance
 matrix, with the correlation estimated. The terms of a group index one set of levels,
@@ -72,11 +73,35 @@ because "0" may be a real name: drop those records, or give them their levels,
 before the fit. A missing observation (\code{NA}, \code{NaN}, \code{Inf} or \code{-Inf} in the trait,
 or \code{missing_code}) with its levels and covariates present only drops its record.
 \code{missing_code} is the code of the OBSERVATION only, as \verb{OPTION missing} is in
-BLUPF90: a covariate holding it is fitted as that number without a word (a BLUPF90
-data file with -999 for an unknown age in a \code{cov} column regresses those records on
-an age of -999), and a level column holding it is one more level "-999". Turn those
-cells into \code{NA}, which stops the fit with the column and the first row, and then
-drop or fill those records.
+BLUPF90, where a data file with -999 for an unknown age in a \code{cov} column regresses
+those records on an age of -999. Here a covariate cell equal to \code{missing_code} is
+refused on every row, like \code{NA}, with the term, the count and the first row, when the
+code lies more than 10 robust SDs (the median absolute deviation, scaled to the SD)
+from the median of the other cells of the column, the signature of a code. Closer to
+them it may be a real value (the 0 of a 0/1 covariate under \code{missing_code = 0}, the
+BLUPF90 default), and the fit goes on with a warning that the cells enter as that
+value; WOMBAT likewise stops on a covariable of zero until told whether it is a value
+(\verb{COVZER FIT}) or a missing record (\code{IGN}) (Meyer, WOMBAT manual, 2017, section
+4.10.6.2). A level column holding the code is one more level "-999". Turn those cells
+into \code{NA}, which stops the fit with the column and the first row, and then drop or
+fill those records.
+VALUES THAT LOOK LIKE A CODE. Before the fit, every fitter that reads a numeric trait
+(\code{\link[=model]{model()}}, \code{\link[=model_mt]{model_mt()}}, \code{\link[=model_ar1]{model_ar1()}}, \code{\link[=gibbs]{gibbs()}}, \code{\link[=snp_blup]{snp_blup()}}, the \code{eval_internal}
+family, \code{\link[=model_threshold]{model_threshold()}}, \code{\link[=model_survival]{model_survival()}} and \code{\link[=pegs]{pegs()}}) warns about two patterns
+among the observed records, naming the trait, the count, the first row and the value:
+a common missing-value code (-9, -99, -999, -9999, -99999, 99, 999, 9999, 99999, or
+-123456789, the WOMBAT default) held by two records or more, outside
+the range of the other values and at least 3 robust SDs from their median; and
+records more than 10 robust SDs from the median (not for the survival time, whose
+tail is long by nature, nor for the categories of an ordinal threshold trait, which
+have no absurd value). The same two patterns in a covariate, on the records with
+the trait observed, give a warning that names the covariate. On simulated data, ten
+records at -999, or three records 1e4 above the rest, took the heritability from 0.35
+to 1e-10 without a word before this check. \code{\link[=describe]{describe()}} reports the same findings.
+A NUMBER STAYS A NUMBER: a factor or text column read as a number (the trait, a
+covariate, the time and \verb{entry=} of \code{\link[=model_survival]{model_survival()}}, the quantitative trait of the
+joint threshold mode, the traits of \code{\link[=pegs]{pegs()}}, the \verb{time=} and \verb{entry=} of
+\code{\link[=predict]{predict()}}) is refused with the column, and not read as its codes 1, 2, ...
 \code{indirect(id, pen = "pen")} is the indirect
 (associative) genetic effect of Mrode & Pocrnic (2023, ch. 9): the incidence of a
 record marks the animal's DISTINCT pen mates, and it shares a group with \code{animal()}
@@ -105,8 +130,10 @@ zero, diagonal included, declares a level with no contribution to this term: it
 gets no equation and its records stay in the analysis with zero incidence here,
 the generalized-inverse pattern of the multibreed partial matrices (Mrode &
 Pocrnic, 4th ed., p.243-244). An id absent from K altogether still excludes the
-record, as with an animal missing from the pedigree: a zero row is a declaration,
-an absence is a gap. Two kernel terms need \verb{nome=} to tell their components apart.
+record (an animal missing from the PEDIGREE enters as a founder instead, see
+\code{pedigree}): a zero row is a declaration, an absence is a gap, and when no record
+is left the fit stops with the first id of each side. Two kernel terms need \verb{nome=}
+to tell their components apart.
 The inversion of K is dense, so \verb{K =} is for matrices of moderate size, the size of
 a genotyped set, not of a national pedigree.
 \code{kernel(id, Kinv = Q)} declares the PRECISION instead, \code{Q = K^-1}, and nothing is
@@ -155,13 +182,94 @@ integer keeps the digits that tell it apart from every other number (1234567.5 i
 scientific notation ("1e+05" is what \code{as.character()}, \code{factor()} and \verb{rownames<-}
 give for the double 100000) is a different label, and when the other side holds
 that same number the fit stops with an error rather than dropping the animal's
-records}
+records.
+
+THE IDS OF THE DATA AGAINST THE PEDIGREE follow one rule in every fitter
+(\code{\link[=model]{model()}}, \code{\link[=model_mt]{model_mt()}}, \code{\link[=model_ar1]{model_ar1()}}, \code{\link[=gibbs]{gibbs()}}, \code{\link[=snp_blup]{snp_blup()}}, the
+\code{eval_internal} family, \code{\link[=model_threshold]{model_threshold()}} and \code{\link[=model_survival]{model_survival()}}), and
+\code{\link[=accuracy]{accuracy()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=snp_effects]{snp_effects()}} and \code{\link[=residual_diagnostics]{residual_diagnostics()}} redo it
+from the pedigree given, so one data frame gets one answer everywhere:
+\itemize{
+\item an animal of the data (in any relationship term, on any row, a pen mate of
+\code{indirect()} and a maternal grandsire included) with no line in the pedigree
+enters as a FOUNDER, with unknown parents, and a warning counts them by column and
+names the first. renumf90 numbers every animal with a record the same way; ASReml
+asks for every animal of the data in the pedigree file. When NO id of a column is
+in the pedigree the two use different ids, and the fit stops with the first id of
+each side;
+\item the unknown code \code{0} (or the text \code{"NA"}) in the column of a relationship term is
+an unknown animal, as in BLUPF90, whose renumf90 readme warns that "missing animals
+have code 0": the effect is absent from that record (a level 0 in a BLUPF90 data
+file adds nothing to that effect), and the record stays in the other terms with
+zero incidence in this one. So a record with an unknown dam keeps its direct
+effect, and a message counts those records. The same 0 is absent too in a \code{pe()},
+\code{random()} or \code{kernel()} term that reads the same column (the maternal permanent
+environment of \code{maternal(dam) + pe(dam)}, the \code{pe(id)} of \code{animal(id) + pe(id)}):
+there it is never one shared level of unknown dams. In a column that no
+relationship term reads, 0 stays an ordinary level: \code{pe(dam)} with no
+\code{maternal(dam)} puts every record with dam 0 in one level "0" (give those dams ids
+of their own, or add the relationship term, to avoid it). A term whose every row
+holds 0 stops the fit; in \code{sire(mgs =)} a record with an unknown sire keeps only
+the grandsire contribution, and none when the grandsire is unknown too, and the
+message counts each; in \code{indirect()} every pen mate must be a known animal; and the
+subject column of \code{\link[=model_ar1]{model_ar1()}} and of \code{\link[=model_survival]{model_survival()}} cannot hold it when it is
+the column of a relationship term, since distinct unknown animals would become one
+series or one history. A missing value there (\code{NA}, blank text) is refused like in
+any level column, with the advice to write an unknown parent as 0;
+\item an id with no line that matches a line written another way (spaces, tabs,
+carriage returns or no-break spaces at the ends, upper against lower case, leading
+zeros, a trailing \code{.0}, accents composed against decomposed, latin1 bytes read as
+UTF-8) stops the fit with both spellings and the difference: it is a mismatch,
+not a new animal. The same text in latin1 and in UTF-8 is one id;
+\item a numeric column that gives levels (any id column, and also a class such as a
+numeric contemporary-group or herd code, a nested class, a pen, a maternal
+grandsire or the subject of \code{\link[=model_ar1]{model_ar1()}}), of the data, of the pedigree or of
+\code{genotypes$ids}, holding values at or above 2^53 (the 16- and 17-digit ids of
+electronic ear tags read by \code{read.csv()}) has already lost digits: it is refused,
+with the column and how to read it as text. A covariate is a number and is not
+checked. An \code{integer64} column (\code{data.table::fread()}) is read as its exact
+digits;
+\item the pedigree is PRUNED to the animals of the data (every row, the trait observed or
+not), the genotyped and all their ancestors, the informative set renumf90 extracts
+("genotyped and phenotyped animals + their ancestors traced back") with a
+\code{PED_DEPTH} deep enough to reach every ancestor (its default, 3, keeps three
+generations; 0 loads the whole pedigree), and a message counts the lines left out.
+The pruning is exact for the likelihood and for every breeding value kept. An
+animal left out (no record, no genotype, no recorded descendant: a young candidate)
+has NO breeding value in the fit: give it a row of the data with the trait missing,
+its other columns filled, to keep it. A national pedigree far larger than the data
+no longer reaches the factorization;
+\item when the records form blocks with no genetic link between them (no relationship
+through the pedigree nor the genotypes) and the fixed effects give a block levels
+of its own, a warning says so: any genetic difference between the blocks is
+absorbed by those effects, and the breeding values compare only within a block
+(Fernando, Gianola and Grossman 1983; Kennedy and Trus 1993). \code{\link[=solutions]{solutions()}} then
+has a \code{block} column, and \code{\link[=describe]{describe()}} counts the blocks before the fit
+}}
 
 \item{genotypes}{list with \code{ids} and \code{m} for single-step: animals x markers coded 0/1/2,
 as a double, integer or raw matrix. NA (5 in a raw matrix, the BLUPF90 code) is
 imputed with the marker mean, never converted to zero. The matrix is read where it is,
 without a copy, so a raw one costs 1 byte per genotype (\code{\link[=read_blupf90_snp]{read_blupf90_snp()}} and
-\code{read_plink(storage = "raw")} return it)}
+\code{read_plink(storage = "raw")} return it). Every function that takes \verb{genotypes =}
+checks the same things and refuses, naming the animals: genotypes without animals or
+without markers (pass \code{genotypes = NULL} for a fit on the pedigree alone), a missing
+or repeated id in \code{ids} (one genotype per animal), rownames of \code{m} that contradict
+\code{ids} (the genotype goes to the animal at its position in \code{ids}), and, everywhere a
+missing genotype is imputed by the mean, an animal with a call rate below 0.90: such
+a row is mostly marker means and looks like an average, accurately known animal. The
+0.90 is the \code{callrateAnim} default of preGSf90, but the rate is counted over the
+markers that vary (the ones that enter G), where preGSf90 counts every SNP: on a
+monomorphic marker the mean imputes the genotype every animal carries. The output of
+\code{\link[=qc_genotypes]{qc_genotypes()}} always passes this check; \code{options(BreedingR.min_call_rate_animal =)}
+moves the line, and 0 turns it off. With a pedigree, a genotyped parent and offspring
+with opposite homozygotes on more than 1\% of the markers called in both (the
+exclusion test of preGSf90, \verb{exclusion_threshold 1}) are a warning naming the pairs,
+and the fit goes on with the data as given; see \code{\link[=parentage_check]{parentage_check()}}, which also says
+how to turn the check off and why sex-chromosome markers must be left out of that
+test. An optional element \code{genotypes$sex_markers} (column indices, names or one
+logical per column, as \code{\link[=qc_genotypes]{qc_genotypes()}} returns it when given \verb{sex_markers =}) names
+them; they stay in G}
 
 \item{blend}{weight of A22 in the adjusted G, the usual 0.05}
 
@@ -179,8 +287,9 @@ result message says it is an approximation and with which k. Mutually exclusive
 with \code{apy_core}}
 
 \item{missing_code}{missing-value code for observations, for example -999. It applies
-to the trait only: in a covariate or a level column the code is an ordinary value
-(see the missing-value rule under \code{formula})}
+to the trait only: in a level column the code is an ordinary level, and in a
+covariate a cell at the code is refused when it lies far from the other values and
+warned about otherwise (see the missing-value rule under \code{formula})}
 
 \item{maxiter}{maximum number of iterations of the damped step. The default 300 was
 raised from 100 after a measured case: a direct-indirect model warm-started from
@@ -273,8 +382,15 @@ variance \code{\link[=accuracy]{accuracy()}} uses for a genotyped animal instead
 G*. It carries, one value per row of \code{data} (\code{NA} where the record did not enter),
 the conditional residual \code{residual}, the fitted values \code{fitted} (\verb{X b + Z u}) and
 \code{fitted_fixed} (\verb{X b}) and the leverage \code{leverage}, which \code{\link[=residuals.breeding_fit]{residuals.breeding_fit()}}
-and \code{\link[=residual_diagnostics]{residual_diagnostics()}} read, with \code{missing_code} and \code{weights} as given. The
-object holds
+and \code{\link[=residual_diagnostics]{residual_diagnostics()}} read, with \code{missing_code} and \code{weights} as given. With a
+relationship term it carries \code{pedigree_used}, \code{list(lines, founders, kept)}: the
+lines of the pedigree given, the ids of the data it added as founders and the
+animals kept by the pruning (see \code{pedigree}), which \code{\link[=accuracy]{accuracy()}} and \code{\link[=snp_effects]{snp_effects()}}
+read to rebuild the same pedigree. When the records form blocks whose genetic
+difference the fixed effects absorb it carries \code{blocks},
+\code{list(n, records, absorbed_by, animal)}: the number of blocks, the records of each,
+the fixed terms that give each block its own levels and the block of each animal.
+The object holds
 the components \code{theta} with their \code{se},
 the fixed-effect solutions \code{b} (named \code{term=level}, in the order the columns of X
 entered), \code{ebv} and \code{pev} per covariance group, \code{score}, \code{vcov}, the convergence
@@ -282,8 +398,30 @@ fields (\code{converged}, \code{iters}, \code{reldelta}, and \code{newton_dec}, 
 of the free components at the final point) and \code{message}. PARAMETRIZATION OF \code{b}, and it matters when comparing against
 a book or another program: the model carries an implicit intercept and drops
 linearly dependent columns (listed in \code{dropped_x}; a dropped level has solution
-zero). The columns are taken in the order they entered, over the records that enter
-the fit (with \code{weights}, scaled by the square root of the weight), and a column goes
+zero). COVARIATES ARE STANDARDIZED INSIDE: a \code{cov()} column enters the equations as
+(x - mean) / SD of the used rows, as WOMBAT deviates covariables from their means
+(Meyer, WOMBAT manual, 2017, section 4.8.1.1), and \code{b} comes back in the unit of the
+data, the intercept taking the centre, so it equals the fit of hand-centred data
+back-transformed, and -2logL keeps its value. \code{cov(x, nested = "c")} is centred too
+when \code{c} is also a fixed class of the model (the levels of \code{c}, or through the
+reference level the intercept and the other levels, take the centre). A date, a
+POSIXct moving by minutes or a timestamp in milliseconds is thereby fitted at full
+precision: before, age + 1e9 left the starting theta inadmissible, age + 3e8 gave a
+regression of 5.90 against 0.0102, and age + 1e11 or age x 1e-12 went to
+\code{dropped_x}. When \code{c} is not a fixed class of the model, the nested covariate is only
+scaled, and a warning names it when its values sit more than 1e3 SDs from zero. When
+\code{c} is a fixed class aliased with other fixed effects, so that the rank test drops
+more than one level of \code{c} that has used records (for example, a herd in which \code{c} is
+nested, fitted before \code{c}; a level with no used record is in \code{dropped_x} too, but it
+does not count), the nested covariate is also only scaled, with no warning, and a
+very large offset (around 1e7 SDs from zero) can still make the fit fail as it did
+before (an inadmissible or singular starting theta). Fit \code{c} before the class it is
+nested in, or leave that class out (its columns are already in the span of \code{c}). A
+covariate column with no variation beyond rounding (SD up
+to 100 machine epsilons of its largest value) is left as it is. The columns are
+taken in the order they entered, over the records that enter
+the fit (with \code{weights}, scaled by the square root of the weight), on the
+standardized scale of the covariates, and a column goes
 when its distance to the span of the columns kept before it is below 1e-9 of its norm
 (1e-9 itself when the norm is below 1), so of a dependent set the LAST column goes:
 the last level of a class against the intercept, a level with no used record, a
@@ -306,6 +444,116 @@ differences between levels of the same factor, never on the raw values.
 \description{
 Fit a mixed model by AI-REML
 }
+\section{Structure checks}{
+
+Before fitting, every fitter that estimates components (\code{\link[=model]{model()}}, \code{\link[=model_mt]{model_mt()}},
+\code{\link[=model_ar1]{model_ar1()}}, \code{\link[=gibbs]{gibbs()}}, \code{\link[=model_threshold]{model_threshold()}} with \code{estimate = TRUE} and
+\code{\link[=model_survival]{model_survival()}} without \verb{sigma2 =}) reads the design and STOPS on the ones the data
+cannot identify, naming the term, the levels and what to do:
+\itemize{
+\item a random term whose levels are a function of the levels of a fixed class effect (each
+level of the fixed effect holds the records of a single level of the term: one sire
+per contemporary group, a fixed litter with \code{maternal(dam)} or \code{pe(dam)} whenever each
+litter has one dam, whatever the number of litters per dam, \code{cg = id}), a random term
+whose records all carry the same single level (the intercept absorbs it; a \code{pe()} or
+\code{random()} term with one known level and the other records on the unknown 0 of a
+relationship column is not absorbed and only warns, see below), or a term whose
+records all carry the unknown code 0 in its column. The incidence of the term is then
+a sum of columns of X (or zero), the fixed effect absorbs the whole term and its
+variance does not enter the REML likelihood. ASReml lists a random term confounded
+with a fixed one among the causes of a singular average information and stops unless
+\code{!AISINGULARITIES} is given.
+The unknown 0 of a relationship column has no incidence, so a level of the fixed effect
+that holds only unknown parents does not count against the nesting. In \code{\link[=model_mt]{model_mt()}}
+the check reads the rows with some trait observed and then the rows of each trait,
+since the fixed effects are per trait. A \code{kernel(fixed = )} term, whose variance is
+given, is not checked. The check takes one fixed effect at a time; a confounding by a
+combination of fixed effects is left to the SINGULAR verdict of the fit (see \code{\link[=h2]{h2()}}
+for how the extractors read it). \code{\link[=model_survival]{model_survival()}} with \code{lambda} given warns instead:
+the first level of the fixed effect is held at the baseline, and the single level of
+the term in it is all that informs the variance;
+\item \code{indirect()} with every pen of one animal (the indirect incidence is all zero), with
+all the records in one pen, or with the pen (or anything finer) as a fixed effect: the
+fixed part absorbs the sum of each pen, and what is left of the indirect incidence of
+a record is minus its own indirect effect, which the direct effect of the same animal
+cannot be told apart from (Cantet and Cappa 2008, J. Anim. Breed. Genet. 125:371;
+Bijma 2010, Genetics 186:1013). The message suggests the pen as \code{random(pen)}, with
+the caveat of Cantet and Cappa (2008) that a random pen does not always remove the
+collinearity: what separates the two effects is families spread over several pens.
+With \code{dilution > 0} and pens of different sizes only the dilution weights separate the
+two, a very weak identification, and that is a warning.
+}
+
+At given components (\code{maxiter = 0} with \code{n_em = 0} here, \code{maxiter = 0} in \code{\link[=model_mt]{model_mt()}}
+and \code{\link[=model_ar1]{model_ar1()}}, \verb{theta_fixed =} in \code{\link[=gibbs]{gibbs()}}, \code{estimate = FALSE} in
+\code{\link[=model_threshold]{model_threshold()}}, \verb{sigma2 =} in \code{\link[=model_survival]{model_survival()}}, and \code{\link[=snp_blup]{snp_blup()}}) every design
+above is a warning instead: the BLUP exists, and the data say nothing about the term
+beyond the components given (with every pen of one animal, the indirect breeding values
+come only from their covariance with the direct ones). \code{maxiter = 0} with \code{n_em > 0}
+moves the start by EM, which estimates, so it stops.
+
+The fit goes on with a warning, also written in \code{message}, when:
+\itemize{
+\item an \code{animal()} term has repeated records of some animal and no \code{pe()}, \code{random()} or
+\code{kernel()} with a diagonal K and an estimated variance reads the same column, or a
+column that groups the records the same way
+(nor, in \code{\link[=model_ar1]{model_ar1()}}, is the animal the \code{subject}): the permanent-environment
+covariance between records of the same animal goes into the additive variance and
+inflates h2, by more the larger the share of repeated records. The warning counts the repeated animals and their
+records, and the advice is the one of \code{\link[=suggest_model]{suggest_model()}}; when less than 1\% of the
+records repeat an animal it says that h2 moves little and asks to check for
+duplicated rows;
+\item fewer than 10 pens of \code{indirect()} hold more than one animal: the indirect components
+rest on that many pen sums (Bijma 2010 puts the detection of indirect effects at
+about 250 to 500 groups even with an optimum design);
+\item the pens of \code{indirect()} split by the levels of a fixed class effect in a way chance
+does not explain, which is how pens merged by a reused label look: when pen numbers
+restart within each batch, pens that never met are merged into one and every record
+gets mates it never had; give each pen a unique label, such as \code{paste(batch, pen)}.
+The test: at least 90\% of the pens that hold more than one level split into groups of
+two or more animals per level, and that count exceeds what animals placed in the pens
+regardless of the effect would give (each level at its overall proportion; the exact
+multinomial chance of a pen with no group of one) with P < 0.0001. Only a fixed
+effect that can be the batch is read: no animal has records in two of its levels (the
+period or age class of each record is not read), and it has three or more levels
+among the pens with mates, or another fixed class effect with more levels is nested in
+it (the contemporary group within the batch). A two-level effect of the animal, such
+as sex, is not read (unless a fixed class effect is nested in it), whether it is drawn
+at random within the pens or balanced by design in every pen. The data cannot tell
+merged pens from pens that truly mix levels when the groups are large, or when two
+batches have nothing nested in them: two batches of merged pens then look like pens
+balanced for a two-level effect and are not read. Measured on simulated data
+(\code{validation/structure_cases.R}, 50 labels, every animal present): merged pens of 2 or
+3 over three or more batches are detected, also when only a contemporary group nested
+in the batch is in the formula (there from 30 labels); merged pens of 5 over three or
+more batches are detected only through a contemporary group nested in the batch; over
+two batches merged pens of 2 or 3 are detected only through such a group (pens of 3
+from about 45 labels), and merged pens of 5 are not, since they look the same as a
+contemporary group that includes sex in pens that mix the sexes. Animals missing from
+the data leave groups of one: with 5\% of the animals missing merged pens of 2 are not
+detected, and with 20\% neither are merged pens of 3. An effect of three or more levels
+is read only when its levels meet in the mixed pens the way merged batches do (most
+pairs of levels share some pen): a contemporary group defined within sex in pens that
+mix the sexes (the sexes of one batch meet, never two batches) and a birth-week group
+in pens filled in birth order (neighbouring weeks meet) are not read. An effect of the
+animal with three or more levels balanced in every pen, with two or more animals of
+each level per pen (three sex classes in equal numbers in pens of 6), does look like
+merged pens and is reported (pens of 3 with one animal per class are not).
+\code{options(BreedingR.warn_pen_labels = FALSE)} silences this check;
+\item a \code{pe()} or \code{random()} term has fewer than 5 known levels among the records: its
+variance comes from that many levels and is barely determined, and labels that number
+something inside another unit (the parity within each dam used as the litter) merge
+units. A term with one known level whose other records carry the unknown 0 of a
+relationship term that reads the same column (\code{maternal(dam) + pe(dam)} with a single
+known dam) warns too, counting the records of that level: the unknown 0 has no
+incidence, so the intercept does not absorb the term.
+}
+
+These checks read the rows with an observed response that enter the analysis (a row
+whose \code{kernel()} level has no line in K leaves it), and, for \code{indirect()}, the pen
+membership of every row, as the incidence does.
+}
+
 \references{
 Patterson, H.D. & Thompson, R. (1971). Recovery of inter-block
 information when block sizes are unequal. Biometrika 58:545-554.
@@ -325,4 +573,17 @@ inverse of the genomic relationship matrix. Journal of Dairy Science 97:3943-395
 
 Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
 genetic effects and group size. Genetics 186:1029-1031.
+
+Fernando, R.L., Gianola, D. & Grossman, M. (1983). Identifying all connected subsets
+in a two-way classification without interaction. Journal of Dairy Science
+66:1399-1402.
+
+Kennedy, B.W. & Trus, D. (1993). Considerations on genetic connectedness between
+management units under an animal model. Journal of Animal Science 71:2341-2352.
+
+Misztal, I. et al. The BLUPF90 family of programs, readme of renumf90 (PED_DEPTH:
+the genotyped and phenotyped animals and their ancestors, default 3, 0 for the whole
+pedigree; Warnings: missing animals have code 0).
+University of Georgia,
+\url{https://nce.ads.uga.edu/wiki/doku.php?id=readme.renumf90}
 }

@@ -12,9 +12,9 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 set.seed(2026)
 ```
 
-Fifty-eight of the seventy-three exported functions, exercised in the order of a real
-workflow, on data simulated in the document itself. The fifteen left out (the inference
-helpers `se_function()` and `profile_theta()`, `qc_phenotypes()`,
+Fifty-eight of the seventy-four exported functions, exercised in the order of a real
+workflow, on data simulated in the document itself. The sixteen left out (the inference
+helpers `se_function()` and `profile_theta()`, `qc_phenotypes()`, `parentage_check()`,
 `competition_strength()`, `h_inverse()`, `read_blupf90_snp()`, `estimate_gamma()`,
 `dominance_inverse()`, `g_epistasis_ad()`, `g_epistasis_dd()`, `g_epistasis_order()`,
 `residual_diagnostics()`, `mcmc_diagnostics()`, and the `_mt`/`_ar1` twins of
@@ -112,11 +112,14 @@ litter or batch; a missing-value code leaves the likelihood via `missing_code=`:
 d3 <- s$data[rep(1:nrow(s$data), each = 2), ]
 d3$y <- d3$y + rnorm(nrow(d3), 0, 0.5)
 d3$y[1] <- -999
-d3$lot <- sample(c("l1", "l2", "l3"), nrow(d3), TRUE)
+d3$lot <- sample(sprintf("lot%02d", 1:20), nrow(d3), TRUE)
 f4 <- model(y ~ cg + random(lot) + animal(id) + pe(id), d3, s$pedigree,
             missing_code = -999)
 round(f4$theta, 3)
 ```
+
+A `random()` with fewer than five levels warns that its variance is barely determined;
+three lots, or a litter numbered by parity, would.
 
 The full maternal model of Mrode and Pocrnic (2023, Eqn 8.1): direct and maternal genetic share
 ONE covariance matrix via `group=`, and there is ONE permanent environment, the dam's,
@@ -257,12 +260,13 @@ writeLines(sprintf("1 SNP%d 0 %d A B", 1:2, 1:2), paste0(pref, ".bim"))
 read_plink(pref)$m
 ```
 
-`qc_genotypes()` filters call rate, MAF and (optionally) HWE, and reports what each
-filter removed: silent filtering is how panels lose the markers that mattered.
+`qc_genotypes()` filters animals and markers by call rate, markers by MAF and
+(optionally) HWE, and reports what each filter removed: silent filtering is how panels
+lose the markers that mattered.
 
 ```{r}
-q <- qc_genotypes(s$genotypes$m, min_call_rate = 0.9, min_maf = 0.05)
-c(kept = ncol(q$m), by_call = q$n_call, by_maf = q$n_maf)
+q <- qc_genotypes(s$genotypes, min_call_rate = 0.9, min_maf = 0.05)
+c(animals = length(q$ids), kept = ncol(q$m), by_call = q$n_call, by_maf = q$n_maf)
 ```
 
 The APY core can be chosen by rule: `apy_core_select()` counts the eigenvalues of G that
@@ -347,7 +351,9 @@ head(ebv(fmt, "animal", trait = "y2"), 3)
 
 ## Step 7: longitudinal data with a serially correlated residual
 
-`model_ar1()` needs `subject=` and `time=`; with continuous time it is CAR(1). The
+`model_ar1()` needs `subject=` and `time=`. When every gap between consecutive records
+of a subject is a whole number of one step (days here), `rho` is the correlation per
+step, `far$time_step`; with continuous time it is CAR(1), with `rho` in [0, 1). The
 component `rho(residual)` is the reason this fitter exists:
 
 ```{r}
@@ -479,6 +485,12 @@ dk$y <- 10 + s$tbv[dk$id] + dv[dk$id] + rnorm(nrow(dk), 0, sqrt(0.6))
 fd <- model(y ~ cg + animal(id) + kernel(id, K = D), dk, s$pedigree)
 round(fd$theta, 3)                          # planted: 0.3 kernel, 0.6 residual
 ```
+
+The fit warns that the animals have two records and no `pe(id)`. Here the simulation
+planted no permanent environment, so the covariance between the records of an animal
+that is not additive IS the dominance deviation, and `kernel(id, K = D)` takes it. With
+real data the two compete for it: add `pe(id)`, and dominance and permanent environment
+are then told apart only by the full-sib covariances in D.
 
 The genomic versions build K from markers: `g_matrix()` (raw VanRaden G, the book's:
 no blend, no A22 adjustment), `g_dominance()` (Vitezica's genomic D), `g_epistasis()`

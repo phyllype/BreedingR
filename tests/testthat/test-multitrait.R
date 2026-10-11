@@ -10,6 +10,12 @@
 #   3. two INDEPENDENT simulated traits must return correlations near zero and the
 #      variances of the univariate fits.
 
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 simula_bi <- function(n = 220, seed = 5, G0 = matrix(c(.5, .25, .25, .4), 2, 2),
                       R0 = matrix(c(.6, .15, .15, .8), 2, 2)) {
   set.seed(seed)
@@ -175,7 +181,9 @@ test_that("multi EBV and PEV match the dense MME assembled and solved by R", {
   d <- data.frame(id = rep(id, 2),
                   p1 = rep(a1, 2) + rnorm(2 * nA, 0, 0.7),
                   p2 = rep(a2, 2) + rnorm(2 * nA, 0, 0.8), stringsAsFactors = FALSE)
-  f <- model_mt(cbind(p1, p2) ~ animal(id), d, ped)
+  # dois registros por animal sem pe(): o aviso de repeticao sai, e o portao segue
+  expect_warning(f <- model_mt(cbind(p1, p2) ~ animal(id), d, ped),
+                       "have more than one record", class = "breedingr_estrutura")
   th <- f$theta
   cg12 <- th[[grep("^cov\\(animal@", names(th), value = TRUE)[1]]]
   cr12 <- th[[grep("^cov\\(res@", names(th), value = TRUE)[1]]]
@@ -233,9 +241,11 @@ test_that("single step in the multi: blend 1 forces H equal to A in the whole fi
                   p2 = rep(a2, 2) + rnorm(2 * nA, 0, 0.8), stringsAsFactors = FALSE)
   gids <- id[5:16]
   m <- matrix(sample(0:2, length(gids) * 40, TRUE), length(gids), 40)
-  f0 <- model_mt(cbind(p1, p2) ~ animal(id), d, ped)
-  f1 <- model_mt(cbind(p1, p2) ~ animal(id), d, ped,
-                   genotypes = list(ids = gids, m = m), blend = 1)
+  expect_warning(f0 <- model_mt(cbind(p1, p2) ~ animal(id), d, ped),
+                       "have more than one record", class = "breedingr_estrutura")
+  expect_warning(f1 <- model_mt(cbind(p1, p2) ~ animal(id), d, ped,
+                                genotypes = list(ids = gids, m = m), blend = 1),
+                       "have more than one record", class = "breedingr_estrutura")
   expect_equal(f1$neg2logl, f0$neg2logl, tolerance = 1e-8)
   expect_equal(f1$theta, f0$theta, tolerance = 1e-6)
 })
@@ -256,9 +266,12 @@ test_that("APY in the multi with core = all reproduces the exact single step ide
   den <- function(h) { M <- matrix(0, h$n, h$n); M[cbind(h$i, h$j)] <- h$x; M[cbind(h$j, h$i)] <- h$x; M }
   expect_lt(max(abs(den(h_inverse(ped, list(ids = gids, m = m), apy_core = gids)) -
                       den(h_inverse(ped, list(ids = gids, m = m))))), 1e-12)
-  fe <- model_mt(cbind(p1, p2) ~ animal(id), d, ped, genotypes = list(ids = gids, m = m))
-  fa <- model_mt(cbind(p1, p2) ~ animal(id), d, ped, genotypes = list(ids = gids, m = m),
-                   apy_core = gids)
+  expect_warning(fe <- model_mt(cbind(p1, p2) ~ animal(id), d, ped,
+                                genotypes = list(ids = gids, m = m)),
+                       "have more than one record", class = "breedingr_estrutura")
+  expect_warning(fa <- model_mt(cbind(p1, p2) ~ animal(id), d, ped,
+                                genotypes = list(ids = gids, m = m), apy_core = gids),
+                       "have more than one record", class = "breedingr_estrutura")
   expect_equal(fa$neg2logl, fe$neg2logl, tolerance = 1e-8)
   # the genetic block walks through r = 1 and three components rest at a covariance
   # boundary, on a flat ridge: 14 certified random starts within 4e-7 -2logL units of the
@@ -269,3 +282,5 @@ test_that("APY in the multi with core = all reproduces the exact single step ide
   # resolution of the ridge
   expect_equal(fa$theta, fe$theta, tolerance = 2e-3)
 })
+
+options(op_parentesco)

@@ -10,7 +10,13 @@ ebv(fit, group = NULL, trait = NULL)
 \item{fit}{result of model(), model_mt(), model_ar1(), model_threshold(),
 model_survival() or snp_blup()}
 
-\item{group}{covariance group; the first one if omitted}
+\item{group}{covariance group; by default the group of the direct genetic term: the
+first pedigree or genomic term that is not \code{maternal()} or \code{indirect()}, else the first
+\code{kernel()} with an estimated variance over the animals (most of its levels are
+animals of the pedigree, or there is no pedigree term), else the first \code{maternal()}
+term, else the first other \code{kernel()} with an estimated variance, else the first
+group; the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}}, \code{\link[=h2]{h2()}} and
+\code{\link[=h2_curve]{h2_curve()}}}
 
 \item{trait}{multi-trait only: which trait to slice out; all of them if omitted}
 }

@@ -76,8 +76,11 @@ test_that("gibbs(): kernel(fixed =) prende o componente e amostra o resto", {
   niv <- unique(z$d$id)
   V <- diag(runif(length(niv), 0.5, 1.5)); dimnames(V) <- list(niv, niv)
   set.seed(2)
-  g <- gibbs(y ~ cg + animal(id) + kernel(id, K = V, fixed = 0.3), z$d, z$ped,
-             n_iter = 80L, burnin = 5L, thin = 1L, verbose = FALSE)
+  # fixture_gk() tem varios registros por animal sem pe(): o kernel(fixed =) nao estima
+  # nada, e o aviso de repeticao sai
+  expect_warning(g <- gibbs(y ~ cg + animal(id) + kernel(id, K = V, fixed = 0.3), z$d, z$ped,
+                            n_iter = 80L, burnin = 5L, thin = 1L, verbose = FALSE),
+                 "have more than one record", class = "breedingr_estrutura")
   k <- grep("^var\\(kernel", colnames(g$samples))
   expect_true(all(g$samples[, k] == 0.3))
   expect_gt(stats::sd(g$samples[, "var(animal)"]), 0)
@@ -90,8 +93,9 @@ test_that("gibbs(): prior= muda o que diz mudar, e recusa o que nao cabe", {
   z <- fixture_gk()
   corre <- function(pr) {
     set.seed(4)
-    gibbs(y ~ cg + animal(id), z$d, z$ped, n_iter = 1500L, burnin = 200L, thin = 1L,
-          prior = pr, verbose = FALSE)
+    com_aviso(gibbs(y ~ cg + animal(id), z$d, z$ped, n_iter = 1500L, burnin = 200L,
+                         thin = 1L, prior = pr, verbose = FALSE),
+                   "have more than one record", class = "breedingr_estrutura")
   }
   gj <- corre("jeffreys"); gf <- corre("flat")
   # a plana na variancia tem cauda direita mais pesada: media a posteriori maior

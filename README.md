@@ -145,16 +145,16 @@ Relationships and genomics are arguments, not different programs.
 And around the fit: `solutions()`, `h2()`, `t2()`, `ebv()`, `accuracy()`, `rg()`,
 `h2_curve()`, `h2_observed()`,
 `h2_liability()`, `selection_index()`, `rank_drift()`, `profile_theta()`, `se_function()`,
-`qc_genotypes()`, `qc_phenotypes()`, `read_plink()`, `describe()`, `thi()`, `heat_load()`,
-`fst()`, `roh()`, `simulate_breeding()`, `mc_study()`, `suggest_model()`,
-`benchmark_fit()`, `residual_diagnostics()`, `mcmc_diagnostics()`, `ess()`, `geweke_z()`,
-`rhat()`.
+`qc_genotypes()`, `parentage_check()`, `qc_phenotypes()`, `read_plink()`, `describe()`,
+`thi()`, `heat_load()`, `fst()`, `roh()`, `simulate_breeding()`, `mc_study()`,
+`suggest_model()`, `benchmark_fit()`, `residual_diagnostics()`, `mcmc_diagnostics()`,
+`ess()`, `geweke_z()`, `rhat()`.
 
 **Where to read next.** Start with *Your first evaluation*, which goes from two files on
 disk to breeding values you can act on, and assumes nothing about this package. After
 that: *Theory and practice* walks a full evaluation in order, explaining each matrix, each
 algorithm and each iteration alongside the code that runs it; *Hands-on* works through 58
-of the 73 exported functions, step by step; *Contest models* derives the
+of the 74 exported functions, step by step; *Contest models* derives the
 competitive-ability estimators from the group multinomial, one identity at a time.
 [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface.
 
@@ -169,12 +169,11 @@ s <- simulate_breeding(n_founders = 60, n_generations = 3,
                        n_markers = 500, seed = 1)      # pedigree + phenotypes + genotypes
 
 q  <- qc_phenotypes(s$data, "y", classes = "cg")        # flag, count, never drop silently
-g  <- qc_genotypes(s$genotypes$m, min_maf = 0.01)       # call rate, MAF, HWE, with counts
+g  <- qc_genotypes(s$genotypes, min_maf = 0.01)         # animals and markers, call rate, MAF
 
-fit <- model(y ~ cg + animal(id), q$data, s$pedigree,
-             genotypes = list(ids = s$genotypes$ids, m = g$m))
+fit <- model(y ~ cg + animal(id), q$data, s$pedigree, genotypes = g)
 fit                                # components, SEs, share of the phenotypic variance
-h2(fit)                            # the same ratio as the var(animal) share
+h2(fit)                            # the var(animal) share; 4 var(sire) / Vp in a sire model
 head(solutions(fit, s$pedigree))   # id, ebv, se, acc, sorted by breeding value
 accuracy(fit, s$pedigree)[1:5]     # prior 1+F, G* diagonal if genotyped, K[i,i] for kernel(K=), the fit's prior for kernel(Kinv=)
 cor(ebv(fit)[names(s$tbv)], s$tbv) # against the simulator's own truth
@@ -198,10 +197,23 @@ fill of the pedigree can add to it.
 `qc_phenotypes()` marks the missing code, turns outliers beyond a Tukey (1977) fence into
 missing values, and reports class levels too small to estimate. It flags rather than
 deletes: removing a row would reshape contemporary groups and pen compositions without
-saying so. `qc_genotypes()` filters markers by call rate, minor allele frequency and
-Hardy-Weinberg equilibrium, and reports how many each filter removed. `describe()` shows
-the data before a model touches it, and `suggest_model()` reads its shape and names the
-terms it calls for.
+saying so. `qc_genotypes()` filters animals and markers by call rate (worst first, in
+passes, so what it keeps passes every fitter), markers by minor allele frequency and
+Hardy-Weinberg equilibrium, and, with `pedigree =`, the offspring whose genotype
+contradicts a genotyped parent; it reports what each filter removed. `parentage_check()`
+lists the genotyped parent-offspring pairs with their opposite homozygotes. Every function
+that takes `genotypes =` refuses a repeated or missing id and rownames that contradict the
+ids. The fitters and the functions that build G from the genotypes also refuse an animal
+below a 0.90 call rate, since its missing markers would be imputed by the mean. The
+single-step fitters warn when a genotyped pair contradicts the pedigree, leaving out the
+markers named in `genotypes$sex_markers`. Every fitter also reads the structure of the
+design before it fits: a random term nested in a fixed effect, `indirect()` without pen
+mates or with the pen as a fixed effect stop with what to do, and repeated records
+without `pe()`, few pens and pen numbers reused across batches are a warning (see
+"Structure checks" in `?model`). `describe()` shows the data before a model touches it,
+and `suggest_model()` reads its shape and names the terms it calls for. Before a fit, a
+missing-value code or an absurd value in the trait or a covariate is named with its first
+row, and covariates such as dates or timestamps are standardized internally.
 
 Only the observation may be missing. Some columns give a level: a class, the id of a
 random or relationship term, a nested class, the maternal grandsire, the pen of
@@ -214,10 +226,15 @@ and only the other values stop the fit. A covariate of
 row, including rows whose trait is missing, and stops with the term, the column, the count
 and the first row, so missing rows are never grouped into one shared level and a covariate
 never leaves the model in silence. `qc_phenotypes(classes =)` counts the missing labels
-before the fit, in `missing_labels`. `missing_code` marks the trait only, as
-`OPTION missing` does in BLUPF90: a covariate holding -999 (an unknown age in a BLUPF90
-data file) is fitted as the number -999, and a BLUPF90 class code 0 is one level "0" here.
-Turn those cells into `NA` before the fit, and the fit names them.
+before the fit, in `missing_labels`. `missing_code` marks the trait, as `OPTION missing`
+does in BLUPF90. A covariate cell equal to the code (an unknown age of -999 in a BLUPF90
+data file) is refused on every row, like `NA`, when it lies more than 10 robust SDs from
+the other cells, and warned about otherwise; a BLUPF90 class code 0 is one level "0" here.
+Turn those cells into `NA` before the fit, and the fit names them. The exception is the
+column of a relationship term (`animal()`, `maternal()`, `sire()`, `rn()`, the grandsire
+of `sire(mgs =)`) and a `pe()`, `random()` or `kernel()` on that same column: there 0 is
+an unknown animal, as in a BLUPF90 pedigree, and the record stays in the analysis with
+that effect absent. `pe(dam)` with no `maternal(dam)` reads 0 as one ordinary level.
 
 ## What it fits
 
@@ -296,6 +313,7 @@ model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped);  rg(fit, "animal", "t1", "t2"
 # AR(1)/CAR(1) residual for longitudinal data; cbind() on the left fits the
 # multi-trait version with the separable residual Gamma (x) R0
 model_ar1(y ~ cg + animal(id), d, ped, subject = "id", time = "day")
+# rho is per step of the time grid (fit$time_step); a continuous time is CAR(1), rho in [0, 1)
 
 # the Bayesian half: block Gibbs with conjugate updates. prior = "jeffreys" (the
 # default), "flat", "uniform_sd" (Gelman, 2006) or a proper c(df =, scale =);
@@ -354,7 +372,7 @@ snp_blup(y ~ cg + animal(id), d, ped, genotypes = list(ids = gids, m = M),
          theta = c(0.4, 0.6))
 
 # PLINK .bed/.raw straight into genotypes=, with QC that reports what it removed
-g <- qc_genotypes(read_plink("chip")$m, min_maf = 0.01, hwe_p = 1e-7)
+g <- qc_genotypes(read_plink("chip"), min_maf = 0.01, hwe_p = 1e-7, pedigree = ped)
 ```
 
 Around the fit: `pedigree()` (topological order plus Meuwissen-Luo inbreeding),
@@ -387,7 +405,7 @@ the data and names the term each shape asks for (and the trap it guards against)
 claims go through `benchmark_fit()`, which replicates at least three times and checks
 the runs returned identical numbers: the package's own timing rule as a tool.
 
-The full map of the 73 functions, grouped by kinship, is in
+The full map of the 74 functions, grouped by kinship, is in
 [FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 58 of them,
 step by step on data simulated in the document itself, is the vignette
 `vignettes/hands-on.Rmd` (every chunk runs at build time, so it cannot rot). The theory
@@ -435,7 +453,9 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | multibreed partial matrices | Examples 14.1 and 14.2: the printed partial A's and solutions, and the identity model 14.8 == variance-weighted 14.3 |
 | survival model | Example 16.1: the 23 published solutions, RRS and S(40); a censoring gate where treating censored as observed provably distorts the fit |
 | survival, time-dependent covariates | a record split into two pieces with the same covariates changes nothing; the joint -2logL equals a Weibull likelihood written from scratch, with a late entry |
-| h2() and the share column | the denominators rebuilt by hand: Willham's for direct-maternal, `rho(residual)` kept out in AR(1), the phenotypic variance of Bijma et al. (2007) with `indirect()` |
+| categorical and survival data structure | text categories refused with the order sorting would give, and an unordered factor in alphabetical order warned; numeric text, and a factor or `ordered()` factor in liability order, give the numeric-code fit (thresholds and EBV to 1e-12), and the probit chain of a factor is the chain of its 0/1 column draw for draw; a 0/1 censoring factor in either level order equals the integer column in `model_survival()`, `residuals()` and `survival_split()`; a fixed level all in an end category, or with no failure, refused by name with its count, while a level all in a middle category and a one-record category fit; with every record censored and `rho`, `lambda`, `sigma2` given, the frailties equal the penalized mode written in R (`tests/testthat/test-estrutura-e5.R`, 340 simulated records; refusal and identity gates, nothing at scale or on real data) |
+| h2() and the share column | the denominators rebuilt by hand: Willham's for direct-maternal, `rho(residual)` kept out in AR(1), the phenotypic variance of Bijma et al. (2007) with `indirect()`; 4 var(sire) in a sire model and f var(sire) / 4 of the known maternal grandsires with `sire(mgs =)`; the residual at the harmonic mean weight; `animal(id)` and `kernel(id, K = A)`, and metafounders and `kernel(id, K = A_Gamma)`, give the same h2 on the same likelihood; NA with a warning when the SINGULAR verdict holds the numerator (`tests/testthat/test-estrutura-e6.R`, simulated data at given components) |
+| structure of the data before the fit | a random term nested in a fixed effect, a single level, `indirect()` without mates, in one pen or with a fixed pen stop in every fitter that estimates and warn at given components; a relationship term whose records all carry the unknown code 0 stops in every fitter, in the ids rule; repeated records without `pe()`, few pens, few levels and reused pen labels warn, with the reused-label rates measured on correct and on merged data (`tests/testthat/test-estrutura-e6.R`, `validation/structure_cases.R`; simulated data only) |
 | two terms in one group, several traits | the bivariate with between-trait covariances at zero equals the sum of the univariates, by component NAME, to 1.7e-10 |
 | multi-trait, a level missing for one trait | sparse and dense V routes agree to 7.5e-12 after the per-trait drop; the components land where the single-trait fits land |
 | multi-trait AR(1) breeding values | EBV and PEV of the dense mixed-model equations built in R from the raw data |
@@ -458,10 +478,12 @@ Nothing here is checked against itself. Each piece answers to an independent pat
 | `snp_blup()`, any structure | the dense single-step solve built in R with `H^-1` from `G*` without the affine step: breeding values and marker effects to 1e-6 of their SD with one animal term, direct-maternal in one group, direct and maternal in separate groups, a reaction norm and direct-indirect, the latter also with `dilution = 0.7` in pens of 1 to 7, with mates without a phenotype and a repeated record; `rpg` near 1 falls back to the pedigree BLUP; a planted QTL comes out on top |
 | genotype storage | double, integer and raw matrices give the same G, H^-1 (exact and APY), APY core (both routes), genomic F and D, Gamma (pseudo-EM, GLS, ML), fit, backsolved SNP effects (exact and APY) and ssSNPBLUP, bit for bit, with missing values in the matrix; `read_blupf90_snp()` returns the matrix that was written, subsets by id; F, D and G are also checked past one band of 1024 animals and two blocks of 2048 markers, D against the previous version and G against R's tcrossprod, through the tiles and dsyrk |
 | `survival_split()` | the subject and change tables reproduce hand-built elementary records exactly, with the same fit; `S(t \| e) S(e) = S(t)` |
-| residuals, leverage, `residual_diagnostics()` | the dense `R P y`, GLS fixed part and `diag(R P R)` in plain R for `model()` (weights, pe, rn, mgs, indirect, kernel, single step), `model_ar1()` (rho of either sign) and `model_mt()`; the closed-form Cook distance against the refit without the record; `Var(u^) = s2 H - PEV` for genotyped and non-genotyped animals; type I of the bootstrap p measured in five simulated layouts of 600 to 2400 records, and of the pivotal p of a `gibbs()` chain in 640 records (`validation/residual_diagnostics_calibration.R`). Not validated on real data |
+| residuals, leverage, `residual_diagnostics()` | the dense `R P y`, GLS fixed part and `diag(R P R)` in plain R for `model()` (weights, pe, rn, mgs, indirect, kernel, single step), `model_ar1()` (rho of either sign) and `model_mt()`; the closed-form Cook distance against the refit without the record; `Var(u^) = s2 H - PEV` for genotyped and non-genotyped animals; type I of the bootstrap p measured in five simulated layouts of 600 to 2400 records, and of the pivotal p of a `gibbs()` chain in 640 records (the probit with the contemporary group random) (`validation/residual_diagnostics_calibration.R`). Not validated on real data |
 | fixed-effect design (sparse) | the sparse rank keeps the columns of the dense Gram-Schmidt it replaced on 150 random designs (crossed, nested and disconnected classes, levels with no used record, collinear and nested covariates, weights), on edge columns (tiny, NaN, Inf, nearly collinear), and on unscaled polynomials and near copies. In near-singular designs every decision is certified or the rank falls back to that Gram-Schmidt, and it never keeps more columns than records. `dropped_x` of `model()` (with and without weights), `model_mt()` (per trait) and `model_ar1()` equals a dense reference rebuilt in R. The threshold and survival fitters drop what `qr()` drops and fit the reduced model. The bits are the same with 1 and 4 threads. With the rest of the engine unchanged, a check found the results bit-identical to the dense build over the 3 085 values returned by the fits of every test file but this change's own (`validation/fixed_design_identity.R`). Scale (memory, not exactness): 200 000 records x 701 candidate columns, fixed part 145-153 MB of peak working set (232 MB committed), three sets of 3 replicates, with `dropped_x` checked against the table (`validation/fixed_design_memory.R`) |
 | missing labels and values | the rule has two implementations, the engine's and R's. One battery of values (numeric `NA`, `NaN`, `Inf`, `-Inf`; blank, tab and line-break text, " NaN ") gives the same types, the same count and the same first row through both, in every fitter. A missing trait drops only its record, with the -2logL of the data without that row |
 | unit, shift and boundaries in `model_mt()` and `model_ar1()` | `y`, `100 y` and `1e4 y` give the same SINGULAR verdict and the same standard errors up to the factor in all three fitters; one trait in other units gives the same fit up to the scale factors and the Jacobian; a constant added to `y` leaves the REML -2logL alone; a covariance boundary that is not the optimum is not certified, and a certified point on a flat face is polished to the face optimum (`tests/testthat/test-unidade-partida-fronteira.R`). At 21 000 records the standard errors of a `model_ar1()` fit agree to 8.2e-7 between `y` and `100 y`, and at 21 000 and 24 000 records the -2logL agrees to 6e-15 (relative) under a shift of up to 1000 standard deviations (`validation/unit_shift_start_scale.R`). In simulated sweeps of 368 fits from four starts per data set, run during development and not kept in `validation/`, no certified point sits more than 9.4e-5 above the best of its starts, and one known pair of starts still certifies points 1.7e-4 apart. The real fits that motivated the change were not rerun |
+| ids of the data against the pedigree (founders, unknown 0, pruning, spellings, 2^53, blocks) | `tests/testthat/test-estrutura-e1.R` (34 gates; 33 fail on 12aca18, the other is a negative control); `validation/pedigree_ids_scale.R`: pruning and founders exact (difference 0 in -2logL, EBV and accuracy) at 20 200 records with a 125 200-line pedigree; the rule alone takes 0.03 s, and the fit with the national pedigree takes the time of the fit pruned by hand (median of 3: 11.97 s against 10.90 s, replicates 11.1-14.5 against 10.8-12.4 s on a shared machine); simulated only |
+| AR(1) time axis (grid step, CAR(1), the axis check) | `tests/testthat/test-estrutura-e3.R` (32 gates; all fail on 12aca18) and `test-ar1-unidade-tempo.R`; `validation/ar1_time_axis_cases.R`: every case NEWS quotes, on both builds; `validation/ar1_time_axis_scale.R`: a time contemporary group of 715 to 2858 levels keeps `dense_block` at 8 (5 subjects x 5 000 and x 20 000 days: 0.7 s and 9.7 s, median of 3); 30 x 1 000 days with a daily group 1.0 s (bivariate 19.1 s); rho = 0 equals the iid `model()` to 1e-8 in -2logL; 4 000 x 6 days give the same fit in days and POSIXct; with no serial correlation, 0 of 20 data sets of 1 000 x 6 with a half day and 0 of 200 of 60 x 5 in continuous time stop (4 warn); with rho -0.4, 192 of 200 stop and 7 warn; simulated only |
 
 The tests in `tests/testthat` run these comparisons on every build, so a change that
 breaks one of the identities cannot pass quietly. `simulate_breeding()` is what they are
@@ -807,9 +829,12 @@ the object.
 
 The data rules are equally deliberate. An unknown genotype code becomes NA and is
 imputed by the marker mean; it never becomes the zero genotype, which is a real
-observation. A pen mate missing from the pedigree is an error rather than a silent
-discard, because dropping him would quietly change who competed with whom. A parent
-cited without a line of its own is an error rather than a new founder.
+observation. An animal of the data missing from the pedigree, a pen mate or a maternal
+grandsire included, enters as a founder with a warning that counts and names it, as
+renumf90 numbers every animal with a record; dropping a pen mate would quietly change who
+competed with whom. An id that matches a pedigree line written another way (a trailing
+space, the case, leading zeros) stops the fit with both spellings. A parent cited without
+a line of its own is an error rather than a new founder.
 
 ## Questions and problems
 

@@ -502,6 +502,14 @@ missingness handled by the pattern of each record rather than by dropping it.
 decays as `rho^|dt|`. The inverse of that correlation matrix is tridiagonal (the
 classical Markov result), so the model costs no more than the iid one, and `rho` comes
 out with its standard error.
+On a grid, `rho^k` is the correlation of records k steps apart and `rho` may be negative;
+it is negative only between records an odd number of steps apart. The step is the
+largest number that divides every gap (Pinheiro and Bates, 2000, `corAR1`; the `AR1` of
+ASReml for equally spaced levels). Off a grid the correlation is `rho^dt` with `rho` in
+[0, 1) (`corCAR1`; `EXP` of ASReml), since a continuous-time Markov process has no
+negative correlation. A few records whose time is off the grid of the others can
+therefore turn a negative correlation into a wrong positive or null one; `model_ar1()`
+checks for that after the fit and stops naming those records.
 
 The textbook treatment of these models is Mrode and Pocrnic (2023): the repeatability
 model in ch. 5, maternal traits in ch. 8, social interaction in ch. 9, random regression

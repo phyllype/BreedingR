@@ -4,7 +4,7 @@
 \alias{t2}
 \title{Total heritable variance and T2 of a model with indirect genetic effects}
 \usage{
-t2(fit, n, r = 0, trait = NULL)
+t2(fit, n, r = 0, trait = NULL, weight = NULL, scale = FALSE)
 }
 \arguments{
 \item{fit}{result of \code{\link[=model]{model()}}, \code{\link[=model_mt]{model_mt()}} or \code{\link[=model_threshold]{model_threshold()}} with an
@@ -15,6 +15,8 @@ t2(fit, n, r = 0, trait = NULL)
 \item{r}{average additive relationship between group mates (0 for unrelated mates)}
 
 \item{trait}{for a multi-trait fit, which trait; all of them by default}
+
+\item{weight, scale}{as in \code{\link[=h2]{h2()}}}
 }
 \value{
 data.frame with one row per trait and size: \code{trait}, \code{n}, \code{r}, \code{var_tbv},
@@ -38,12 +40,23 @@ formula the literature computes by hand (Leite et al. 2023 use it with the avera
 group size and relationship).
 }
 \details{
-Every other variance and covariance of the trait enters with coefficient 1. A
-residual indirect structure declared through \code{\link[=associative_matrix]{associative_matrix()}} is a \code{\link[=kernel]{kernel()}}
-component whose diagonal is not 1; its contribution to the phenotypic variance is
-\code{mean(diag(K))} times the component, which this function does not know and does not
-add. With pens of different sizes, give the sizes as a vector and read one row per
-size, or give the average size, the convention of the literature.
+Every other variance and covariance of the trait enters as in \code{\link[=h2]{h2()}}, at the same group
+size \code{n}: the components with a relationship matrix as estimated (with metafounders and
+\code{scale = TRUE}, times \code{var_scale}), and a residual indirect structure declared through
+\code{\link[=associative_matrix]{associative_matrix()}} at the variance it puts on a record of a pen of \code{n} animals,
+\verb{(n - 1)^(1 - 2d)} times its component (before this version it entered with
+coefficient 1). \code{var(residual)} is read at \code{weight}, by default the harmonic mean
+weight of the records; a fit made by \code{\link[=indirect_residual]{indirect_residual()}} reads it at the group size,
+\verb{1 + (n - 1)^(1 - 2d) k} times \code{var(residual)}. With pens of different sizes, give the
+sizes as a vector and read one row per size, or give the average size, the convention
+of the literature.
+
+A fit that did not converge is read at its last iterate, with a warning. When the fit
+reports the information matrix SINGULAR along a set of components that includes the
+direct or the indirect variance or their covariance, \code{t2}, \code{var_tbv} and \code{se_t2} are
+\code{NA}; \code{h2_direct} and \code{se_h2_direct} are \code{NA} when the set includes the direct
+variance, the numerator, as in \code{\link[=h2]{h2()}}, and are kept otherwise. The warning names the
+components and says which columns are \code{NA}.
 
 On a \code{\link[=model_threshold]{model_threshold()}} fit the numbers are on the liability scale, with the
 residual fixed at 1 in the denominator; with pens of unequal size and an environmental

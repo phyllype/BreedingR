@@ -9,7 +9,8 @@ h2_curve(fit, group = NULL, limits, points = 101L)
 \arguments{
 \item{fit}{result of \code{\link[=model]{model()}} with an rn() term}
 
-\item{group}{name of the reaction-norm group}
+\item{group}{name of the reaction-norm group; by default the group of the direct
+genetic term, as in \code{\link[=h2]{h2()}}}
 
 \item{limits}{the same ones passed to \code{\link[=legendre]{legendre()}} when preparing the data}
 
@@ -24,7 +25,9 @@ h2(x) = phi(x)' C phi(x) / V_P(x), with C the covariance of the reaction-norm gr
 phi(x) the Legendre basis evaluated at x. The phenotypic variance V_P(x) is evaluated at x
 too: every other random regression on the same basis (the permanent environment of a
 test-day model) enters as phi(x)' P phi(x), each scalar term with its variance, and the
-residual. A covariance between two scalar terms enters with coefficient 1, as in \code{\link[=h2]{h2()}}.
+residual. A covariance between two scalar terms enters with coefficient 1, as in \code{\link[=h2]{h2()}},
+and the residual of a fit with \code{weights} is read at the harmonic mean weight of the
+records, as in \code{\link[=h2]{h2()}} (weights w and 10 w give the same curve).
 Every random regression of the fit is evaluated on the Legendre basis with these limits.
 }
 \details{

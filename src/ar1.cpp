@@ -21,13 +21,16 @@
 //   M2    = (Gamma^-1 D Gamma^-1) (x) (R0^-1 S R0^-1)
 //   quad  = soma_ij D[i,j] . (R^-1 e)_i' S (R^-1 e)_j
 //
-// O clique COMPLETO do sujeito (zeros explicitos) continua no padrao de C, porque o traco
-// de rho le a inversa seletiva em pares de registros distantes; fora_do_padrao denuncia.
-// Empate de tempo no mesmo sujeito continua erro declarado.
+// No padrao de C entram so os pares de colunas do mesmo registro e de registros vizinhos
+// (Gamma^-1 tridiagonal), e o score, a AI e os residuos so leem esses pares da inversa
+// seletiva; fora_do_padrao denuncia o contrario. Empate de tempo no mesmo sujeito continua
+// erro declarado. O tempo que chega aqui e o do eixo de eixo_tempo_ar1 (ar1b.cpp): na grade,
+// o numero de passos, inteiro exato.
 
 #include "mme.h"
 #include <unordered_map>
 #include <algorithm>
+#include <numeric>
 #include <R_ext/Random.h>
 
 namespace br {
@@ -199,38 +202,39 @@ MontadoAR monta_mme_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
     M.logdet_r += static_cast<double>(t) * gi.logdet;
 
     const std::size_t m = regs.size();
-    auto peso = [&](std::size_t i, std::size_t j) -> double {
-      if (i == j) return gi.diag[i];
-      if (i + 1 == j) return gi.sub[i];
-      if (j + 1 == i) return gi.sub[j];
-      return 0.0;
-    };
 
-    // clique do sujeito acumulado localmente (colunas ja expandidas por caracteristica)
-    const std::vector<std::uint32_t>& cols_s = d.cols_suj[si];
-    const std::size_t nc = cols_s.size();
-    std::vector<std::uint32_t> loc(nc ? cols_s.back() + 1 : 0, 0);
-    for (std::size_t k = 0; k < nc; k++) loc[cols_s[k]] = static_cast<std::uint32_t>(k);
-    Densa acc_s(nc, nc);   // triangulo inferior local, denso
-
+    // W' R^-1 W do sujeito. Gamma^-1 e TRIDIAGONAL, entao so entram os pares de colunas do
+    // MESMO registro e de registros VIZINHOS no tempo, e e so isso que vai para o padrao de C
+    // (sempre os mesmos pares, com zero incluido quando rho = 0: o padrao nao depende de
+    // theta, que e o contrato do cache da simbolica). Antes o padrao levava o clique COMPLETO
+    // do sujeito, com zeros explicitos, herdado do tempo em que o traco do rho lia a inversa
+    // seletiva em pares de registros distantes; hoje o score, a AI e os residuos so leem
+    // pares vizinhos (fora_do_padrao denuncia o contrario). Numa serie longa com um CG de
+    // tempo o clique juntava todos os niveis num bloco denso: 1 sujeito x 20000 dias com 2858
+    // CGs passava de 169 s e 2 GB (medido em f2c0d69). As contribuicoes de cada par de
+    // colunas somam na ordem do laco, como no acumulador denso de antes.
+    std::vector<std::uint64_t> chave;
+    std::vector<double> valor;
     for (std::size_t i = 0; i < m; i++) {
       const auto& wa = lw[regs[i]];
-      for (std::size_t j = i; j < m; j++) {
-        const double w = peso(i, j);
+      const std::size_t j1 = std::min(m - 1, i + 1);
+      for (std::size_t j = i; j <= j1; j++) {
+        const double w = (i == j) ? gi.diag[i] : gi.sub[i];
         const auto& wb = lw[regs[j]];
         for (const auto& ea : wa)
           for (const auto& eb : wb) {
-            std::uint32_t p2 = loc[ea.col], q2 = loc[eb.col];
+            std::uint32_t p2 = ea.col, q2 = eb.col;
             double v = ea.val * w * M.r0inv.at(ea.trait, eb.trait) * eb.val;
             if (i == j) {
-              if (p2 < q2) continue;               // so o triangulo inferior local
+              if (p2 > q2) continue;               // so o triangulo superior
             } else {
               // par i != j: fora da diagonal os dois sentidos surgem e o fold soma; NA
               // diagonal so um sentido e percorrido e a contribuicao verdadeira e dupla
               if (p2 == q2) v *= 2.0;
-              if (p2 < q2) std::swap(p2, q2);
+              if (p2 > q2) std::swap(p2, q2);
             }
-            acc_s.at(p2, q2) += v;
+            chave.push_back((static_cast<std::uint64_t>(q2) << 32) | p2);
+            valor.push_back(v);
           }
         // rhs (y'R^-1 y nao e mais acumulado: a forma quadratica sai dos residuos, em
         // avalia_ar1)
@@ -249,15 +253,20 @@ MontadoAR monta_mme_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
           }
       }
     }
-    // um push por posicao do clique, ZEROS INCLUIDOS, que e o que garante o padrao
-    for (std::size_t a2 = 0; a2 < nc; a2++)
-      for (std::size_t b2 = 0; b2 <= a2; b2++) {
-        std::uint32_t p2 = cols_s[a2], q2 = cols_s[b2];
-        if (p2 > q2) std::swap(p2, q2);
-        ti.push_back(p2);
-        tj.push_back(q2);
-        tv.push_back(acc_s.at(a2, b2));
-      }
+    // um push por par de colunas do sujeito, ZEROS INCLUIDOS, que e o que garante o padrao;
+    // a ordenacao estavel soma as contribuicoes de um par na ordem em que vieram
+    std::vector<std::size_t> ord(chave.size());
+    std::iota(ord.begin(), ord.end(), static_cast<std::size_t>(0));
+    std::stable_sort(ord.begin(), ord.end(),
+                     [&](std::size_t a, std::size_t b) { return chave[a] < chave[b]; });
+    for (std::size_t k = 0; k < ord.size();) {
+      const std::uint64_t c = chave[ord[k]];
+      double s = 0.0;
+      while (k < ord.size() && chave[ord[k]] == c) s += valor[ord[k++]];
+      ti.push_back(static_cast<std::uint32_t>(c & 0xffffffffu));
+      tj.push_back(static_cast<std::uint32_t>(c >> 32));
+      tv.push_back(s);
+    }
   }
 
   // penalidade por grupo, unidades absolutas: kron(C_g^-1, K^-1); dim ja inclui t
@@ -515,7 +524,8 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
       if (!d.usa[r]) continue;
       for (std::size_t a = 0; a < t; a++) ere += ehat.at(r, a) * re.at(r, a);
     }
-    A.neg2logl = parte_fixa + ere + upen;
+    // + o termo da padronizacao das covariaveis (fixos.cpp)
+    A.neg2logl = parte_fixa + ere + upen + d.logdet_escala_x;
   }
 
   // ---- parametros residuais, unificados: dR = D (x) S
@@ -959,16 +969,16 @@ double neg2logl_densa_V_ar1(const DesenhoAR& d, const std::vector<double>& theta
   double quad = 0.0;
   for (std::size_t a = 0; a < p; a++)
     for (std::size_t b = 0; b < p; b++) quad += XtViy[a] * Xi.at(a, b) * XtViy[b];
-  return ldV + ldX + (yViy - quad);
+  return ldV + ldX + (yViy - quad) + d.logdet_escala_x;
 }
 
 // ---------------------------------------------------------------- residuos no otimo
 //
 // As MME daqui estao em unidades absolutas (C = W'R^-1 W + G^-1), entao
 //   Var(e^_{r,tau}) = R0[tau,tau] - w_{r,tau}' C^-1 w_{r,tau}
-// com w_{r,tau} as entradas da linha r na caracteristica tau (lw). Os pares de uma linha
-// estao no clique do sujeito, que esta no padrao de C. Uma montagem e um fator a mais no fim
-// do ajuste, no theta final.
+// com w_{r,tau} as entradas da linha r na caracteristica tau (lw). Os pares de colunas de uma
+// linha estao no padrao de C (monta_mme_ar1 poe todo par do mesmo registro). Uma montagem e
+// um fator a mais no fim do ajuste, no theta final.
 ResiduosMT residuos_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
   ResiduosMT S;
   const std::size_t t = d.t;

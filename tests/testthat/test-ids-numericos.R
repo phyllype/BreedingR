@@ -19,6 +19,12 @@
 # rotulos distintos, na coluna de dados do motor e entre as colunas do pedigree, e um texto
 # cientifico que nao e o as.character() de um inteiro nao ganha o diagnostico de mesmo numero.
 
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 ped_num <- function(n = 150, nf = 30, seed = 11) {
   set.seed(seed)
   ids <- 100000 + 0:(n - 1)
@@ -36,8 +42,11 @@ ped_num <- function(n = 150, nf = 30, seed = 11) {
 # o id em texto como uma pessoa o escreveria, com todos os digitos
 texto <- function(v) ifelse(v == 0, "0", sprintf("%.0f", v))
 
+# os dados de ped_num() tem dois registros por animal sem pe(): o ajuste avisa da repeticao
+# (o aviso de test-estrutura-e6.R), e o portao daqui confere que ele sai e segue para os ids
 ajusta <- function(d, ped, ...)
-  model(y ~ cg + animal(id), d, ped, start = c(0.6, 1), verbose = FALSE, ...)
+  com_aviso(model(y ~ cg + animal(id), d, ped, start = c(0.6, 1), verbose = FALSE, ...),
+                 "have more than one record", class = "breedingr_estrutura")
 
 test_that("ids double, integer, texto e colunas de tipos diferentes dao o mesmo ajuste", {
   z <- ped_num()
@@ -305,3 +314,5 @@ test_that("rotulos derivados: associative_matrix, competition_strength, read_blu
   r <- read_blupf90_snp(arq, ids = 1e6)
   expect_identical(r$ids, "1000000")
 })
+
+options(op_parentesco)

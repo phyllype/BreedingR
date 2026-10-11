@@ -6,6 +6,12 @@
 # theta (confere triplos E ids), e os motores em R ajustando com genotypes= e dividindo o
 # genotipado pela diag(G*) no accuracy().
 
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 caso_h <- function(seed = 31) {
   set.seed(seed)
   n <- 120; n_geno <- 50
@@ -99,3 +105,5 @@ test_that("limiar e sobrevivencia com genotypes =, e accuracy() pela diag(G*)", 
                               genotypes = z$geno, k_inverse = h_inverse(z$ped, z$geno),
                               verbose = FALSE), "not both")
 })
+
+options(op_parentesco)

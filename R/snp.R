@@ -83,7 +83,8 @@ snp_effects <- function(fit, pedigree, genotypes, blend = NULL, group = "animal"
   if (gen$vecchia_k > 0 && !identical(names(hp), gv$gid))
     stop("the fit used vecchia_k, whose inverse depends on the order of the genotyped ",
          "animals: give the genotypes in the row order of the fit")
-  cp <- colunas_pedigree(pedigree)
+  # o pedigree que o ajuste usou: os fundadores que ele acrescentou e a poda aos niveis dele
+  cp <- cp_do_ajuste(fit, pedigree, names(u))
   confere_base_mf(cp$sire, cp$dam, fit$metafounders, TRUE)
   # a G* refeita tem de ser a do ajuste: a diagonal dela (a priori que o ajuste guardou por
   # animal) e conferida no C++ ANTES do trabalho pesado (formar G e fatorar G*), pela diagonal

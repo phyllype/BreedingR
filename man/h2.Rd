@@ -4,12 +4,28 @@
 \alias{h2}
 \title{Heritability from the estimated components}
 \usage{
-h2(fit, group = NULL, trait = NULL, n = NULL, r = 0)
+h2(
+  fit,
+  group = NULL,
+  trait = NULL,
+  n = NULL,
+  r = 0,
+  weight = NULL,
+  scale = FALSE
+)
 }
 \arguments{
 \item{fit}{result of \code{model()}, \code{model_mt()} or \code{model_ar1()}}
 
-\item{group}{covariance group; the first one by default}
+\item{group}{covariance group; by default the group of the direct genetic term: the
+first pedigree or genomic term that is not \code{maternal()} or \code{indirect()}, else the first
+\code{kernel()} with an estimated variance over the animals (most of its levels are
+animals of the pedigree, or there is no pedigree term), else the first \code{maternal()}
+term, else the first other \code{kernel()} with an estimated variance, else the first
+group; the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}}, \code{\link[=h2]{h2()}} and
+\code{\link[=h2_curve]{h2_curve()}}. A named group of several terms gives the h2 of its direct term, also
+when the group has the name of one of its terms; the name of a term outside such a
+group gives that term's ratio}
 
 \item{trait}{for a multi-trait fit, which trait; all of them by default}
 
@@ -17,6 +33,16 @@ h2(fit, group = NULL, trait = NULL, n = NULL, r = 0)
 otherwise; a vector gives one value per size}
 
 \item{r}{average additive relationship between group mates, used with \code{n}}
+
+\item{weight}{for a fit with \code{weights}, the weight at which \code{var(residual)} is read;
+by default the harmonic mean of the weights of the records that entered the fit.
+\code{weight = 1} is the ratio of the components as estimated}
+
+\item{scale}{\code{FALSE} (default) reads every component as estimated, the pedigree
+components of a fit with metafounders on the base of Gamma; \code{TRUE} multiplies those by
+\code{var_scale}, the usual base. Without metafounders it changes nothing. It does not touch
+the residual, which is read at \code{weight} either way: \code{weight = 1} is the ratio of the
+raw components}
 }
 \value{
 a single number, or one per trait in the multi-trait case, named by trait;
@@ -52,11 +78,98 @@ either; \code{\link[=h2_observed]{h2_observed()}} and \code{\link[=h2_liability]
 
 No standard error travels with the number here; \code{\link[=se_function]{se_function()}} gives it by the delta
 method, and \code{\link[=t2]{t2()}} returns it for the indirect-effect model.
+
+THE MARKER OF THE TERM decides what the ratio is. In a sire model the sire variance is a
+quarter of the additive variance, so the heritability is \verb{4 var(sire) / Vp} (Falconer
+and Mackay 1996; Mrode and Pocrnic 2023, ch. 3), and that is what is returned for a
+\code{sire()} term. In the sire and maternal-grandsire model, \code{sire(sire, mgs = "mgs")}, a
+record with a known grandsire carries \code{s + m / 2} and one with the grandsire unknown
+carries \code{s} alone, so with the sire and the grandsire unrelated the mean phenotypic
+variance of the records is \verb{(1 + f / 4) var(sire) + var(residual) + others}, with \code{f}
+the fraction of the records that entered the fit with a known grandsire (stored in
+\code{fit$mgs_known}), and \verb{h2 = 4 var(sire)} over that. The relationship between sire and
+grandsire is ignored there. A term with no relationship matrix (\code{pe()}, \code{random()}) is
+refused: \code{var / Vp} there is a variance ratio, not a heritability, and the share column
+of \code{print(fit)} gives it.
+
+THE SCALE OF THE COMPONENTS. One rule holds for every term with a relationship matrix,
+pedigree, genomic, H, metafounders or a declared \code{\link[=kernel]{kernel()}} K: it enters with its
+component as estimated, the variance on the base of its matrix (diagonal 1 for a
+non-inbred base animal). That is the ratio BLUPF90, ASReml and WOMBAT report from the
+components, and the same likelihood gives the same number: \code{animal(id)} and
+\code{kernel(id, K = A)} with the A of the same pedigree, or \code{animal(id)} with \verb{genotypes =}
+and \code{kernel(id, K = H)}, give the same h2, in \code{\link[=h2]{h2()}}, \code{\link[=t2]{t2()}}, the share column of
+\code{print(fit)} and \code{summary(fit)}, and the h2 of \code{summary()} of a \code{\link[=gibbs]{gibbs()}} fit. Two
+warnings give the other reading when the base of a matrix is far from the records:
+\itemize{
+\item a declared K whose mean diagonal over the records that entered the fit is more than
+10\% away from 1 (a partial multibreed matrix, whose diagonal is about the breed
+fraction, or an unscaled kernel) gives a warning with the mean diagonal and the value
+the ratio would take with each such K at its mean diagonal over the records; scaling
+K to mean diagonal 1 (\code{K / mean(diag(K))}) makes the two agree;
+\item with metafounders, the pedigree components are on the base of Gamma. When
+\code{var_scale = 1 + mean(diag(Gamma)) / 2 - mean(Gamma)} (Legarra et al. 2015, the
+factor \code{\link[=estimate_gamma]{estimate_gamma()}} returns) is more than 10\% away from 1 and \code{scale} is not
+given, a warning gives the ratio on the usual base, each pedigree component times
+\code{var_scale}; \code{scale = TRUE} returns that number (then the h2 of the fit with
+metafounders is close to the h2 of the fit without them), and \code{scale = FALSE} keeps
+the default and silences the warning.
+}
+
+Two kinds of \code{kernel()} are not relationships but covariances of the records, and enter
+at the variance they put on a record:
+\itemize{
+\item a \code{kernel()} that is the \code{\link[=associative_matrix]{associative_matrix()}} of the \code{indirect()} term of the same
+fit (recognised by its diagonal, \verb{(n_i - 1)^(1 - 2d)} on every record, and, when that
+diagonal is 1 everywhere, with pens of 2 or \code{d = 0.5}, by the attribute
+\code{br_associative} that \code{\link[=associative_matrix]{associative_matrix()}} sets): at
+\verb{(n - 1)^(1 - 2d)} times its component for the group size \code{n} asked for, or at its
+mean diagonal over the records without \code{n} (the share column);
+\item a \code{kernel(fixed = v)} term, the known covariance of a two-stage analysis (the sampling
+variances of the first-stage estimates): at \code{v} times the mean diagonal of its K over
+the records, the mean sampling variance, and not at \code{v}.
+}
+
+A covariance between two terms takes the geometric mean of the two factors.
+
+WEIGHTS. With \code{weights} in \code{\link[=model]{model()}}, \code{var(residual)} is the residual variance at
+weight 1, and a record of weight w has \code{var(residual) / w}; weights w and 10 w give the
+same breeding values and a different \code{var(residual)}. BLUPF90 (airemlf90), ASReml and
+WOMBAT report the components, that is, the residual at weight 1, and the ratio from
+them depends on the scale of the weights. Here the ratio is read at \code{weight}, by default
+the harmonic mean of the weights of the records that entered the fit: \code{var(residual)}
+times \code{mean(1 / w)} is the mean residual variance of those records, so the answer does
+not depend on the scale of the weights. The arithmetic mean weight would put
+\code{var(residual) / mean(w)} in the denominator, which is the residual variance of no
+record and is below the mean one. \code{weight = 1} gives the ratio of the components as
+estimated, the number airemlf90 gives (the per-observation heritability when the
+weights are the numbers of observations averaged in each record). A fit made by
+\code{\link[=indirect_residual]{indirect_residual()}} reads its residual at the group size: \verb{1 + (n - 1)^(1 - 2d) k}
+times \code{var(residual)}. \verb{weight =} on a fit without weights is refused.
+
+A FIT THAT DID NOT CONVERGE is read at its last iterate, with a warning. When the fit
+reports the information matrix SINGULAR and the variance of the numerator is in a set
+of components the data do not separate, the ratio moves along that ridge and is
+returned as \code{NA}, with a warning naming the components; a set that only touches the
+denominator (permanent environment and residual with one record per animal) leaves the
+number, with a warning. A fit with no estimates (theta \code{NA}) gives \code{NA}, saying so. A
+fit at given components (\code{start} with \code{maxiter = 0} and \code{n_em = 0} in \code{\link[=model]{model()}},
+\code{start} with \code{maxiter = 0} in \code{\link[=model_mt]{model_mt()}} and \code{\link[=model_ar1]{model_ar1()}}) is read at those
+components without a word; with \code{n_em > 0} the EM rounds moved the start, and without
+\code{start} the point is the default start, so either fit is read as one that did not
+converge. In a multi-trait fit one warning covers every trait.
 }
 \references{
 Willham, R.L. (1972). The role of maternal effects in animal breeding:
 III. Biometrical aspects of maternal effects in animals. Journal of Animal Science
 35:1288-1293.
+
+Falconer, D.S. & Mackay, T.F.C. (1996). Introduction to Quantitative Genetics, 4th
+ed. Longman.
+
+Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I. (2015).
+Ancestral relationships using metafounders: finite ancestral populations and across
+population relationships. Genetics 200:455-468.
 
 Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 quantitative genetics of inheritance and response to selection. Genetics 175:277-288.

@@ -29,7 +29,11 @@
 #   grande     modelo de touro com n = 20000: normalidade sob erro normal e t30 (curtose em
 #              excesso verdadeira 6/26 = 0.231), documental
 #   pivotal    gibbs(): discrepancias pivotais sob H0 (n = 640) e sob a escala (n = 2000);
-#              pivotal_nao so a primeira celula, pivotal_probit o probit sob H0 (n = 640)
+#              pivotal_nao so a primeira celula, pivotal_probit o probit sob H0 (n = 640),
+#              com o cg ALEATORIO (random(cg), a dispersao testada por cg com by = "cg"):
+#              com o cg fixo, o binario na mediana deixa de 7 a 27 dos 56 cg (mediana 17 em
+#              200 sorteios do y deste layout, sem cadeia) com todo registro numa categoria,
+#              de posteriori impropria, que o gibbs() recusa
 #   plugin     o mecanismo dos residuos plug-in, eta = verdade - delta com delta ~ N(0, PEV):
 #              KS do residuo substituto (probit) e do NRSP (Weibull, ~27% de censura) contra
 #              N(0, 1), e o Shapiro-Wilk do substituto. Documental: por que nao ha teste deles
@@ -354,13 +358,16 @@ if (experimento %in% c("pivotal", "pivotal_nao", "pivotal_probit")) {
     t0 <- proc.time()[["elapsed"]]
     out[[cen]] <- do.call(rbind, lapply(seq_len(nrep), function(k) {
       d <- L$d
-      # no probit a categoria de cima e a liability acima da mediana dela
+      # no probit a categoria de cima e a liability acima da mediana dela, e o cg entra
+      # aleatorio (o fixo deixava cg todo numa categoria, que o gibbs() recusa); by = "cg" e o
+      # padrao das celulas gaussianas, de cg fixo, e no probit mantem a dispersao por cg
       d$y <- if (cen == "probit") { v <- gera_y(L, "normal", "nao"); as.double(v > stats::median(v)) }
              else gera_y(L, "normal", cen)
-      tb <- residual_diagnostics(gibbs(L$formula, d, L$ped, n_iter = 3000L, burnin = 1000L,
+      tb <- residual_diagnostics(gibbs(if (cen == "probit") y ~ cov(x) + random(cg) + animal(id)
+                                       else L$formula, d, L$ped, n_iter = 3000L, burnin = 1000L,
                                        thin = 10L, residual_draws = 20L, verbose = FALSE,
                                        family = if (cen == "probit") "probit" else "gaussian"),
-                                 d, L$ped, nsim = 199L)$tests
+                                 d, L$ped, nsim = 199L, by = "cg")$tests
       c(stats::setNames(tb$p_value, paste(tb$check, tb$against, sep = ":")),
         stats::setNames(tb$draws_below_0.05, paste0("frac:", tb$check, ":", tb$against)))
     }))
@@ -452,6 +459,9 @@ if (experimento == "tempo_su") {
   d$y <- stats::rnorm(max(cg))[cg] + stats::rnorm(3600, 0, sqrt(0.4)) + stats::rnorm(3600)
   geno <- list(ids = ped$id[400 + seq_len(2000)],
                m = matrix(sample(0:2, 2000 * 2000, TRUE), 2000))
+  # genotipos sorteados sem o pedigree: todo par pai-filho conflita por construcao, e a
+  # conferencia de parentesco (o verify_parentage 0 do preGSf90) fica fora do tempo medido
+  options(BreedingR.verify_parentage = FALSE)
   t0 <- proc.time()[["elapsed"]]
   fit <- model(y ~ cg + animal(id), d, ped, genotypes = geno, start = c(0.4, 1),
                maxiter = 0L, n_em = 0L, verbose = FALSE)

@@ -798,8 +798,10 @@ test_that("P8-3: the class reference is a level with records of every trait, and
 test_that("P8-3: a trait record on a row that drops out does not make its level complete", {
   # O nivel e completo quando tem registro de cada caracter numa linha que ENTRA no ajuste
   # (posto_referencia_completa, src/fixos.cpp, comum ao model_mt() e ao model_ar1()). Aqui
-  # os unicos registros de y2 do ultimo CG estao em tres animais fora do pedigree, linhas que
-  # saem: o nivel e incompleto, e o ajuste tem de ser o mesmo sem essas linhas. Contando a
+  # os unicos registros de y2 do ultimo CG estao em tres animais fora da K, linhas que saem
+  # (um id ausente da K tira a linha; fora do PEDIGREE o animal hoje entra como fundador, e
+  # por isso o termo e kernel(K = A) com a A tabular do mesmo pedigree): o nivel e
+  # incompleto, e o ajuste tem de ser o mesmo sem essas linhas. Contando a
   # linha que sai, o nivel passava por completo e voltava a ser a referencia global, e a
   # passada de y2 derrubava um nivel COM registro de y2 (o rotulo do P8-3 de volta) ou, no
   # model_ar1(), a recusa nomeava esse vizinho
@@ -810,8 +812,10 @@ test_that("P8-3: a trait record on a row that drops out does not make its level 
   lin <- which(d$cg == ultimo)[1:3]
   d$y2[lin] <- 10
   d$id[lin] <- sprintf("fora%02d", 1:3)
-  f <- model_mt(cbind(y1, y2) ~ cg + animal(id), d, s$ped, verbose = FALSE)
-  g <- model_mt(cbind(y1, y2) ~ cg + animal(id), d[-lin, ], s$ped, verbose = FALSE)
+  A <- a_densa(s$ped)$A
+  A <- (A + t(A)) / 2
+  f <- model_mt(cbind(y1, y2) ~ cg + kernel(id, K = A), d, verbose = FALSE)
+  g <- model_mt(cbind(y1, y2) ~ cg + kernel(id, K = A), d[-lin, ], verbose = FALSE)
   expect_identical(f$n_used, nrow(d) - 3L)
   expect_identical(f$n_used, g$n_used)
   expect_identical(f$dropped_x, g$dropped_x)
@@ -825,7 +829,7 @@ test_that("P8-3: a trait record on a row that drops out does not make its level 
   # o model_ar1() recusa o par vazio, e a recusa nomeia o nivel sem registro de y2, com e sem
   # as linhas que saem
   for (dd in list(d, d[-lin, ]))
-    expect_error(model_ar1(cbind(y1, y2) ~ cg + animal(id), dd, s$ped, subject = "id",
+    expect_error(model_ar1(cbind(y1, y2) ~ cg + kernel(id, K = A), dd, subject = "id",
                            time = "dia", maxiter = 1L, verbose = FALSE),
                  paste0("the fixed column 'cg=", ultimo, "' is not estimable for trait 'y2'"),
                  fixed = TRUE)

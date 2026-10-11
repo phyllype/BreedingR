@@ -79,20 +79,22 @@ test_that("dilution absent and dilution = 0 are the SAME fit, bit for bit", {
                     cg = rep(c("c1", "c2"), 5),
                     y = c(5.1, 6.2, 4.8, 7.0, 5.5, 6.8, 4.2, 6.1, 5.9, 6.4),
                     stringsAsFactors = FALSE)
-  sem <- model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "baia", group = "g"),
-               dat, ped, verbose = FALSE, n_em = 2L)
-  com <- model(y ~ cg + animal(id, group = "g") +
-                 indirect(id, pen = "baia", group = "g", dilution = 0),
-               dat, ped, verbose = FALSE, n_em = 2L)
+  # tres baias com companheiro: o aviso de poucas baias sai em cada ajuste, e o portao segue
+  expect_warning(sem <- model(y ~ cg + animal(id, group = "g") +
+                                indirect(id, pen = "baia", group = "g"),
+                              dat, ped, verbose = FALSE, n_em = 2L), "only 3 pen", class = "breedingr_estrutura")
+  expect_warning(com <- model(y ~ cg + animal(id, group = "g") +
+                                indirect(id, pen = "baia", group = "g", dilution = 0),
+                              dat, ped, verbose = FALSE, n_em = 2L), "only 3 pen", class = "breedingr_estrutura")
   expect_identical(com$neg2logl, sem$neg2logl)
   expect_identical(com$theta, sem$theta)
   expect_identical(ebv(com, "g"), ebv(sem, "g"))
 
   # the third arm: a nonzero d must CHANGE the fit. Without it the two identities above
   # would also pass if dilution were parsed and then silently dropped on the way down.
-  dif <- model(y ~ cg + animal(id, group = "g") +
-                 indirect(id, pen = "baia", group = "g", dilution = 0.7),
-               dat, ped, verbose = FALSE, n_em = 2L)
+  expect_warning(dif <- model(y ~ cg + animal(id, group = "g") +
+                                indirect(id, pen = "baia", group = "g", dilution = 0.7),
+                              dat, ped, verbose = FALSE, n_em = 2L), "only 3 pen", class = "breedingr_estrutura")
   expect_false(isTRUE(all.equal(dif$neg2logl, sem$neg2logl)))
   expect_gt(max(abs(ebv(dif, "g") - ebv(sem, "g"))), 1e-6)
 
@@ -406,10 +408,10 @@ test_that("associative_matrix(dilution = d) e o bloco que o Monte Carlo mede", {
   # e_i = eD_i + (n - 1)^(-d) sum_{j != i} eS_j. Para d = 0 tem de ser o bloco de antes,
   # I + (n - 2) J, bit a bit; para d > 0, esse bloco vezes (n - 1)^(-2d)
   A0 <- associative_matrix(rep("x", 5), letters[1:5])
-  expect_equal(unname(A0), unname(diag(5) + 3))
+  expect_equal(unname(A0), structure(diag(5) + 3, br_associative = 0))
   expect_identical(associative_matrix(rep("x", 5), letters[1:5], dilution = 0), A0)
   A1 <- associative_matrix(rep("x", 5), letters[1:5], dilution = 1)
-  expect_equal(unname(A1), unname((diag(5) + 3) / 16))
+  expect_equal(unname(A1), structure((diag(5) + 3) / 16, br_associative = 1))
   set.seed(1)
   R <- replicate(60000, { eS <- rnorm(5, sd = sqrt(0.4))
     rnorm(5) + (sum(eS) - eS) / 4 })
@@ -417,5 +419,6 @@ test_that("associative_matrix(dilution = d) e o bloco que o Monte Carlo mede", {
   expect_equal(mean(diag(C)), 1 + 0.4 * A1[1, 1], tolerance = 0.02)
   expect_equal(mean(C[upper.tri(C)]), 0.4 * A1[1, 2], tolerance = 0.1)
   # a baia de um animal nao tem companheiro: bloco zero para qualquer d, sem 0^negativo
-  expect_equal(unname(associative_matrix("x", "a", dilution = 2)), matrix(0, 1, 1))
+  expect_equal(unname(associative_matrix("x", "a", dilution = 2)),
+               structure(matrix(0, 1, 1), br_associative = 2))
 })

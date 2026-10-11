@@ -28,11 +28,20 @@ Guide*, 3rd ed. SIAM, Philadelphia.
 Anderson, T.W. & Darling, D.A. (1952). Asymptotic theory of certain "goodness of fit"
 criteria based on stochastic processes. *Annals of Mathematical Statistics* 23:193-212.
 
+Bijma, P. (2010). Estimating indirect genetic effects: precision of estimates and optimum
+designs. *Genetics* 186:1013-1028. (Cited with its first page, "Bijma 2010, Genetics
+186:1013"; "Bijma 2010" alone, for the dilution of the indirect effect, is Multilevel
+selection 4, below.)
+
 Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect genetic
 effects and group size. *Genetics* 186:1029-1031.
 
 Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 quantitative genetics of inheritance and response to selection. *Genetics* 175:277-288.
+
+Bolker, B.M., Brooks, M.E., Clark, C.J., Geange, S.W., Poulsen, J.R., Stevens, M.H.H. &
+White, J.-S.S. (2009). Generalized linear mixed models: a practical guide for ecology and
+evolution. *Trends in Ecology & Evolution* 24:127-135.
 
 Box, G.E.P. & Pierce, D.A. (1970). Distribution of residual autocorrelations in
 autoregressive-integrated moving average time series models. *Journal of the American
@@ -47,12 +56,20 @@ iterative simulations. *Journal of Computational and Graphical Statistics* 7:434
 Brown, M.B. & Forsythe, A.B. (1974). Robust tests for the equality of variances.
 *Journal of the American Statistical Association* 69:364-367.
 
+Butler, D.G., Cullis, B.R., Gilmour, A.R., Gogel, B.J. & Thompson, R. (2017). *ASReml-R
+Reference Manual, version 4*. VSN International, Hemel Hempstead. (`ar1()` for equally
+spaced levels, `exp()` for continuous distance.)
+
 Buttari, A., Langou, J., Kurzak, J. & Dongarra, J. (2009). A class of parallel tiled
 linear algebra algorithms for multicore architectures. *Parallel Computing* 35:38-53.
 
 Cantet, R.J.C. & Cappa, E.P. (2008). On identifiability of (co)variance components in
 animal models with competition effects. *Journal of Animal Breeding and Genetics*
 125:371-381.
+
+Chang, C.C., Chow, C.C., Tellier, L.C.A.M., Vattikuti, S., Purcell, S.M. & Lee, J.J.
+(2015). Second-generation PLINK: rising to the challenge of larger and richer datasets.
+*GigaScience* 4:7.
 
 Christensen, O.F. & Lund, M.S. (2010). Genomic prediction when some animals are not
 genotyped. *Genetics Selection Evolution* 42:2.
@@ -79,6 +96,12 @@ Dempster, E.R. & Lerner, I.M. (1950). Heritability of threshold characters. *Gen
 
 Ducrocq, V. (1997). Survival analysis, a statistical tool for longevity data. *48th
 Annual Meeting of the European Association for Animal Production*, Vienna.
+
+Falconer, D.S. & Mackay, T.F.C. (1996). *Introduction to Quantitative Genetics*, 4th ed.
+Longman, Harlow.
+
+Fernando, R.L., Gianola, D. & Grossman, M. (1983). Identifying all connected subsets in
+a two-way classification without interaction. *Journal of Dairy Science* 66:1399-1402.
 
 Ford, L.R., Jr. (1957). Solution of a ranking problem from binary comparisons.
 *American Mathematical Monthly* 64(8, part 2):28-33.
@@ -145,11 +168,18 @@ arXiv:2007.04229.
 Harville, D.A. (1974). Bayesian inference for variance components using only error
 contrasts. *Biometrika* 61:383-385.
 
+Hayes, B.J. (2011). Technical note: Efficient parentage assignment and pedigree
+reconstruction with dense single nucleotide polymorphism data. *Journal of Dairy Science*
+94:2114-2117.
+
 Hayes, J.F. & Hill, W.G. (1981). Modification of estimates of parameters in the
 construction of genetic selection indices ('bending'). *Biometrics* 37:483-493.
 
 Heidelberger, P. & Welch, P.D. (1983). Simulation run length control in the presence of
 an initial transient. *Operations Research* 31:1109-1144.
+
+Heinze, G. & Schemper, M. (2001). A solution to the problem of monotone likelihood in Cox
+regression. *Biometrics* 57:114-119.
 
 Henderson, C.R. (1950). Estimation of genetic parameters (abstract). *Annals of
 Mathematical Statistics* 21:309-310.
@@ -173,6 +203,10 @@ hierarchical linear mixed models. *Journal of the American Statistical Associati
 Hodges, J.S. (1998). Some algebra and geometry for hierarchical models, applied to
 diagnostics. *Journal of the Royal Statistical Society, Series B* 60:497-536.
 
+Hoeschele, I. & Tier, B. (1995). Estimation of variance components of threshold
+characters by marginal posterior modes and means via Gibbs sampling. *Genetics Selection
+Evolution* 27:519-540.
+
 Hoeschele, I. & VanRaden, P.M. (1991). Rapid inversion of dominance relationship
 matrices for noninbred populations by including sire by dam subclass effects. *Journal
 of Dairy Science* 74:557-569.
@@ -185,6 +219,9 @@ Analysis* 2:719-734.
 
 Kachman, S.D. (1999). Applications in survival analysis. *Journal of Animal Science*
 77(suppl. 2):147-153.
+
+Kennedy, B.W. & Trus, D. (1993). Considerations on genetic connectedness between
+management units under an animal model. *Journal of Animal Science* 71:2341-2352.
 
 Kirkpatrick, M., Lofsvold, D. & Bulmer, M. (1990). Analysis of the inheritance,
 selection and evolution of growth trajectories. *Genetics* 124:979-993.
@@ -231,6 +268,11 @@ Statistics* 24:1191-1209.
 Luce, R.D. (1959). *Individual Choice Behavior: A Theoretical Analysis*. Wiley, New
 York.
 
+Marees, A.T., de Kluiver, H., Stringer, S., Vorspan, F., Curis, E., Marie-Claire, C. &
+Derks, E.M. (2018). A tutorial on conducting genome-wide association studies: quality
+control and statistical analysis. *International Journal of Methods in Psychiatric
+Research* 27:e1608.
+
 Marquardt, D.W. (1963). An algorithm for least-squares estimation of nonlinear
 parameters. *Journal of the Society for Industrial and Applied Mathematics* 11:431-441.
 
@@ -246,6 +288,12 @@ Journal of Human Genetics* 83:359-372.
 
 Meuwissen, T.H.E. & Luo, Z. (1992). Computing inbreeding coefficients in large
 populations. *Genetics Selection Evolution* 24:305-313.
+
+Misztal, I. et al. (2018). *Manual for BLUPF90 family of programs* (renumf90, preGSf90).
+University of Georgia, Athens.
+
+Misztal, I., Gianola, D. & Foulley, J.L. (1989). Computing aspects of a nonlinear method
+of sire evaluation for categorical data. *Journal of Dairy Science* 72:1557-1568.
 
 Misztal, I., Legarra, A. & Aguilar, I. (2014). Using recursion to compute the inverse of
 the genomic relationship matrix. *Journal of Dairy Science* 97:3943-3952.

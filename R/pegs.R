@@ -30,12 +30,18 @@
 #' @param data data.frame with one row per animal and the traits in columns (`traits =`),
 #'   or, with `environment =`, one row per record of one trait in long form (each animal at
 #'   most once per environment); `NA` is a missing record
-#' @param traits names of the trait columns (wide form), or the single trait column (long)
+#' @param traits names of the trait columns (wide form), or the single trait column
+#'   (long). A factor or text trait is refused rather than read as its codes. There is no
+#'   `missing_code` here: a missing record is `NA`, and a value that looks like a code
+#'   (-999 held by two records or more, outside the range of the others) or lies more than
+#'   10 robust SDs from the median is warned about with the first row, as in [model()]
 #' @param id name of the animal column. A missing id (`NA`, `NaN`, `Inf`, `-Inf`, blank
 #'   text or the text "NaN") is refused on every row, as a level column of [model()]; an
 #'   id that is present but not among the genotyped animals leaves its record, counted in
 #'   `dropped`
-#' @param genotypes `list(ids, m)` with dosages 0/1/2 (`NA` imputed by the marker mean)
+#' @param genotypes `list(ids, m)` with dosages 0/1/2 (`NA` imputed by the marker mean); a
+#'   repeated id, rownames that contradict `ids` or an animal below a 0.90 call rate are
+#'   refused, as in [model()]
 #' @param environment name of the environment column for the long form: each level becomes
 #'   a trait. A missing environment is refused on every row, by the same rule as `id`:
 #'   it would become one more trait, or its records would vanish uncounted
@@ -76,13 +82,22 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
     nivel_ausente(data[[environment]], "", environment, "environment",
                   paste0("a record without an environment has no trait to enter, and those ",
                          "rows would form one more trait; drop those rows or fill them"))
+  # o traco entra como numero: o fator e recusado (em forma longa os codigos 1, 2, ... davam
+  # mu 28,3 contra 10,1; em forma larga o erro era o REAL() do C), e o codigo de ausente
+  # aparente da aviso. pegs() nao tem missing_code: o registro ausente e o NA (R/valores.R)
+  for (tr in traits) recusa_nao_numerico(data[[tr]], tr)
+  for (tr in traits) avisa_traco(data[[tr]], tr, conselho = "turn those records into NA")
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
-  # o animal como o motor escreve o id dos genotipos: 100000 e "100000", nao "1e+05"
-  ids <- rotulo_motor(data[[id]])
+  # o animal como o motor escreve o id dos genotipos: 100000 e "100000", nao "1e+05". Um id
+  # numerico acima de 2^53 ja perdeu digitos e e recusado (recusa_grandes(), R/estrutura.R):
+  # antes 150 ids de 16 digitos viravam 55 e a recusa saia como "an animal appears in more
+  # than one row"
+  ids <- rotulo_motor(data[[id]], paste0("the column '", id, "' of the data"))
   if (!is.null(environment)) {
     if (length(traits) != 1L) stop("with environment =, give ONE trait column")
-    env <- rotulo_motor(data[[environment]])
+    env <- rotulo_motor(data[[environment]],
+                        paste0("the column '", environment, "' of the data"))
     if (anyDuplicated(paste(ids, env, sep = "\r")))
       stop("an animal appears more than once in the same environment: aggregate first")
     niveis <- sort(unique(env[!is.na(env)]))
@@ -103,6 +118,11 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
   # um registro sem genotipo sai e e contado em `dropped`; o mesmo id escrito de dois jeitos
   # nos dois lados nao e registro sem genotipo, e erro declarado
   recusa_cientifico(ids[is.na(em)], g$gid, "the data", "the genotypes")
+  # e a grafia diferente (espaco, CR, caixa, zeros a esquerda), a regra de model()
+  confere_grafias(ids[is.na(em)], g$gid, paste0("the column '", id, "' of the data"),
+                  "genotypes$ids", function(v) sum(ids %in% v),
+                  "leave the analysis as records without genotype", cientifico = FALSE,
+                  zero = FALSE)
   k <- ncol(Y)
   tipo <- match(cov_structure, c("unstructured", "hcs", "xfa")) - 1L
   if (!estimate && is.null(start)) stop("estimate = FALSE needs start = list(Vb =, Ve =)")

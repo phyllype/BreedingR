@@ -213,6 +213,158 @@ void homozigose(const Genotipos& gt, double* het, double* obs) {
   }
 }
 
+// As contagens de 0, 1 e 2 de cada marcador nos animais marcados em linha (todos com linha
+// nula): o controle de qualidade tira dai a taxa de chamada do marcador, a frequencia, o MAF e
+// o qui-quadrado de Hardy-Weinberg, e os ajustadores sabem quais marcadores entram na G. Cada
+// marcador e de uma thread so; blocos de marcadores, com a interrupcao conferida entre eles.
+// Contagens inteiras: o mesmo resultado com qualquer numero de threads.
+void contagens_marcadores(const Genotipos& gt, const char* linha, double* n0, double* n1,
+                          double* n2) {
+  const std::size_t n = gt.n, m = gt.m, B = 1024;
+  for (std::size_t j0 = 0; j0 < m; j0 += B) {
+    checa_interrupcao();
+    const long jb = static_cast<long>(j0), je = static_cast<long>(std::min(m, j0 + B));
+#ifdef _OPENMP
+#pragma omp parallel num_threads(threads())
+#endif
+    {
+      std::vector<double> col(n);
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 16)
+#endif
+      for (long jj = jb; jj < je; jj++) {
+        const std::size_t j = static_cast<std::size_t>(jj);
+        gt.coluna(j, col.data());
+        std::size_t c0 = 0, c1 = 0, c2 = 0;
+        for (std::size_t a = 0; a < n; a++) {
+          if (linha && !linha[a]) continue;
+          const double x = col[a];
+          c0 += x == 0.0;
+          c1 += x == 1.0;
+          c2 += x == 2.0;
+        }
+        n0[j] = static_cast<double>(c0);
+        n1[j] = static_cast<double>(c1);
+        n2[j] = static_cast<double>(c2);
+      }
+    }
+  }
+}
+
+// As mesmas contagens so nas linhas dadas (base 0): o que o controle de qualidade subtrai das
+// contagens dos marcadores quando tira esses animais, lendo k x m genotipos e nao a matriz
+// inteira a cada passada. Cada marcador e de uma thread so, e as linhas sao lidas na ordem
+// dada; contagens inteiras, identicas com qualquer numero de threads. Com poucas linhas o
+// laco fica numa thread so (abrir a regiao paralela custaria mais que a conta).
+void contagens_nas_linhas(const Genotipos& gt, const std::vector<std::size_t>& linhas,
+                          double* n0, double* n1, double* n2) {
+  const std::size_t m = gt.m, k = linhas.size(), B = 4096;
+  for (std::size_t a : linhas)
+    if (a >= gt.n) throw Erro("marker counts: row outside the genotypes");
+  for (std::size_t j0 = 0; j0 < m; j0 += B) {
+    checa_interrupcao();
+    const long jb = static_cast<long>(j0), je = static_cast<long>(std::min(m, j0 + B));
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) num_threads(threads()) if (k >= 64)
+#endif
+    for (long jj = jb; jj < je; jj++) {
+      const std::size_t j = static_cast<std::size_t>(jj);
+      std::size_t c0 = 0, c1 = 0, c2 = 0;
+      for (std::size_t a : linhas) {
+        const double x = gt.valor(j, a);
+        c0 += x == 0.0;
+        c1 += x == 1.0;
+        c2 += x == 2.0;
+      }
+      n0[j] = static_cast<double>(c0);
+      n1[j] = static_cast<double>(c1);
+      n2[j] = static_cast<double>(c2);
+    }
+  }
+}
+
+// As chamadas de cada animal nos marcadores marcados em usa (a taxa de chamada por animal,
+// preGSf90 callrateAnim e PLINK --mind; quem chama passa os marcadores que entram na G).
+// Blocos de marcadores com a interrupcao entre eles; dentro, faixas de 1024 animais, cada
+// faixa de uma thread so, dona das suas contagens. Contagens inteiras: identico com qualquer
+// numero de threads. Um bloco sem marcador marcado nem abre a regiao paralela: o controle de
+// qualidade passa aqui so as poucas colunas que sairam numa passada.
+void chamadas_por_animal(const Genotipos& gt, const char* usa, double* chamadas) {
+  const std::size_t n = gt.n, m = gt.m, F = 1024, B = 256;
+  const long nf = static_cast<long>((n + F - 1) / F);
+  std::vector<std::size_t> c(n, 0);
+  for (std::size_t j0 = 0; j0 < m; j0 += B) {
+    checa_interrupcao();
+    const std::size_t j1 = std::min(m, j0 + B);
+    if (usa && std::none_of(usa + j0, usa + j1, [](char u) { return u != 0; })) continue;
+#ifdef _OPENMP
+#pragma omp parallel num_threads(threads())
+#endif
+    {
+      std::vector<double> buf(F);
+#ifdef _OPENMP
+#pragma omp for schedule(static)
+#endif
+      for (long ff = 0; ff < nf; ff++) {
+        const std::size_t a0 = static_cast<std::size_t>(ff) * F, a1 = std::min(n, a0 + F);
+        for (std::size_t j = j0; j < j1; j++) {
+          if (usa && !usa[j]) continue;
+          gt.trecho(j, a0, a1, buf.data());
+          for (std::size_t a = 0; a < a1 - a0; a++) c[a0 + a] += std::isfinite(buf[a]);
+        }
+      }
+    }
+  }
+  for (std::size_t a = 0; a < n; a++) chamadas[a] = static_cast<double>(c[a]);
+}
+
+// Homozigotos opostos entre pai e filho genotipados (o teste de exclusao de preGSf90,
+// verify_parentage, e de Hayes 2011): num marcador chamado nos dois, filho 0 e pai 2 (ou o
+// contrario) e impossivel por Mendel, fora erro de genotipagem. So os marcadores marcados em
+// usa entram (todos com usa nulo): o cromossomo sexual fica de fora, como no preGSf90. O laco
+// de fora e por blocos de marcadores, com a interrupcao conferida entre eles; dentro, cada
+// thread e dona de uma faixa fixa de pares e le a coluna j nas linhas dos seus pares (a
+// coluna inteira cabe no cache). As somas sem desvio (o += do teste) evitam o erro de
+// previsao do salto quando metade dos pares conflita. Contagens inteiras, cada par de uma
+// thread so: identico com qualquer numero de threads.
+void conflitos_parentesco(const Genotipos& gt, const std::vector<std::size_t>& filho,
+                          const std::vector<std::size_t>& pai, const char* usa, double* ambos,
+                          double* opostos) {
+  const std::size_t np = filho.size(), m = gt.m, B = 256;
+  if (pai.size() != np) throw Erro("parentage: offspring and parent of different lengths");
+  for (std::size_t k = 0; k < np; k++)
+    if (filho[k] >= gt.n || pai[k] >= gt.n) throw Erro("parentage: row outside the genotypes");
+  std::vector<std::size_t> a(np, 0), o(np, 0);
+  for (std::size_t j0 = 0; j0 < m; j0 += B) {
+    checa_interrupcao();
+    const std::size_t j1 = std::min(m, j0 + B);
+#ifdef _OPENMP
+#pragma omp parallel num_threads(threads())
+#endif
+    {
+      std::size_t nt = 1, t = 0;
+#ifdef _OPENMP
+      nt = static_cast<std::size_t>(omp_get_num_threads());
+      t = static_cast<std::size_t>(omp_get_thread_num());
+#endif
+      const std::size_t k0 = np * t / nt, k1 = np * (t + 1) / nt;
+      for (std::size_t j = j0; j < j1; j++) {
+        if (usa && !usa[j]) continue;
+        for (std::size_t k = k0; k < k1; k++) {
+          const double x = gt.valor(j, filho[k]), y = gt.valor(j, pai[k]);
+          const bool ok = std::isfinite(x) && std::isfinite(y);
+          a[k] += ok;
+          o[k] += ok && std::fabs(x - y) == 2.0;
+        }
+      }
+    }
+  }
+  for (std::size_t k = 0; k < np; k++) {
+    ambos[k] = static_cast<double>(a[k]);
+    opostos[k] = static_cast<double>(o[k]);
+  }
+}
+
 // D de Vitezica et al. (2013): cada genotipo 0, 1, 2 codificado -2p^2, 2pq, -2q^2 e
 // D = W W' / soma (2pq)^2, frequencias dos proprios genotipados. O ausente leva a media dos
 // codigos observados do marcador, (n0 c0 + n1 c1 + n2 c2) / k. A media do marcador e a do

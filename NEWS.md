@@ -2,6 +2,194 @@
 
 ## New
 
+* `describe(id = )`: with `pedigree`, counts the blocks of records with no relationship
+  between them and names the classes that give each block levels of its own. Every fitter
+  warns when a fixed class gives blocks with no genetic link (pedigree or genotypes)
+  levels of their own, so their genetic difference is absorbed by it ("the records form 2
+  blocks with no genetic link between them ..."; Fernando, Gianola and Grossman 1983;
+  Kennedy and Trus 1993). The fit then carries `blocks`, and `solutions()` has a `block`
+  column. On the survey case (two herds, one contemporary group each, true genetic
+  difference 1.248, EBV difference 0.078) the warning fires. It does not fire with the
+  groups crossed between the herds, or with genotypes linking them. A single fixed class
+  that nests the blocks is detected, and a class that splits them into fewer groups is
+  named apart; a split made only by a combination of classes, and covariates, are not
+  detected. An id of the data written another way than in the pedigree stops
+  `describe()` with the message of the fit.
+* `integer64` id columns (`data.table::fread()`) are read as their exact digits. The
+  latin1 and UTF-8 spellings of the same text are one id: the engine compares bytes, and
+  every label now goes to it in UTF-8.
+* Fits carry `pedigree_used`, `list(lines, founders, kept)`.
+* `parentage_check(pedigree, genotypes, exclusion_threshold = 0.01, sex_markers =
+  genotypes$sex_markers)`: for every animal genotyped together with its sire or dam, the
+  markers called in both, the opposite homozygotes among them, their rate and `conflict`
+  (rate above 1%, the `exclusion_threshold` of preGSf90; Hayes 2011). The denominator is
+  the markers called in both, where preGSf90 divides by every SNP; nothing is imputed, so
+  a low call rate is not refused here. The maternal-grandsire column of a `sire_mgs()`
+  pedigree is not a parent pair. `sex_markers =` leaves the sex-chromosome markers out of
+  the test, as preGSf90 does with `sex_chr`: PLINK codes a male X as homozygous, so a sire
+  and his son are opposite homozygotes on about `2pq` of the X markers with no error at
+  all. A repeated pedigree animal is refused, genotyped animals missing from the pedigree
+  are a warning with the count, and none in it an error (zero pairs would read as no
+  conflict).
+* Every single-step fitter (`model()`, `model_mt()`, `model_ar1()`, `gibbs()`,
+  `h_inverse()` and through it `model_threshold()` and `model_survival()`, `snp_blup()`,
+  `estimate_gamma()`, `indirect_residual()`) runs the same parentage test on the genotypes
+  it is given, without the columns named in `genotypes$sex_markers`, and warns once,
+  naming the first pairs, when one exceeds 1%; the fit goes on with the data as given. The
+  warning has class `br_parentage`. `options(BreedingR.verify_parentage = FALSE)` (or 0,
+  preGSf90's `verify_parentage 0`) turns it off, for genotypes simulated without the
+  pedigree.
+* `genotypes$sex_markers`, an optional element (column indices, names or one logical per
+  column of `m`): the sex-chromosome markers, left out of the parentage test of every
+  fitter, of `parentage_check()` and of `qc_genotypes()`. They stay in G.
+  `qc_genotypes(sex_markers = )` returns it as one logical per kept column, so its result
+  goes to `genotypes =` without the fit warning again about the pairs that the X alone
+  makes conflict. A logical of the wrong length (columns cut after the QC) is refused.
+* `qc_genotypes()` filters animals too. `min_call_rate_animal = 0.90` (preGSf90's
+  `callrateAnim`) drops the animals whose calls over the kept markers that vary fall below
+  it, and `pedigree =` drops the offspring in conflict with a genotyped parent (the
+  `verify_parentage 3` default of preGSf90). Call rates are filtered worst first, in
+  passes: each pass looks at the call rate of every kept animal and marker, and the side
+  holding the lowest rate loses its entries below the threshold and below the other side's
+  lowest failing rate. A failed sample leaves without taking the markers, and a bad batch
+  of markers without taking the animals (in the gate where 120 of 400 markers lost half of
+  their calls every animal is below 0.90 over the 400, so a single PLINK-order pass,
+  `--mind` before `--geno`, would drop all 60; the passes keep the 60 and drop the 120).
+  MAF, HWE and the parentage test follow, and the passes repeat until nothing changes, so
+  what `qc_genotypes()` keeps always passes the fitters' call-rate check. The matrix is
+  read once: the counts are kept and updated as animals and markers leave, so
+  heterogeneous missingness, which takes hundreds of passes, costs little more than one
+  pass (see Performance). The input can be `list(ids, m)`; the result then carries `ids`
+  and goes straight to `genotypes =`. New elements: `ids`, `rows`, `columns`, `n_animal`,
+  `n_parentage`, `passes`, `removed` (one row per removed animal, with the reason, the
+  rate and the pass), with a pedigree `parentage`, and with `sex_markers =` `sex_markers`.
+  Removed animals are a message, a warning when more than half of the animals or markers
+  went or when rows leave a bare matrix without rownames.
+* `read_plink()` reads the .fam, the .bim and the id columns of a .raw as text:
+  `id = "fid_iid"` names each sample `FID_IID` for files that repeat an IID across
+  families, and a .bed comes back with `map` (the .bim: `chr`, `snp`, `cm`, `pos`, `a1`,
+  `a2`) so the sex-chromosome markers can be found. A line with the wrong number of
+  fields, and a .raw dosage that is not a number, are refused with the file, line and
+  column.
+* `options(BreedingR.min_call_rate_animal)` sets the call-rate line of every function that
+  imputes a missing genotype by the mean (default 0.90; 0 turns the check off), and the
+  default of `qc_genotypes(min_call_rate_animal =)` follows it.
+* `model_ar1()` fits carry `time_step`, the step of the grid `rho` is per (`NA` on a
+  continuous axis); `residuals(type = "normalized")`, `residual_diagnostics()` and
+  `eval_internal_ar1()` read the time in steps.
+* On a grid where at least 10% of the gaps are an odd and at least 10% an even number of
+  steps (records on Monday, Wednesday and Friday), `rho` and `-rho` give the same
+  correlation at the even gaps and the likelihood can have a mode of each sign. The -2logL
+  is evaluated with `rho` of the other sign at the end of the walk, and when it is lower a
+  second walk starts from it (`start_from` "sign-flipped rho"). On 150 subjects x 9
+  records with rho -0.6 per day, 12aca18 stopped at +0.558 and -2logL 1418.54 with
+  `converged = TRUE`; the fit is now rho -0.614 and 1367.96, the fit from a start at -0.5
+  (gate 5, cases). `start_from` can also be "refit from the dominant grid" or "refit from
+  the order of the records" (see `time` in `?model_ar1`).
+* `eval_internal_ar1()` computes the dense V reference only up to 2000 observed cells by
+  default (`with_dense = NULL`), up to 6000 with `with_dense = TRUE`, and refuses above
+  that with the size before allocating; 12aca18 always computed it (gate 25).
+* `model_ar1()` and `eval_internal_ar1()` say the size of the fixed design before the fit
+  when it passes 3000 columns: its rank is found on a dense factor, O(p^3), which takes
+  minutes above 5000 columns (gate 26).
+* Missing-value codes and absurd values. Before the fit, every fitter that reads a numeric
+  trait warns about two patterns, naming the trait, the count, the first row and the
+  value:
+  - a common missing-value code (-9, -99, -999, -9999, -99999, 99, 999, 9999, 99999 or
+    -123456789) held by two records or more, outside the range of the others
+    and at least 3 robust SDs from their median;
+  - records more than 10 robust SDs from the median (not for the survival time or ordinal
+    categories).
+
+  On simulated data, ten records at -999, or three 1e4 above the rest, took h2 from 0.35
+  to 1e-10 without a word. The same patterns in a `cov()` covariate give a warning that
+  names it. `describe()` reports them in `suspect` and `suspect_cov`, and leaves
+  `missing_code` out of the descriptives. `profile_theta()` gives these warnings once,
+  from its outer fit, and none when `fit =` is given; the profile values are the same.
+* `h2(fit, weight = , scale = )` and `t2(fit, n, weight = , scale = )`. `weight` is the
+  weight at which `var(residual)` of a fit with `weights` is read; by default, the
+  harmonic mean of the weights of the records that entered the fit (see Breaking changes).
+  `weight = 1` gives the ratio of the components as estimated, the number airemlf90
+  reports, and `weight =` on a fit without weights is refused. `scale = TRUE` multiplies
+  the pedigree components of a fit with metafounders by
+  `var_scale = 1 + mean(diag(Gamma)) / 2 - mean(Gamma)` (Legarra et al. 2015), the usual
+  base; the default `FALSE` reads them as estimated, on the base of Gamma. A value of
+  `scale` other than `TRUE` or `FALSE` is refused.
+* One scale rule in `h2()`, `t2()`, `h2_curve()`, the share column of
+  `print()`/`summary()` and the h2 row of `summary()` of a `gibbs()` fit. Every term with
+  a relationship matrix (pedigree, genomic, H, metafounders, a declared `kernel()` K)
+  enters with its component as estimated, the ratio BLUPF90, ASReml and WOMBAT report, so
+  the same likelihood gives the same h2: `animal(id)` and `kernel(id, K = A)` of the same
+  pedigree, `animal(id)` with `genotypes =` and `kernel(id, K = H)`, `animal(id)` with
+  metafounders and `kernel(id, K = A_Gamma)`. Two warnings give the other reading:
+  - a `kernel()` K whose mean diagonal over the records is more than 10% from 1, with the
+    value at that mean diagonal;
+  - metafounders with `var_scale` more than 10% from 1 when `scale` is not given, with the
+    value on the usual base.
+
+  A `kernel()` that is the `associative_matrix()` of the `indirect()` term enters at the
+  variance it puts on a record, `(n - 1)^(1 - 2d)` times its component at the group size
+  `n`, and a `kernel(fixed = v)` at `v` times the mean diagonal of its K over the records.
+* Structure checks before the fit, in every fitter that estimates components (`model()`,
+  `model_mt()`, `model_ar1()`, `gibbs()`, `model_threshold(estimate = TRUE)`,
+  `model_survival()` without `sigma2 =`), with the same text everywhere and the same
+  answer for one data frame. They stop on a design the data cannot identify, naming the
+  term, the levels and what to do (see Breaking changes). They warn, with the warning also
+  written in `fit$message`, when:
+  - an `animal()` term has repeated records and no `pe()`, `random()` or `kernel()` with a
+    diagonal K and an estimated variance reads the same column, or a copy of it (nor, in
+    `model_ar1()`, is the animal the `subject`). The permanent-environment covariance goes
+    into the additive variance; measured h2 0.71 without `pe()` and 0.33 with it, true
+    value 0.30. Below 1% of the records repeating an animal the text says h2 moves little
+    and asks to check for duplicated rows;
+  - fewer than 10 pens of `indirect()` hold more than one animal. Bijma (2010, Genetics
+    186:1013) puts the detection of indirect effects at about 250 to 500 groups even with
+    an optimum design;
+  - the pens of `indirect()` split by a fixed effect that can be the batch in a way chance
+    does not explain, which is how pens merged by a pen number reused in each batch look.
+    `options(BreedingR.warn_pen_labels = FALSE)` silences it. Only an effect whose levels
+    never share an animal is read, with three or more levels that meet in the mixed pens
+    the way merged batches do, or with a fixed class effect nested in it. Sex drawn per
+    animal in pens of 4 to 20, a contemporary group of batch x sex in mixed-sex pens of 8
+    to 20 and a birth week in pens of 20 filled in birth order warn in 0 of 50 simulated
+    data sets each; sex balanced in every pen (20 or 300 pens) and a test period per
+    record do not warn. On simulated data with three batches of pens of 3 whose numbers
+    restart in each batch, the correlation of the estimated indirect breeding values with
+    the true ones was 0.38 with the reused labels against 0.60 with unique labels (mean of
+    5 data sets); the fit now warns there;
+  - a `pe()` or `random()` term has fewer than 5 levels among the records (Bolker et al.
+    2009). A litter coded by the parity number had 3 levels and var(random) 0.001, against
+    0.235 for the true litters (simulated variance 0.2). A single known level whose other
+    records carry the unknown 0 of a relationship term on the same column
+    (`maternal(dam) + pe(dam)` with one known dam) warns too, counting the records of that
+    level and of the 0;
+  - `model_survival()` with `lambda` given has a frailty term nested in a fixed effect:
+    the reference level is held at the baseline, and the one level of the term in it is
+    all that informs the variance.
+
+  At given components (`start` with `maxiter = 0` and `n_em = 0` in `model()`, `start`
+  with `maxiter = 0` in `model_mt()` and `model_ar1()`, `theta_fixed =` in `gibbs()`,
+  `estimate = FALSE` in `model_threshold()`, `sigma2 =` in `model_survival()`, and
+  `snp_blup()`) the designs that would stop are a warning, since the BLUP exists.
+  Blank text in the maternal-grandsire column of `sire(mgs =)` is the unknown grandsire in
+  these checks too, like "0", as in the fit. In `model_ar1()` a record with a missing or
+  non-finite time, which the fit leaves out, counts as a record with no observation; it
+  still counts as a pen mate of `indirect()`, as in the fitted model.
+  Reproductions: `validation/structure_cases.R`.
+* The extractors read the state of the fit. `h2()`, `t2()`, `accuracy()`, `solutions()`
+  and `rg()` warn on a fit that did not converge (the value is read at the last iterate).
+  When the fit's SINGULAR verdict puts the numerator in a set of components the data do
+  not separate, they return `NA` with a warning naming the components. A set that touches
+  only the denominator, the residual side or another trait leaves the value, with a
+  warning that says why it holds. A fit with no estimates gives `NA` and says so.
+  `snp_blup()` names the conjugate-gradient stop. In a multi-trait fit `h2()` gives one
+  warning for all traits.
+* `associative_matrix()` returns the matrix with the attribute `br_associative` (its
+  `dilution`), by which `h2()` and `t2()` recognise it as the residual indirect structure
+  when the diagonal alone cannot (every pen of 2 animals, or `dilution = 0.5`).
+* `accuracy()` warns, with the count and the first level, when a PEV exceeds the prior
+  variance of its level (accuracy set to 0), as for a non-genotyped animal of a single
+  step whose prior under H is not 1 + F.
 * `residuals()` and `fitted()` for `model()`, `model_ar1()`, `model_mt()` and `gibbs()`
   fits. The fit stores the conditional residual `y - X b - Z u`, the fitted values
   `X b + Z u` and `X b` and, in `model()`, the leverage `h_ii` of each record in the mixed
@@ -102,9 +290,9 @@
     copula, t with 1.5 df; 400 replicates): `burn-in too short` at most 2.2%, against 6.5%
     to 15% for the same tests on the raw scale.
   - 50 000 levels at an autocorrelation time of 5: the largest location R-hat passed 1.01
-    in 95% of converged runs. The limit flagged none in 40 when given the true largest time
-    + 2 as ceiling, and found a level with one chain shifted 0.5 posterior sd 90% of the
-    time.
+    in 95% of converged runs. The limit flagged none in 40 when given the true largest
+    time + 2 as ceiling, and found a level with one chain shifted 0.5 posterior sd 90% of
+    the time.
   - The ceiling a fit computes, the slowest row + 2, was checked on 860 simulated animals
     in three models. Largest level time over the slowest row's: 0.17 for the animal model,
     0.33 for direct-maternal (chains far from mixed), 0.20 for a two-coefficient reaction
@@ -607,6 +795,306 @@
 
 ## Breaking changes
 
+* The ids of the data are matched to the pedigree by one rule in every fitter (`model()`,
+  `model_mt()`, `model_ar1()`, `gibbs()`, `snp_blup()`, the `eval_internal` family,
+  `model_threshold()`, `model_survival()`). `accuracy()`, `solutions()`, `snp_effects()`,
+  `residual_diagnostics()` and `predict()` redo it from the pedigree given. Fits of the
+  same data change:
+  - An animal of the data with no line in the pedigree now enters as a founder with
+    unknown parents, in every relationship term: `animal()`, `sire()`, `maternal()` (a
+    recipient dam too), `rn()`, the pen mates of `indirect()` and the maternal grandsire
+    of `sire(mgs =)`. A warning counts those animals and their records by column and names
+    the first; renumf90 numbers every animal with a record the same way. Before, the
+    answer depended on the term and the fitter:
+    - the engine fitters dropped the records of an absent animal, sire or dam in silence,
+      and only `n_used` fell (110 of 120 records with 10 animals absent; theta 0.249/0.614
+      against 0.331/0.637 with the complete pedigree on the survey case);
+    - a pen mate of `indirect()` or a maternal grandsire of `sire(mgs =)` outside the
+      pedigree stopped the fit ("indirect term 'indirect': animal '...' is not in the
+      level set (pedigree)", and the same for the grandsire), and `model_threshold()` and
+      `model_survival()` refused any absent id ("10 level(s) of 'id' have no line in the
+      pedigree"). These refusals now run, with the warning. When no id of a column is in
+      the pedigree at all, the fit stops with the first id of each side: the two use
+      different ids.
+  - The unknown code 0 (or the text "NA") in the column of `animal()`, `maternal()`,
+    `sire()` or `rn()` is now an unknown animal and the effect is absent from that record,
+    as in BLUPF90, whose renumf90 readme warns that "missing animals have code 0". The
+    record stays in the other terms with zero incidence in that one, and a message counts
+    these records. Before, the whole record left the analysis, the direct effect included:
+    the EBV differed by up to 0.53 from the dense MME that keeps them. The same 0 is now
+    absent too in a `pe()`, `random()` or `kernel()` term that reads the same column, so
+    `maternal(dam) + pe(dam)` no longer pools every unknown dam into one
+    permanent-environment level "0". In `sire(mgs =)` a record with an unknown sire keeps
+    only the grandsire contribution, and nothing in that term when the grandsire is
+    unknown too; the message counts each group. In a column that no relationship term
+    reads, 0 is still one ordinary level (`pe(dam)` alone keeps one level "0").
+  - In `model_survival()` and in the joint mode of `model_threshold()` the rule reads only
+    the rows the fit keeps: the time, the censoring indicator and the entry observed, or
+    both traits observed. A 0 on a row the joint mode leaves out is not refused, and the
+    messages count only the records that enter. `model_survival()` reads the time, the
+    censoring indicator and the entry first, so their errors come before any pedigree
+    message.
+  - The pedigree is pruned to the animals of the data (every row, the trait observed or
+    not), the genotyped and their ancestors. This is the informative set of renumf90
+    (`PED_DEPTH` deep enough to reach every ancestor), and a message counts the lines left
+    out. The likelihood and every breeding value kept are unchanged. But `ebv()`,
+    `solutions()`, `accuracy()` and `predict()` no longer have an animal with no record,
+    no genotype and no recorded descendant; its EBV was the parent average. Give such an
+    animal a row with the trait missing to keep it. A pedigree of 50 220 lines for 220
+    records, 50 000 of them random matings unrelated to the data, ran past 120 s at
+    12aca18 and now fits in 0.02 s.
+  - Data that used to fit now stop, each with a message that names the column, the count
+    and the first culprit:
+    - an id written differently from its pedigree line (spaces, tabs, carriage returns or
+      no-break spaces at the ends, upper against lower case, leading zeros, a trailing .0,
+      decomposed accents, latin1 bytes read as UTF-8). It stops with both spellings and
+      the difference. Before, those records left in silence (51 of 120 entered with
+      leading zeros);
+    - a numeric column that gives levels, at or above 2^53, in the data, the pedigree or
+      `genotypes$ids`: an id, and also a numeric contemporary-group or herd code, a pen, a
+      grandsire or the subject of `model_ar1()`. These are 16- and 17-digit codes read by
+      `read.csv()`, whose last digits are already lost: 48 of 120 records fell on another
+      animal. It stops with the column and how to read it as text. A covariate is not
+      checked;
+    - in `pegs()`, a data id written differently from its `genotypes$ids` line. It stops
+      with both spellings; before, its record left as one without genotype (3 records with
+      a trailing space were dropped and only counted);
+    - a parent written differently from its own line, and a 0 written another way in the
+      pedigree (0 followed by a carriage return, "00" with no line). Both stop with the
+      two spellings;
+    - a pedigree that is not a data.frame, or has fewer than three columns;
+    - the unknown 0 as the subject of `model_ar1()` when the subject column is also the
+      column of a relationship term (`animal(id)` with `subject = "id"`). The records of
+      distinct unknown animals would be chained as one AR(1) series. At 12aca18 they left
+      the fit in silence (460 of 480 records), since a 0 dropped the record.
+  - `accuracy()` accepts the pedigree the fit was given with lines that are no ancestor of
+    any level; they are pruned as in the fit. A pedigree with ancestors added or levels
+    missing is still refused.
+* Genotypes that used to run now stop, with an error that names the rows and ids:
+  - in every function that takes `genotypes =` (`model()`, `model_mt()`, `model_ar1()`,
+    `gibbs()`, `h_inverse()`, `model_threshold()`, `model_survival()`, `snp_blup()`,
+    `pegs()`, `g_matrix()`, `g_dominance()`, `apy_core_select()`, `eval_internal()`,
+    `estimate_gamma()`, `snp_effects()`, `residual_diagnostics()`, `genomic_inbreeding()`,
+    `parentage_check()`, `qc_genotypes()` with a list, and `indirect_residual()` through
+    `model()`): an id repeated in `genotypes$ids` (the single step stopped with "the
+    matrix is not positive-definite"; `snp_blup()`, `pegs()`, `g_matrix()` and
+    `apy_core_select()` ran with one animal too many); a missing id (`NA`) in
+    `genotypes$ids` (`g_matrix()` ran with an animal named "NA"); rownames of
+    `genotypes$m` that disagree with `genotypes$ids` (the genotypes went to the animals at
+    those positions in `ids`, without a word); genotypes with no rows (a
+    `list(ids = character(0), m = ...)` gave a fit on the pedigree alone, silently) or no
+    columns;
+  - an animal with a call rate below 0.90 over the markers that vary, wherever a missing
+    genotype is imputed by the marker mean: `model()`, `model_mt()`, `model_ar1()`,
+    `gibbs()`, `h_inverse()`, `model_threshold()`, `model_survival()`, `snp_blup()`,
+    `pegs()`, `g_matrix()`, `g_dominance()`, `apy_core_select()`, `eval_internal()`,
+    `snp_effects()`, `residual_diagnostics()` and `indirect_residual()`, and
+    `apy_inverse()` and `vecchia_inverse()` with a double or integer matrix.
+    `genomic_inbreeding()` and `parentage_check()` impute nothing and do not refuse it,
+    `estimate_gamma()` refuses any missing genotype with its own message, and
+    `qc_genotypes()` drops those animals instead.
+    `options(BreedingR.min_call_rate_animal = 0)` restores the old behaviour.
+* The single-step fitters warn on genotyped parent-offspring pairs with more than 1%
+  opposite homozygotes (see New). A test or a script that simulates genotypes
+  independently of the pedigree needs `options(BreedingR.verify_parentage = FALSE)`; any
+  value of that option other than TRUE, FALSE, 1 or 0 is an error. Sex-chromosome markers
+  make a sire and son conflict without any error: name them in `genotypes$sex_markers` or
+  leave them out.
+* `qc_genotypes()` now drops animals by default (`min_call_rate_animal = 0.90`); pass
+  `min_call_rate_animal = NULL` for the markers alone. The marker call rate, MAF and HWE
+  are counted over the kept animals, so `n_call`, `n_maf` and `n_hwe` can differ from
+  before on the same data. A filter that leaves no animal or no marker is an error that
+  says what removed them (it returned an empty matrix: `qc_genotypes(matrix(NA, 3, 4))`
+  gave `n_call = 4`). The HWE chi-square is the same test, now computed from the genotype
+  counts of the kept animals.
+* `read_plink()` returns ids as written in the file: an IID `0001` was `1`, `T`/`F` were
+  `1`/`0`. An IID repeated in the file is refused (pass `id = "fid_iid"` when the families
+  tell the samples apart). A .bed result has the extra element `map`.
+* `model_ar1()` reads the time axis in one of two ways, and `rho(residual)` changes
+  meaning on one of them. The axis is a GRID when every gap between consecutive records of
+  a subject is a whole number of one step: the step is the largest number that divides
+  every gap, sought among the smallest gap divided by 1 to 1000 (only the ratios between
+  gaps decide, so the unit and the origin of the time do not). On a grid the time is
+  divided by the step and `rho` is the correlation PER STEP, in (-1, 1); the step is
+  returned in the new `time_step` and a message names it when it is not 1. Otherwise the
+  time is CONTINUOUS (CAR(1), `corCAR1` of nlme, `EXP` of ASReml), and `rho` lies in
+  [0, 1). At 12aca18 the step was always the unit of the data, so a negative correlation
+  existed only between records an ODD number of units apart. The same 120 subjects x 6
+  daily records with rho -0.4 gave rho -0.415 and -2logL 784.00 in days, but rho 0.993 per
+  second and 866.61 in `POSIXct`, and rho about 0 and 866.61 in days x 2, all with
+  `converged = TRUE` (cases). They now give the fit in days in all three units
+  (`time_step` 1, 86400 and 2).
+* A fit whose time axis cannot represent the serial correlation the data carry now stops,
+  or warns, instead of returning a wrong fit with `converged = TRUE`. After the fit, the
+  axis is checked when a few gaps (at most 20% of them, each gap length in at most 5%) are
+  off a coarser grid that holds every other gap, or when the correlation at the typical
+  gap came out near 0 on an axis that cannot make it negative for nearly all consecutive
+  records (or where no gap is a single step, where rho = 0 is a stationary point of the
+  walk). The data are fitted again with the records off the grid moved to its nearest free
+  point (or with the order of the records within subject as time), and with no serial
+  correlation (`model()`, or `model_mt()` under `cbind()`) on the records of the fit. A
+  negative correlation the axis cannot represent, with a likelihood-ratio gain above 10.83
+  (0.1%, 1 df), stops the fit with an error that says what to do and names the gaps off
+  the grid (subject, both times, gap length); from 3.84 to 10.83 a warning says the same.
+  A numeric time is printed there with up to 15 significant digits and no scientific
+  notation, so a time in epoch milliseconds (as `data.table::fread()` reads a timestamp,
+  double or `integer64`) names the records exactly: "t = 1704153600000 to 1704153600500
+  (gap 500)".
+  A correlation the axis can represent restarts the walk from the refit, and a gain still
+  above 10.83 stops the fit ("the spacing of the records contradicts their serial
+  correlation"). Data that fitted at 12aca18 and now stop (cases):
+  - one record at t = 4.5 among daily records (rho -0.4): 12aca18 gave rho about 0 per day
+    and -2logL 867.06, "did NOT converge" with no cause; the bivariate fit, -2logL 711.44,
+    also not converged. The error now names subject S001, t = 3 to 4.5 and 4.5 to 5;
+  - one Wednesday or one Friday at noon among records on Monday, Wednesday and Friday (rho
+    -0.6 per day, 150 subjects): 12aca18 gave rho +0.558 per day, -2logL 1418.62 and
+    1418.84, `converged = TRUE`, nothing said; the Wednesday at noon in 31 of the 150
+    subjects, 1417.69, the same. The fit with those records back on the grid is rho
+    -0.614, 1367.96;
+  - one record at t = 2.01 among daily records with rho +0.6: 12aca18 gave a daily
+    correlation of 0.370 and -2logL 673.02, `converged = TRUE`, against 522.66 in days;
+  - `POSIXct` clock times at 08:00 in a time zone with daylight saving (America/New_York)
+    and rho -0.4: across the change the records are 23 or 25 h apart and the grid is 1 h;
+    12aca18 gave rho 0.9995 per second and 872.87, `converged = TRUE`. The error says so
+    and suggests UTC or a `Date`.
+* A negative `rho` in `start=` (or in the `theta` of `eval_internal_ar1()`) on a
+  continuous axis is refused with that reason. 12aca18 returned a fit with `theta` NA,
+  -2logL 0 and "the starting theta is INADMISSIBLE ... or rho is outside (-1, 1)" (cases).
+* With `missing_code`, a covariate cell equal to the code is refused on every row, like
+  NA, when it lies more than 10 robust SDs from the other cells, and warned about
+  otherwise (a 0/1 covariate under `missing_code = 0`). A -999 age had been fitted as an
+  age: the regression fell from 0.0116 to 0.0017. `predict()` of threshold and survival
+  fits refuses the fit's code in newdata.
+* A factor or text where a number is read is refused with the way to convert it. Read by
+  its codes, it had moved the survival rho from 3.14 to 1.98, read the joint threshold
+  mean as 34.2 instead of 9.9, read the pegs mu as 152 instead of 9.9, and given a
+  survival `predict()` S(t) of 0.92 instead of 0.59.
+* `model_threshold()` (both modes) and `gibbs(family = "probit")` refuse a categorical
+  trait coded as text that is not a number. The message names the column, lists the
+  labels, shows the order sorting would use and, for a binary trait, which category that
+  makes the upper one. Pass `ordered(x, levels = c(...))` (or `factor()` with `levels =`)
+  from the lowest liability to the highest, or numeric codes. Before, text was sorted
+  alphabetically. "low", "mid", "high" ran high < low < mid, which inverts the liability
+  scale. A binary "doente"/"sadio" put "sadio" on top, which flips the sign of every
+  breeding value. A binary such as "nao"/"sim", which happens to sort the intended way, is
+  refused too. Text that reads as numbers is ordered by value: "1", "2", "10" is now
+  1 < 2 < 10 (it was "1" < "10" < "2").
+* In the same fitters, a factor whose labels are numbers out of numeric order is refused,
+  and so is an `ordered()` factor whose levels are in text order. This is what `factor()`
+  and `ordered()` make of a numeric text column without `levels =` ("1" < "10" < "2"). A
+  deliberate order such as `factor(x, levels = 3:1)` must now be declared with
+  `ordered()`. Labels that write one number twice ("1" and "1.0", " 2" and "2") are
+  refused, as factor levels and as text.
+* An unordered factor trait whose levels are in alphabetical order runs in
+  `model_threshold()` and `gibbs(family = "probit")` with a warning. This is what
+  `factor()` and `read.csv(stringsAsFactors = TRUE)` give a text column. The warning shows
+  the order used, the upper category of a binary trait and the record count of each
+  category. `ordered()` declares the order and silences it. MASS::polr and ordinal::clm
+  take factor levels silently; brms refuses an unordered factor for an ordinal family.
+* `gibbs(family = "probit")` and the joint mode of `model_threshold()` follow the levels
+  of a factor trait, and the second category is the upper one. Before, the factor went to
+  text and was sorted alphabetically. With `levels = c("low", "high")` the probit took
+  "low" as the upper category, the opposite sign of `model_threshold()` on the same data.
+  The joint mode sorted a numeric 9/10 binary as text ("10" < "9"). `binary_levels` keeps
+  its type: numeric in `gibbs()` for a numeric or logical trait, text in the joint mode.
+* `model_threshold()` (both modes, `estimate = TRUE` included) and
+  `gibbs(family = "probit")` refuse, before any iteration, a level of a fixed class effect
+  with every record in the lowest or in the highest category. This is the extreme category
+  problem (Misztal, Gianola and Foulley 1989).
+  - The message gives the number of such levels and the first five as term=level, with
+    their record count and category. It says to merge the level, drop its records or fit
+    the effect as random.
+  - A level all in a middle category, and a category with a single record, still run.
+  - In `gibbs(family = "probit")` the check counts the records that enter the chain. A
+    record whose `kernel()` level is not among the rownames of K is out. A record with the
+    unknown 0 (or the text "NA") in a `kernel()` column that is also the column of a
+    relationship term (`maternal(dam) + kernel(dam, K = K)`,
+    `sire(sire, mgs = "mgs") + kernel(mgs, K = K)`) is in, with no effect in either term.
+  - Before, the ordinal mode stopped with "the Gianola-Foulley system is not solvable",
+    the joint mode did not converge, and the probit chain drifted without a message.
+  - Data with many small fixed contemporary groups and a binary trait now stop.
+  - In `gibbs()` a missing level in a fixed column is now reported before this check, so a
+    data frame with both problems gets the same first message as in `model_threshold()`.
+  - `validation/residual_diagnostics_calibration.R pivotal_probit` now fits the
+    contemporary group as random (`by = "cg"` keeps the dispersion check by group). With
+    the group fixed, a binary at the median leaves 7 to 27 of the 56 groups with every
+    record in one category (median 17 over 200 draws of the design's data), so `gibbs()`
+    now refuses every such data set. The rerun on 200 data sets gave a mean fraction of
+    draws with p < 0.05 of 0.042 to 0.047, and the combined p rejected none.
+    `?residual_diagnostics` now gives these numbers in place of the old ones (0.037 to
+    0.049), which came from chains with improper posteriors.
+* `model_survival()` refuses a level of a fixed class effect with no failure among its
+  records (with elementary records, among its pieces), naming the level and its record
+  count. Before, its solution ran towards minus infinity with `converged = FALSE`. With
+  `lambda` given and that level the reference, which is held at the baseline, the missing
+  failures were loaded onto the frailties of its animals, with only the standard note. A
+  fit in which every record is censored is refused when something must be estimated from
+  the failures (rho, lambda, a frailty variance or a fixed effect). With `rho`, `lambda`
+  and `sigma2` all given and no fixed effect it runs, and the fit message says the
+  frailties come from the given values alone.
+* A time stored as a factor or as text is refused, naming the column and the labels that
+  do not read as numbers. This holds in `model_survival()` (time and `entry`), its
+  `predict()` (`time =`, `entry =`), `residuals()` of a survival fit and
+  `survival_split()` (`time` of subjects, `at` of changes). A column name passed to
+  `time =` of `predict()` gets its own message. Before, a factor entered by its codes
+  1, 2, ... without a word, and a factor entry gave a misleading "entry >= stop" error.
+  Numeric text ("40"), which used to be read, is refused too, as `model()` refuses a text
+  trait.
+* `h2()` reads the marker of the term:
+  - in a `sire()` model it returns `4 var(sire) / Vp` (it returned `var(sire) / Vp`, a
+    quarter of the heritability);
+  - in `sire(sire, mgs = )` the phenotypic variance also holds `f var(sire) / 4`, with `f`
+    the fraction of the records with a known maternal grandsire (per trait in `model_mt()`
+    and `model_ar1()`);
+  - on a `pe()` or `random()` group it stops: `var / Vp` there is a variance ratio, which
+    the share column gives.
+
+  The h2 row of `summary()` of a `gibbs()` fit follows the same rule (it was the first
+  `var()` over the sum).
+* The default group of `ebv()`, `solutions()`, `accuracy()`, `h2()`, `h2_curve()`,
+  `plot()` and of the `gibbs()` h2 row is the group of the direct genetic term. In order:
+  the first pedigree or genomic term that is not `maternal()` or `indirect()`; else a
+  `kernel()` with an estimated variance over the animals; else `maternal()`; else another
+  estimated `kernel()`; else the first group. It was the first group, so `random(lot)`
+  written first made `ebv()` return the lots and `h2()` return `var(random) / Vp`. Inside
+  a named group `h2()`, `t2()` and `h2(n =)` read the direct term in any formula order:
+  with `maternal()` written before `animal()`, `t2()` took the maternal term as the direct
+  one.
+* On a fit with `weights`, `h2()`, `t2()`, `h2_curve()` and the share column read
+  `var(residual)` at the harmonic mean weight of the records that entered the fit, the
+  mean residual variance of those records. Weights w and 10 w now give the same h2, as
+  they give the same breeding values. `weight = 1` gives the old number, which is also the
+  one airemlf90 reports.
+* `t2()` and `h2(fit, n = )` add an `associative_matrix()` kernel at `(n - 1)^(1 - 2d)`
+  times its component at each requested `n`; it entered with coefficient 1. A fit made by
+  `indirect_residual()` reads its residual at `1 + (n - 1)^(1 - 2d) k` times
+  `var(residual)`. A `kernel(fixed = v)` enters at `v` times the mean diagonal of its K;
+  it entered at `v`.
+* Designs that ran now stop, before any iteration, in every fitter that estimates
+  components. Before, the component walked to 1e8 or more, or to zero, with
+  `converged = FALSE`; on a simulated one-sire-per-group design, var(sire) ended at 4.3e8,
+  1.2e13, 1.1e14 or 1e-10 depending on the seed and the start, see
+  `validation/structure_cases.R`. Or the chain of `gibbs()` walked its prior (var(animal)
+  0.73 and var(residual) 0.011 against 0.4 and 0.6 with `cg = id`). The designs:
+  - a random term whose levels are a function of a fixed class effect: one sire per
+    contemporary group; a fixed litter with `maternal(dam)` or `pe(dam)` whenever each
+    litter has one dam, whatever the number of litters per dam; `cg = id`. In `model_mt()`
+    this is checked on the rows of each trait too;
+  - a random term with a single level;
+  - a term whose records all carry the unknown parent code 0;
+  - `indirect()` with every pen of one animal, with all the records in one pen, or with
+    the pen (or anything finer) as a fixed effect. The message quotes Cantet and Cappa
+    (2008): a random pen does not always remove the collinearity. With `dilution > 0` and
+    pens of different sizes it is a warning. On 12aca18,
+    `model_threshold(estimate = TRUE)` with all 60 records in one pen ran about 30 s and
+    returned `converged = TRUE` on components the data do not identify.
+
+  `maxiter = 0` with `n_em > 0` estimates (the EM moves the start) and stops on these
+  designs too. A `kernel(fixed = )` term is not checked.
+* `maxiter = 0` without `start =` is no longer read as given components: the extractors
+  warn that the fit did not converge.
+* `accuracy()` on a fit with no estimates returns `NA` with a warning (it stopped with "no
+  component 'var(animal)'").
 * Data that used to fit now stop. Every fitter refuses a missing label in a column that
   gives a level, and a missing value in a covariate. A missing label is NA, NaN, Inf,
   -Inf, blank text or the text "NaN"; a missing value is NA, NaN, Inf or -Inf. The check
@@ -643,6 +1131,130 @@
 
 ## Fixed
 
+* "no row enters the analysis" no longer covers different causes with one sentence. Each
+  cause now has its own message: data with no rows; a trait missing on every row; no id of
+  the data in the pedigree, or none among the rownames of a `kernel()` K, with the first
+  id of each side; every row 0 in a relationship term (in `sire(mgs =)`, every sire and
+  every grandsire 0, which at 12aca18 gave only "no row enters the analysis"). When the
+  engine is the one that stops (an AR(1) fit with no finite time), its message counts the
+  rows by reason. `model_mt()` said "no estimable fixed effect for any trait" when no row
+  entered. The rows left out are counted by the cause each fitter drops them for: "have
+  the time or the censoring indicator missing" in `model_survival()` (with `entry =`, "the
+  time, the censoring indicator or the entry"), "have a trait missing" in the joint mode of
+  `model_threshold()`, "have the trait missing" elsewhere. In the joint mode, when no row
+  has both traits observed, the message says so ("the joint mode takes only the rows with
+  both traits ('q' and 'b') observed, and none of the 120 row(s) has both"); 12aca18 said
+  "the SECOND trait of the joint analysis must be binary (it has 0 value(s))". The joint
+  mode's own specification errors still come first.
+* An unknown 0 where it cannot be read as an absent effect is refused with the reason
+  instead of a misleading message: in the id column of `indirect()` (every pen mate must
+  be a known animal; 12aca18 said "animal '0' is not in the level set (pedigree)"), in the
+  joint mode of `model_threshold()` (12aca18: "1 level(s) of 'dam' have no line in the
+  pedigree: 0"), and as the subject of `model_survival(entry =, subject =)` when the
+  subject column is also the column of a relationship term (12aca18: "4 overlap(s) between
+  elementary records of a subject (0)", which blamed the times; the pieces of distinct
+  unknown animals were pooled as one subject).
+* A missing dam or sire (NA, blank text) in a relationship column is still refused, and
+  the message now says that an unknown parent is written 0 and keeps the record in the
+  analysis, instead of only "drop those rows or fill them".
+* A genotyped id written differently from its pedigree line (a trailing carriage return,
+  say) stops `h_inverse()` and every single-step fitter with both spellings. 12aca18 said
+  "genotyped animal 'G1_001' is not in the pedigree", printing the id without the
+  character that made it differ.
+* A dense `kernel(Kinv =)` or `k_inverse` whose rownames are latin1 now matches the same
+  ids of the data in UTF-8; before, those records left in silence (100 of 120 entered).
+* Genotypes against the pedigree and against themselves (survey of data-structure cases,
+  group E2, at commit f2c0d69): a repeated genotype id, rownames that contradict the ids,
+  an animal imputed mostly by the marker means (a failed sample or a low-density panel,
+  which shrinks its genomic relationships and makes it look average and more accurate than
+  it is), parent-offspring pairs that Mendel forbids and `read_plink()` ids changed by
+  `read.table()` all ran without a word. They are now refused or handled as described
+  under New and Breaking changes; the gates are in `tests/testthat/test-estrutura-e2.R`
+  (27 tests, every one fails on the build before this change).
+* A bare matrix given to `genotypes =` stops with "genotypes must be a list with 'ids' and
+  'm'" (it was R's "$ operator is invalid for atomic vectors").
+* The checks of the genotypes run once per fit: the univariate starts of `model_mt()` and
+  `model_ar1()`, the grid and golden-section fits of `indirect_residual()` (its first fit
+  checks the genotypes whatever the argument is called, `geno = g` included) and the
+  `apy_core = "auto"` core reuse the outer fit's check (they repeated it, and the
+  parentage warning, at every inner fit).
+* The axis of `model_ar1()` no longer depends on the labels of the subjects, the order of
+  the rows or the time origin. 150 subjects weighed every 4 to 6 integer days with a daily
+  rho of -0.8 give rho -0.792 and -2logL 1251.76 with the labels S001.. or A1..; 12aca18
+  gave +0.647 and 1351.86 with either label (cases, gate 19). Gaps of 60, 120 and
+  3622.37 s (a common divisor of 0.01 s, 6000 times below the smallest gap) are continuous
+  time at origin 0 and at a `POSIXct` origin (gate 27).
+* Weekly weighings with an occasional gap of 8 or 10 days and a strong negative daily
+  correlation (300 subjects x 10, rho -0.9, about 60% of the subjects with one such gap):
+  12aca18 stopped at rho +0.029 and -2logL 3518.38 with `converged = TRUE`; the fit is now
+  rho -0.900 and 2946.46, the fit from a start at -0.9 (cases, gate 29).
+* The bivariate default start no longer averages the univariate `rho` of different steps
+  (y daily and y2 on odd days: a rho per day and one per 2 days). The `rho` starts from
+  the automatic start when the steps differ (gate 14).
+* The pattern of the mixed-model equations of `model_ar1()` holds only the pairs of one
+  record and of neighbouring records (R^-1 is tridiagonal within subject). A long series
+  with a time contemporary group no longer puts every level of the group in the dense
+  block: 5 subjects x 1000 days with a weekly group (143 levels), `dense_block` 148 of 148
+  at 12aca18, now 8 (gate 24).
+* A record with no finite time leaves the fit of `model_ar1()` and the message counts it
+  (it has no position in the series; per the engine comment, at an earlier state it
+  reached the sort as NaN and ended in "theta inicial inadmissivel", not measured in this
+  round). The axis check fits the model with no serial correlation on the same records as
+  the AR(1) fit: with 60 extra rows with no time and y / 100, it compared 780 records
+  against 720 in an intermediate state of this item (gate 20; 12aca18 has no check).
+* Covariates enter the fixed design standardized (mean and SD of the used rows) in every
+  fitter, and the rank is decided on that scale. `b`, `se_b`, the thresholds, `lambda` and
+  the `gibbs()` posterior mean and SD of `b` come back in the unit of the data, and -2logL
+  keeps its value. Before:
+  - age + 1e9 left theta, EBV and b all NA;
+  - age + 3e8 gave b = 5.90;
+  - age + 1e11 and age x 1e-12 went to `dropped_x`;
+  - `gibbs()` with age + 1.7e9 gave b = 0.
+
+  Dates and timestamps are now fitted at full precision. A nested covariate whose class is
+  not a fixed effect, and a survival covariate with `lambda` given, are scaled only, with
+  a warning above 1e3 SDs. For the nested covariate the warning says that beyond about 1e6
+  SDs the fit may not converge, and beyond about 1e7 SDs the equations may fail to factor
+  (reported as an inadmissible or singular starting theta, or as C not positive-definite
+  in `gibbs()`), then gives the advice: add the class as a fixed effect, or subtract a
+  reference value. A nested covariate whose class is a fixed effect aliased with another
+  one is also scaled only, with no warning: `herd + cg + cov(x, nested = "cg")` with cg
+  nested in herd, where the rank test drops more than one level of cg that has used
+  records. A very large offset can still make such a fit fail as at 12aca18; fit cg
+  before herd, or leave herd out.
+* When the censoring indicator of `model_survival()` or of `residuals()` of a survival
+  fit, or the `event` of `survival_split()`, is a factor or text, it is read by its
+  labels: "0" and "1", or "TRUE" and "FALSE", in any level order. The fit message says so.
+  - Before, a factor was read by its codes. A one-level factor "0" (a subset of live
+    animals) became a failure on every record, in `model_survival()` and in
+    `survival_split()`. A 0/1 factor stopped `model_survival()` with "takes 1 or 0,
+    nothing else", and came out of `survival_split()` as the codes 1 and 2. The text
+    "dead"/"alive" fell into "no record with an observed time and indicator".
+  - Other labels are refused with the labels found and their count. A 1/2 coding is still
+    refused, now with the count and the advice to subtract 1.
+  - `survival::Surv()` reads a factor event as a multi-state endpoint whose first level is
+    censoring. Here `factor(ev, levels = c(1, 0))` is still 1 complete.
+* When the Laplace -2logL cannot be evaluated at any point, the error gives the last
+  failure first and the advice about `start=` after it.
+* The messages of these checks quote the labels they list, so a blank or a leading space
+  shows ("'2', ' 2'"). A list cut at its first items ends in "(and N more)".
+* `?predict.breeding_fit_thr`: the joint fit returns the probability of the upper binary
+  category, `fit$binary_levels[2]` (the second level of a factor), not "the larger binary
+  value".
+* Extractors and separability (survey of data-structure cases, group E6). Reviewed three
+  times, with the gates in `tests/testthat/test-estrutura-e6.R` (56 tests) and the
+  reproductions in `validation/structure_cases.R`. The cases: h2() of a sire model; h2()
+  of an iid group; the default group; the residual of a weighted fit; the associative
+  kernel in `t2()`; extractors on non-converged and SINGULAR fits; random terms nested in
+  fixed effects; repeated records without `pe()`; pens with no mates, one pen, a fixed
+  pen; pen numbers reused across batches; litters coded by parity.
+* `rg()` documents its reading of the fit state in Details (the text had landed inside the
+  `t2` argument).
+* `print(summary())` of a multi-trait `model_ar1()` fit lists the traits in the title
+  (they ran together).
+* The test suite uses `expect_warning(x <- ...)` instead of the value of
+  `expect_warning()`, which is the condition under testthat 3.2.1 (DESCRIPTION
+  accepts >= 3.1.7), and a gate refuses that idiom.
 * Blank text and the text "NaN" in a level column were levels of their own, in silence.
   The rule that already stopped the pen of `indirect()` now covers every column that gives
   a level: a fixed class, the id of a random or relationship term, the class of a nested
@@ -1106,13 +1718,13 @@
   used to form a group of its own, without the covariance it was meant to have.
 * `model_threshold()` with two or more random terms failed once the product of their
   level counts passed 2^31 - 1 (about 46 341 levels each, which a pedigree for 20 000 to
-  50 000 records reaches): the block between two terms was keyed by the integer `(a - 1)
-  * q_b + b`, which overflowed to NA, and the fit stopped with a misleading "system is
-  not solvable". The block is now summed by ordering on the two level columns, bit for
-  bit the same below the overflow; a fit with two terms of 50 000 levels each converges,
-  and its prediction error variances match a closed-form reference. `survival_split()`
-  compares change times exactly; its text key kept 15 significant digits and refused
-  distinct times such as 3 and 3 + 4e-15.
+  50 000 records reaches): the block between two terms was keyed by the integer
+  `(a - 1) * q_b + b`, which overflowed to NA, and the fit stopped with a misleading
+  "system is not solvable". The block is now summed by ordering on the two level
+  columns, bit for bit the same below the overflow; a fit with two terms of 50 000
+  levels each converges, and its prediction error variances match a closed-form
+  reference. `survival_split()` compares change times exactly; its text key kept 15
+  significant digits and refused distinct times such as 3 and 3 + 4e-15.
 * `fst()`, `roh()` and `qc_genotypes()` accept a raw genotype matrix (1 byte per
   genotype, 5 for missing), as `read_blupf90_snp()` and `read_plink(storage = "raw")`
   return it, with the same filtering, counts and values as a double or integer matrix; a
@@ -1194,6 +1806,31 @@
 
 ## Performance
 
+* What the new checks cost, at 20 000 genotyped x 10 000 markers stored as raw (200 MB),
+  with a 25 000-animal pedigree and 30 750 genotyped parent-offspring pairs. Three runs
+  each, `validation/genotype_checks_scale.R`; simulated data, one machine, nothing above
+  20 000 genotyped measured.
+  - With 1% missing at random: the call rate of every animal takes 0.51 to 0.53 s with one
+    thread and 0.14 to 0.16 s with four; the whole genotype check of a fit (values, ids,
+    rownames, call rate) 0.60 to 0.61 s and 0.23 to 0.25 s; the parentage test 0.60 to
+    0.63 s and 0.17 to 0.18 s with genotypes coherent with the pedigree, and 0.59 to
+    0.64 s and 0.17 to 0.18 s with every pair in conflict. No animal or marker fails, and
+    `qc_genotypes()` makes one pass: 0.76 to 0.78 s with one thread, 1.36 to 1.41 s with
+    `pedigree =`.
+  - With heterogeneous missingness (each animal and each marker draws a missing rate from
+    Beta(1, 40), 5.8% missing in all), the failing animals and markers interleave:
+    `qc_genotypes()` takes 583 passes and drops 1062 animals and 500 markers, in 1.67 to
+    1.73 s with one thread, 2.30 to 2.56 s with `pedigree =` and 1.30 to 1.33 s with four
+    threads, with the same result for 1 and 4 threads. The passes update the counts
+    instead of reading the matrix again.
+  - Results are identical with 1 and 4 threads. A fit checks its genotypes once.
+  - `read_plink()` of a 2000 x 5000 .raw takes 1.29 to 1.39 s, with an R memory peak of
+    202 to 300 MB for a 77 MB matrix.
+* The structure checks read each column once (codes and missing-label scan cached by
+  column). The reused-label test builds the pairs of levels without `combn()` and runs its
+  chance test first. At 200 000 records, with four fixed class effects, `animal()` and
+  `indirect()`, the checks take 0.6 to 1.1 s with one thread
+  (`validation/structure_checks_cost.R`, three runs, one machine, simulated data).
 * `genomic_inbreeding()`, `g_dominance()`, `estimate_gamma()` and `snp_effects()` now run
   in the engine. They read the genotype matrix where it is (double, integer, or raw with 5
   as missing), with no conversion or copy.
@@ -1431,7 +2068,7 @@
 
 ## Docs
 
-* Every help page has a `alue` section, and a reference to another function is
+* Every help page has a `\value` section, and a reference to another function is
   a link rather than the literal text `[model()]`: roxygen markdown is on.
 * `CONTRIBUTING.md`, plus `URL` and `BugReports` in DESCRIPTION, so the package
   says from the inside where it lives and where a problem should go.

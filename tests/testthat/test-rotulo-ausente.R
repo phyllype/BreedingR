@@ -137,7 +137,7 @@ test_that("blank text and the text 'NaN' in a level column stop every fitter, wi
 
 test_that("blank text in the id of a relationship term no longer drops the row in silence", {
   # Num termo com parentesco o "" nao casa com o pedigree e a linha saia calada (como a de
-  # um animal fora do pedigree, que continua saindo: e a regra declarada de animal()).
+  # um animal fora do pedigree saia, antes de ele entrar como fundador).
   z <- caso_rot()
   d <- z$d
   d$id[c(7, 8)] <- ""
@@ -152,10 +152,12 @@ test_that("blank text in the id of a relationship term no longer drops the row i
   gen <- list(ids = z$ped$id[7:18], m = matrix(sample(0:2, 12 * 30, TRUE), 12))
   expect_error(snp_blup(y ~ cg + animal(id), d, z$ped, genotypes = gen, theta = c(0.3, 1),
                         verbose = FALSE), msg)
-  # braco: um id fora do pedigree sai calado, so com o n_used menor; era o que o "" fazia
+  # braco: um id fora do pedigree saia calado, so com o n_used menor (era o que o "" fazia);
+  # agora entra como fundador, com o aviso (prepara_estrutura(), R/estrutura.R)
   d$id[c(7, 8)] <- "fora_do_pedigree"
-  expect_equal(model(y ~ cg + animal(id), d, z$ped, start = c(0.3, 1), maxiter = 0L,
-                     n_em = 0L, verbose = FALSE)$n_used, 46L)
+  expect_warning(f <- model(y ~ cg + animal(id), d, z$ped, start = c(0.3, 1), maxiter = 0L,
+                            n_em = 0L, verbose = FALSE), "entered as founders", fixed = TRUE)
+  expect_equal(f$n_used, 48L)
 })
 
 test_that("the texts 'NA' and 'Inf' are level names, not missing labels, in every fitter", {
@@ -252,7 +254,8 @@ test_that("a missing covariate value stops every fitter instead of dropping the 
   expect_equal(ev_neg2(y ~ random(lote), d), 50.430239486919447, tolerance = 1e-10)
   d$x[9] <- NA
   expect_error(ev_neg2(y ~ cov(x) + random(lote), d), "NA in the covariate column 'x'")
-  com <- model(y ~ cov(x) + random(lote), z$d, verbose = FALSE)
+  # random(lote) de 4 lotes: o aviso de poucos niveis sai, e o portao segue
+  expect_warning(com <- model(y ~ cov(x) + random(lote), z$d, verbose = FALSE), "has 4 level", class = "breedingr_estrutura")
   expect_length(com$dropped_x, 0L)
   expect_true("x=x" %in% names(com$b))
   expect_equal(com$n_used, 48L)
@@ -304,7 +307,8 @@ test_that("a missing value in base= or in a nested covariate stops the engine fi
                   "term 'x': blank text in the column 'cg' in 1 row\\(s\\), the first at row 14")
   # braco: com o valor no lugar, as tres classes de cg ficam com a sua inclinacao
   d2$x[14] <- 0.5
-  f <- model(y ~ cov(x, nested = "cg") + random(lote), d2, verbose = FALSE)
+  expect_warning(f <- model(y ~ cov(x, nested = "cg") + random(lote), d2, verbose = FALSE),
+                      "has 4 level", class = "breedingr_estrutura")
   expect_length(f$dropped_x, 0L)
   expect_setequal(names(f$b), c("intercept", "x=c1", "x=c2", "x=c3"))
 })
@@ -331,29 +335,28 @@ test_that("a covariate is checked on every row, also where the trait is missing"
 })
 
 test_that("missing_code is the code of the observation only, as OPTION missing in BLUPF90", {
-  # O que a pagina de model() promete: o codigo de ausente vale so para a observacao. Numa
-  # coluna cov o -999 e um NUMERO, ajustado calado (a idade -999 de um arquivo do BLUPF90
-  # entra na regressao), e numa coluna de nivel e o nivel "-999". Com e sem missing_code a
-  # -2logL e a mesma quando so a covariavel ou o nivel tem o codigo, e o registro entra no
-  # ajuste: tira-lo muda a -2logL.
+  # O que a pagina de model() promete: o codigo de ausente vale so para a observacao, e numa
+  # coluna de nivel e o nivel "-999". Numa coluna cov o -999 era um NUMERO ajustado calado (a
+  # idade -999 de um arquivo do BLUPF90 entrava na regressao); agora, com missing_code, a celula
+  # igual ao codigo e longe dos outros valores e recusada em todo ajustador, e sem missing_code
+  # o valor absurdo da aviso e entra (a regra e os portoes em test-estrutura-e4.R).
   z <- caso_rot()
   d <- z$d
   d$x[3] <- -999
   cod <- function(f, dd) eval_internal(f, dd, theta = c(0.3, 1), missing_code = -999,
                                        with_dense = FALSE)$neg2logl
-  a <- cod(y ~ cov(x) + random(lote), d)
-  expect_identical(a, ev_neg2(y ~ cov(x) + random(lote), d))
-  expect_gt(abs(ev_neg2(y ~ cov(x) + random(lote), d[-3, ]) - a), 1e-3)
-  f <- model(y ~ cov(x) + random(lote), d, start = c(0.3, 1), maxiter = 0L, n_em = 0L,
-             missing_code = -999, verbose = FALSE)
-  expect_equal(f$n_used, 48L)
-  expect_length(f$dropped_x, 0L)
-  expect_true("x=x" %in% names(f$b))
-  # nos ajustadores em R, o mesmo: o registro fica, e o ajuste e o de sem missing_code
+  msg <- "cov\\(x\\): 1 row\\(s\\) hold the missing-value code -999 \\(the first at row 3\\)"
+  expect_error(cod(y ~ cov(x) + random(lote), d), msg)
+  expect_error(model(y ~ cov(x) + random(lote), d, start = c(0.3, 1), maxiter = 0L, n_em = 0L,
+                     missing_code = -999, verbose = FALSE), msg)
   lim <- function(dd, ...) model_threshold(s3 ~ cov(x) + random(lote), dd, start = 0.3,
                                            verbose = FALSE, ...)
-  expect_equal(lim(d, missing_code = -999)$n_used, 48L)
-  expect_identical(lim(d, missing_code = -999)$neg2logl, lim(d)$neg2logl)
+  expect_error(lim(d, missing_code = -999), msg)
+  expect_warning(f <- model(y ~ cov(x) + random(lote), d, start = c(0.3, 1), maxiter = 0L,
+                            n_em = 0L, verbose = FALSE),
+                 "cov\\(x\\): 1 row\\(s\\) more than 10 robust SDs from the median")
+  expect_equal(f$n_used, 48L)
+  expect_true("x=x" %in% names(f$b))
   # na coluna de nivel, um nivel como outro qualquer (o motor, bit a bit, na mesma ordem de
   # aparicao), numerico ou texto
   d2 <- z$d
@@ -367,6 +370,7 @@ test_that("missing_code is the code of the observation only, as OPTION missing i
   dz$g[c(4, 9)] <- 7
   expect_identical(cod(y ~ cg + random(g), d2), ev_neg2(y ~ cg + random(g), dz))
   # na observacao, o codigo tira so o registro, como o NA
+  d <- z$d
   d$y[5] <- -999
   dna <- d
   dna$y[5] <- NA
@@ -557,10 +561,13 @@ test_that("a missing observation of a categorical trait drops its record, never 
   expect_equal(lim(d)$n_used, 46L)
   expect_identical(as.double(lim(d)$categories), c(1, 2, 3))
   # no fator, o NaN vira o nivel "NaN" (ausente) e o Inf o nivel "Inf", que e um NOME pela
-  # regra do texto (como na coluna de nivel): so o NaN sai
+  # regra do texto (como na coluna de nivel): so o NaN sai. Como "Inf" nao le como numero
+  # finito, os niveis em ordem alfabetica rodam com o aviso da ordem (test-estrutura-e5.R)
   d$s3 <- factor(d$s3)
-  expect_equal(lim(d)$n_used, 47L)
-  expect_identical(as.character(lim(d)$categories), c("1", "2", "3", "Inf"))
+  expect_warning(fi <- lim(d), paste0("the levels of the factor 's3' are in alphabetical ",
+                                      "order \\('1' < '2' < '3' < 'Inf'\\)"))
+  expect_equal(fi$n_used, 47L)
+  expect_identical(as.character(fi$categories), c("1", "2", "3", "Inf"))
   # braco: em f2c0d69, com "" nas linhas 4, 22 e 40, as categorias eram "" "1" "2" "3"
   # (contagens 3 10 17 18), os limiares -1.30984951163018692 -0.36770654083022036
   # 0.60406550631081390 e a -2logL 133.23306961590686, IDENTICOS aos de uma categoria "0"
@@ -577,8 +584,12 @@ test_that("a missing observation of a categorical trait drops its record, never 
   # o modo conjunto: o vazio no binario era um terceiro valor; agora e ausente
   G <- matrix(c(0.3, 0.1, 0.1, 0.2), 2)
   R <- matrix(c(1, 0.2, 0.2, 1), 2)
+  # o binario em texto vai como fator ordenado (o texto sem ordem e recusado, e o fator nao
+  # ordenado em ordem alfabetica roda com aviso: test-estrutura-e5.R): o vazio continua um
+  # nivel do fator, e o que se confere e que ele sai como ausente
   d <- transform(z$d, bin = ifelse(ev == 1, "z", "b"))
   d$bin[c(4, 22)] <- ""
+  d$bin <- ordered(d$bin)
   d$y[30] <- Inf
   j <- model_threshold(cbind(y, bin) ~ cg + animal(id), d, z$ped, start = list(G = G, R = R),
                        verbose = FALSE)
@@ -588,9 +599,10 @@ test_that("a missing observation of a categorical trait drops its record, never 
   # o probit de gibbs(): o vazio sai, e um traco so de "doente" e vazio nao e binario
   d <- transform(z$d, b = ifelse(ev == 1, "doente", "sao"))
   d$b[c(4, 22)] <- c("", "NaN")
+  d$b <- ordered(d$b)
   set.seed(3)
-  g <- gibbs(b ~ cg + random(lote), d, family = "probit", n_iter = 20L, burnin = 5L,
-             thin = 1L, verbose = FALSE)
+  expect_warning(g <- gibbs(b ~ cg + random(lote), d, family = "probit", n_iter = 20L,
+                            burnin = 5L, thin = 1L, verbose = FALSE), "has 4 level", class = "breedingr_estrutura")
   expect_identical(g$binary_levels, c("doente", "sao"))
   expect_equal(g$n_used, 46L)
   d$b <- ifelse(d$ev == 1, "doente", "")
@@ -779,6 +791,7 @@ test_that("the kernel guard of dominance_inverse(animals =) reads the observatio
   expect_identical(ajusta(d_mc, missing_code = -999)$neg2logl, f_na$neg2logl)
   d$b <- ifelse(d$y > 0, "sim", "nao")
   d$b[fora] <- c("", "NaN")
+  d$b <- ordered(d$b)
   set.seed(5)
   g <- gibbs(b ~ cg + kernel(id, Kinv = Dinv, nome = dom), d, family = "probit",
              n_iter = 30L, burnin = 10L, verbose = FALSE)

@@ -30,9 +30,13 @@ scalar one}
 
 \item{data}{data.frame}
 
-\item{pedigree}{data.frame animal, sire, dam (required: the model is single step)}
+\item{pedigree}{data.frame animal, sire, dam (required: the model is single step). The
+ids are matched to the data by the rule of \code{\link[=model]{model()}} (see \code{pedigree} there)}
 
-\item{genotypes}{list with \code{ids} and \code{m} (0/1/2 matrix); NA is imputed with the mean}
+\item{genotypes}{list with \code{ids} and \code{m} (0/1/2 matrix); NA is imputed with the mean.
+Checked as in \code{\link[=model]{model()}}: a repeated id, rownames that contradict \code{ids} or an animal
+below a 0.90 call rate are refused, and a parent-offspring conflict with the pedigree
+is a warning}
 
 \item{theta}{variance components, in the order \code{\link[=model]{model()}} reports for this formula
 (each random group, then the residual). This is a solver at fixed components:
@@ -72,6 +76,10 @@ path applies; in populations far from the base the two paths differ by construct
 and that difference is declared, not hidden. Every application of \code{A22^-1} uses the
 identity \verb{A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v} over the sparse blocks of
 \code{A^-1}, with one sparse factorization of the non-genotyped block.
+}
+\details{
+The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") run here as
+warnings: the components are given, so the solve exists.
 }
 \references{
 Liu, Z., Goddard, M.E., Reinhardt, F. & Reents, R. (2014). A

@@ -6,7 +6,9 @@
 #' phi(x) the Legendre basis evaluated at x. The phenotypic variance V_P(x) is evaluated at x
 #' too: every other random regression on the same basis (the permanent environment of a
 #' test-day model) enters as phi(x)' P phi(x), each scalar term with its variance, and the
-#' residual. A covariance between two scalar terms enters with coefficient 1, as in [h2()].
+#' residual. A covariance between two scalar terms enters with coefficient 1, as in [h2()],
+#' and the residual of a fit with `weights` is read at the harmonic mean weight of the
+#' records, as in [h2()] (weights w and 10 w give the same curve).
 #' Every random regression of the fit is evaluated on the Legendre basis with these limits.
 #'
 #' The LIMITS must be the same ones used to generate the basis in the fit: the scale is part
@@ -14,7 +16,8 @@
 #' here would produce a curve from another basis.
 #'
 #' @param fit result of [model()] with an rn() term
-#' @param group name of the reaction-norm group
+#' @param group name of the reaction-norm group; by default the group of the direct
+#'   genetic term, as in [h2()]
 #' @param limits the same ones passed to [legendre()] when preparing the data
 #' @param points where to evaluate the curve
 #' @return a data.frame with `x`, the point on the gradient, `va`, the additive variance there,
@@ -23,9 +26,11 @@
 h2_curve <- function(fit, group = NULL, limits, points = 101L) {
   if (!inherits(fit, "breeding_fit")) stop("expected the result of model()")
   if (missing(limits)) stop("provide the limits used in legendre(): the scale is part of the model")
-  if (is.null(group)) group <- names(fit$ebv)[1]
+  if (is.null(group)) group <- grupo_padrao(fit)
 
-  th <- fit$theta
+  # a escala de h2() (R/separabilidade.R): var(residual) de um ajuste com pesos no peso
+  # harmonico medio dos registros, e nao no peso 1
+  th <- fit$theta * multiplicadores(fit)
   nomes <- names(th)
   # components of the group: var(g[i]) and cov(g[i],g[j])
   pref <- paste0("var(", group, "[")
@@ -91,10 +96,10 @@ plot.breeding_fit <- function(x, limits = NULL, ...) {
   e <- ebv(x)
   # numa precisao com niveis latentes (dominance_inverse()) so os animais: os efeitos de
   # subclasse estao em outra escala de variancia e nao sao valores de animal
-  tp <- x$k_level_type[[names(x$ebv)[1]]]
+  tp <- x$k_level_type[[grupo_padrao(x)]]
   if (!is.null(tp)) e <- e[names(e) %in% names(tp)[tp == "animal"]]
   graphics::hist(e, breaks = 40, col = "grey80", border = "white",
-                 xlab = "breeding value", main = paste("EBV -", names(x$ebv)[1]), ...)
+                 xlab = "breeding value", main = paste("EBV -", grupo_padrao(x)), ...)
   graphics::abline(v = 0, lty = 2)
   invisible(e)
 }
@@ -107,25 +112,66 @@ plot.breeding_fit <- function(x, limits = NULL, ...) {
 #' @param trait trait column
 #' @param classes class columns to tabulate
 #' @param pedigree data.frame or NULL
-#' @param covariates covariate columns to check against the missing-value code
-#' @param missing_code missing-value code for the trait observations. When given together with
-#'   `covariates`, each covariate is checked: the code only applies to the trait, and
-#'   a -999 in a covariate enters the regression LITERALLY, in real data this once went
-#'   unnoticed past two programs at the same time
+#' @param covariates covariate columns to check against the missing-value code and for
+#'   values that look like one (see Value)
+#' @param missing_code missing-value code for the trait observations: the records holding
+#'   it are missing, as in every fitter, and stay out of the descriptives. When given
+#'   together with `covariates`, each covariate is checked: the code only applies to the
+#'   trait, and a -999 in a covariate enters the regression LITERALLY, in real data this
+#'   once went unnoticed past two programs at the same time
+#' @param id the animal column of the data. With `pedigree`, the records with an observed
+#'   trait (`missing_code` counts as missing, as in the fit) are split into BLOCKS, the
+#'   connected components of the relationship graph (the animals linked through their
+#'   sires and dams; an animal absent from the pedigree is a founder, as in the fit; an id
+#'   written another way than in the pedigree stops here with the message of the fit), and
+#'   the classes of `classes` that give each block levels of its own are named. Two blocks
+#'   with no relative in common whose records sit in different contemporary groups cannot
+#'   be compared: any genetic difference between them is absorbed by the groups (Fernando,
+#'   Gianola and Grossman 1983; Kennedy and Trus 1993). Every fitter warns about it from
+#'   its own terms; `describe()` sees only the pedigree and the classes given, so blocks
+#'   that genotypes link are counted here and not warned about by a single-step fit
+#' @return an object of class `br_describe`: `n` (the observed records: not `NA`, `NaN`,
+#'   `Inf`, `-Inf` or `missing_code`) and `n_na` (the missing ones), `mean`, `sd`,
+#'   `quartiles`, the Tukey `fences` and `outside_fences` on the observed records, and,
+#'   when asked, `classes`, `pedigree` and `leak` (per covariate, the records with the
+#'   trait observed and the covariate at the missing-value code). `suspect` lists the
+#'   findings the fitters warn about before a fit (see [model()]), on the observed
+#'   records: a common missing-value code (-9, -99, -999, -9999, -99999, 99, 999, 9999,
+#'   99999, or -123456789) held by two records or more, outside the range of the
+#'   other values and at least 3 robust SDs (the median absolute deviation, scaled to the
+#'   SD) from their median; and the other records more than 10 robust SDs from the median.
+#'   `suspect_cov` does the same per covariate, on the records with the trait observed.
+#'   The print shows each finding as a WARNING line. With `id` and
+#'   `pedigree`, `blocks`: the number of blocks of records with no relationship between
+#'   them, the records of each and the classes that give each block levels of its own
+#'   (`absorbed_by`); the print shows them as a WARNING line when such a class exists
+#' @references Fernando, R.L., Gianola, D. & Grossman, M. (1983). Identifying all
+#'   connected subsets in a two-way classification without interaction. Journal of Dairy
+#'   Science 66:1399-1402.
+#'
+#'   Kennedy, B.W. & Trus, D. (1993). Considerations on genetic connectedness between
+#'   management units under an animal model. Journal of Animal Science 71:2341-2352.
 #' @export
 describe <- function(data, trait, classes = NULL, pedigree = NULL,
-                      covariates = NULL, missing_code = NULL) {
+                      covariates = NULL, missing_code = NULL, id = NULL) {
   if (!trait %in% names(data)) stop("no column '", trait, "'")
-  y <- data[[trait]]
+  # o traco entra como numero (R/valores.R), e a observacao ausente e a de todo ajustador:
+  # NA, NaN, Inf, -Inf e missing_code. Antes o missing_code nao saia do traco, e o -999 entrava
+  # na media, no dp e nos quartis
+  recusa_nao_numerico(data[[trait]], trait)
+  y <- as.double(data[[trait]])
+  obs <- !observacao_ausente(y, missing_code)
+  yo <- y[obs]
   out <- list(trait = trait,
-              n = sum(is.finite(y)),
-              n_na = sum(!is.finite(y)),
-              mean = mean(y, na.rm = TRUE),
-              sd = stats::sd(y, na.rm = TRUE),
-              quartiles = stats::quantile(y, c(0, .25, .5, .75, 1), na.rm = TRUE))
+              n = sum(obs),
+              n_na = sum(!obs),
+              mean = mean(yo),
+              sd = stats::sd(yo),
+              quartiles = stats::quantile(yo, c(0, .25, .5, .75, 1)))
   iqr <- out$quartiles[4] - out$quartiles[2]
   out$fences <- c(out$quartiles[2] - 1.5 * iqr, out$quartiles[4] + 1.5 * iqr)
-  out$outside_fences <- sum(y < out$fences[1] | y > out$fences[2], na.rm = TRUE)
+  out$outside_fences <- sum(yo < out$fences[1] | yo > out$fences[2])
+  out$suspect <- unlist(lapply(valores_suspeitos(yo, which(obs)), texto_traco, traco = trait))
   if (!is.null(classes)) {
     out$classes <- lapply(classes, function(cl) {
       tb <- table(data[[cl]])
@@ -141,8 +187,23 @@ describe <- function(data, trait, classes = NULL, pedigree = NULL,
                          f_mean = mean(p$F), f_max = max(p$F),
                          inbred = sum(p$F > 1e-9))
   }
+  if (!is.null(covariates)) {
+    out$suspect_cov <- unlist(lapply(covariates, function(cv) {
+      if (!cv %in% names(data)) stop("no column '", cv, "'")
+      recusa_nao_numerico(data[[cv]], cv)
+      v <- as.double(data[[cv]])
+      fora <- if (is.null(missing_code)) FALSE else abs(v - missing_code) < 1e-9
+      lin <- which(obs & !(fora %in% TRUE))
+      lapply(valores_suspeitos(v[lin], lin), texto_covariavel, rotulo = paste0("cov(", cv, ")"))
+    }))
+  }
+  if (!is.null(id) && !is.null(pedigree)) {
+    if (!id %in% names(data)) stop("no column '", id, "'")
+    falta <- setdiff(classes, names(data))
+    if (length(falta)) stop("no column '", falta[1L], "'")
+    out$blocks <- blocos_describe(data, trait, id, classes, pedigree, missing_code)
+  }
   if (!is.null(covariates) && !is.null(missing_code)) {
-    obs <- is.finite(y) & abs(y - missing_code) > 1e-9
     out$leak <- lapply(covariates, function(cv) {
       if (!cv %in% names(data)) stop("no column '", cv, "'")
       v <- data[[cv]]
@@ -157,7 +218,7 @@ describe <- function(data, trait, classes = NULL, pedigree = NULL,
 #' @export
 print.br_describe <- function(x, ...) {
   cat("Trait '", x$trait, "': ", x$n, " record(s)",
-      if (x$n_na) paste0(", ", x$n_na, " non-finite"), "\n", sep = "")
+      if (x$n_na) paste0(", ", x$n_na, " missing"), "\n", sep = "")
   cat("  mean ", format(x$mean, digits = 5), ", sd ", format(x$sd, digits = 5),
       "\n  quartiles ", paste(format(x$quartiles, digits = 4), collapse = " / "), "\n", sep = "")
   if (x$outside_fences)
@@ -170,6 +231,17 @@ print.br_describe <- function(x, ...) {
     cat("  pedigree: ", x$pedigree$n, " animals, ", x$pedigree$founders,
         " founder(s), mean F ", format(x$pedigree$f_mean, digits = 4),
         ", maximum ", format(x$pedigree$f_max, digits = 4), "\n", sep = "")
+  for (s in c(x$suspect, x$suspect_cov)) cat("  WARNING: ", s, "\n", sep = "")
+  if (!is.null(x$blocks))
+    cat("  ", if (length(x$blocks$absorbed_by)) "WARNING: " else "note: ",
+        "the records form ", x$blocks$n, " blocks with no relationship between them (",
+        paste(utils::head(x$blocks$records, 5L), collapse = ", "),
+        if (length(x$blocks$records) > 5L) ", ..." else "", " record(s))",
+        if (length(x$blocks$absorbed_by))
+          paste0("; ", paste(x$blocks$absorbed_by, collapse = ", "), " give(s) each block ",
+                 "levels of its own, so a fit with ", if (length(x$blocks$absorbed_by) == 1L)
+                   "it" else "them", " compares breeding values only within a block")
+        else "; no class given gives each block levels of its own", "\n", sep = "")
   for (vz in x$leak)
     if (vz$n)
       cat("  WARNING: covariate '", vz$column, "' has ", vz$n, " record(s) with the ",

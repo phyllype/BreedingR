@@ -32,7 +32,11 @@ gibbs(
 
 \item{data}{data.frame}
 
-\item{pedigree}{data.frame animal, sire, dam}
+\item{pedigree}{data.frame animal, sire, dam. The ids are
+matched to the data by the rule of \code{\link[=model]{model()}} (see \code{pedigree} there): an absent
+animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+stops the fit, and the pedigree is pruned to the data, the genotyped and their
+ancestors}
 
 \item{genotypes}{single step as in \code{\link[=model]{model()}}}
 
@@ -99,8 +103,17 @@ in the scale of a declared covariance}
 trait by data augmentation (Albert and Chib 1993; Sorensen, Andersen, Gianola and
 Korsgaard 1995): each record gets a liability drawn from a normal truncated at 0 on
 the side of its category, the residual variance is FIXED at 1 (it sets the scale of
-the liability), and the implicit intercept stands for the threshold. The larger of
-the two values of the trait is the upper category. A missing observation (\code{NA},
+the liability), and the implicit intercept stands for the threshold. The two values
+are ordered by the rule of \code{\link[=model_threshold]{model_threshold()}}, and the second is the upper
+category: numbers (or logical) by value, a factor by its levels, text that reads as
+numbers by value; text that is not a number is refused, with the order sorting
+would give (sorted, "healthy" < "sick" happens to put the disease on top and
+"diseased" < "healthy" does not), and a factor whose levels are in the alphabetical
+order \code{factor()} gives text runs with a warning that names the upper category. A
+level of a fixed class effect with every record in the same category is refused,
+naming the level: with the flat prior of the fixed effects its posterior is improper
+(Hoeschele and Tier 1995) and the chain drifts instead of converging; merge the
+level, drop its records, or fit the effect as random. A missing observation (\code{NA},
 \code{NaN}, \code{Inf}, \code{-Inf}, blank text, the text "NaN" or \code{missing_code}) drops its
 record, as in \code{\link[=model_threshold]{model_threshold()}}; it is never one of the two values. Everything
 else is the chain of the Gaussian case: \code{kernel()}, \code{indirect()}, genotypes, APY and
@@ -166,7 +179,15 @@ in \code{residual_draws}; with several chains all four pool the chains pooled fo
 \code{missing_code} as given
 }
 \description{
-Gibbs sampler for a single-trait mixed model
+The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here: a
+design that does not identify a component stops the chain unless \verb{theta_fixed =} gives
+the components (a random term inside a fixed effect leaves the chain walking the prior
+of that variance), and the warnings go to \code{message}. The h2 row of \code{summary()} and of
+\code{\link[=mcmc_diagnostics]{mcmc_diagnostics()}} follows the rule of \code{\link[=h2]{h2()}}: the direct genetic term,
+\verb{4 var(sire)} in a sire model, the components as estimated (the base of Gamma with
+metafounders), a \code{kernel(fixed =)} or an \code{\link[=associative_matrix]{associative_matrix()}} at its mean diagonal over
+the records and the grandsire part of \code{sire(mgs =)} in the denominator; with only \code{pe()}
+or \code{random()} terms there is no h2 row.
 }
 \references{
 Hobert, J.P. & Casella, G. (1996). The effect of improper priors on Gibbs
@@ -175,6 +196,10 @@ Association 91:1461-1473.
 
 Gelman, A. (2006). Prior distributions for variance parameters in hierarchical
 models. Bayesian Analysis 1:515-534.
+
+Hoeschele, I. & Tier, B. (1995). Estimation of variance components of threshold
+characters by marginal posterior modes and means via Gibbs sampling. Genetics
+Selection Evolution 27:519-540.
 
 Geman, S. & Geman, D. (1984). Stochastic relaxation, Gibbs
 distributions, and the Bayesian restoration of images. IEEE TPAMI 6:721-741.

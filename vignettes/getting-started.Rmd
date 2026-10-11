@@ -21,7 +21,7 @@ Two text files.
 
 **A phenotype file**, one row per record. It needs the animal's identifier, the trait you are evaluating, and the fixed effects you want to correct for. Contemporary group is almost always one of them.
 
-**A pedigree file**, one row per animal, with three columns in this order: animal, sire, dam. An unknown parent is `0`. Every animal that appears as a parent must have its own row, and the package will stop rather than guess if one is missing. A parent quietly turned into an unknown changes the Mendelian variance of its offspring and the relationship of everything downstream, so it is an error and not a warning.
+**A pedigree file**, one row per animal, with three columns in this order: animal, sire, dam. An unknown parent is `0`. Every animal that appears as a parent must have its own row, and the package will stop rather than guess if one is missing. A parent quietly turned into an unknown changes the Mendelian variance of its offspring and the relationship of everything downstream, so it is an error and not a warning. An animal of the data with no row at all is a different case: it enters as a founder, with unknown parents, and the fit warns with how many and which.
 
 The identifiers must be the same strings in both files. This is the single most common reason a first fit returns nothing useful.
 
@@ -63,7 +63,7 @@ suggest_model(dados, trait = "y", animal = "id")
 
 ```{r}
 q <- qc_phenotypes(dados, "y", classes = "cg")
-q$report
+q[c("n_missing", "n_outliers", "small_classes")]
 dados <- q$data
 ```
 
@@ -97,7 +97,7 @@ head(round(e, 3), 5)
 summary(acc)
 ```
 
-`ebv()` returns every animal in the pedigree, including those without records, because a parent gets an estimate from its offspring. Accuracy carries the `(1 + F)` of the pedigree in its denominator, which is the honest one: an inbred animal has less Mendelian variance left to predict.
+`ebv()` returns every animal of the data, every genotyped animal and all their ancestors in the pedigree, including parents without records, because a parent gets an estimate from its offspring. The fit prunes the animals with no record, no genotype and no recorded descendant, and a message says how many lines it left out; to rank such a young candidate, give it a row of the data with the trait missing. Accuracy carries the `(1 + F)` of the pedigree in its denominator, which is the honest one: an inbred animal has less Mendelian variance left to predict.
 
 **Ranking**, which is usually the actual question. `solutions()` puts the breeding value, its standard error and its accuracy in one table, sorted:
 
@@ -109,7 +109,7 @@ Read the accuracy column before you act on the ranking. A high breeding value wi
 
 ## The complication you will actually hit: repeated records
 
-If an animal has more than one record, the additive term alone will absorb what those records share and heritability will come out too high. The permanent environment term is what catches it.
+If an animal has more than one record, the additive term alone will absorb what those records share and heritability will come out too high. The permanent environment term is what catches it. `model()` notices the gap: the first fit below warns that every animal has more than one record and the model has no `pe(id)`, and says what to add.
 
 ```{r}
 rep_dados <- rbind(dados, transform(dados, y = dados$y + rnorm(nrow(dados), 0, 0.5)))
@@ -142,11 +142,10 @@ fit$message
 Genotypes are an argument, not a different program. The matrix is animals by markers, coded 0, 1, 2, with a vector of identifiers that match the pedigree.
 
 ```{r}
-g <- qc_genotypes(s$genotypes$m, min_maf = 0.01)
-g$report
+g <- qc_genotypes(s$genotypes, min_maf = 0.01)
+g[c("n_animal", "n_call", "n_maf", "passes")]
 
-fit_g <- model(y ~ cg + animal(id), dados, ped,
-               genotypes = list(ids = s$genotypes$ids, m = g$m))
+fit_g <- model(y ~ cg + animal(id), dados, ped, genotypes = g)
 round(c(pedigree = h2(fit), single_step = h2(fit_g)), 3)
 fit_g$dense_block
 ```
@@ -163,7 +162,7 @@ Four checks, in the order they catch things.
 
 Do the identifiers match? `length(intersect(dados$id, ped$id))` should be the number of animals with records. A near-zero intersection is the leading-zero problem from the first section.
 
-Did quality control remove something that mattered? The report says what it flagged and why.
+Did quality control remove something that mattered? `n_missing`, `n_outliers` and `small_classes` say what it flagged.
 
 Is the contemporary group doing what you think? A group with very many levels can absorb the very signal you are trying to estimate, and a group with one animal in it contributes nothing but a lost degree of freedom.
 

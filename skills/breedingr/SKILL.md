@@ -39,7 +39,7 @@ An unmarked term is a fixed class effect. Marked terms:
 | `animal(id)` | additive genetic, over A (or H with `genotypes=`) |
 | `maternal(dam)` | maternal genetic |
 | `sire(sire)` | sire model; a pedigree of sires and MATERNAL GRANDSIRES must be declared with `sire_mgs(ped)` (or `pedigree(type = "sire_mgs")`), so the grandsire path weighs 1/4 |
-| `sire(sire, mgs = "mgs")` | the sire and maternal-grandsire model: 1 on the record's sire and 1/2 on its maternal grandsire in the SAME effect; "0" is an unknown grandsire (sire only) |
+| `sire(sire, mgs = "mgs")` | the sire and maternal-grandsire model: 1 on the record's sire and 1/2 on its maternal grandsire in the SAME effect; "0" is an unknown grandsire (sire only); "0" as the sire leaves the grandsire only |
 | `pe(id)` | permanent environment: what the repeated records of one subject share and is not additive genetic, so it carries the non-additive genetic effects as well (Mrode & Pocrnic, 2023, Eqn 5.1); repeatability is `share(animal) + share(pe)` in the printed table. Two `pe()` in one model must be NAMED (`nome=`): a component's name never depends on how many terms the model has |
 | `random(litter)` | iid random (litter, batch, pen, technician) |
 | `rn(id, base = c("phi0","phi1"))` | random regression / reaction norm |
@@ -56,7 +56,7 @@ model(y ~ cg + animal(id,group="g") + maternal(dam,group="g") +
 model(y ~ cg + rn(id, base=c("phi0","phi1")) + pe(id), d2, ped)           # reaction norm
 model(y ~ cg + animal(id,group="g") + indirect(id,pen="pen",group="g"), d, ped)
 model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped)                         # multi-trait
-model_ar1(y ~ cg + animal(id) + pe(id), d, ped, subject="id", time="day") # AR(1)/CAR(1)
+model_ar1(y ~ cg + animal(id) + pe(id), d, ped, subject="id", time="day") # AR(1)/CAR(1); rho per step of the time grid (fit$time_step)
 gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)                        # Bayesian
 gibbs(y01 ~ cg + sire(sire), d, ped, family = "probit")   # binary, liability sampled
 model(y ~ pen + animal(id) + kernel(id, K = dominance_matrix(ped)), d, ped) # dominance
@@ -71,6 +71,10 @@ model_survival(lpl ~ herd + ysp + animal(cow), d, ped, censor = "code")   # Weib
 model_survival(stop ~ herd + dz + animal(cow), d, ped, censor = "q",
                entry = "start", subject = "cow")  # time-dependent covariate dz
 ```
+
+Code categories as numbers or as an `ordered()` factor in liability order: text that is
+not a number is refused and a `factor()` in alphabetical order warns. A censoring factor is read by its
+labels; a time stored as a factor or as text is refused.
 
 `gibbs()` takes `prior = "jeffreys"` (the default), `"flat"`, `"uniform_sd"` or a proper
 `c(df =, scale =)`, and `chains = k, cores = c` for independent chains (seeds drawn from R's
@@ -150,11 +154,13 @@ suggest_model(d, "y", "id", time = "day")        # names the terms the shape ask
 
 # 2. quality control, both sides, and it REPORTS what it removed
 q <- qc_phenotypes(d, "y", missing_code = -999, classes = c("cg","pen"))
-g <- qc_genotypes(M, min_call_rate = 0.9, min_maf = 0.01, hwe_p = 1e-7)
+g <- qc_genotypes(geno, min_call_rate = 0.9, min_maf = 0.01,
+                  hwe_p = 1e-7, pedigree = ped)  # animals and markers; g goes to genotypes =
+# sex_markers = <X columns> keeps the X out of the parentage test here and in every fitter
 # q$missing_labels: rows with a missing class label (NA, NaN, Inf, blank text, "NaN");
 # every fitter refuses them on ANY row, as it refuses NA/Inf in cov() and base=.
-# missing_code is the trait's code only: a covariate holding -999 is fitted as -999,
-# so set it to NA first.
+# missing_code is the trait's code: a covariate cell at the code is refused (or warned
+# about when it may be a value), so set it to NA first.
 
 # 3. pedigree
 p  <- pedigree(ped)          # topological order + Meuwissen-Luo (1992) inbreeding
@@ -165,7 +171,7 @@ fit <- model(y ~ cg + animal(id), q$data, ped, missing_code = -999)
 
 # 5. read it
 fit                          # estimate, SE, share of the phenotypic variance, correlation
-h2(fit); solutions(fit, ped) # heritability; id/(term)/ebv/se/acc sorted by ebv; multi-trait: trait = for acc
+h2(fit); solutions(fit, ped) # heritability (4 var(sire) / Vp in a sire model; refused on an iid group); id/(term)/ebv/se/acc sorted by ebv; multi-trait: trait = for acc
 ebv(fit); ebv(fit, "animal"); ebv(fit_mt, "animal", trait = "t2")
 accuracy(fit, ped)           # prior 1+F, diag(G*) if genotyped, K[i,i] for kernel(K=), the fit's prior for kernel(Kinv=) (1 animal, F_cc/4 subclass), 1 iid; no ped needed for kernel/iid
 rg(fit_mt, "animal", "t1", "t2")
@@ -263,10 +269,18 @@ wrong without warning:
 - a parent cited without a line of its own is an error, not a new founder;
 - a genotype outside {0,1,2,NA} is refused, an unknown code must become NA first, or it
   would be counted as the zero genotype, which is a real observation;
-- a pen mate outside the pedigree is an error, not a silent discard (it would change who
-  competed with whom);
+- an animal outside the pedigree (a pen mate or a grandsire too) enters as a founder
+  with a warning, never as a silent discard (dropping a pen mate would change who
+  competed with whom); an id written differently from its pedigree line, or a numeric
+  level column at or above 2^53, is an error;
 - two records of the same subject at the same time in `model_ar1()` is an error, with
   AR(1) the time identifies the record; simultaneous repetition wants `pe()`;
+- `model_ar1()` reads the time as a grid when every gap is a whole number of one step
+  (rho per step, `time_step`) and as continuous time otherwise (CAR(1), rho in [0, 1));
+  a record off the grid of the others (a half day, a noon record among daily ones, a
+  2.01) that contradicts the serial correlation stops the fit with the subject and the times;
+  fix the time or give the order of the records as time. With POSIXct clock times in a
+  zone with daylight saving, give the time in UTC or as a Date;
 - an inadmissible theta (a covariance that is not positive-definite) stops the fit;
 - a fit that did not converge says so in the print, the message and the object;
 - two terms that would carry the same name is an error, not a silent rename, otherwise
@@ -284,7 +298,11 @@ wrong without warning:
   genotyped animals are far from the bases; `"ml"` for ONE metafounder, with log-likelihood
   and SE);
 - `h2()` on a reaction norm is an error that points at `h2_curve()`, and on a fit with
-  `indirect()` it asks for the group size `n =`.
+  `indirect()` it asks for the group size `n =`;
+- `h2()` reads every relationship component as estimated (`kernel(id, K = A)` gives
+  the h2 of `animal(id)`), the residual of a weighted fit at the harmonic mean weight
+  (`weight = 1` for airemlf90's number), and returns NA with a warning when the
+  SINGULAR verdict holds the numerator.
 
 ## Diagnosing a fit
 
@@ -308,6 +326,11 @@ decrement is the other half. Ctrl+C interrupts any fitter.
 | `SINGULAR` in the message | the data do not separate the named components: their SEs are NaN and the point depends on `start=`; `pe(id)` with one record per animal, or indirect effects in pens of one size built from full-sib families (pens of different sizes, or relatives across pens, separate them) |
 | converged at `maxiter` and the message says the likelihood is flat | a flat ridge (`model()`, `model_mt()`, `model_ar1()`): the decrement is under tolerance and more iterations will not choose a point; read the SEs and the correlation of the components |
 | empty `share` column | the fit has `indirect()` (use `h2(fit, n = )` or `t2()`), or it is `model_survival()` |
+| "the extreme category problem" or "no failure among their records" in an error | a fixed level (often a small contemporary group) has every record in one end category, or no failure: merge it, drop its records, or fit it as `random(cg)` |
+| "is nested in the fixed effect" in an error | a random term inside a fixed effect (one sire per contemporary group, a fixed litter with `maternal(dam)`, `cg = id`): fit the fixed effect as `random()` or join its levels |
+| "have more than one record ... no pe(id)" in a warning | repeated records without `pe(id)`: h2 inflates; add `pe(id)` |
+| "pens merged by a reused label" in a warning | pen numbers restart in each batch: give each pen a unique label, `paste(batch, pen)`; if the pens truly mix those levels, `options(BreedingR.warn_pen_labels = FALSE)` |
+| "is a fixed effect and also the pen of indirect()" in an error | the pen as a fixed effect absorbs the pen sums: fit `random(pen)` |
 
 Convergence is RELATIVE on the components: `sqrt(sum(dtheta^2)/sum(theta^2)) < tol`,
 default 1e-8. Coming from BLUPF90, mind the scale: those programs test the SQUARED
@@ -340,5 +363,5 @@ scale.
 ## Where the theory is
 
 The vignette *Theory and practice* walks an evaluation in order, explaining each matrix
-and algorithm beside the code that runs it. *Hands-on* works through 58 of the 73
+and algorithm beside the code that runs it. *Hands-on* works through 58 of the 74
 exported functions. `FUNCTIONS.md` maps the surface; the README carries the references.

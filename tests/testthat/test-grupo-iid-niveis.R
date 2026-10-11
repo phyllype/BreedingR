@@ -52,6 +52,14 @@ mme_densa <- function(d, th, lv = sort(unique(c(d$a, d$b)))) {
        pev = stats::setNames(diag(solve(C))[q], rep(lv, 2)))
 }
 
+# Estes portoes conferem o layout de solutions() e accuracy() no ponto de partida padrao
+# (maxiter = 0 sem start =), e nao o estado do ajuste: o ajuste e marcado como de componentes
+# dados, para os extratores nao avisarem que ele nao convergiu
+como_dado <- function(f) {
+  f$components_given <- TRUE
+  f
+}
+
 test_that("iid two-term group: -2logL, EBV and PEV do not depend on the row order", {
   for (cfg in list(c(20, 20, 1), c(8, 16, 5))) {
     d <- caso_iid(cfg[1], cfg[2], cfg[3])
@@ -337,9 +345,9 @@ test_that("solutions() of a group with several effects per level: term column, s
   confere_solucoes(solutions(fr), fr, c("rn[0]", "rn[1]"), "rn")
 
   # multicaracter, um caracter por vez
-  fmt <- model_mt(cbind(y, y2) ~ cg + random(a, group = "g", nome = "ra") +
+  fmt <- como_dado(model_mt(cbind(y, y2) ~ cg + random(a, group = "g", nome = "ra") +
                     random(b, group = "g", nome = "rb"), caso_iid(8, 16, 5), maxiter = 0L,
-                  verbose = FALSE)
+                  verbose = FALSE))
   confere_solucoes(solutions(fmt, group = "g", trait = "y2"), fmt, c("ra", "rb"), "g",
                    accuracy(fmt, group = "g", trait = "y2"), trait = "y2")
 })
@@ -352,7 +360,7 @@ test_that("solutions() of a multi-trait fit: acc only with trait=, and the layou
   # trait=, porque accuracy() reconhecia o multicaracter so pela classe. Em c8e7f00 as tres
   # chamadas devolviam id, ebv e se.
   d <- caso_iid(8, 16, 5)
-  f1 <- model_mt(cbind(y, y2) ~ cg + random(a), d, maxiter = 0L, verbose = FALSE)
+  f1 <- como_dado(model_mt(cbind(y, y2) ~ cg + random(a), d, maxiter = 0L, verbose = FALSE))
   s <- solutions(f1)
   expect_identical(names(s), c("id", "ebv", "se"))
   expect_equal(nrow(s), 16L)
@@ -365,8 +373,8 @@ test_that("solutions() of a multi-trait fit: acc only with trait=, and the layou
   expect_error(solutions(f1, pedigree = data.frame(id = "u01", sire = "0", dam = "0")),
                "pass trait=")
   # o grupo iid de dois termos sem trait=: termo, depois caracter, depois nivel
-  fg <- model_mt(cbind(y, y2) ~ cg + random(a, group = "g", nome = "ra") +
-                   random(b, group = "g", nome = "rb"), d, maxiter = 0L, verbose = FALSE)
+  fg <- como_dado(model_mt(cbind(y, y2) ~ cg + random(a, group = "g", nome = "ra") +
+                   random(b, group = "g", nome = "rb"), d, maxiter = 0L, verbose = FALSE))
   sg <- solutions(fg, group = "g")
   expect_equal(nrow(sg), 80L)
   expect_false("acc" %in% names(sg))
@@ -381,8 +389,8 @@ test_that("solutions() of a multi-trait fit: acc only with trait=, and the layou
   da$cg <- sample(c("x", "y"), 240, TRUE)
   da$y <- stats::rnorm(240)
   da$y2 <- stats::rnorm(240)
-  fa <- model_ar1(cbind(y, y2) ~ cg + random(a), da, subject = "id", time = "t",
-                  maxiter = 0L, verbose = FALSE)
+  fa <- como_dado(model_ar1(cbind(y, y2) ~ cg + random(a), da, subject = "id", time = "t",
+                  maxiter = 0L, verbose = FALSE))
   expect_identical(names(solutions(fa)), c("id", "ebv", "se"))
   sa <- solutions(fa, trait = "y2")
   expect_identical(names(sa), c("id", "ebv", "se", "acc"))
@@ -391,9 +399,9 @@ test_that("solutions() of a multi-trait fit: acc only with trait=, and the layou
   expect_equal(sa$acc, sqrt(pmax(0, 1 - unname(pa2[sa$id]) / fa$theta[["var(random@y2)"]])),
                tolerance = 1e-14)
   expect_error(accuracy(fa), "pass trait=")
-  fag <- model_ar1(cbind(y, y2) ~ cg + random(a, group = "g", nome = "ra") +
+  fag <- como_dado(model_ar1(cbind(y, y2) ~ cg + random(a, group = "g", nome = "ra") +
                      random(b, group = "g", nome = "rb"), da, subject = "id", time = "t",
-                   maxiter = 0L, verbose = FALSE)
+                   maxiter = 0L, verbose = FALSE))
   ag <- accuracy(fag, group = "g", trait = "y2")
   pg <- BreedingR:::pega_traco(fag$pev$g, "y2")
   expect_equal(unname(ag), sqrt(pmax(0, 1 - unname(pg) /
@@ -413,9 +421,9 @@ test_that("solutions() of a multi-trait fit: acc only with trait=, and the layou
   r <- cbind(r, legendre(r$x, order = 1, limits = c(0, 30)))
   r$y <- stats::rnorm(120)
   r$y2 <- stats::rnorm(120)
-  fr <- model_mt(cbind(y, y2) ~ cg + rn(id, base = c("phi0", "phi1")), r,
+  fr <- como_dado(model_mt(cbind(y, y2) ~ cg + rn(id, base = c("phi0", "phi1")), r,
                  data.frame(id = id, sire = pa, dam = ma, stringsAsFactors = FALSE),
-                 maxiter = 0L, verbose = FALSE)
+                 maxiter = 0L, verbose = FALSE))
   coef_do_id <- function(s) sub("^.*\\[(\\d)\\]$", "rn[\\1]", s$id)
   sr <- solutions(fr)
   expect_equal(nrow(sr), 160L)

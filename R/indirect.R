@@ -105,8 +105,7 @@ valor_ausente <- function(x, termo, coluna, onde = paste0("the covariate column 
                                          "lose the likelihood without a word; drop those rows ",
                                          "or fill them")) {
   na_textual(x, coluna)
-  if (is.factor(x) || is.character(x))
-    stop("column '", coluna, "' is text and was requested as numeric", call. = FALSE)
+  recusa_nao_numerico(x, coluna)
   if (!is.null(falta <- sem_rotulo(as.double(x), onde)))
     stop("term '", termo, "': ", falta, ": ", razao, call. = FALSE)
   invisible(NULL)
@@ -117,11 +116,33 @@ valor_ausente <- function(x, termo, coluna, onde = paste0("the covariate column 
 # newdata era lido pelos codigos 1, 2, ..., e a predicao saia outra, calada (o portao em
 # test-rotulo-ausente.R compara com a covariavel numerica), e o modo conjunto devolvia NA
 # para o valor ausente, sem conferir.
+#
+# O CODIGO DE AUSENTE E O VALOR ABSURDO em newdata (R/valores.R): o ajuste guarda no info a
+# media e o dp das linhas usadas e o missing_code. Uma celula igual ao missing_code e a mais de
+# 10 dp da media do ajuste e o codigo, e e recusada como o NA; qualquer celula a mais de 10 dp
+# da media extrapola a regressao, e da aviso.
 covariavel_newdata <- function(col, info) {
   valor_ausente(col, info$nome, info$column,
                 paste0("the covariate column '", info$column, "' of newdata"),
                 "a row without the value has no prediction; drop it or fill it")
-  as.double(col)
+  v <- as.double(col)
+  if (is.null(info$dp) || !(is.finite(info$dp) && info$dp > 0)) return(v)
+  longe <- abs(v - info$media) > 10 * info$dp
+  if (!is.null(info$missing_code)) {
+    em <- longe & abs(v - as.double(info$missing_code)) < 1e-9
+    if (any(em))
+      stop("cov(", info$column, ") in newdata: ", sum(em), " row(s) hold the missing-value ",
+           "code ", format(info$missing_code, scientific = FALSE), " of the fit (the first ",
+           "at row ", which(em)[1L], "): a row without the value has no prediction; drop it ",
+           "or fill it", call. = FALSE)
+  }
+  if (any(longe))
+    warning("cov(", info$column, ") in newdata: ", sum(longe), " row(s) more than 10 SDs ",
+            "of the fitted records from their mean (the first at row ", which(longe)[1L],
+            ", value ", format(v[which(longe)[1L]], digits = 6), "): the prediction ",
+            "extrapolates the regression there; if it is a missing-value code, drop that ",
+            "row or give it its value", call. = FALSE)
+  v
 }
 
 # A OBSERVACAO AUSENTE de um traco categorico (o limiar, ordinal ou conjunto, e o probit de
@@ -257,9 +278,27 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
   # as any other start.
   avaliadas <- list()
   warm <- NULL
+  # os genotipos conferidos uma vez so (ids, taxa de chamada, o aviso de parentesco), e nao em
+  # cada ajuste da grade e da secao aurea, que repetiam o aviso a cada k. O primeiro ajuste os
+  # confere por inteiro dentro do model(), e so os seguintes recebem a marca: o argumento chega
+  # a ajusta_em() pela regra do R (nome exato, parcial como geno = g, ou posicao), e a marca
+  # vai sempre num objeto que o model() ja conferiu. Procurar o nome exato em list(...) para
+  # conferir por fora deixava geno = g passar marcado sem conferencia nenhuma.
+  conferido <- FALSE
+  ajusta_em <- function(w, genotypes = NULL, ...) {
+    if (conferido && !is.null(genotypes)) genotypes <- ja_conferidos(genotypes)
+    # os avisos de R/valores.R, os de estrutura (fundadores, poda, blocos; R/estrutura.R) e os
+    # de separabilidade (R/separabilidade.R) saem no primeiro ajuste, e nao uma vez por ponto
+    # da grade: o dado e o mesmo em todos
+    ajuste <- function() model(formula, data, pedigree, weights = w, verbose = FALSE,
+                               start = warm, genotypes = genotypes, ...)
+    f <- if (conferido) sem_conferencia(calado_estrutura(ajuste())) else ajuste()
+    conferido <<- TRUE
+    f
+  }
   perfil <- function(k) {
     w <- 1 / (1 + coef_social(n, dil) * k)
-    f <- model(formula, data, pedigree, weights = w, verbose = FALSE, start = warm, ...)
+    f <- ajusta_em(w, ...)
     if (all(is.finite(f$theta))) warm <<- unname(f$theta)
     # O jacobiano dos pesos sai NA MESMA BASE do -2logL que ele corrige: sobre as linhas
     # que o ajuste usou, e nao sobre a tabela inteira. Um registro descartado (fenotipo
@@ -297,6 +336,10 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
                          "component in this data")
   }
   fit <- avaliadas[[melhor]]$fit
+  # o residuo de um registro numa baia de n animais e s2_ED (1 + (n - 1)^(1 - 2d) k): com
+  # isto h2(fit, n =) e t2(fit, n =) leem var(residual) no tamanho de grupo pedido, e nao no
+  # peso harmonico medio dos registros
+  fit$residual_pen <- c(k = ks[melhor], dilution = dil)
   if (!fit$converged)
     mensagem <- paste(mensagem, "the fit at the estimated k did not converge")
   s2_ed <- unname(fit$theta[["var(residual)"]])
@@ -409,7 +452,13 @@ print.breeding_indirect_residual <- function(x, ...) {
 #'   must be the same values as the column named in the formula; a missing label (`NA`,
 #'   `NaN`, `Inf`, `-Inf`, blank text or the text "NaN") is refused with its row, as in a
 #'   level column of [model()]
-#' @return a square matrix, records by records, positive semi-definite
+#' @return a square matrix, records by records, positive semi-definite, with the attribute
+#'   `br_associative` holding `dilution`: [h2()] and [t2()] read a `kernel()` that carries
+#'   it as this residual structure and not as a relationship matrix. Indexing the matrix
+#'   (`D[o, o]`) or inverting it drops the attribute; with every pen of 2 animals, or
+#'   `dilution = 0.5`, the diagonal alone does not tell it from a relationship matrix, so
+#'   pass it as returned, built on the rows of the fit, or restore the attribute with
+#'   `attr(D, "br_associative") <- dilution`
 #' @references Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 #'   quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
 #'
@@ -461,5 +510,8 @@ associative_matrix <- function(pen, id, labels = NULL, dilution = 0) {
     # (n - 1)^(-d), e o bloco e o nao diluido vezes o quadrado do peso
     D[k, k] <- (if (n > 1) (n - 1)^(-2 * dilution) else 0) * (diag(length(k)) + (n - 2))
   }
+  # a marca com a diluicao: h2() e t2() reconhecem por ela o kernel() que e a covariancia
+  # residual associativa (com baias de 2, ou d = 0.5, a diagonal sozinha nao a distingue)
+  attr(D, "br_associative") <- dilution
   D
 }

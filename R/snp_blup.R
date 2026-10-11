@@ -16,6 +16,9 @@
 #' identity `A22^-1 v = A^22 v - A^21 (A^11)^-1 A^12 v` over the sparse blocks of
 #' `A^-1`, with one sparse factorization of the non-genotyped block.
 #'
+#' The structure checks of [model()] (see its section "Structure checks") run here as
+#' warnings: the components are given, so the solve exists.
+#'
 #' @param formula as in [model()]. The markers enter every relationship group and every
 #'   component of it, as `H^-1` does on the `genotypes=` path: direct-maternal in one
 #'   group, a reaction norm, direct and maternal in separate groups, the indirect effect
@@ -24,8 +27,12 @@
 #'   covariance `K0 (1-rpg) / k` between them, so the precision is `K0^-1` times the
 #'   scalar one
 #' @param data data.frame
-#' @param pedigree data.frame animal, sire, dam (required: the model is single step)
-#' @param genotypes list with `ids` and `m` (0/1/2 matrix); NA is imputed with the mean
+#' @param pedigree data.frame animal, sire, dam (required: the model is single step). The
+#'   ids are matched to the data by the rule of [model()] (see `pedigree` there)
+#' @param genotypes list with `ids` and `m` (0/1/2 matrix); NA is imputed with the mean.
+#'   Checked as in [model()]: a repeated id, rownames that contradict `ids` or an animal
+#'   below a 0.90 call rate are refused, and a parent-offspring conflict with the pedigree
+#'   is a warning
 #' @param theta variance components, in the order [model()] reports for this formula
 #'   (each random group, then the residual). This is a solver at fixed components:
 #'   estimate them with [model()] (pedigree or single step) and solve here at scale
@@ -69,14 +76,23 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
-  lst <- lapply(data[used_columns], function(col) {
-    if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
-  })
+  # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
+  # no traco e na covariavel (R/valores.R)
+  confere_numeros(data, trait, terms, missing_code)
+  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
   if (is.null(pedigree)) stop("snp_blup needs a pedigree: the model is single step")
-  cp <- colunas_pedigree(pedigree)
-  confere_base_mf(cp$sire, cp$dam, metafounders, TRUE)
   g <- valida_genotipos(genotypes)
   if (length(g$gid) == 0) stop("snp_blup without genotypes has nothing to solve")
+  # ids dos dados contra o pedigree: a regra de model() (prepara_estrutura, R/estrutura.R)
+  pe <- prepara_estrutura(terms, data, lst, pedigree, trait, missing_code, metafounders,
+                          NULL, g$gid)
+  cp <- if (is.null(pe$cp)) colunas_pedigree(pedigree, mf = rotulo_motor(metafounders))
+        else pe$cp
+  confere_base_mf(cp$sire, cp$dam, metafounders, TRUE, cp$id, pe$info$founders)
+  avisa_parentesco(cp, g)
+  # a estrutura que o desenho nao identifica (R/separabilidade.R): os componentes sao dados,
+  # entao so avisa
+  notas <- confere_estrutura(terms, data, trait, missing_code, "snp_blup()", FALSE)
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_snp_blup,
@@ -113,7 +129,7 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   r$rpg <- rpg
   r$formula <- formula_resolvida(formula, terms)
   r$trait <- trait
-  structure(r, class = "breeding_snp_blup")
+  structure(anota_separabilidade(anota_estrutura(r, pe), notas), class = "breeding_snp_blup")
 }
 
 #' @export

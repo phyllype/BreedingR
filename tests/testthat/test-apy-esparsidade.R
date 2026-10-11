@@ -15,6 +15,12 @@
 # fica na mensagem do commit que fez o conserto, que e onde uma medida com a sua
 # incerteza pertence.
 
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 cel <- function(ng, nc, nm = 400, seed = 5) {
   set.seed(seed)
   ids <- sprintf("g%05d", seq_len(ng))
@@ -183,3 +189,5 @@ test_that("dense_block existe tambem em model_mt(), model_ar1() e gibbs()", {
   expect_named(fr$dense_block, c("dense", "columns"))
   expect_gt(fr$dense_block[["columns"]], 0)
 })
+
+options(op_parentesco)

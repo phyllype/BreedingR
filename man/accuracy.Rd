@@ -16,7 +16,13 @@ term reads it; for a group of \code{kernel()} terms, of iid terms, or of a term 
 declared \verb{k_inverse =} other than an \code{\link[=h_inverse]{h_inverse()}}, it may be omitted. A term fitted
 with \code{k_inverse = h_inverse(...)} or \verb{genotypes =} is a pedigree term and needs it}
 
-\item{group}{covariance group; the first one if omitted}
+\item{group}{covariance group; by default the group of the direct genetic term: the
+first pedigree or genomic term that is not \code{maternal()} or \code{indirect()}, else the first
+\code{kernel()} with an estimated variance over the animals (most of its levels are
+animals of the pedigree, or there is no pedigree term), else the first \code{maternal()}
+term, else the first other \code{kernel()} with an estimated variance, else the first
+group; the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}}, \code{\link[=h2]{h2()}} and
+\code{\link[=h2_curve]{h2_curve()}}}
 
 \item{trait}{required in the multi-trait case (\code{model_mt()}, or \code{model_ar1()} with
 \code{cbind()}): accuracy is per trait, with the corresponding var(term@trait)}
@@ -44,10 +50,12 @@ The prior variance is each level's own, read from the structure of its term and 
 to the PEV by level NAME, never by position:
 \itemize{
 \item a pedigree term (animal(), sire(), maternal(), indirect()): 1 + F from the pedigree.
-The pedigree must be the one the fit used: every animal in it gets an equation, so
-its animals must be exactly the levels of the group, and a pedigree with animals
-added or missing is refused (it would change the F of their descendants). Its rows
-may come in any order.
+The pedigree must be the one the fit was given: the founders the fit added (ids of
+the data with no line) and its pruning to the animals of the data, the genotyped and
+their ancestors (see \code{pedigree} in \code{\link[=model]{model()}}) are redone here, so the animals are
+exactly the levels of the group. A pedigree with ancestors added or animals missing
+is refused (it would change the F of their descendants); lines that are not
+ancestors of any level are pruned, as in the fit. Its rows may come in any order.
 For a GENOTYPED animal in a single-step fit it is the diagonal of H, which in that
 block is the diagonal of G*, and that is a different number: on a simulated
 population of 510 animals, all genotyped, the two differ by up to 0.18, moving an
@@ -89,6 +97,17 @@ covariance carries over from the other term at the same level, 0 when that covar
 is 0. A fit made before this version paired the levels of such a group by position;
 when its blocks do not carry the same level names it is refused, and it should be
 refitted either way.
+
+THE STATE OF THE FIT. A fit that did not converge is read at its last iterate, with a
+warning. When the fit reports the information matrix SINGULAR along a set of
+components that includes a variance or covariance of the group, the PEV and the
+variance move together along that ridge and the accuracy of every level is returned as
+\code{NA}, with a warning naming the components; a fit with no estimates (theta \code{NA}, the
+start was inadmissible) gives \code{NA} too, saying so (it used to stop with "no component
+'var(animal)'"). A fit at given components (\code{start} with \code{maxiter = 0} and
+\code{n_em = 0}) is read at those components without a word. A PEV above the prior variance
+of its level beyond rounding gives accuracy 0 with a warning that counts those levels: the prior used is then not the one
+the level was fitted with, as for a non-genotyped animal of a single step (see above).
 }
 \references{
 Henderson, C.R. (1975). Best linear unbiased estimation and prediction

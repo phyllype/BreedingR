@@ -54,8 +54,10 @@ test_that("G2 AR(1) multicaracter: rho sem share e h2() por caracter", {
 })
 
 # ajuste de mentira: so o que h2() e t2() leem (theta, formula, ebv, vcov)
+# um ajuste convergido (converged = TRUE): os extratores avisam de um que nao convergiu
 falso <- function(theta, formula, vcov = NULL)
-  structure(list(theta = theta, formula = formula, ebv = list(g = c(a = 0)), vcov = vcov),
+  structure(list(theta = theta, formula = formula, ebv = list(g = c(a = 0)), vcov = vcov,
+                 converged = TRUE),
             class = "breeding_fit")
 
 test_that("G3 Willham: covariancia direto-materna com coeficiente 1", {

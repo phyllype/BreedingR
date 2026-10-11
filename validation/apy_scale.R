@@ -23,6 +23,9 @@ for (g in 2:nger) {
 ped <- data.frame(id = id, sire = pa, dam = ma, stringsAsFactors = FALSE)
 gid <- id[(nger - ngen_gen) * por_ger + seq_len(ngen_gen * por_ger)]
 geno <- list(ids = gid, m = matrix(as.double(sample(0:2, length(gid) * nm, TRUE)), length(gid), nm))
+# genotipos sorteados sem o pedigree: todo par pai-filho conflita por construcao, e a
+# conferencia de parentesco (o verify_parentage 0 do preGSf90) fica fora do tempo medido
+options(BreedingR.verify_parentage = FALSE)
 t0 <- proc.time()[[3]]
 h <- h_inverse(ped, geno, apy_core = gid[round(seq(1, length(gid), length.out = nc))])
 cat(sprintf("pedigree %d, genotipados %d, marcadores %d, nucleo %d: h_inverse %.1f s, nnz(H^-1) %.0f\n",

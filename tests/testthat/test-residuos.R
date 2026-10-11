@@ -7,6 +7,12 @@
 # em theta dado (maxiter = 0), salvo onde a identidade e a do otimo REML.
 
 # A tabular, pais antes dos filhos; com `mgs` a segunda coluna e o avo materno (1/4)
+# Os genotipos de alguns portoes deste arquivo sao sorteados sem o pedigree, e ai todo par
+# pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
+# fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
+# test-estrutura-e2.R confere o aviso.
+op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+
 rd_a_tabular <- function(ped) {
   n <- nrow(ped)
   A <- matrix(0, n, n, dimnames = list(ped$id, ped$id))
@@ -569,13 +575,27 @@ test_that("residual_diagnostics(): the report, the data guard and the refusals",
   # um pedigree com os MESMOS animais e outros pais (todo nao fundador sem pais). O REML
   # daqui pode por s2a na fronteira (o y nao tem efeito genetico), e ai o pedigree nao muda
   # nada, nem as replicas: a guarda e conferida num theta dado com s2a > 0
+  # Os fundadores sem registro ganham uma linha de traco ausente: sem pais em ped2 eles
+  # deixariam de ser ancestrais e sairiam na poda, e a recusa viria pelos niveis antes do
+  # residuo. Com a linha, os niveis sao os mesmos e quem recusa e a guarda do residuo
   ped2 <- ped; ped2$sire <- "0"; ped2$dam <- "0"
-  fit_a <- model(y ~ cg + cov(x) + animal(id), d, ped, start = c(0.6, 1), maxiter = 0L,
-                 n_em = 0L, verbose = FALSE)
-  expect_error(residual_diagnostics(fit_a, d, ped2, nsim = 19L), "does not reproduce")
-  # um pedigree com um animal a mais (sem registro e sem progenie)
+  fund <- ped$id[ped$sire == "0" & ped$dam == "0"]
+  da <- rbind(d, data.frame(id = fund, cg = d$cg[1], x = 0, y = NA_real_)[, names(d)])
+  fit_a <- suppressMessages(model(y ~ cg + cov(x) + animal(id), da, ped, start = c(0.6, 1),
+                                  maxiter = 0L, n_em = 0L, verbose = FALSE))
+  expect_setequal(names(fit_a$ebv$animal), ped$id)
+  expect_error(suppressMessages(residual_diagnostics(fit_a, da, ped2, nsim = 19L)),
+               "does not reproduce")
+  # um pedigree com um animal a mais sem registro e sem progenie: a poda o tira, e o desenho
+  # remontado e o do ajuste
   ped3 <- rbind(ped, data.frame(id = "Z998", sire = "0", dam = "0"))
-  expect_error(residual_diagnostics(fit, d, ped3, nsim = 19L), "other levels")
+  expect_s3_class(suppressMessages(residual_diagnostics(fit, d, ped3, nsim = 19L)),
+                  "breeding_residual_diagnostics")
+  # com um ancestral a mais (pais de um fundador) o pedigree e outro, e os niveis tambem
+  f0 <- ped$id[which(ped$sire == "0" & ped$dam == "0")[1]]
+  ped4 <- rbind(data.frame(id = c("Z996", "Z997"), sire = "0", dam = "0"), ped)
+  ped4$sire[ped4$id == f0] <- "Z996"; ped4$dam[ped4$id == f0] <- "Z997"
+  expect_error(residual_diagnostics(fit, d, ped4, nsim = 19L), "other levels")
   # genotipos num ajuste que nao e passo unico
   expect_error(residual_diagnostics(fit, d, ped, genotypes = list(ids = "A001",
                                                                   m = matrix(1L, 1, 3)),
@@ -797,14 +817,18 @@ test_that("standardized breeding values: Var(u^) = s2a A - PEV is the dense G Z'
   ped <- rd_ped(60, nfilhos = 60L)
   d <- rd_dados(61, ped, tam = c(2, 3, 5))
   # vinte filhos sem registro (a confiabilidade deles vem so do parentesco) e um fundador sem
-  # progenie nem registro, que nao tem informacao nenhuma
-  d <- d[-(1:20), ]
+  # progenie nem registro, que nao tem informacao nenhuma. Ficam no ajuste por uma linha com
+  # o traco ausente: sem ela a poda do pedigree os tiraria (prepara_estrutura())
+  d$y[1:20] <- NA
   ped <- rbind(ped, data.frame(id = "Z999", sire = "0", dam = "0"))
+  d <- rbind(d, transform(d[1, ], id = "Z999"))
   fit <- model(y ~ cg + animal(id), d, ped, start = c(0.6, 1.1), maxiter = 0L, n_em = 0L,
                verbose = FALSE)
   A <- rd_a_tabular(ped)
-  Z <- rd_incid(d$id, ped$id)
-  ref <- rd_ref(d$y, stats::model.matrix(~ cg, d), 0.6 * Z %*% A %*% t(Z), diag(1.1, nrow(d)))
+  do <- d[!is.na(d$y), ]
+  Z <- rd_incid(do$id, ped$id)
+  ref <- rd_ref(do$y, stats::model.matrix(~ cg, do), 0.6 * Z %*% A %*% t(Z),
+                diag(1.1, nrow(do)))
   G <- 0.6 * A
   vu <- diag(G %*% t(Z) %*% ref$P %*% Z %*% G)
   lv <- names(fit$pev$animal)
@@ -933,7 +957,11 @@ test_that("the error tail decision: the pilot only when the pre-test rejects, an
 test_that("gibbs(probit): latent draws of variance 1, liability-scale fitted, the data guard", {
   ped <- rd_ped(80, nfilhos = 80L)
   d <- rd_dados(81, ped, tam = c(3, 4, 6))
-  d$b <- ifelse(d$y > stats::median(d$y), "sim", "nao")
+  # as duas categorias em todo cg (o nivel todo numa so e recusado, test-estrutura-e5.R; com
+  # a mediana geral 6 dos 21 cg ficavam assim), e o texto como fator ordenado: a ordem
+  # alfabetica de um fator nao ordenado roda com aviso
+  d$b <- ordered(ifelse(ave(d$y, d$cg, FUN = function(v) rank(v) %% 2) == 1, "sim", "nao"),
+                 levels = c("nao", "sim"))
   set.seed(82)
   g <- gibbs(b ~ cg + cov(x) + animal(id), d, ped, family = "probit", n_iter = 600L,
              burnin = 100L,
@@ -1171,7 +1199,11 @@ test_that("a blank, 'NaN' or Inf trait is missing in the residuals as in the fit
   # the fit". Aqui o texto vazio e o "NaN", ou o Inf e o -Inf, tem de dar o resultado do NA
   ped <- rd_ped(80, nfilhos = 80L)
   d <- rd_dados(81, ped, tam = c(3, 4, 6))
-  d$b <- ifelse(d$y > stats::median(d$y), "sim", "nao")
+  # as duas categorias em todo cg, tambem sem as linhas 5 e 17, e o texto como fator ordenado
+  # (o nivel todo numa categoria e o texto sem ordem sao recusados, e a ordem alfabetica de
+  # um fator nao ordenado roda com aviso: test-estrutura-e5.R)
+  d$b <- ordered(ifelse(ave(d$y, d$cg, FUN = function(v) rank(v) %% 2) == 1, "sim", "nao"),
+                 levels = c("nao", "sim"))
   fora <- c(5L, 17L)
   cadeia <- function(dd) {
     set.seed(82)
@@ -1184,7 +1216,9 @@ test_that("a blank, 'NaN' or Inf trait is missing in the residuals as in the fit
   dg_na <- residual_diagnostics(g_na, d_na, ped, nsim = 19L, seed = 83)
   expect_identical(dg_na$n_used, nrow(d) - 2L)
   d_txt <- d
+  d_txt$b <- as.character(d$b)
   d_txt$b[fora] <- c("", "NaN")
+  d_txt$b <- ordered(d_txt$b, levels = c("", "NaN", "nao", "sim"))
   d_num <- d
   d_num$b <- as.double(d$b == "sim")
   d_num$b[fora] <- c(Inf, -Inf)
@@ -1223,3 +1257,5 @@ test_that("a blank, 'NaN' or Inf trait is missing in the residuals as in the fit
     expect_identical(residuals(ft, dd, type = "pearson"), p_na)
   }
 })
+
+options(op_parentesco)

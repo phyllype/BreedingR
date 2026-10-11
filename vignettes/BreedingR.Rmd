@@ -178,6 +178,8 @@ These choices live in the errors, on purpose:
 - a parent that is cited but has no line of its own is an ERROR, not a founder;
 - a genotype outside 0, 1, 2 and NA is refused (NA is imputed to the mean; zero is a
   valid genotype and is never used as a missing-value code);
-- a pen mate not in the pedigree is an ERROR, not a silent discard;
+- an animal not in the pedigree (a pen mate too) enters as a FOUNDER with a warning that
+  names it, never as a silent discard; an id written differently from its pedigree line
+  is an ERROR with both spellings;
 - an INADMISSIBLE theta halts the fit, it never turns into a result;
 - a fit that did not converge SAYS so in the print, in the message and in the object.

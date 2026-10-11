@@ -25,3 +25,9 @@ error is NOT given: it needs the delta method with the covariance between compon
 the honesty here is the same as summary's, making the number up would be worse than not
 giving it.
 }
+\details{
+A fit that did not converge is read at its last iterate, with a warning; when the fit
+reports the information matrix SINGULAR along a set of components that includes one of
+the two variances or the covariance, the correlation is returned as \code{NA}, with a
+warning naming the components, and so is a fit with no estimates.
+}

@@ -144,6 +144,10 @@ prepara_aleatorios <- function(aleat, data, pedigree, k_inverse, keep, intervalo
   rel <- NULL
   slots <- list(); grupos <- list()
   de_onde <- if (is.null(k_inverse)) "the pedigree" else "k_inverse"
+  # as colunas dos termos com parentesco: ali o "0" e o animal desconhecido tambem no termo
+  # iid que as le (o pe(dam) de maternal(dam) + pe(dam)), como no motor (zera_desconhecido(),
+  # src/modelo.cpp); sem isso as maes desconhecidas distintas formavam um nivel "0" do pe
+  col_desc <- colunas_do_desconhecido(aleat)
   for (g in seq_along(gs$termos)) {
     tms <- aleat[gs$termos[[g]]]
     est <- vapply(tms, function(t) t$estrutura, integer(1))
@@ -169,7 +173,10 @@ prepara_aleatorios <- function(aleat, data, pedigree, k_inverse, keep, intervalo
       }
       niv <- rel
     } else {
-      ids <- sort(unique(unlist(valores)))
+      ids <- sort(unique(unlist(lapply(seq_along(tms), function(k) {
+        v <- valores[[k]]
+        if (tms[[k]]$column %in% col_desc) v[!(v %in% c("0", "NA"))] else v
+      }))))
       q <- length(ids)
       niv <- list(ids = ids, q = q, pi = seq_len(q), pj = seq_len(q), px = rep(1, q),
                   ld_k = 0)
@@ -186,15 +193,36 @@ prepara_aleatorios <- function(aleat, data, pedigree, k_inverse, keep, intervalo
         sl$r <- z$r; sl$c <- z$c; sl$v <- z$v
       } else {
         idx <- match(valores[[k]], niv$ids)
-        if (anyNA(idx)) {
-          quem <- unique(valores[[k]][is.na(idx)])
+        # o DESCONHECIDO ("0") num termo com parentesco e o nivel 0 do BLUPF90: incidencia
+        # zero aqui, a linha fica nos outros termos, como no motor (monta_termo); a mensagem
+        # sai de prepara_estrutura(). Vale tambem para o termo iid na coluna de um termo com
+        # parentesco (col_desc). A linha fica fora dos triplos, e `nivel` guarda o indice de
+        # cada linha (NA no desconhecido) para quem confere o nivel por sujeito.
+        sl$zera <- est[1] == 2L || tm$column %in% col_desc
+        desc <- sl$zera & valores[[k]] %in% c("0", "NA")
+        if (anyNA(idx[!desc])) {
+          quem <- unique(valores[[k]][is.na(idx) & !desc])
           recusa_cientifico(quem, niv$ids, "the data", de_onde)
+          confere_grafias(quem, niv$ids, paste0("term '", tm$nome, "' (column '",
+                                                tm$column, "' of the data)"), de_onde,
+                          function(v) sum(valores[[k]] %in% v),
+                          paste0("have no line in ", de_onde, " and stop the fit"))
           stop(length(quem), " level(s) of '", tm$column, "' have no line in ",
                de_onde, ": ", paste(utils::head(quem, 5), collapse = ", "),
-               if (length(quem) > 5) ", ..." else "")
+               if (length(quem) > 5) ", ..." else "",
+               if (!is.null(k_inverse)) paste0(". A declared k_inverse fixes the levels: ",
+                                               "add their rows to it, or drop those records")
+               else "", call. = FALSE)
         }
-        sl$idx <- idx
-        sl$r <- seq_along(idx); sl$c <- idx; sl$v <- rep(1, length(idx))
+        idx[desc] <- NA_integer_
+        sl$nivel <- idx
+        if (any(desc)) {
+          lin <- which(!desc)
+          sl$r <- lin; sl$c <- idx[lin]; sl$v <- rep(1, length(lin))
+        } else {
+          sl$idx <- idx
+          sl$r <- seq_along(idx); sl$c <- idx; sl$v <- rep(1, length(idx))
+        }
       }
       slots[[length(slots) + 1L]] <- sl
       ss <- c(ss, length(slots))
@@ -220,7 +248,8 @@ design_aleatorio <- function(al)
   lapply(al$slots, function(sl)
     list(nome = sl$nome, column = sl$column, ids = sl$ids, social = sl$social,
          pen = sl$pen, dilution = sl$dilution, grupo = al$grupos[[sl$grupo]]$nome,
-         bloco = sl$bloco))
+         bloco = sl$bloco, parentesco = al$grupos[[sl$grupo]]$estrutura == 2L,
+         zera = isTRUE(sl$zera)))
 
 # ebv e pev por grupo, como no model(): um vetor por grupo, os blocos dos termos em
 # sequencia, cada um nomeado pelos niveis
@@ -768,13 +797,21 @@ estima_por_laplace <- function(avalia, grupos, G0s, nomes_theta, max_evals = 500
          presos = presos, queda = queda)
   }
   d <- desce(par0)
-  if (d$valor >= GRANDE)
-    stop("the Laplace -2logL could not be evaluated at any point the optimizer tried: ",
-         if (falhas > 0L && falhas_conv == falhas)
-           "the inner fit did not converge at any of them, so raise maxiter="
-         else "check start=",
-         if (!is.null(ultimo_erro)) paste0(" (the last failure: ", ultimo_erro, ")"),
+  # com uma falha que nao e de convergencia, ela vem ANTES da dica de start=: uma falha que
+  # vem dos dados (um nivel separado, um sistema singular) nao se resolve trocando a partida,
+  # e a mensagem comecava mandando trocar
+  if (d$valor >= GRANDE) {
+    so_conv <- falhas > 0L && falhas_conv == falhas
+    ultima <- if (!is.null(ultimo_erro)) paste0("the last failure: ", ultimo_erro)
+    stop("the Laplace -2logL could not be evaluated at any point the optimizer tried",
+         if (so_conv)
+           paste0(": the inner fit did not converge at any of them, so raise maxiter=",
+                  if (!is.null(ultima)) paste0(" (", ultima, ")"))
+         else paste0(if (!is.null(ultima)) paste0(" (", ultima, "); if that failure is ",
+                                                  "not a property of the data, ") else ": ",
+                     "check start="),
          call. = FALSE)
+  }
 
   # o erro-padrao: Hessiana numerica nas coordenadas livres, Var(par) = 2 H^-1, delta para
   # theta. As coordenadas numa direcao plana (ou cuja curvatura nao se mede, um passo da
@@ -1035,10 +1072,18 @@ parte_aleatoria_newdata <- function(object, newdata) {
       stop("no column '", info$column, "' in newdata")
     valores <- rotulo_motor(newdata[[info$column]])
     idx <- match(valores, info$ids)
-    if (anyNA(idx))
+    # o desconhecido "0" de um termo com parentesco (e do termo iid na coluna de um deles) e
+    # a incidencia zero do ajuste (prepara_estrutura(), R/estrutura.R): nada a somar aqui
+    desc <- (isTRUE(info$parentesco) || isTRUE(info$zera)) & valores %in% c("0", "NA")
+    if (anyNA(idx[!desc]))
       stop("level(s) of '", info$column, "' unknown to the fit: ",
-           paste(unique(valores[is.na(idx)]), collapse = ", "))
-    a <- a + unname(u[idx])
+           paste(unique(valores[is.na(idx) & !desc]), collapse = ", "),
+           if (isTRUE(info$parentesco) && !is.null(object$pedigree_used))
+             paste0(" (the fit pruned the pedigree to the animals of its data, the genotyped ",
+                    "and their ancestors: an animal without records has no breeding value ",
+                    "there unless the data gives it a row with the trait missing)"),
+           call. = FALSE)
+    a <- a + ifelse(desc, 0, unname(u[idx]))
   }
   a
 }

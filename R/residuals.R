@@ -74,8 +74,11 @@ r0_diagonal <- function(fit) {
 #' * `"pearson"`: `e_i sqrt(w_i) / sqrt(s2e)`, the convention of `nlme`, NOT standardized
 #'   by the leverage.
 #' * `"normalized"` ([model_ar1()] only): the innovations of the AR(1)/CAR(1) process,
-#'   `(e_t - g e_(t-1)) / sqrt(s2e (1 - g^2))` with `g = rho^dt` (negative for `rho < 0`
-#'   and an odd `dt`) along the subject's records in time order (the first record of a
+#'   `(e_t - g e_(t-1)) / sqrt(s2e (1 - g^2))` with `g = rho^dt` along the subject's records
+#'   in time order, `dt` the gap in steps of `time_step` on a grid (`g` negative for
+#'   `rho < 0` and an odd `dt`) and in the unit of the time on a continuous axis (`time_step`
+#'   `NA`; see `time` in [model_ar1()]); in a `POSIXct` series of daily records `dt` is 1, not
+#'   86400 (the first record of a
 #'   subject is `e_1 / sqrt(s2e)`), the `"normalized"` residual of `nlme`: the residual
 #'   premultiplied by the inverse Cholesky factor of its within-subject covariance `R`.
 #'   With several traits the vector of a record is also premultiplied by the inverse
@@ -210,7 +213,9 @@ residuals.breeding_fit_ar1 <- function(object, type = c("conditional", "standard
     marginal = e + object$fitted - object$fitted_fixed,
     pearson = sweep(e, 2L, sqrt(r0), "/"),
     standardized = padroniza_mt(object),
-    normalized = inovacoes(e, object$subject_index, object$time,
+    normalized = inovacoes(e, object$subject_index,
+                           tempo_em_passos(object$time, object$subject_index,
+                                           object$time_step),
                            object$theta[["rho(residual)"]], r0_cheia(object))))
 }
 
@@ -283,7 +288,8 @@ r0_cheia <- function(fit) {
 }
 
 # Inovacoes do AR(1)/CAR(1) dentro do sujeito: e e uma matriz nlin x t (ou vetor), sujeito o
-# indice do sujeito por linha (NA fora das usadas), tempo o tempo da linha, rho e R0. A
+# indice do sujeito por linha (NA fora das usadas), tempo o tempo da linha no eixo do motor
+# (tempo_em_passos(), R/ar1.R: na grade, em passos, porque o rho e por passo), rho e R0. A
 # correlacao de dois registros a dt de distancia e s(dt) |rho|^dt, com s = -1 so quando
 # rho < 0 e dt impar (a convencao do motor, ar1.cpp).
 inovacoes <- function(e, sujeito, tempo, rho, r0) {
@@ -406,12 +412,18 @@ residuals.breeding_fit_surv <- function(object, data, censor,
   if (missing(data) || !is.data.frame(data))
     stop("data must be the data.frame of the fit", call. = FALSE)
   if (missing(censor)) stop("censor= is needed, as given to model_survival()", call. = FALSE)
-  tv <- as.double(data[[object$trait]])
-  qv <- if (is.character(censor) && length(censor) == 1L) data[[censor]] else censor
+  # o tempo e o indicador pelas mesmas regras do ajuste (R/estrutura_categorica.R): o
+  # indicador em fator pelos rotulos, e nao pelos codigos, e o tempo em fator ou texto recusado
+  tv <- le_tempo(data[[object$trait]], paste0("the time column '", object$trait, "'"),
+                 object$trait)
+  coluna_censura <- is.character(censor) && length(censor) == 1L
+  qv <- if (coluna_censura) data[[censor]] else censor
   if (length(qv) != nrow(data))
     stop("censor must be a column name or one value per record", call. = FALSE)
-  qv <- as.double(qv)
-  ev <- if (is.null(entry)) rep(0, nrow(data)) else as.double(data[[entry]])
+  qv <- le_censura(qv, if (coluna_censura) paste0("the censoring indicator '", censor, "'")
+                       else "the censoring indicator")$v
+  ev <- if (is.null(entry)) rep(0, nrow(data))
+        else le_tempo(data[[entry]], paste0("the entry column '", entry, "'"), entry)
   sv <- if (is.null(subject)) seq_len(nrow(data)) else rotulo_motor(data[[subject]])
   usa <- !is.na(tv) & !is.na(qv) & !is.na(ev) & !is.na(sv)
   if (sum(usa) != object$n_used)
@@ -481,9 +493,8 @@ prepara_nulos <- function(fit, data, pedigree, genotypes, cadeia = FALSE) {
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "),
                           call. = FALSE)
-  lst <- lapply(data[used_columns], function(col) {
-    if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
-  })
+  lst <- colunas_para_motor(data, used_columns,
+                            colunas_de_nivel(terms, if (ar) fit$subject_column))
   mc <- fit$missing_code
   # o probit do gibbs() ajusta o 0/1 da categoria de cima, como ele mesmo converteu: a mesma
   # coluna convertida (lst) e a mesma regra da observacao ausente (observacao_ausente(),
@@ -495,12 +506,14 @@ prepara_nulos <- function(fit, data, pedigree, genotypes, cadeia = FALSE) {
     obs <- !observacao_ausente(v, mc)
     lst[[trait]] <- ifelse(obs, as.double(v == fit$binary_levels[2]), NA_real_)
   }
-  ped_id <- ped_sire <- ped_dam <- character(0)
-  if (!is.null(pedigree)) {
-    cp <- colunas_pedigree(pedigree)
-    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
-  }
   g <- valida_genotipos(genotypes)
+  # o MESMO pedigree do ajuste (fundadores, poda), refeito em silencio pela mesma regra
+  pe <- prepara_estrutura(terms, data, lst, pedigree, trait, mc, fit$metafounders, NULL,
+                          g$gid, silencioso = TRUE)
+  ped_id <- ped_sire <- ped_dam <- character(0)
+  if (!is.null(pe$cp)) {
+    ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
+  }
   nuc <- if (is.null(fit$apy$ids)) character(0) else as.character(fit$apy$ids)
   blend <- if (is.null(fit$genomic$blend)) 0.05 else fit$genomic$blend
   vk <- if (is.null(fit$genomic$vecchia_k)) 0L else as.integer(fit$genomic$vecchia_k)
@@ -991,11 +1004,14 @@ cauda_de <- function(k, normalidade) {
 #' residual SD varying by a factor of about 1.4 across groups (2000 records) the combined p
 #' of `dispersion` rejected 1.000, of `normality` 0.72 (the mixture of variances is not
 #' normal) and of `koenker` against the covariate 0.005. For `family = "probit"` the draws
-#' are of the latent residual (variance 1): under the model the mean fraction of draws with
-#' `p < 0.05` was 0.037 to 0.049 and the combined p rejected none of 200 data sets
-#' (`pivotal_probit`, 640 records). The chain is checked against the data too: the design
-#' rebuilt from `data` times the posterior means must give the fitted values the chain
-#' stored, and each random group must have the levels of the chain. Beyond that the pedigree
+#' are of the latent residual (variance 1): under the model, with the contemporary group
+#' random and `by = "cg"` (`pivotal_probit`, 640 records; with the group fixed, a binary
+#' at the median leaves 7 to 27 of the 56 groups, median 17 over 200 draws of the data,
+#' with every record in one category, which [gibbs()] refuses), the mean fraction of draws
+#' with `p < 0.05` was 0.042 to 0.047 and the combined p rejected none of 200 data sets.
+#' The chain is checked against the data too:
+#' the design rebuilt from `data` times the posterior means must give the fitted values the
+#' chain stored, and each random group must have the levels of the chain. Beyond that the pedigree
 #' and the genotypes are NOT checked against the chain (it keeps nothing of its `K` to
 #' compare with): they enter only the `K_jj` of the standardized breeding values, so another
 #' pedigree or other genotypes with the same animals change those `z` without an error, and
@@ -1230,7 +1246,8 @@ diagnostico_bootstrap <- function(fit, data, pedigree, genotypes, by, covariates
   covars <- stats::setNames(lapply(fp$covariates, function(v) as.double(data[[v]])[usadas]),
                             fp$covariates)
   if (ar) {
-    sujeito <- fit$subject_index[usadas]; tempo <- fit$time[usadas]
+    sujeito <- fit$subject_index[usadas]
+    tempo <- tempo_em_passos(fit$time, fit$subject_index, fit$time_step)[usadas]
   } else if (!is.null(subject)) {
     sujeito <- match(rotulo_motor(data[[subject]])[usadas],
                      unique(rotulo_motor(data[[subject]])[usadas]))
