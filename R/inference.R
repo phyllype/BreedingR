@@ -115,8 +115,10 @@ profile_theta <- function(formula, data, pedigree = NULL, k, grid = NULL, fit = 
     tf <- numeric(length(th))
     tf[ki] <- valor_k
     tf[livre] <- desempacota(par)
-    r <- try(do.call(eval_internal, c(list(formula, data, pedigree, theta = tf,
-                                           with_dense = FALSE), extras)),
+    # os avisos de estrutura ja sairam no ajuste; aqui o mesmo dado e avaliado muitas vezes
+    r <- try(calado_estrutura(do.call(eval_internal, c(list(formula, data, pedigree,
+                                                            theta = tf, with_dense = FALSE),
+                                                       extras))),
              silent = TRUE)
     if (inherits(r, "try-error") || !is.finite(r$neg2logl)) 1e12 else r$neg2logl
   }

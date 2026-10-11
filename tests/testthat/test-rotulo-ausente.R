@@ -137,7 +137,7 @@ test_that("blank text and the text 'NaN' in a level column stop every fitter, wi
 
 test_that("blank text in the id of a relationship term no longer drops the row in silence", {
   # Num termo com parentesco o "" nao casa com o pedigree e a linha saia calada (como a de
-  # um animal fora do pedigree, que continua saindo: e a regra declarada de animal()).
+  # um animal fora do pedigree saia, antes de ele entrar como fundador).
   z <- caso_rot()
   d <- z$d
   d$id[c(7, 8)] <- ""
@@ -152,10 +152,12 @@ test_that("blank text in the id of a relationship term no longer drops the row i
   gen <- list(ids = z$ped$id[7:18], m = matrix(sample(0:2, 12 * 30, TRUE), 12))
   expect_error(snp_blup(y ~ cg + animal(id), d, z$ped, genotypes = gen, theta = c(0.3, 1),
                         verbose = FALSE), msg)
-  # braco: um id fora do pedigree sai calado, so com o n_used menor; era o que o "" fazia
+  # braco: um id fora do pedigree saia calado, so com o n_used menor (era o que o "" fazia);
+  # agora entra como fundador, com o aviso (prepara_estrutura(), R/estrutura.R)
   d$id[c(7, 8)] <- "fora_do_pedigree"
-  expect_equal(model(y ~ cg + animal(id), d, z$ped, start = c(0.3, 1), maxiter = 0L,
-                     n_em = 0L, verbose = FALSE)$n_used, 46L)
+  expect_warning(f <- model(y ~ cg + animal(id), d, z$ped, start = c(0.3, 1), maxiter = 0L,
+                            n_em = 0L, verbose = FALSE), "entered as founders", fixed = TRUE)
+  expect_equal(f$n_used, 48L)
 })
 
 test_that("the texts 'NA' and 'Inf' are level names, not missing labels, in every fitter", {

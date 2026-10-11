@@ -28,8 +28,9 @@ model(
 class effect; \code{cov(x)} is a fixed covariate; \code{animal(id)}, \code{maternal(dam)} and
 \code{sire(sire)} are random with relationship, and \code{sire(sire, mgs = "mgs")} is the sire
 and maternal-grandsire model, 1 on the sire and 1/2 on the maternal grandsire of the
-record in the same effect (an unknown grandsire, "0", leaves the sire only; a
-missing value in that column is refused, see below); \code{pe(id)}
+record in the same effect (an unknown grandsire, "0", leaves the sire only, and an
+unknown sire the grandsire only; a missing value in that column is refused, see
+below); \code{pe(id)}
 and \code{random(lote)} are random
 without relationship. \code{group = "nome"} puts two random terms in the SAME covariance
 matrix, with the correlation estimated. The terms of a group index one set of levels,
@@ -105,8 +106,10 @@ zero, diagonal included, declares a level with no contribution to this term: it
 gets no equation and its records stay in the analysis with zero incidence here,
 the generalized-inverse pattern of the multibreed partial matrices (Mrode &
 Pocrnic, 4th ed., p.243-244). An id absent from K altogether still excludes the
-record, as with an animal missing from the pedigree: a zero row is a declaration,
-an absence is a gap. Two kernel terms need \verb{nome=} to tell their components apart.
+record (an animal missing from the PEDIGREE enters as a founder instead, see
+\code{pedigree}): a zero row is a declaration, an absence is a gap, and when no record
+is left the fit stops with the first id of each side. Two kernel terms need \verb{nome=}
+to tell their components apart.
 The inversion of K is dense, so \verb{K =} is for matrices of moderate size, the size of
 a genotyped set, not of a national pedigree.
 \code{kernel(id, Kinv = Q)} declares the PRECISION instead, \code{Q = K^-1}, and nothing is
@@ -155,7 +158,70 @@ integer keeps the digits that tell it apart from every other number (1234567.5 i
 scientific notation ("1e+05" is what \code{as.character()}, \code{factor()} and \verb{rownames<-}
 give for the double 100000) is a different label, and when the other side holds
 that same number the fit stops with an error rather than dropping the animal's
-records}
+records.
+
+THE IDS OF THE DATA AGAINST THE PEDIGREE follow one rule in every fitter
+(\code{\link[=model]{model()}}, \code{\link[=model_mt]{model_mt()}}, \code{\link[=model_ar1]{model_ar1()}}, \code{\link[=gibbs]{gibbs()}}, \code{\link[=snp_blup]{snp_blup()}}, the
+\code{eval_internal} family, \code{\link[=model_threshold]{model_threshold()}} and \code{\link[=model_survival]{model_survival()}}), and
+\code{\link[=accuracy]{accuracy()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=snp_effects]{snp_effects()}} and \code{\link[=residual_diagnostics]{residual_diagnostics()}} redo it
+from the pedigree given, so one data frame gets one answer everywhere:
+\itemize{
+\item an animal of the data (in any relationship term, on any row, a pen mate of
+\code{indirect()} and a maternal grandsire included) with no line in the pedigree
+enters as a FOUNDER, with unknown parents, and a warning counts them by column and
+names the first. renumf90 numbers every animal with a record the same way; ASReml
+asks for every animal of the data in the pedigree file. When NO id of a column is
+in the pedigree the two use different ids, and the fit stops with the first id of
+each side;
+\item the unknown code \code{0} (or the text \code{"NA"}) in the column of a relationship term is
+an unknown animal, as in BLUPF90, whose renumf90 readme warns that "missing animals
+have code 0": the effect is absent from that record (a level 0 in a BLUPF90 data
+file adds nothing to that effect), and the record stays in the other terms with
+zero incidence in this one. So a record with an unknown dam keeps its direct
+effect, and a message counts those records. The same 0 is absent too in a \code{pe()},
+\code{random()} or \code{kernel()} term that reads the same column (the maternal permanent
+environment of \code{maternal(dam) + pe(dam)}, the \code{pe(id)} of \code{animal(id) + pe(id)}):
+there it is never one shared level of unknown dams. In a column that no
+relationship term reads, 0 stays an ordinary level: \code{pe(dam)} with no
+\code{maternal(dam)} puts every record with dam 0 in one level "0" (give those dams ids
+of their own, or add the relationship term, to avoid it). A term whose every row
+holds 0 stops the fit; in \code{sire(mgs =)} a record with an unknown sire keeps only
+the grandsire contribution, and none when the grandsire is unknown too, and the
+message counts each; in \code{indirect()} every pen mate must be a known animal; and the
+subject column of \code{\link[=model_ar1]{model_ar1()}} and of \code{\link[=model_survival]{model_survival()}} cannot hold it when it is
+the column of a relationship term, since distinct unknown animals would become one
+series or one history. A missing value there (\code{NA}, blank text) is refused like in
+any level column, with the advice to write an unknown parent as 0;
+\item an id with no line that matches a line written another way (spaces, tabs,
+carriage returns or no-break spaces at the ends, upper against lower case, leading
+zeros, a trailing \code{.0}, accents composed against decomposed, latin1 bytes read as
+UTF-8) stops the fit with both spellings and the difference: it is a mismatch,
+not a new animal. The same text in latin1 and in UTF-8 is one id;
+\item a numeric column that gives levels (any id column, and also a class such as a
+numeric contemporary-group or herd code, a nested class, a pen, a maternal
+grandsire or the subject of \code{\link[=model_ar1]{model_ar1()}}), of the data, of the pedigree or of
+\code{genotypes$ids}, holding values at or above 2^53 (the 16- and 17-digit ids of
+electronic ear tags read by \code{read.csv()}) has already lost digits: it is refused,
+with the column and how to read it as text. A covariate is a number and is not
+checked. An \code{integer64} column (\code{data.table::fread()}) is read as its exact
+digits;
+\item the pedigree is PRUNED to the animals of the data (every row, the trait observed or
+not), the genotyped and all their ancestors, the informative set renumf90 extracts
+("genotyped and phenotyped animals + their ancestors traced back") with a
+\code{PED_DEPTH} deep enough to reach every ancestor (its default, 3, keeps three
+generations; 0 loads the whole pedigree), and a message counts the lines left out.
+The pruning is exact for the likelihood and for every breeding value kept. An
+animal left out (no record, no genotype, no recorded descendant: a young candidate)
+has NO breeding value in the fit: give it a row of the data with the trait missing,
+its other columns filled, to keep it. A national pedigree far larger than the data
+no longer reaches the factorization;
+\item when the records form blocks with no genetic link between them (no relationship
+through the pedigree nor the genotypes) and the fixed effects give a block levels
+of its own, a warning says so: any genetic difference between the blocks is
+absorbed by those effects, and the breeding values compare only within a block
+(Fernando, Gianola and Grossman 1983; Kennedy and Trus 1993). \code{\link[=solutions]{solutions()}} then
+has a \code{block} column, and \code{\link[=describe]{describe()}} counts the blocks before the fit
+}}
 
 \item{genotypes}{list with \code{ids} and \code{m} for single-step: animals x markers coded 0/1/2,
 as a double, integer or raw matrix. NA (5 in a raw matrix, the BLUPF90 code) is
@@ -273,8 +339,15 @@ variance \code{\link[=accuracy]{accuracy()}} uses for a genotyped animal instead
 G*. It carries, one value per row of \code{data} (\code{NA} where the record did not enter),
 the conditional residual \code{residual}, the fitted values \code{fitted} (\verb{X b + Z u}) and
 \code{fitted_fixed} (\verb{X b}) and the leverage \code{leverage}, which \code{\link[=residuals.breeding_fit]{residuals.breeding_fit()}}
-and \code{\link[=residual_diagnostics]{residual_diagnostics()}} read, with \code{missing_code} and \code{weights} as given. The
-object holds
+and \code{\link[=residual_diagnostics]{residual_diagnostics()}} read, with \code{missing_code} and \code{weights} as given. With a
+relationship term it carries \code{pedigree_used}, \code{list(lines, founders, kept)}: the
+lines of the pedigree given, the ids of the data it added as founders and the
+animals kept by the pruning (see \code{pedigree}), which \code{\link[=accuracy]{accuracy()}} and \code{\link[=snp_effects]{snp_effects()}}
+read to rebuild the same pedigree. When the records form blocks whose genetic
+difference the fixed effects absorb it carries \code{blocks},
+\code{list(n, records, absorbed_by, animal)}: the number of blocks, the records of each,
+the fixed terms that give each block its own levels and the block of each animal.
+The object holds
 the components \code{theta} with their \code{se},
 the fixed-effect solutions \code{b} (named \code{term=level}, in the order the columns of X
 entered), \code{ebv} and \code{pev} per covariance group, \code{score}, \code{vcov}, the convergence
@@ -325,4 +398,17 @@ inverse of the genomic relationship matrix. Journal of Dairy Science 97:3943-395
 
 Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
 genetic effects and group size. Genetics 186:1029-1031.
+
+Fernando, R.L., Gianola, D. & Grossman, M. (1983). Identifying all connected subsets
+in a two-way classification without interaction. Journal of Dairy Science
+66:1399-1402.
+
+Kennedy, B.W. & Trus, D. (1993). Considerations on genetic connectedness between
+management units under an animal model. Journal of Animal Science 71:2341-2352.
+
+Misztal, I. et al. The BLUPF90 family of programs, readme of renumf90 (PED_DEPTH:
+the genotyped and phenotyped animals and their ancestors, default 3, 0 for the whole
+pedigree; Warnings: missing animals have code 0).
+University of Georgia,
+\url{https://nce.ads.uga.edu/wiki/doku.php?id=readme.renumf90}
 }

@@ -10,7 +10,8 @@ describe(
   classes = NULL,
   pedigree = NULL,
   covariates = NULL,
-  missing_code = NULL
+  missing_code = NULL,
+  id = NULL
 )
 }
 \arguments{
@@ -28,8 +29,27 @@ describe(
 \code{covariates}, each covariate is checked: the code only applies to the trait, and
 a -999 in a covariate enters the regression LITERALLY, in real data this once went
 unnoticed past two programs at the same time}
+
+\item{id}{the animal column of the data. With \code{pedigree}, the records with an observed
+trait (\code{missing_code} counts as missing, as in the fit) are split into BLOCKS, the
+connected components of the relationship graph (the animals linked through their
+sires and dams; an animal absent from the pedigree is a founder, as in the fit), and
+the classes of \code{classes} that give each block levels of its own are named. Two blocks
+with no relative in common whose records sit in different contemporary groups cannot
+be compared: any genetic difference between them is absorbed by the groups (Fernando,
+Gianola and Grossman 1983; Kennedy and Trus 1993). Every fitter warns about it from
+its own terms; \code{describe()} sees only the pedigree and the classes given, so blocks
+that genotypes link are counted here and not warned about by a single-step fit}
 }
 \description{
 A variance component is an answer about a set of data; whoever has not looked at the set
 does not know what they are estimating. This decides nothing: it measures and shows.
+}
+\references{
+Fernando, R.L., Gianola, D. & Grossman, M. (1983). Identifying all
+connected subsets in a two-way classification without interaction. Journal of Dairy
+Science 66:1399-1402.
+
+Kennedy, B.W. & Trus, D. (1993). Considerations on genetic connectedness between
+management units under an animal model. Journal of Animal Science 71:2341-2352.
 }

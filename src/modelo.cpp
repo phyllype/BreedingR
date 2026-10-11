@@ -165,6 +165,21 @@ bool texto_em_branco(const std::string& s) {
   return s.find_first_not_of(" \t\r\n") == std::string::npos;
 }
 
+bool nivel_desconhecido(const std::string& s) { return s == "0" || s == "NA"; }
+
+bool coluna_de_parentesco(const Modelo& m, const std::string& col) {
+  for (const Termo& t : m.termos) {
+    if (t.estrutura != Estrutura::Parentesco) continue;
+    if (t.coluna == col || (t.mgs && t.aninhado == col)) return true;
+  }
+  return false;
+}
+
+bool zera_desconhecido(const Modelo& m, const Termo& tm) {
+  if (!tm.aleatorio()) return false;
+  return tm.estrutura == Estrutura::Parentesco || coluna_de_parentesco(m, tm.coluna);
+}
+
 std::string valores_ausentes(const Tabela& t, const std::string& col, const std::string& papel) {
   const Coluna* c = t.acha(col);
   if (!c || c->texto) return "";
@@ -392,12 +407,14 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
   // ordem de aparicao. Ordem de aparicao e nao alfabetica: e o que mantem a saida comparavel
   // com dado ja renumerado, onde o nivel "10" vem depois do "9" e nao entre "1" e "2".
   std::vector<std::string> rot = t.rotulos(tm.coluna);
+  // o "0" de uma coluna de parentesco e desconhecido tambem no termo iid que a le: nao e nivel
+  const bool zera = zera_desconhecido(m, tm);
   if (niveis_fixos) {
     d.niveis = *niveis_fixos;
   } else {
     std::unordered_set<std::string> visto;
     for (const std::string& r : rot)
-      if (visto.insert(r).second) d.niveis.push_back(r);
+      if (!(zera && nivel_desconhecido(r)) && visto.insert(r).second) d.niveis.push_back(r);
   }
   d.n_niveis = d.niveis.size();
   std::unordered_map<std::string, std::size_t> pos;
@@ -479,10 +496,15 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
     std::vector<double> v;
     for (std::size_t i = 0; i < nlin; i++) {
       auto it = pos.find(rot[i]);
-      if (it == pos.end()) { d.casou[i] = 0; continue; }
-      li.push_back(static_cast<std::uint32_t>(i));
-      cj.push_back(static_cast<std::uint32_t>(it->second));
-      v.push_back(1.0);
+      if (it == pos.end()) {
+        // o pai DESCONHECIDO (o "0") nao tira o registro: fica so o avo, se houver, e nada
+        // neste termo se o avo tambem for desconhecido (ver nivel_desconhecido)
+        if (!nivel_desconhecido(rot[i])) { d.casou[i] = 0; continue; }
+      } else {
+        li.push_back(static_cast<std::uint32_t>(i));
+        cj.push_back(static_cast<std::uint32_t>(it->second));
+        v.push_back(1.0);
+      }
       // o avo DESCONHECIDO: "0", o texto "NA" ou o texto em branco (espacos inclusive, a
       // regra de rotulos_ausentes, que deixa o branco passar nesta coluna como codigo)
       const std::string& a = avo[i];
@@ -554,6 +576,13 @@ DesenhoTermo monta_termo(const Modelo& m, std::size_t k, const Tabela& t,
   v.reserve(nlin * d.n_coef);
 
   for (std::size_t i = 0; i < nlin; i++) {
+    // O codigo de DESCONHECIDO ("0") num termo com parentesco e o nivel 0 do BLUPF90: o
+    // efeito nao existe neste registro, que fica nos outros termos com incidencia zero aqui.
+    // Vale tambem para o termo iid (ou kernel()) que le a MESMA coluna de um termo com
+    // parentesco (zera_desconhecido): o pe da mae desconhecida tambem nao existe, mesmo que
+    // outro termo do grupo tenha um nivel "0" de verdade. O lado R conta essas linhas e avisa
+    // (prepara_estrutura, R/estrutura.R).
+    if (zera && nivel_desconhecido((*rot_nivel)[i])) continue;
     auto it = pos.find((*rot_nivel)[i]);
     if (it == pos.end()) {
       // Linha sem nivel no conjunto NAO entra com incidencia zero: isso afirmaria que o

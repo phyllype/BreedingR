@@ -24,7 +24,8 @@
 #'   covariance `K0 (1-rpg) / k` between them, so the precision is `K0^-1` times the
 #'   scalar one
 #' @param data data.frame
-#' @param pedigree data.frame animal, sire, dam (required: the model is single step)
+#' @param pedigree data.frame animal, sire, dam (required: the model is single step). The
+#'   ids are matched to the data by the rule of [model()] (see `pedigree` there)
 #' @param genotypes list with `ids` and `m` (0/1/2 matrix); NA is imputed with the mean
 #' @param theta variance components, in the order [model()] reports for this formula
 #'   (each random group, then the residual). This is a solver at fixed components:
@@ -69,14 +70,16 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
-  lst <- lapply(data[used_columns], function(col) {
-    if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
-  })
+  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
   if (is.null(pedigree)) stop("snp_blup needs a pedigree: the model is single step")
-  cp <- colunas_pedigree(pedigree)
-  confere_base_mf(cp$sire, cp$dam, metafounders, TRUE)
   g <- valida_genotipos(genotypes)
   if (length(g$gid) == 0) stop("snp_blup without genotypes has nothing to solve")
+  # ids dos dados contra o pedigree: a regra de model() (prepara_estrutura, R/estrutura.R)
+  pe <- prepara_estrutura(terms, data, lst, pedigree, trait, missing_code, metafounders,
+                          NULL, g$gid)
+  cp <- if (is.null(pe$cp)) colunas_pedigree(pedigree, mf = rotulo_motor(metafounders))
+        else pe$cp
+  confere_base_mf(cp$sire, cp$dam, metafounders, TRUE, cp$id, pe$info$founders)
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_snp_blup,
@@ -113,7 +116,7 @@ snp_blup <- function(formula, data, pedigree, genotypes, theta, rpg = 0.05,
   r$rpg <- rpg
   r$formula <- formula_resolvida(formula, terms)
   r$trait <- trait
-  structure(r, class = "breeding_snp_blup")
+  structure(anota_estrutura(r, pe), class = "breeding_snp_blup")
 }
 
 #' @export

@@ -131,7 +131,13 @@
 #'   rule and message as in [model()]; a factor or text column in `cov()` is refused
 #'   rather than read as its codes.
 #' @param pedigree data.frame animal, sire, dam; required with `animal()`, `sire()` or
-#'   `indirect()` unless `k_inverse` is given
+#'   `indirect()` unless `k_inverse` is given. The ids are
+#'   matched to the data by the rule of [model()] (see `pedigree` there): an absent
+#'   animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+#'   stops the fit, and the pedigree is pruned to the data, the genotyped and their
+#'   ancestors
+#'   (with `k_inverse =` the levels are the ids of that K, an id outside it stops
+#'   the fit, and the unknown 0 is no effect, counted by the same message)
 #' @param censor MANDATORY: the censoring indicator, as a column name or a vector --
 #'   1 (or TRUE) for a complete record, 0 (or FALSE) for a right-censored one. If no
 #'   record is censored, say so explicitly with a column of ones.
@@ -167,7 +173,11 @@
 #'   in every piece of a subject (so `random(pen)` refuses an animal that changes pen).
 #'   A missing subject (`NA`, `NaN`, `Inf`, `-Inf`, blank text or the text "NaN") is
 #'   refused on every row, as the subject of [model_ar1()]: those pieces would form one
-#'   history
+#'   history. So is the unknown code 0 when the subject column is also the column of a
+#'   relationship term (`animal(id)` with `subject = "id"`): there 0 is an unknown animal,
+#'   and the pieces of distinct unknown animals would be read as the history of one
+#'   subject. Give them ids of their own (an id with no line in the pedigree enters as a
+#'   founder) or drop those rows
 #' @param gaps `"error"` (default) refuses a gap between two pieces of a subject;
 #'   `"allow"` accepts it as time out of observation, in which no risk is counted
 #' @param mates `indirect()` with elementary records: `"all"` (default) counts every
@@ -259,8 +269,6 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
                         !missing(profile))],
                     "sigma2= gives them, so there is nothing to estimate", max_evals,
                     tol_estimate, profile)
-  hinv <- hinv_para_motor(pedigree, genotypes, blend, apy_core, vecchia_k, k_inverse)
-  if (!is.null(hinv)) k_inverse <- hinv
   t0 <- proc.time()[["elapsed"]]
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with the time on the left: lpl ~ herd + animal(id)")
@@ -295,6 +303,18 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
 
   falta <- setdiff(colunas_usadas(trait, terms), names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # ids dos dados contra o pedigree, a regra de model() (prepara_estrutura, R/estrutura.R);
+  # com k_inverse = os niveis sao os da K declarada. O sujeito vai junto: o 0 de um termo com
+  # parentesco nao pode ser o sujeito dos registros elementares (a recusa do model_ar1())
+  pe <- prepara_estrutura_r(terms, data, pedigree, trait, NULL, k_inverse, genotypes,
+                            sujeito = if (is.character(subject) && length(subject) == 1L)
+                              subject)
+  if (!is.null(pe$cp)) pedigree <- pedigree_preparado(pe$cp)
+  hinv <- hinv_para_motor(pedigree, genotypes, blend, apy_core, vecchia_k, k_inverse)
+  if (!is.null(hinv)) k_inverse <- hinv
+  if (!is.null(hinv) && !length(rel))
+    stop("k_inverse replaces the A^-1 of a relationship term; the frailty here is ",
+         "iid -- use animal() or sire() if the levels are related")
 
   tv <- as.double(data[[trait]])
   qv <- if (is.character(censor) && length(censor) == 1L) {
@@ -367,7 +387,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
   # fragilidade dependente do tempo, que este modelo nao tem. O indirect() fica de fora: no
   # modo "present" os companheiros mudam entre os trechos de proposito
   for (sl in al$slots) if (!sl$social) {
-    muda <- tapply(sl$idx, sv, function(v) length(unique(v)) > 1L)
+    muda <- tapply(sl$nivel, sv, function(v) length(unique(v)) > 1L)
     if (any(muda))
       stop(sum(muda), " subject(s) change the level of the frailty term '", sl$column,
            "' between elementary records (", paste(utils::head(names(muda)[muda], 3),
@@ -633,7 +653,7 @@ model_survival <- function(formula, data, pedigree = NULL, censor = NULL,
     design = list(fixed = fx$info, random = design_aleatorio(al)),
     seconds = proc.time()[["elapsed"]] - t0
   ), class = "breeding_fit_surv")
-  anota_k_inverse(anota_hinv(fit_s, hinv), k_inverse, hinv, rel)
+  anota_estrutura(anota_k_inverse(anota_hinv(fit_s, hinv), k_inverse, hinv, rel), pe)
 }
 
 

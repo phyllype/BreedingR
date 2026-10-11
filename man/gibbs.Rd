@@ -32,7 +32,11 @@ gibbs(
 
 \item{data}{data.frame}
 
-\item{pedigree}{data.frame animal, sire, dam}
+\item{pedigree}{data.frame animal, sire, dam. The ids are
+matched to the data by the rule of \code{\link[=model]{model()}} (see \code{pedigree} there): an absent
+animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+stops the fit, and the pedigree is pruned to the data, the genotyped and their
+ancestors}
 
 \item{genotypes}{single step as in \code{\link[=model]{model()}}}
 

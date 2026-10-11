@@ -15,7 +15,13 @@ pedigree(
 )
 }
 \arguments{
-\item{ped}{data.frame with animal, sire and dam}
+\item{ped}{data.frame with animal, sire and dam. An unknown sire or dam enters as "0" or
+NA. A parent with no line that matches a line written another way (a trailing space
+or carriage return, the case, leading zeros), and a 0 written another way (with a
+carriage return or a space, or "00" with no line), stop with both spellings; a
+numeric id column at or above
+2^53 (16- or 17-digit ids read as numbers) is refused, since its last digits are
+already lost: read the id columns as text.}
 
 \item{id}{the animal column (position or name)}
 

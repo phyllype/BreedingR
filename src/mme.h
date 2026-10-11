@@ -310,6 +310,13 @@ void casa_niveis_nulos(const Modelo& m, const std::vector<DesenhoTermo*>& aleato
 std::vector<DesenhoTermo> monta_aleatorios(const Modelo& m, const Tabela& t,
                                            const std::vector<std::string>& niveis_ped,
                                            const std::vector<KernelDecl>* kernels);
+// A mensagem de quando nenhuma linha entra, a mesma nos tres montadores: quantas linhas ha,
+// quantas sairam pela observacao (`sem_obs`, com `oque_obs` dizendo o que faltou) e, por
+// termo, quantas sairam por um nivel fora do conjunto, com o primeiro rotulo dos dados e o
+// primeiro nivel do conjunto. Antes era "no row enters the analysis" para todas as causas.
+std::string sem_linhas(const Modelo& m, const Tabela& t,
+                       const std::vector<DesenhoTermo>& aleatorios,
+                       const std::vector<char>& sem_obs, const std::string& oque_obs);
 // Antes de ESTIMAR: recusa o grupo sem estrutura em que um par de termos nao tem nenhum nivel
 // com registro (linha usada) nos dois, porque a covariancia do par nao entra na
 // verossimilhanca. Os ajustadores a chamam so quando os componentes andam.
@@ -849,6 +856,8 @@ struct AjusteMT {
   // e nao pelo teto de iteracoes: o que a exploracao da fronteira le
   std::vector<char> na_parede;
   bool parou = false;
+  // AR(1): o ajuste devolvido e o da segunda caminhada, que partiu do rho trocado de sinal
+  bool espelhado = false;
 };
 // A EXPLORACAO DA FRONTEIRA (o racional e as medidas estao em aireml.cpp): depois de uma
 // caminhada que certificou, ou parou antes do teto, com algum bloco de covariancia na
@@ -941,14 +950,24 @@ struct DesenhoAR {
   std::vector<char> usa;
   std::size_t nlin = 0;
   std::vector<std::vector<std::size_t>> sujeitos;
+  // o tempo de cada linha COMO O MOTOR O USA: na grade (tempo_inteiro), o numero de passos
+  // desde o primeiro registro usado do sujeito, inteiro exato; fora dela, o tempo do dado.
+  // `tempo_dado` e o tempo como veio, para a saida. Quem decide e eixo_tempo_ar1 (ar1b.cpp).
   std::vector<double> tempo;
-  // Os intervalos dentro de um sujeito caem todos numa GRADE INTEIRA? A pergunta decide se
-  // rho negativo e um modelo. Gamma(dt) = rho^dt so e uma funcao de correlacao valida com
-  // rho < 0 quando dt e inteiro: fora da grade a convencao de sinal quebra a
+  std::vector<double> tempo_dado;
+  // Os intervalos dentro de um sujeito caem todos numa GRADE? A pergunta decide se rho
+  // negativo e um modelo. Gamma(dt) = rho^dt so e uma funcao de correlacao valida com rho < 0
+  // quando dt e um numero inteiro de passos: fora da grade a convencao de sinal quebra a
   // multiplicatividade, s(2.5)|rho|^2.5 ao quadrado da +|rho|^5, e s(5)|rho|^5 e -|rho|^5,
   // e com ela a propriedade de Markov de que a Gamma^-1 tridiagonal depende. A rota densa e
   // a esparsa passam a discordar. Em tempo continuo o modelo e o CAR(1), com rho em (0, 1).
   bool tempo_inteiro = true;
+  // o PASSO da grade na unidade do dado (o rho e por passo); NaN em tempo continuo
+  double passo_tempo = 1.0;
+  // na grade, ha intervalos com um numero PAR e com um numero IMPAR de passos, cada paridade
+  // em ao menos 10% deles? Ai rho e -rho dao a mesma correlacao nos pares e a oposta nos
+  // impares, e a verossimilhanca pode ter um modo de cada sinal (o espelho de ajusta_ar1)
+  bool paridade_mista = false;
   // Quantos registros sairam por terem alguma caracteristica AUSENTE. O multicaracter
   // comum mantem esse registro e o ajusta contra a submatriz de R0 do padrao dele; aqui a
   // separabilidade Gamma (x) R0 nao sobrevive a um padrao parcial e o registro sai inteiro.
@@ -965,9 +984,8 @@ struct DesenhoAR {
   std::vector<char> obs;
   std::size_t n_mv = 0, off_mv = 0;
   // Esqueleto pre-computado no desenho (nada disto depende de theta): as linhas de W ja
-  // em colunas globais COM a caracteristica, e as colunas distintas de cada sujeito.
+  // em colunas globais COM a caracteristica.
   std::vector<std::vector<EntAR>> lw;
-  std::vector<std::vector<std::uint32_t>> cols_suj;
   // offset_s2e = inicio do vech(R0) (t = 1: o proprio s2e); offset_rho = logo depois
   std::size_t offset_s2e = 0, offset_rho = 0;
   std::size_t n_usadas() const { std::size_t s = 0; for (char u : usa) s += u; return s; }
@@ -1008,9 +1026,12 @@ std::vector<std::string> nomes_theta_ar1(const DesenhoAR&);
 AjusteMT ajusta_ar1(DesenhoAR&, const std::vector<double>*, std::size_t, double,
                     bool = false);
 // a partida a partir dos otimos univariados AR(1) de cada caracteristica (layout do
-// model_ar1() de uma caracteristica: grupos, var(residual), rho): R0 diagonal e o rho medio
+// model_ar1() de uma caracteristica: grupos, var(residual), rho): R0 diagonal e o rho medio.
+// `passos`: o time_step de cada ajuste univariado (NaN no continuo); quando algum difere do
+// passo deste desenho, os rho sao de unidades diferentes e o rho parte da automatica
 std::vector<double> partida_univariados_ar1(const DesenhoAR&,
-                                            const std::vector<std::vector<double> >& uni);
+                                            const std::vector<std::vector<double> >& uni,
+                                            const std::vector<double>& passos);
 // passo unico no AR(1): o mesmo nucleo do uni, sobre os mesmos campos
 RelatorioG aplica_genomica(DesenhoAR&, const Pedigree&, const std::vector<std::string>&,
                            const Genotipos&, double, const std::vector<std::string>&,

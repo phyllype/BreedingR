@@ -91,7 +91,7 @@ estimate_gamma <- function(pedigree, genotypes, metafounders,
   mf <- rotulo_motor(metafounders)
   q <- length(mf)
   if (!q) stop("give the metafounder labels")
-  cp <- colunas_pedigree(pedigree)
+  cp <- colunas_pedigree(pedigree, mf = mf)
   desconhecido <- (cp$sire %in% c("0", "") | cp$dam %in% c("0", ""))
   if (any(desconhecido))
     stop(sum(desconhecido), " animal(s) have an unknown parent that is not a metafounder (",

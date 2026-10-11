@@ -67,9 +67,12 @@ test_that("avo desconhecido deixa so o pai; avo fora do pedigree e erro declarad
   b <- eval_internal(y ~ herd + sire(sire), sem, sire_mgs(ped), theta = c(0.3, 1.2),
                      with_dense = FALSE)$neg2logl
   expect_equal(a, b, tolerance = 1e-12)
+  # o avo fora do pedigree entra como fundador, com o aviso (a regra de todo termo com
+  # parentesco, prepara_estrutura() em R/estrutura.R, como o renumf90)
   ruim <- d; ruim$mgs[1] <- "nao_existe"
-  expect_error(eval_internal(y ~ herd + sire(sire, mgs = "mgs"), ruim, sire_mgs(ped),
-                             theta = c(0.3, 1.2)), "maternal grandsire 'nao_existe'")
+  expect_warning(eval_internal(y ~ herd + sire(sire, mgs = "mgs"), ruim, sire_mgs(ped),
+                               theta = c(0.3, 1.2)), "column 'mgs' (term 'sire')",
+                 fixed = TRUE)
   expect_error(model(y ~ herd + sire(sire, mgs = "mgs", nested = "herd"), d, sire_mgs(ped),
                      verbose = FALSE), "neither nested")
 })

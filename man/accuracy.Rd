@@ -44,10 +44,12 @@ The prior variance is each level's own, read from the structure of its term and 
 to the PEV by level NAME, never by position:
 \itemize{
 \item a pedigree term (animal(), sire(), maternal(), indirect()): 1 + F from the pedigree.
-The pedigree must be the one the fit used: every animal in it gets an equation, so
-its animals must be exactly the levels of the group, and a pedigree with animals
-added or missing is refused (it would change the F of their descendants). Its rows
-may come in any order.
+The pedigree must be the one the fit was given: the founders the fit added (ids of
+the data with no line) and its pruning to the animals of the data, the genotyped and
+their ancestors (see \code{pedigree} in \code{\link[=model]{model()}}) are redone here, so the animals are
+exactly the levels of the group. A pedigree with ancestors added or animals missing
+is refused (it would change the F of their descendants); lines that are not
+ancestors of any level are pruned, as in the fit. Its rows may come in any order.
 For a GENOTYPED animal in a single-step fit it is the diagonal of H, which in that
 block is the diagonal of G*, and that is a different number: on a simulated
 population of 510 animals, all genotyped, the two differ by up to 0.18, moving an

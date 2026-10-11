@@ -1500,21 +1500,53 @@ SEXP R_avaliar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     if (th.size() != d.modelo.ntheta)
       Rf_error("theta with %d entries; the layout asks for %d", (int) th.size(),
                (int) d.modelo.ntheta);
+    // A FORMA V DENSA e a referencia dos gates: O(N^3) em tempo e N^2 em memoria, com N as
+    // celulas dos registros usados. Sem pedido (NA) ela so sai ate 2000 celulas; pedida
+    // (TRUE), ate 6000, e acima disso a recusa diz o tamanho ANTES de alocar. Antes o padrao
+    // era calcular sempre: 7500 registros levavam 161 s so nela (medido em f2c0d69), e 20000
+    // pediam 3 GB por copia de V.
+    const int pede_densa = Rf_asLogical(com_densa);
+    const std::size_t n_v = d.n_usadas() * d.t;
+    if (pede_densa == TRUE && n_v > 6000) {
+      char tam[64];
+      std::snprintf(tam, sizeof tam, "%.0f", 8.0 * n_v * n_v / 1048576.0);
+      throw br::Erro("with_dense = TRUE builds the dense V form over the " +
+                     std::to_string(n_v) + " observed cells (a " + std::to_string(n_v) + " x " +
+                     std::to_string(n_v) + " matrix, " + tam + " MB per copy, and O(n^3) "
+                     "time): it is the reference of the small gates and is refused above 6000 "
+                     "cells; use with_dense = FALSE, the sparse evaluation gives the same "
+                     "-2logL");
+    }
     br::AvaliacaoAR a = br::avalia_ar1(d, th);
+    // um rho negativo no tempo continuo: a mesma recusa da partida em R_ajustar_ar1 (abaixo),
+    // porque o CAR(1) tem o parametro em [0, 1) e "|rho| >= 1" nao dizia a causa
+    if (!a.ok && !d.tempo_inteiro && d.offset_rho < th.size() && th[d.offset_rho] < 0.0) {
+      char buf[600];
+      std::snprintf(buf, sizeof buf,
+                    "theta INADMISSIBLE: rho(residual) = %.4g is negative, but the time '%s' "
+                    "is continuous "
+                    "here (the gaps between consecutive records of a subject are not whole "
+                    "numbers of one step), and on a continuous axis the correlation rho^dt "
+                    "(CAR(1): corCAR1 of nlme, EXP of ASReml) exists only for rho in [0, 1)",
+                    th[d.offset_rho], CHAR(STRING_ELT(tempo, 0)));
+      throw br::Erro(buf);
+    }
     if (!a.ok) Rf_error("theta INADMISSIBLE (s2e <= 0 or |rho| >= 1)");
-    const double dv = Rf_asLogical(com_densa) == TRUE ? br::neg2logl_densa_V_ar1(d, th)
-                                                      : std::nan("");
+    const bool faz_densa = pede_densa == TRUE || (pede_densa == NA_LOGICAL && n_v <= 2000);
+    const double dv = faz_densa ? br::neg2logl_densa_V_ar1(d, th) : std::nan("");
     const std::size_t nt2 = d.modelo.ntheta;
     SEXP score = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) nt2));
     for (std::size_t k = 0; k < nt2; k++) REAL(score)[k] = a.score[k];
-    const char* campos[] = {"neg2logl", "neg2logl_V", "score", "off_pattern"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 4));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 4));
-    for (int q = 0; q < 4; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    const char* campos[] = {"neg2logl", "neg2logl_V", "score", "off_pattern", "time_step"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 5));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 5));
+    for (int q = 0; q < 5; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     SET_VECTOR_ELT(out, 0, Rf_ScalarReal(a.neg2logl));
     SET_VECTOR_ELT(out, 1, Rf_ScalarReal(dv));
     SET_VECTOR_ELT(out, 2, score);
     SET_VECTOR_ELT(out, 3, Rf_ScalarInteger((int) a.fora_do_padrao));
+    SET_VECTOR_ELT(out, 4, Rf_ScalarReal(std::isfinite(d.passo_tempo) ? d.passo_tempo
+                                                                       : NA_REAL));
     Rf_setAttrib(out, R_NamesSymbol, nms);
     UNPROTECT(3);
     return out;
@@ -1561,16 +1593,41 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     if (!th0.empty() && th0.size() != d.modelo.ntheta)
       Rf_error("start with %d entries; the layout asks for %d", (int) th0.size(),
                (int) d.modelo.ntheta);
+    // UM RHO NEGATIVO EM start= NO TEMPO CONTINUO: rho^dt com dt nao inteiro nao e real, e o
+    // ajuste voltava com theta NA, -2logL 0 e "the starting theta is INADMISSIBLE ... or rho is
+    // outside (-1, 1)", que nao diz a causa. O CAR(1) (corCAR1 do nlme, EXP do ASReml) tem o
+    // parametro em [0, 1): a partida e recusada dizendo isso
+    if (!th0.empty() && !d.tempo_inteiro && d.offset_rho < th0.size() &&
+        th0[d.offset_rho] < 0.0) {
+      char buf[700];
+      std::snprintf(buf, sizeof buf,
+                    "start: rho(residual) = %.4g is negative, but the time '%s' is continuous "
+                    "here (the gaps between consecutive records of a subject are not whole "
+                    "numbers of one step), and on a continuous axis the correlation rho^dt "
+                    "(CAR(1): corCAR1 of nlme, EXP of ASReml) exists only for rho in [0, 1). "
+                    "Give a start with rho in [0, 1), or put the times on a grid where every "
+                    "gap is a whole number of one step",
+                    th0[d.offset_rho], CHAR(STRING_ELT(tempo, 0)));
+      throw br::Erro(buf);
+    }
     // a partida padrao a partir dos otimos univariados AR(1) que o R ajustou (cbind() sem
     // start=); vazia quando nao casa, e ai fica a automatica
     std::string partida_de = th0.empty() ? "var(y)" : "start=";
     if (th0.empty() && XLENGTH(uni) > 0) {
-      th0 = br::partida_univariados_ar1(d, vetores_do_R(uni));
+      // o passo de cada univariado (atributo time_step da lista, posto pelo R): o rho deles e
+      // por passo, e so vira partida quando o passo e o deste desenho
+      std::vector<double> passos;
+      SEXP ps = Rf_getAttrib(uni, Rf_install("time_step"));
+      if (TYPEOF(ps) == REALSXP)
+        for (R_xlen_t k = 0; k < XLENGTH(ps); k++)
+          passos.push_back(ISNA(REAL(ps)[k]) ? std::nan("") : REAL(ps)[k]);
+      th0 = br::partida_univariados_ar1(d, vetores_do_R(uni), passos);
       if (!th0.empty()) partida_de = "univariate fits";
     }
     br::AjusteMT r = br::ajusta_ar1(d, th0.empty() ? nullptr : &th0,
                                     (std::size_t) Rf_asInteger(maxiter), Rf_asReal(tol),
                                    Rf_asLogical(verb) == TRUE);
+    if (r.espelhado) partida_de = "sign-flipped rho";
     if (!nota.empty()) r.mensagem = r.mensagem.empty() ? nota : nota + "; " + r.mensagem;
     std::vector<std::string> nomes_th = br::nomes_theta_ar1(d);
     const std::size_t nt2 = d.modelo.ntheta;
@@ -1675,10 +1732,10 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
                             "b", "dropped_x", "newton_dec", "dense_block", "h_prior",
                             "h_prior_row", "residual", "fitted", "fitted_fixed",
                             "resid_var", "used", "subject_index", "time", "start_from",
-                            "start", "dropped_x_reason"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 28));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 28));
-    for (int q = 0; q < 28; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "start", "dropped_x_reason", "time_step"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 29));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 29));
+    for (int q = 0; q < 29; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     poe_residuos(out, 18, res, d.usa, d.alvos);
     {
       SEXP sj = PROTECT(Rf_allocVector(INTSXP, (R_xlen_t) d.nlin));
@@ -1687,15 +1744,18 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
         INTEGER(sj)[i] = NA_INTEGER;
         REAL(tp)[i] = NA_REAL;
       }
+      // o tempo como veio no dado; o motor anda em passos (time_step) quando ha grade
       for (std::size_t si = 0; si < d.sujeitos.size(); si++)
         for (std::size_t i : d.sujeitos[si]) {
           INTEGER(sj)[i] = (int) si + 1;
-          REAL(tp)[i] = d.tempo[i];
+          REAL(tp)[i] = d.tempo_dado[i];
         }
       SET_VECTOR_ELT(out, 23, sj);
       SET_VECTOR_ELT(out, 24, tp);
       UNPROTECT(2);
     }
+    SET_VECTOR_ELT(out, 28, Rf_ScalarReal(std::isfinite(d.passo_tempo) ? d.passo_tempo
+                                                                        : NA_REAL));
     SET_VECTOR_ELT(out, 25, Rf_mkString(partida_de.c_str()));
     SET_VECTOR_ELT(out, 26, sexp_partida(r.partida, nms_t));
     {
@@ -2746,6 +2806,45 @@ SEXP R_rotulos(SEXP x) {
   )
 }
 
+// As COMPONENTES CONEXAS de um grafo de n nos com as arestas (a[k], b[k]), base 1, por
+// uniao-busca. A raiz de cada componente e o MENOR no dela (a uniao pendura a raiz maior na
+// menor), entao o resultado nao depende da ordem das arestas nem de thread nenhum: e o rotulo
+// que blocos_geneticos() (R/estrutura.R) le para achar os blocos de registros sem parentesco
+// entre si. Devolve, por no, o indice (base 1) da raiz.
+SEXP R_componentes(SEXP n, SEXP a, SEXP b) {
+  GUARDA(
+    const int nn = Rf_asInteger(n);
+    if (nn == NA_INTEGER || nn < 0) throw br::Erro("componentes: invalid number of nodes");
+    if (TYPEOF(a) != INTSXP || TYPEOF(b) != INTSXP || XLENGTH(a) != XLENGTH(b))
+      throw br::Erro("componentes: expected two integer vectors of the same length");
+    std::vector<int> pai(static_cast<std::size_t>(nn));
+    for (int i = 0; i < nn; i++) pai[static_cast<std::size_t>(i)] = i;
+    auto raiz = [&](int x) {
+      while (pai[static_cast<std::size_t>(x)] != x) {
+        pai[static_cast<std::size_t>(x)] = pai[static_cast<std::size_t>(pai[static_cast<std::size_t>(x)])];
+        x = pai[static_cast<std::size_t>(x)];
+      }
+      return x;
+    };
+    const R_xlen_t m = XLENGTH(a);
+    const int* pa = INTEGER(a);
+    const int* pb = INTEGER(b);
+    for (R_xlen_t k = 0; k < m; k++) {
+      const int u = pa[k], v = pb[k];
+      if (u == NA_INTEGER || v == NA_INTEGER || u < 1 || v < 1 || u > nn || v > nn)
+        throw br::Erro("componentes: edge outside the nodes");
+      const int ru = raiz(u - 1), rv = raiz(v - 1);
+      if (ru == rv) continue;
+      if (ru < rv) pai[static_cast<std::size_t>(rv)] = ru;
+      else pai[static_cast<std::size_t>(ru)] = rv;
+    }
+    SEXP out = PROTECT(Rf_allocVector(INTSXP, nn));
+    for (int i = 0; i < nn; i++) INTEGER(out)[i] = raiz(i) + 1;
+    UNPROTECT(1);
+    return out;
+  )
+}
+
 // Threads das regioes paralelas: n >= 1 define, qualquer outro valor so consulta; lapack
 // TRUE/FALSE escolhe a rota das inversas densas grandes, NA so consulta.
 SEXP R_threads(SEXP n, SEXP lapack) {
@@ -2939,6 +3038,7 @@ static const R_CallMethodDef metodos[] = {
   {"R_le_snp_blupf90", (DL_FUNC) &R_le_snp_blupf90, 2},
 {"R_versao",     (DL_FUNC) &R_versao,     0},
   {"R_rotulos",    (DL_FUNC) &R_rotulos,    1},
+  {"R_componentes", (DL_FUNC) &R_componentes, 3},
   {"R_threads",    (DL_FUNC) &R_threads,    2},
   {"R_posto_fixo", (DL_FUNC) &R_posto_fixo, 4},
   {"R_posto_blocos", (DL_FUNC) &R_posto_blocos, 6},

@@ -15,7 +15,11 @@
 #'
 #' @param formula as in [model()] (all the same markers, including rn() and indirect())
 #' @param data data.frame
-#' @param pedigree data.frame animal, sire, dam
+#' @param pedigree data.frame animal, sire, dam. The ids are
+#'   matched to the data by the rule of [model()] (see `pedigree` there): an absent
+#'   animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+#'   stops the fit, and the pedigree is pruned to the data, the genotyped and their
+#'   ancestors
 #' @param genotypes single step as in [model()]
 #' @param blend as in [model()]
 #' @param apy_core as in [model()]
@@ -167,9 +171,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
-  lst <- lapply(data[used_columns], function(col) {
-    if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
-  })
+  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
   niveis_binarios <- NULL
   if (family == "probit") {
     # a caracteristica vira 0/1: o MAIOR dos dois valores e o 1 (a categoria de cima da
@@ -186,15 +188,6 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     novo[obs] <- as.double(v[obs] == niveis_binarios[2])
     lst[[trait]] <- novo
   }
-  ped_id <- ped_sire <- ped_dam <- character(0)
-  if (!is.null(pedigree)) {
-    cp <- colunas_pedigree(pedigree)
-    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
-  }
-  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes))
-  g <- valida_genotipos(genotypes)
-  nuc <- nucleo_apy(apy_core, genotypes)
-
   # n_iter, burnin e thin inteiros: o laco do C++ faz (it - burnin) % thin, e thin = 0
   # derrubava o processo do R
   inteiro <- function(v, nome, minimo) {
@@ -214,11 +207,23 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     stop("chains must be a positive integer")
   if (length(cores) != 1L || is.na(cores) || cores < 1L)
     stop("cores must be a positive integer")
+  g <- valida_genotipos(genotypes)
+  nuc <- nucleo_apy(apy_core, genotypes)
   # o K= e avaliado AQUI, no processo de quem chamou, e nao dentro da cadeia: com cores > 1
   # a cadeia roda num trabalhador PSOCK, e uma formula escrita no ambiente global chega la
   # apontando para o global DO TRABALHADOR, onde o K nao existe (medido: "object 'Kp' not
   # found" com chains = 2, cores = 2). Avaliado uma vez, tambem nao se refaz por cadeia.
   kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
+  # ids dos dados contra o pedigree: a regra de model() (prepara_estrutura, R/estrutura.R)
+  pe <- prepara_estrutura(terms, data, lst, pedigree, trait, missing_code, metafounders,
+                          kern, g$gid)
+  ped_id <- ped_sire <- ped_dam <- character(0)
+  if (!is.null(pe$cp)) {
+    ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
+  }
+  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes), ped_id,
+                  pe$info$founders)
+
   t0 <- proc.time()[["elapsed"]]
   # uma cadeia: com semente propria quando ha varias (sorteada do gerador de quem chama,
   # entao set.seed() governa tudo e a ordem de execucao nao muda nada)
@@ -301,7 +306,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   r$ped_mgs <- inherits(pedigree, "br_ped_mgs")
   r$trait <- trait
   r$k_level_type <- tipos_kernels(terms, kern)
-  r <- structure(r, class = "breeding_gibbs")
+  r <- structure(anota_estrutura(r, pe), class = "breeding_gibbs")
   # os diagnosticos ficam no ajuste (print e summary leem daqui); ess, rhat e geweke sao as
   # colunas dos componentes, so nas cadeias que foram ate o fim. Uma falha neles nao pode
   # custar a cadeia: o ajuste volta sem eles, e a mensagem diz por que

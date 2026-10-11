@@ -176,6 +176,22 @@ std::string valores_ausentes(const Tabela& t, const std::string& col,
                              const std::string& papel = "column");
 // o texto em branco: vazio depois de tirar espacos, tabulacoes e quebras de linha
 bool texto_em_branco(const std::string& s);
+// o codigo de animal ou pai DESCONHECIDO numa coluna de termo com parentesco: "0" (o nivel 0
+// do BLUPF90, efeito ausente no registro) e o texto "NA", os mesmos do pedigree. O registro
+// fica na analise com incidencia zero naquele termo (monta_termo).
+bool nivel_desconhecido(const std::string& s);
+// A coluna que um termo com parentesco le (o animal, a mae, o pai, o avo materno de
+// sire(mgs =)). Ali o "0" e o animal DESCONHECIDO para todo termo aleatorio que a le: o pe(dam)
+// de maternal(dam) + pe(dam), o pe(id) de animal(id) + pe(id). Sem isso, as linhas de maes
+// desconhecidas distintas formavam UM nivel "0" do pe, como se 60 animais de base tivessem a
+// mesma mae. Medido (simulate_breeding semente 5, 660 registros, 60 de mae 0, REML de
+// animal(id) + maternal(dam) + pe(dam)): var(pe) 0,0029 com a incidencia zero que fica
+// aqui, 0,0031 com o nivel "0" comum (o pe numa copia da coluna) e 0,0075 com um nivel
+// proprio para cada registro de mae desconhecida. A diferenca medida e pequena; o motivo da
+// regra e o modelo, e nao o tamanho dela neste dado.
+bool coluna_de_parentesco(const Modelo& m, const std::string& col);
+// o termo ALEATORIO cujo "0" e desconhecido: o de parentesco e o que le a coluna de um deles
+bool zera_desconhecido(const Modelo& m, const Termo& tm);
 
 // A matriz de incidencia de um termo, com os niveis que a geraram.
 struct DesenhoTermo {

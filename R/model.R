@@ -31,8 +31,9 @@ ARGS_MARCADOR <- local({
 #'   class effect; `cov(x)` is a fixed covariate; `animal(id)`, `maternal(dam)` and
 #'   `sire(sire)` are random with relationship, and `sire(sire, mgs = "mgs")` is the sire
 #'   and maternal-grandsire model, 1 on the sire and 1/2 on the maternal grandsire of the
-#'   record in the same effect (an unknown grandsire, "0", leaves the sire only; a
-#'   missing value in that column is refused, see below); `pe(id)`
+#'   record in the same effect (an unknown grandsire, "0", leaves the sire only, and an
+#'   unknown sire the grandsire only; a missing value in that column is refused, see
+#'   below); `pe(id)`
 #'   and `random(lote)` are random
 #'   without relationship. `group = "nome"` puts two random terms in the SAME covariance
 #'   matrix, with the correlation estimated. The terms of a group index one set of levels,
@@ -108,8 +109,10 @@ ARGS_MARCADOR <- local({
 #'   gets no equation and its records stay in the analysis with zero incidence here,
 #'   the generalized-inverse pattern of the multibreed partial matrices (Mrode &
 #'   Pocrnic, 4th ed., p.243-244). An id absent from K altogether still excludes the
-#'   record, as with an animal missing from the pedigree: a zero row is a declaration,
-#'   an absence is a gap. Two kernel terms need `nome=` to tell their components apart.
+#'   record (an animal missing from the PEDIGREE enters as a founder instead, see
+#'   `pedigree`): a zero row is a declaration, an absence is a gap, and when no record
+#'   is left the fit stops with the first id of each side. Two kernel terms need `nome=`
+#'   to tell their components apart.
 #'   The inversion of K is dense, so `K =` is for matrices of moderate size, the size of
 #'   a genotyped set, not of a national pedigree.
 #'   `kernel(id, Kinv = Q)` declares the PRECISION instead, `Q = K^-1`, and nothing is
@@ -157,7 +160,68 @@ ARGS_MARCADOR <- local({
 #'   scientific notation ("1e+05" is what `as.character()`, `factor()` and `rownames<-`
 #'   give for the double 100000) is a different label, and when the other side holds
 #'   that same number the fit stops with an error rather than dropping the animal's
-#'   records
+#'   records.
+#'
+#'   THE IDS OF THE DATA AGAINST THE PEDIGREE follow one rule in every fitter
+#'   ([model()], [model_mt()], [model_ar1()], [gibbs()], [snp_blup()], the
+#'   `eval_internal` family, [model_threshold()] and [model_survival()]), and
+#'   [accuracy()], [solutions()], [snp_effects()] and [residual_diagnostics()] redo it
+#'   from the pedigree given, so one data frame gets one answer everywhere:
+#'   * an animal of the data (in any relationship term, on any row, a pen mate of
+#'     `indirect()` and a maternal grandsire included) with no line in the pedigree
+#'     enters as a FOUNDER, with unknown parents, and a warning counts them by column and
+#'     names the first. renumf90 numbers every animal with a record the same way; ASReml
+#'     asks for every animal of the data in the pedigree file. When NO id of a column is
+#'     in the pedigree the two use different ids, and the fit stops with the first id of
+#'     each side;
+#'   * the unknown code `0` (or the text `"NA"`) in the column of a relationship term is
+#'     an unknown animal, as in BLUPF90, whose renumf90 readme warns that "missing animals
+#'     have code 0": the effect is absent from that record (a level 0 in a BLUPF90 data
+#'     file adds nothing to that effect), and the record stays in the other terms with
+#'     zero incidence in this one. So a record with an unknown dam keeps its direct
+#'     effect, and a message counts those records. The same 0 is absent too in a `pe()`,
+#'     `random()` or `kernel()` term that reads the same column (the maternal permanent
+#'     environment of `maternal(dam) + pe(dam)`, the `pe(id)` of `animal(id) + pe(id)`):
+#'     there it is never one shared level of unknown dams. In a column that no
+#'     relationship term reads, 0 stays an ordinary level: `pe(dam)` with no
+#'     `maternal(dam)` puts every record with dam 0 in one level "0" (give those dams ids
+#'     of their own, or add the relationship term, to avoid it). A term whose every row
+#'     holds 0 stops the fit; in `sire(mgs =)` a record with an unknown sire keeps only
+#'     the grandsire contribution, and none when the grandsire is unknown too, and the
+#'     message counts each; in `indirect()` every pen mate must be a known animal; and the
+#'     subject column of [model_ar1()] and of [model_survival()] cannot hold it when it is
+#'     the column of a relationship term, since distinct unknown animals would become one
+#'     series or one history. A missing value there (`NA`, blank text) is refused like in
+#'     any level column, with the advice to write an unknown parent as 0;
+#'   * an id with no line that matches a line written another way (spaces, tabs,
+#'     carriage returns or no-break spaces at the ends, upper against lower case, leading
+#'     zeros, a trailing `.0`, accents composed against decomposed, latin1 bytes read as
+#'     UTF-8) stops the fit with both spellings and the difference: it is a mismatch,
+#'     not a new animal. The same text in latin1 and in UTF-8 is one id;
+#'   * a numeric column that gives levels (any id column, and also a class such as a
+#'     numeric contemporary-group or herd code, a nested class, a pen, a maternal
+#'     grandsire or the subject of [model_ar1()]), of the data, of the pedigree or of
+#'     `genotypes$ids`, holding values at or above 2^53 (the 16- and 17-digit ids of
+#'     electronic ear tags read by `read.csv()`) has already lost digits: it is refused,
+#'     with the column and how to read it as text. A covariate is a number and is not
+#'     checked. An `integer64` column (`data.table::fread()`) is read as its exact
+#'     digits;
+#'   * the pedigree is PRUNED to the animals of the data (every row, the trait observed or
+#'     not), the genotyped and all their ancestors, the informative set renumf90 extracts
+#'     ("genotyped and phenotyped animals + their ancestors traced back") with a
+#'     `PED_DEPTH` deep enough to reach every ancestor (its default, 3, keeps three
+#'     generations; 0 loads the whole pedigree), and a message counts the lines left out.
+#'     The pruning is exact for the likelihood and for every breeding value kept. An
+#'     animal left out (no record, no genotype, no recorded descendant: a young candidate)
+#'     has NO breeding value in the fit: give it a row of the data with the trait missing,
+#'     its other columns filled, to keep it. A national pedigree far larger than the data
+#'     no longer reaches the factorization;
+#'   * when the records form blocks with no genetic link between them (no relationship
+#'     through the pedigree nor the genotypes) and the fixed effects give a block levels
+#'     of its own, a warning says so: any genetic difference between the blocks is
+#'     absorbed by those effects, and the breeding values compare only within a block
+#'     (Fernando, Gianola and Grossman 1983; Kennedy and Trus 1993). [solutions()] then
+#'     has a `block` column, and [describe()] counts the blocks before the fit
 #' @param missing_code missing-value code for observations, for example -999. It applies
 #'   to the trait only: in a covariate or a level column the code is an ordinary value
 #'   (see the missing-value rule under `formula`)
@@ -260,8 +324,15 @@ ARGS_MARCADOR <- local({
 #'   G*. It carries, one value per row of `data` (`NA` where the record did not enter),
 #'   the conditional residual `residual`, the fitted values `fitted` (`X b + Z u`) and
 #'   `fitted_fixed` (`X b`) and the leverage `leverage`, which [residuals.breeding_fit()]
-#'   and [residual_diagnostics()] read, with `missing_code` and `weights` as given. The
-#'   object holds
+#'   and [residual_diagnostics()] read, with `missing_code` and `weights` as given. With a
+#'   relationship term it carries `pedigree_used`, `list(lines, founders, kept)`: the
+#'   lines of the pedigree given, the ids of the data it added as founders and the
+#'   animals kept by the pruning (see `pedigree`), which [accuracy()] and [snp_effects()]
+#'   read to rebuild the same pedigree. When the records form blocks whose genetic
+#'   difference the fixed effects absorb it carries `blocks`,
+#'   `list(n, records, absorbed_by, animal)`: the number of blocks, the records of each,
+#'   the fixed terms that give each block its own levels and the block of each animal.
+#'   The object holds
 #'   the components `theta` with their `se`,
 #'   the fixed-effect solutions `b` (named `term=level`, in the order the columns of X
 #'   entered), `ebv` and `pev` per covariance group, `score`, `vcov`, the convergence
@@ -307,6 +378,19 @@ ARGS_MARCADOR <- local({
 #'
 #'   Bijma, P. (2010). Multilevel selection 4: modeling the relationship of indirect
 #'   genetic effects and group size. Genetics 186:1029-1031.
+#'
+#'   Fernando, R.L., Gianola, D. & Grossman, M. (1983). Identifying all connected subsets
+#'   in a two-way classification without interaction. Journal of Dairy Science
+#'   66:1399-1402.
+#'
+#'   Kennedy, B.W. & Trus, D. (1993). Considerations on genetic connectedness between
+#'   management units under an animal model. Journal of Animal Science 71:2341-2352.
+#'
+#'   Misztal, I. et al. The BLUPF90 family of programs, readme of renumf90 (PED_DEPTH:
+#'   the genotyped and phenotyped animals and their ancestors, default 3, 0 for the whole
+#'   pedigree; Warnings: missing animals have code 0).
+#'   University of Georgia,
+#'   <https://nce.ads.uga.edu/wiki/doku.php?id=readme.renumf90>
 #' @export
 model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                   apy_core = NULL, vecchia_k = NULL, missing_code = NULL, maxiter = 300L, tol = 1e-8,
@@ -331,23 +415,21 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
 
   # only the used columns cross over; factor becomes text so no level identity is lost
-  lst <- lapply(data[used_columns], function(col) {
-    if (is.factor(col)) as.character(col)
-    else if (is.character(col)) col
-    else as.double(col)
-  })
+  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
 
-  ped_id <- ped_sire <- ped_dam <- character(0)
-  if (!is.null(pedigree)) {
-    cp <- colunas_pedigree(pedigree)
-    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
-  }
-
-  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes))
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
   w <- valida_pesos(weights, data)
   kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
+  # ids dos dados contra o pedigree: fundadores, o desconhecido "0", grafias, poda, blocos
+  pe <- prepara_estrutura(terms, data, lst, pedigree, trait, missing_code, metafounders,
+                          kern, g$gid)
+  ped_id <- ped_sire <- ped_dam <- character(0)
+  if (!is.null(pe$cp)) {
+    ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
+  }
+  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes), ped_id,
+                  pe$info$founders)
 
   t0 <- proc.time()[["elapsed"]]
   r <- .Call(R_ajustar,
@@ -395,7 +477,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
   r$k_prior <- priori_kernels(terms, kern)
   r$k_level_type <- tipos_kernels(terms, kern)
-  structure(r, class = "breeding_fit")
+  structure(anota_estrutura(r, pe), class = "breeding_fit")
 }
 
 # Genotype validation, shared by the three fitters: 0/1/2/NA and nothing else. An unknown
@@ -419,16 +501,29 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
 # esta na base de Gamma (frequencias 0.5), e um animal de base "0" (autoparentesco 1,
 # endogamia 0) ficaria na base das frequencias observadas, que e outra. E a mesma regra do
 # estimate_gamma().
-confere_base_mf <- function(sire, dam, metafounders, tem_genotipos) {
+# `ids` e `novos` (os fundadores que a regra dos ids acrescentou, prepara_estrutura(),
+# R/estrutura.R) deixam a recusa dizer de onde vieram esses pais desconhecidos: sem isso, um
+# animal dos dados sem linha no pedigree parava aqui como se o pedigree dado estivesse errado.
+confere_base_mf <- function(sire, dam, metafounders, tem_genotipos, ids = NULL,
+                            novos = character(0)) {
   if (is.null(metafounders) || !length(metafounders) || !isTRUE(tem_genotipos))
     return(invisible(NULL))
   desc <- sire %in% c("0", "", NA) | dam %in% c("0", "", NA)
-  if (any(desc))
+  if (any(desc)) {
+    acres <- if (is.null(ids)) character(0) else intersect(ids[desc], novos)
     stop(sum(desc), " animal(s) have an unknown parent that is not a metafounder (first: ",
-         paste(utils::head(which(desc), 3), collapse = ", "), " in pedigree order). With ",
+         if (is.null(ids)) paste(utils::head(which(desc), 3), collapse = ", ")
+         else paste0("'", utils::head(ids[desc], 3), "'", collapse = ", "),
+         " in pedigree order). With ",
          "genotypes, G is on the base of Gamma (allele frequencies 0.5), and an animal on ",
          "the plain base would sit on another one: assign every unknown parent to a ",
-         "metafounder", call. = FALSE)
+         "metafounder",
+         if (length(acres))
+           paste0(". ", length(acres), " of them are animals of the data with no line in ",
+                  "the pedigree, which the fit added as founders with unknown parents (",
+                  primeiros(acres), "): give them pedigree lines whose unknown parents are ",
+                  "metafounders"), call. = FALSE)
+  }
   invisible(NULL)
 }
 
@@ -468,7 +563,7 @@ valida_genotipos <- function(genotypes) {
                        if (is.raw(gm)) " (5 in a raw matrix)", ". An unknown ",
                        "code must become NA beforehand, to be imputed with the mean ",
                        "instead of counted as the zero genotype")
-    gid <- rotulo_motor(genotypes$ids)
+    gid <- rotulo_motor(genotypes$ids, "genotypes$ids")
   }
   list(gid = gid, gm = gm)
 }
@@ -900,7 +995,9 @@ recusa_kfixo <- function(terms, quem) {
 #' @param pedigree data.frame or NULL
 #' @param theta vector of components at which to evaluate
 #' @param missing_code missing-value code or NULL
-#' @param with_dense TRUE also computes the dense V form, which only handles a small problem
+#' @param with_dense TRUE also computes the dense V form, which only handles a small problem;
+#'   there is no size limit here, unlike [eval_internal_ar1()], whose default skips it above
+#'   2000 cells
 #' @param metafounders as in [model()]
 #' @param gamma as in [model()]
 #' @param weights as in [model()]
@@ -926,15 +1023,15 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
   # "undefined columns selected" do R, que nao diz qual coluna falta
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
-  lst <- lapply(data[used_columns], function(col) {
-    if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
-  })
-  ped_id <- ped_sire <- ped_dam <- character(0)
-  if (!is.null(pedigree)) {
-    cp <- colunas_pedigree(pedigree)
-    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
-  }
+  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
   gv <- valida_genotipos(genotypes)
+  kern <- monta_kernels(terms, environment(formula), data, trait, missing_code)
+  pe <- prepara_estrutura(terms, data, lst, pedigree, trait, missing_code, metafounders,
+                          kern, gv$gid)
+  ped_id <- ped_sire <- ped_dam <- character(0)
+  if (!is.null(pe$cp)) {
+    ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
+  }
   .Call(R_avaliar,
         lst, names(lst), trait,
         vapply(terms, function(t) t$nome, character(1)),
@@ -954,7 +1051,7 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
         gv$gid, gv$gm, as.double(blend),
         nucleo_apy(recusa_auto(apy_core), genotypes),
         if (is.null(vecchia_k)) 0L else as.integer(vecchia_k),
-        monta_kernels(terms, environment(formula), data, trait, missing_code),
+        kern,
         vapply(terms, function(t) t$dilution, numeric(1)))
 }
 
@@ -1206,10 +1303,12 @@ print.summary.breeding_fit <- function(x, ...) {
 #' The prior variance is each level's own, read from the structure of its term and matched
 #' to the PEV by level NAME, never by position:
 #' * a pedigree term (animal(), sire(), maternal(), indirect()): 1 + F from the pedigree.
-#'   The pedigree must be the one the fit used: every animal in it gets an equation, so
-#'   its animals must be exactly the levels of the group, and a pedigree with animals
-#'   added or missing is refused (it would change the F of their descendants). Its rows
-#'   may come in any order.
+#'   The pedigree must be the one the fit was given: the founders the fit added (ids of
+#'   the data with no line) and its pruning to the animals of the data, the genotyped and
+#'   their ancestors (see `pedigree` in [model()]) are redone here, so the animals are
+#'   exactly the levels of the group. A pedigree with ancestors added or animals missing
+#'   is refused (it would change the F of their descendants); lines that are not
+#'   ancestors of any level are pruned, as in the fit. Its rows may come in any order.
 #'   For a GENOTYPED animal in a single-step fit it is the diagonal of H, which in that
 #'   block is the diagonal of G*, and that is a different number: on a simulated
 #'   population of 510 animals, all genotyped, the two differ by up to 0.18, moving an
@@ -1406,7 +1505,12 @@ priori_pedigree <- function(fit, pedigree, niveis) {
   # and even if the label had a line, gamma = 0 would return F on the wrong base and
   # understate the accuracy of every descendant.
   confere_tipo_pedigree(fit, pedigree)
-  p <- pedigree(pedigree, metafounders = fit$metafounders, gamma = fit$gamma)
+  # o pedigree que o AJUSTE usou, refeito do dado: com os fundadores que ele acrescentou (ids
+  # dos dados sem linha) e podado aos animais dele quando o conjunto e fechado por
+  # ancestralidade (os animais podados nao sao ancestrais de ninguem que ficou, entao o F de
+  # quem ficou nao muda). Ancestrais a mais nao fecham o conjunto e seguem recusados abaixo.
+  p <- pedigree(pedigree_preparado(cp_do_ajuste(fit, pedigree, niveis)),
+                metafounders = fit$metafounders, gamma = fit$gamma)
   # O MESMO pedigree, e nao so um que cubra os niveis. Todo animal do pedigree ganha
   # equacao num termo de parentesco, entao o conjunto de niveis E p$id. Um pedigree com
   # ancestrais a mais ou a menos muda o F de quem descende deles (medido: ate 0.154 na

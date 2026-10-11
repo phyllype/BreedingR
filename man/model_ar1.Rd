@@ -37,21 +37,92 @@ parameter}
 
 \item{data}{data.frame}
 
-\item{pedigree}{data.frame animal, sire, dam}
+\item{pedigree}{data.frame animal, sire, dam. The ids are
+matched to the data by the rule of \code{\link[=model]{model()}} (see \code{pedigree} there): an absent
+animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+stops the fit, and the pedigree is pruned to the data, the genotyped and their
+ancestors}
 
 \item{subject}{column identifying the subject (typically the animal). A missing
 subject, \code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or the text "NaN", is refused on
 every row with the column, the number of such rows and the first of them, as a
-level column in \code{\link[=model]{model()}}: those rows would form one series}
+level column in \code{\link[=model]{model()}}: those rows would form one series. So is the unknown code
+0 when the subject column is also the column of a relationship term (\code{animal(id)}
+with \code{subject = "id"}): there 0 is an unknown animal, and distinct unknown animals
+would be chained as one series}
 
-\item{time}{numeric time column; two records of the SAME subject at the SAME time
-are a declared error: with AR(1) the time identifies the record, and simultaneous
-repetition calls for a permanent environment effect. The column carries a UNIT, and
-the correlation is \code{rho^dt}, so the same series written in days or in weeks is the
-same model with \code{rho} reparameterised: what is invariant is \code{rho^dt}, the correlation
-at the adjacent gap, and that is what to compare across analyses. A NEGATIVE \code{rho}
-needs an integer grid, and is refused off it: \code{rho^dt} with \code{rho < 0} is only a valid
-correlation function when \code{dt} is a whole number}
+\item{time}{numeric time column (a \code{Date} enters as days, a \code{POSIXct} as seconds); two
+records of the SAME subject at the SAME time are a declared error: with AR(1) the
+time identifies the record, and simultaneous repetition calls for a permanent
+environment effect. The field reads the axis in one of two ways: the discrete AR(1) on
+a grid (\code{corAR1} of nlme, an integer covariate with the correlation \verb{phi^|lag|} in its
+units; \code{AR1} of ASReml, for equally spaced levels) and the continuous CAR(1)
+(\code{corCAR1} of nlme, with the parameter in (0, 1); \code{EXP} of ASReml). Here the axis is a
+GRID when every gap between consecutive records of a subject is a whole number of one
+step: the step is the largest number that divides every gap, sought among the smallest
+gap divided by 1 to 1000. The rule reads only the ratios between gaps, so it does not
+depend on the unit or the origin of the time. On a grid the time is divided by the
+step, \code{rho} is the correlation PER STEP, in (-1, 1), and \code{rho^k} the correlation of
+records k steps apart. Dividing by the step is BreedingR's own parametrization (in nlme
+the step is the unit of the covariate); the step is returned in \code{time_step}, and when it
+is not 1 a message names it (also in \code{message}). So the same records give the same
+\code{rho} written in days, in seconds (\code{POSIXct}), in weeks or as days x 2. Otherwise the
+time is CONTINUOUS: \code{rho} is per time unit, the correlation is \code{rho^dt}, and \code{rho} lies
+in [0, 1), because a continuous-time Markov process has no negative correlation.
+
+On a grid a negative correlation exists only between records an ODD number of steps
+apart. Where at least 10\% of the gaps are odd and at least 10\% even numbers of steps
+(records on Monday, Wednesday and Friday: gaps of 2 and 3 days) \code{rho} and \code{-rho} give the
+same correlation at the even gaps and the opposite one at the odd gaps, and the
+likelihood can have a mode of each sign. There the -2logL is also evaluated at the final
+point with \code{rho} of the other sign; when it is lower, a second walk starts from it and
+the better fit is returned (\code{start_from} "sign-flipped rho", the first fit in
+\code{message}).
+
+The fit is then CHECKED in two situations. (1) A few gaps (at most 5\% of them, or one)
+are not whole numbers of a step H that every other gap is a whole number of, H larger
+than the step of the grid (on a continuous axis, any such H that leaves some gap out; H is
+the largest step that leaves at most those few out): the trace of a few records with a
+wrong time. One record at t = 4.5 among daily records makes the grid half days, where
+consecutive days are two steps apart and cannot correlate negatively; one Wednesday record
+at noon among records on Monday, Wednesday and Friday does the same. The data are fitted once more with those
+records moved to the nearest free point of the grid of H (a run of records joined by gaps
+that are whole numbers of H moves as a whole, a tie goes to the earlier point, and when a
+record has no free point between its neighbours the order of the records within subject
+is the time instead). (2) Some gap is not a whole number of the typical (median) gap and
+the correlation at the typical gap is near 0, |rho^k| < 0.05, on an axis that cannot make
+it negative for nearly all consecutive records (continuous, or fewer than 90\% of the gaps
+an odd number of steps): the data are fitted once more with the order of the records
+within subject as time (equally spaced levels, as \code{AR1} of ASReml reads them). Either way
+the new time goes in a new column, and the time column stays in the data for the formula,
+which may read it as a class or a covariate. The data are also fitted with no serial
+correlation (\code{\link[=model]{model()}}, or \code{\link[=model_mt]{model_mt()}} under \code{cbind()}), on the records of the fit (a
+record with no time is out of both). The gain is the -2logL of the better of the
+time-axis fit and the fit with no serial correlation minus the -2logL of the refit: the
+likelihood ratio of \code{rho = 0} in the refit (chi-square 1 df). With a NEGATIVE refit \code{rho}
+that the axis cannot represent and a gain above 10.83 (0.1\%) the fit stops with an error
+that says what to do and names the gaps off the grid (how many, in how many subjects, the
+first ones in the order of the data with their length); with a gain from 3.84 (5\%) to
+10.83 a warning says the same and the fit on the time axis is kept. With a refit \code{rho}
+that the axis can represent (positive; negative at a step H that is an odd number of
+steps; or, in the second situation, negative with 90\% of the gaps odd) and a gain above
+3.84, the axis is fitted again from the correlation the refit gives at its step and the
+better fit is kept (\code{start_from} "refit from the dominant grid" or "refit from the order
+of the records"); a gain still above 10.83 means the spacing contradicts the correlation
+(a duplicated or mistyped time) and stops the fit with an error that names the gaps. The
+high bar is because with no serial correlation the refit is better by 3.84 in about 5\% of
+data sets, half of them with a negative \code{rho}. A record at t = 2.01 among daily ones with
+a positive correlation is the second case. With one trait the check costs two more fits
+(three when the axis is fitted again), and only when it runs, which includes ordinary
+data: weekly records with an occasional gap of 8 or 10 days (the first situation) and
+irregular integer-day records with a weak correlation at the typical gap (the second);
+under \code{cbind()} the refit is itself a multi-trait AR(1) fit with its own univariate
+starts, and the fit with no serial correlation a \code{\link[=model_mt]{model_mt()}} fit. The fit on such an
+axis can itself take every iteration of \code{maxiter} before the check, with \code{rho} flipping
+sign around 0. With \code{POSIXct} clock times in a time zone with daylight saving, records at
+the same clock time are 23 or 25 h apart across the change, so the step becomes 1 h; the
+messages say so. On a continuous axis a negative \code{rho} in \code{start} (or in the \code{theta} of
+\code{\link[=eval_internal_ar1]{eval_internal_ar1()}}) is refused, with that reason}
 
 \item{genotypes}{list with \code{ids} and \code{m} (0/1/2 matrix) for single-step; NA is imputed
 with the mean, as in \code{\link[=model]{model()}}}
@@ -138,14 +209,20 @@ applies -- dropped columns are in \code{dropped_x} and only contrasts compare ag
 reference-level convention. \code{residual}, \code{fitted}, \code{fitted_fixed} and \code{resid_var}
 (the variance of each residual) are matrices with one row per row of \code{data} and one
 column per trait, \code{NA} where the record did not enter, with \code{used}, \code{subject_index}
-and \code{time}; \code{\link[=residuals.breeding_fit]{residuals.breeding_fit()}} reads them. They come from one more assembly,
-factorization and selective inverse at the final components, at the end of every fit
-(about the cost of one more REML iteration); if that pass fails, the fit is kept with
-\code{NA} residuals and the reason in \code{message}. \code{dense_block}, \code{h_prior},
+and \code{time} (in the unit of the data), and \code{time_step}, the step of the grid \code{rho} is
+per (\code{NA} on a continuous axis); \code{\link[=residuals.breeding_fit]{residuals.breeding_fit()}} reads them. They come from
+one more assembly, factorization and selective inverse at the final components, at the
+end of every fit (about the cost of one more REML iteration); if that pass fails, the
+fit is kept with \code{NA} residuals and the reason in \code{message}. The pattern of the
+equations holds only the pairs of columns of one record and of neighbouring records
+(R^-1 is tridiagonal within subject), so a long series with a time contemporary group
+keeps a sparse factor, and \code{dense_block} stays small. \code{dense_block}, \code{h_prior},
 \code{h_prior_row}, \code{k_prior} and
 \code{k_level_type} are as in \code{\link[=model]{model()}}: in a single step, \code{\link[=accuracy]{accuracy()}} divides a
 genotyped animal by its diagonal of G* and not by 1 + F, and a \code{kernel()} level by
-its diagonal of K. \code{start_from} is "univariate fits", "start=" or "var(y)", and
+its diagonal of K. \code{start_from} is "univariate fits", "start=", "var(y)",
+"sign-flipped rho", "refit from the dominant grid" or "refit from the order of the
+records" (see \code{time}), and
 \code{start} the start the walk left from, named like \code{theta} (a start beyond the floors
 of the step is raised to them first, as in \code{\link[=model_mt]{model_mt()}}). \code{dropped_x_reason},
 parallel to \code{dropped_x}, says "no record" or "aliased" (a reference level or a
@@ -166,4 +243,12 @@ Fits a model with AR(1)/CAR(1) residual by AI-REML
 Wade, K.M. & Quaas, R.L. (1993). Solutions to a system of equations
 involving a first-order autoregressive process. Journal of Dairy Science
 76:3026-3032.
+
+Pinheiro, J.C. & Bates, D.M. (2000). Mixed-Effects Models in S and S-PLUS.
+Springer, section 5.3 (\code{corAR1}, integer time; \code{corCAR1}, continuous time with the
+parameter in (0, 1)).
+
+Butler, D.G., Cullis, B.R., Gilmour, A.R., Gogel, B.J. & Thompson, R. (2017).
+ASReml-R Reference Manual, version 4. VSN International (\code{ar1()} for equally spaced
+levels, \code{exp()} for continuous distance).
 }

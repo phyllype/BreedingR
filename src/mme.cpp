@@ -243,9 +243,12 @@ std::vector<DesenhoTermo> monta_aleatorios(const Modelo& m, const Tabela& t,
     if (g.estrutura != Estrutura::Diagonal || g.termos.size() < 2) continue;
     std::vector<std::string> niveis;
     std::unordered_set<std::string> visto;
-    for (std::size_t tk : g.termos)
+    // o "0" de uma coluna de parentesco nao e nivel do grupo iid (zera_desconhecido)
+    for (std::size_t tk : g.termos) {
+      const bool zera = zera_desconhecido(m, m.termos[tk]);
       for (const std::string& r : t.rotulos(m.termos[tk].coluna))
-        if (visto.insert(r).second) niveis.push_back(r);
+        if (!(zera && nivel_desconhecido(r)) && visto.insert(r).second) niveis.push_back(r);
+    }
     std::sort(niveis.begin(), niveis.end(), rotulo_antes);
     for (std::size_t tk : g.termos) {
       uniao[tk] = niveis;
@@ -279,6 +282,39 @@ std::vector<DesenhoTermo> monta_aleatorios(const Modelo& m, const Tabela& t,
       }
   }
   return out;
+}
+
+std::string sem_linhas(const Modelo& m, const Tabela& t,
+                       const std::vector<DesenhoTermo>& aleatorios,
+                       const std::vector<char>& sem_obs, const std::string& oque_obs) {
+  const std::size_t n = t.nlin;
+  if (n == 0) return "no row enters the analysis: the data has no rows";
+  std::size_t na = 0;
+  for (std::size_t i = 0; i < n && i < sem_obs.size(); i++) na += sem_obs[i] ? 1 : 0;
+  std::string msg = "no row enters the analysis: of " + std::to_string(n) + " row(s), " +
+                    std::to_string(na) + " have " + oque_obs;
+  for (const DesenhoTermo& a : aleatorios) {
+    const Termo& tm = m.termos[a.termo];
+    const std::string& col =
+        (!tm.aninhado.empty() && !tm.social && !tm.mgs) ? tm.aninhado : tm.coluna;
+    const Coluna* c = t.acha(col);
+    std::size_t k = 0, primeira = n;
+    for (std::size_t i = 0; i < n; i++)
+      if (!a.casou[i] && !(i < sem_obs.size() && sem_obs[i])) {
+        if (k++ == 0) primeira = i;
+      }
+    if (k == 0) continue;
+    const std::string onde = tm.estrutura == Estrutura::Parentesco ? "the pedigree"
+                           : tm.estrutura == Estrutura::Declarada ? "the rownames of its K"
+                                                                   : "its levels";
+    msg += "; " + std::to_string(k) + " have a level of term '" + tm.nome + "' (column '" +
+           col + "') that is not in " + onde + " (first in the data: '" +
+           (c ? c->rotulo(primeira) : std::string("?")) + "'" +
+           (a.niveis.empty() ? std::string(", and the term has no level at all")
+                             : "; first level: '" + a.niveis[0] + "'") + ")";
+  }
+  return msg + ". Check that the ids are written the same way in the data and in the "
+               "structure (the same type, no spaces, the same leading zeros)";
 }
 
 // A COVARIANCIA DE DOIS TERMOS IID SO EXISTE NA VEROSSIMILHANCA ATRAVES DOS NIVEIS COMUNS. Num
@@ -963,10 +999,15 @@ Desenho monta_desenho(const Modelo& m, const Tabela& t, const Pedigree* ped,
         (m.tem_ausente && std::fabs(d.y[i] - m.codigo_ausente) < 1e-9);
     if (falta) { d.usa[i] = 0; d.y[i] = 0.0; }
   }
+  std::vector<char> sem_obs(d.nlin, 0);
+  for (std::size_t i = 0; i < d.nlin; i++) sem_obs[i] = d.usa[i] ? 0 : 1;
   for (const DesenhoTermo& a : d.aleatorios)
     for (std::size_t i = 0; i < d.nlin; i++)
       if (!a.casou[i]) d.usa[i] = 0;
-  if (d.n_usadas() == 0) throw Erro("no row enters the analysis");
+  if (d.n_usadas() == 0)
+    throw Erro(sem_linhas(m, t, d.aleatorios, sem_obs,
+                          "the trait '" + m.alvo + "' missing (NA, NaN, Inf or the missing "
+                          "code)"));
 
   // PESOS, como escala de linha por sqrt(w). Um registro de peso w tem residual s2e/w;
   // multiplicar a linha inteira (y, X e cada Z) por sqrt(w) transforma o modelo

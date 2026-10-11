@@ -137,7 +137,13 @@
 #'   `NaN`, `Inf`, `-Inf`, blank text, the text "NaN" or `missing_code`) drops its
 #'   record and is never a category, in either trait of the joint mode.
 #' @param pedigree data.frame animal, sire, dam; required with `animal()`, `sire()` or
-#'   `indirect()` unless `k_inverse` is given
+#'   `indirect()` unless `k_inverse` is given. The ids are
+#'   matched to the data by the rule of [model()] (see `pedigree` there): an absent
+#'   animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+#'   stops the fit, and the pedigree is pruned to the data, the genotyped and their
+#'   ancestors
+#'   (with `k_inverse =` the levels are the ids of that K, an id outside it stops
+#'   the fit, and the unknown 0 is no effect, counted by the same message). The joint mode refuses an unknown 0 in its relationship term
 #' @param start MANDATORY. Ordinal mode: the components on the liability scale (the
 #'   residual is fixed at 1 and is not in `start`), in the order of [model()]: the
 #'   covariance groups declared with `group =` in order of first appearance, then each
@@ -265,8 +271,6 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
                       c(!missing(max_evals), !missing(tol_estimate), !missing(profile))],
                     "here they are given (estimate = FALSE)", max_evals, tol_estimate,
                     profile)
-  hinv <- hinv_para_motor(pedigree, genotypes, blend, apy_core, vecchia_k, k_inverse)
-  if (!is.null(hinv)) k_inverse <- hinv
   if (!inherits(formula, "formula") || length(formula) != 3L)
     stop("expected a formula with a left-hand side: score ~ herd + sire(sire)")
   lhs <- formula[[2]]
@@ -293,6 +297,19 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
             else deparse(lhs)
   falta <- setdiff(colunas_usadas(traits, terms), names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  # ids dos dados contra o pedigree, a regra de model() (prepara_estrutura, R/estrutura.R):
+  # fundadores, o desconhecido "0", grafias, poda e blocos. Com k_inverse = os niveis sao
+  # os da K declarada, e nada se acrescenta nem se poda.
+  pe <- prepara_estrutura_r(terms, data, pedigree, traits, missing_code, k_inverse,
+                            genotypes, recusa_0 = if (conjunto)
+                              paste0("the joint threshold mode takes a known level on every ",
+                                     "record: fit the traits one at a time (the ordinal mode ",
+                                     "takes the 0 as no effect), or drop those records"))
+  if (!is.null(pe$cp)) pedigree <- pedigree_preparado(pe$cp)
+  hinv <- hinv_para_motor(pedigree, genotypes, blend, apy_core, vecchia_k, k_inverse)
+  if (!is.null(hinv)) k_inverse <- hinv
+  if (!is.null(hinv) && !length(rel))
+    stop("k_inverse replaces the A^-1 of the relationship terms; the model has none")
 
   if (conjunto) {
     if (isTRUE(estimate))
@@ -304,9 +321,9 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
     if (!is.null(k_inverse) && length(rel) != 1L)
       stop("k_inverse replaces the A^-1 of exactly one relationship term in the joint ",
            "analysis")
-    return(anota_hinv(ajusta_limiar_conjunto(formula, traits, terms, aleat, data, pedigree,
-                                             k_inverse, start, missing_code, maxiter, tol,
-                                             verbose), hinv))
+    return(anota_estrutura(anota_hinv(ajusta_limiar_conjunto(
+      formula, traits, terms, aleat, data, pedigree, k_inverse, start, missing_code,
+      maxiter, tol, verbose), hinv), pe))
   }
   t0 <- proc.time()[["elapsed"]]
   pr <- prepara_limiar(formula, traits, terms, aleat, data, pedigree, k_inverse,
@@ -368,7 +385,7 @@ model_threshold <- function(formula, data, pedigree = NULL, start = NULL,
   }
   fit$seconds <- proc.time()[["elapsed"]] - t0
   attr(fit, "estado") <- NULL
-  anota_k_inverse(anota_hinv(fit, hinv), k_inverse, hinv, rel)
+  anota_estrutura(anota_k_inverse(anota_hinv(fit, hinv), k_inverse, hinv, rel), pe)
 }
 
 # ------------------------------------------------------------------ shared pieces
@@ -581,6 +598,15 @@ monta_z_limiar <- function(aleat, data, pedigree, k_inverse, keep) {
     valores <- rotulo_motor(data[[tm$column]][keep])
     if (tm$estrutura == 2L) {
       ai <- if (is.null(k_inverse)) a_inverse(pedigree) else valida_k_inverse(k_inverse)
+      # o modo conjunto le um nivel por registro (o indice entra direto nas somas): o
+      # desconhecido "0", que os outros ajustadores tomam por incidencia zero, e recusado
+      # aqui com o que fazer
+      if (any(desc <- valores %in% c("0", "NA")))
+        stop("term '", tm$nome, "' (column '", tm$column, "'): ", sum(desc), " record(s) ",
+             "hold the unknown code 0 (the first at row ", which(keep)[which(desc)[1L]],
+             "), and the joint threshold mode takes a known level on every record: fit ",
+             "the traits one at a time (the ordinal mode takes the 0 as no effect), or ",
+             "drop those records", call. = FALSE)
       idx <- match(valores, ai$id)
       if (anyNA(idx)) {
         quem <- unique(valores[is.na(idx)])
@@ -611,8 +637,11 @@ valida_k_inverse <- function(k) {
     baixo <- which(lower.tri(k, diag = TRUE), arr.ind = TRUE)
     x <- k[baixo]
     fica <- x != 0
+    # os rownames pelo rotulo do motor, como os triplos: em UTF-8 (o motor compara bytes, e
+    # um id latin1 marcado nos rownames nao casava com o mesmo id dos dados, ja em UTF-8:
+    # medido, 100 de 120 registros entravam, calados) e o numero como o motor o escreve
     return(list(i = baixo[fica, 1], j = baixo[fica, 2], x = x[fica], n = n,
-                id = rownames(k)))
+                id = rotulo_motor(rownames(k))))
   }
   if (!is.list(k) || !all(c("i", "j", "x", "n", "id") %in% names(k)))
     stop("k_inverse must be a dense matrix with dimnames, or triplets ",

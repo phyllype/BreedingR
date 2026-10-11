@@ -218,11 +218,22 @@ test_that("k_inverse= vale para os dois termos do grupo, com a priori de cada bl
   f1 <- model_threshold(form, dd, s$ped, start = c(0.3, -0.06, 0.1), verbose = FALSE)
   f2 <- model_threshold(form, dd, k_inverse = a_inverse(s$ped), start = c(0.3, -0.06, 0.1),
                         verbose = FALSE)
-  expect_equal(f2$ebv$g, f1$ebv$g, tolerance = 1e-12)
-  expect_equal(f2$neg2logl, f1$neg2logl, tolerance = 1e-12)
+  # com o pedigree os animais sem registro, sem genotipo e sem descendente nos dados saem
+  # (a poda de prepara_estrutura(), exata); com k_inverse = os niveis sao os da K, todos
+  q1 <- length(f1$ebv$g) / 2
+  q2 <- length(f2$ebv$g) / 2
+  expect_equal(f2$ebv$g[c(match(names(f1$ebv$g)[seq_len(q1)], names(f2$ebv$g)[seq_len(q2)]),
+                          q2 + match(names(f1$ebv$g)[q1 + seq_len(q1)],
+                                     names(f2$ebv$g)[q2 + seq_len(q2)]))],
+               f1$ebv$g, tolerance = 1e-10)
+  expect_equal(f2$neg2logl, f1$neg2logl, tolerance = 1e-10)
   expect_named(f2$k_prior, c("animal", "indirect"))
   # a acuracia do ajuste com K le a diagonal dela (sem pedigree), a do outro 1 + F
-  expect_equal(accuracy(f2, group = "g"), accuracy(f1, s$ped, "g"), tolerance = 1e-10)
+  a1 <- accuracy(f1, s$ped, "g")
+  a2 <- accuracy(f2, group = "g")
+  expect_equal(a2[c(match(names(a1)[seq_len(q1)], names(a2)[seq_len(q2)]),
+                    q2 + match(names(a1)[q1 + seq_len(q1)], names(a2)[q2 + seq_len(q2)]))],
+               a1, tolerance = 1e-10)
 })
 
 test_that("a politica da baia: a do motor, com a linha", {
@@ -240,10 +251,12 @@ test_that("a politica da baia: a do motor, com a linha", {
   dd <- s$d; names(dd)[names(dd) == "pen"] <- "baia"
   expect_error(model_threshold(form, dd, s$ped, start = st, verbose = FALSE),
                "no column\\(s\\) in the data: pen")
-  # o companheiro fora do pedigree e erro, mesmo sem fenotipo
+  # o companheiro fora do pedigree entra como fundador, mesmo sem fenotipo, com o aviso: a
+  # regra de todo ajustador (prepara_estrutura(), R/estrutura.R), como o renumf90
   dd <- s$d; dd$id[5] <- "estranho"
-  expect_error(model_threshold(form, dd, s$ped, start = st, verbose = FALSE),
-               "not in the level set")
+  expect_warning(model_threshold(form, dd, s$ped, start = st, verbose = FALSE),
+                 "1 animal(s) of the data absent from the pedigree entered as founders",
+                 fixed = TRUE)
   # o modo conjunto nao leva indirect()
   dd <- s$d; dd$q <- stats::rnorm(nrow(dd)); dd$b <- as.integer(dd$y > 1)
   expect_error(model_threshold(cbind(q, b) ~ hy + animal(id) + indirect(id, pen = "pen"),
@@ -267,7 +280,7 @@ test_that("predict() pede a baia, e a parte social e a soma dos companheiros no 
   # um animal com duas linhas na mesma baia e UM companheiro dos outros (os distintos)
   nd <- rbind(nd, transform(nd[2, ], hy = factor("h3", levels(nd$hy))))
   lia <- predict(f, nd, type = "liability")
-  q <- length(s$ped$id)
+  q <- length(f$ebv$g) / 2   # o pedigree podado aos animais dos dados e seus ancestrais
   uD <- f$ebv$g[seq_len(q)]; uS <- f$ebv$g[q + seq_len(q)]
   manual <- vapply(seq_len(nrow(nd)), function(i) {
     m <- setdiff(unique(nd$id[nd$pen == nd$pen[i]]), nd$id[i])

@@ -259,7 +259,12 @@ indirect_residual <- function(formula, data, pedigree = NULL, k_max = 5, n_grid 
   warm <- NULL
   perfil <- function(k) {
     w <- 1 / (1 + coef_social(n, dil) * k)
-    f <- model(formula, data, pedigree, weights = w, verbose = FALSE, start = warm, ...)
+    # os avisos de estrutura (fundadores, poda, blocos) saem so no primeiro ajuste do perfil:
+    # o dado e o mesmo em todos
+    f <- if (length(avaliadas))
+      calado_estrutura(model(formula, data, pedigree, weights = w, verbose = FALSE,
+                             start = warm, ...))
+    else model(formula, data, pedigree, weights = w, verbose = FALSE, start = warm, ...)
     if (all(is.finite(f$theta))) warm <<- unname(f$theta)
     # O jacobiano dos pesos sai NA MESMA BASE do -2logL que ele corrige: sobre as linhas
     # que o ajuste usou, e nao sobre a tabela inteira. Um registro descartado (fenotipo

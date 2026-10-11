@@ -119,8 +119,11 @@ standardization: it is \code{NA}. In \code{\link[=model_ar1]{model_ar1()}} and \
 \item \code{"pearson"}: \verb{e_i sqrt(w_i) / sqrt(s2e)}, the convention of \code{nlme}, NOT standardized
 by the leverage.
 \item \code{"normalized"} (\code{\link[=model_ar1]{model_ar1()}} only): the innovations of the AR(1)/CAR(1) process,
-\verb{(e_t - g e_(t-1)) / sqrt(s2e (1 - g^2))} with \code{g = rho^dt} (negative for \code{rho < 0}
-and an odd \code{dt}) along the subject's records in time order (the first record of a
+\verb{(e_t - g e_(t-1)) / sqrt(s2e (1 - g^2))} with \code{g = rho^dt} along the subject's records
+in time order, \code{dt} the gap in steps of \code{time_step} on a grid (\code{g} negative for
+\code{rho < 0} and an odd \code{dt}) and in the unit of the time on a continuous axis (\code{time_step}
+\code{NA}; see \code{time} in \code{\link[=model_ar1]{model_ar1()}}); in a \code{POSIXct} series of daily records \code{dt} is 1, not
+86400 (the first record of a
 subject is \code{e_1 / sqrt(s2e)}), the \code{"normalized"} residual of \code{nlme}: the residual
 premultiplied by the inverse Cholesky factor of its within-subject covariance \code{R}.
 With several traits the vector of a record is also premultiplied by the inverse

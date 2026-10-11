@@ -18,15 +18,20 @@ caso_cg_fora <- function() {
   list(d = d, ped = ped)
 }
 
-test_that("CG so de animais fora do pedigree: os tres ajustadores derrubam o nivel", {
+test_that("CG so de animais fora da K: os tres ajustadores derrubam o nivel", {
+  # os animais do CG gX nao tem linha na K, e as linhas deles saem antes do posto. Fora do
+  # PEDIGREE eles hoje entram como fundadores (prepara_estrutura(), R/estrutura.R), entao o
+  # termo e kernel(K =) com a identidade dos 36 animais, a mesma A desse pedigree sem pais
   z <- caso_cg_fora()
-  u <- model(y1 ~ cg + animal(id), z$d, z$ped, verbose = FALSE)
+  K <- diag(nrow(z$ped))
+  dimnames(K) <- list(z$ped$id, z$ped$id)
+  u <- model(y1 ~ cg + kernel(id, K = K), z$d, verbose = FALSE)
   expect_true("cg=gX" %in% u$dropped_x)
-  a <- model_ar1(y1 ~ cg + animal(id), z$d, z$ped, subject = "id", time = "dia",
+  a <- model_ar1(y1 ~ cg + kernel(id, K = K), z$d, subject = "id", time = "dia",
                  verbose = FALSE)
   expect_true("cg=gX" %in% a$dropped_x)
   expect_true(a$converged)
-  m <- model_mt(cbind(y1, y2) ~ cg + animal(id), z$d, z$ped, verbose = FALSE)
+  m <- model_mt(cbind(y1, y2) ~ cg + kernel(id, K = K), z$d, verbose = FALSE)
   expect_true(any(startsWith(m$dropped_x, "cg=gX")))
   expect_true(m$converged)
   expect_false(grepl("SINGULAR", m$message, fixed = TRUE))

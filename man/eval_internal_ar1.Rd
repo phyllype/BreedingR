@@ -12,7 +12,7 @@ eval_internal_ar1(
   time,
   theta,
   missing_code = NULL,
-  with_dense = TRUE,
+  with_dense = NULL,
   metafounders = NULL,
   gamma = NULL
 )
@@ -32,7 +32,14 @@ eval_internal_ar1(
 
 \item{missing_code}{missing-value code or NULL}
 
-\item{with_dense}{TRUE also computes the dense V form}
+\item{with_dense}{the dense V form, the reference of the small gates, O(n^3) in the n
+observed cells: \code{NULL} (the default) computes it up to 2000 cells and returns
+\code{neg2logl_V = NA} above; \code{TRUE} computes it up to 6000 cells and above stops before
+allocating, with the size; \code{FALSE} skips it. The sparse evaluation (\code{neg2logl}, the
+score) is always computed, on the time axis of \code{\link[=model_ar1]{model_ar1()}} (\code{time_step}). This
+default differs from \code{\link[=eval_internal]{eval_internal()}} and \code{\link[=eval_internal_mt]{eval_internal_mt()}}, where \code{with_dense = TRUE} computes the dense form with no size limit. Above 3000 fixed-effect columns a
+message gives the size first, as in \code{\link[=model_ar1]{model_ar1()}}: the rank of the fixed design is found
+on a dense triangular factor, O(p^3)}
 
 \item{metafounders}{as in \code{\link[=model]{model()}}}
 

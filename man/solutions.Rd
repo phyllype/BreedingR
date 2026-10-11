@@ -40,7 +40,10 @@ that effect. A group with one effect per level has no \code{term} column. A grou
 precision has latent levels besides the animals, \code{kernel(id, Kinv = dominance_inverse(ped))}, has a \code{type} column after \code{id} (and \code{term}), \code{"animal"},
 \code{"subclass"} or \code{"ancestral"}, and lists the animals first, each type sorted by \code{ebv}:
 the dominance deviations of the animals are ranked among themselves, not among the
-sire x dam effects.
+sire x dam effects. When the fit warned that its records form blocks with no
+genetic link between them, whose difference the fixed effects absorb (see
+\code{pedigree} in \code{\link[=model]{model()}}), a \code{block} column gives the block of each animal (1 is
+the block with the most records): breeding values compare only within a block.
 }
 \description{
 One call for what an evaluation is for. \code{ebv()} returns a named vector and \code{accuracy()}

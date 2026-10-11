@@ -49,7 +49,13 @@ two values (the larger one is the "difficulty"). A missing observation (\code{NA
 record and is never a category, in either trait of the joint mode.}
 
 \item{pedigree}{data.frame animal, sire, dam; required with \code{animal()}, \code{sire()} or
-\code{indirect()} unless \code{k_inverse} is given}
+\code{indirect()} unless \code{k_inverse} is given. The ids are
+matched to the data by the rule of \code{\link[=model]{model()}} (see \code{pedigree} there): an absent
+animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+stops the fit, and the pedigree is pruned to the data, the genotyped and their
+ancestors
+(with \verb{k_inverse =} the levels are the ids of that K, an id outside it stops
+the fit, and the unknown 0 is no effect, counted by the same message). The joint mode refuses an unknown 0 in its relationship term}
 
 \item{start}{MANDATORY. Ordinal mode: the components on the liability scale (the
 residual is fixed at 1 and is not in \code{start}), in the order of \code{\link[=model]{model()}}: the

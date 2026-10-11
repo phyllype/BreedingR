@@ -52,7 +52,10 @@ eh_norma_reacao <- function(theta) any(grepl("\\[\\d+\\]", names(theta)))
 #'   dominance_inverse(ped))`, has a `type` column after `id` (and `term`), `"animal"`,
 #'   `"subclass"` or `"ancestral"`, and lists the animals first, each type sorted by `ebv`:
 #'   the dominance deviations of the animals are ranked among themselves, not among the
-#'   sire x dam effects.
+#'   sire x dam effects. When the fit warned that its records form blocks with no
+#'   genetic link between them, whose difference the fixed effects absorb (see
+#'   `pedigree` in [model()]), a `block` column gives the block of each animal (1 is
+#'   the block with the most records): breeding values compare only within a block.
 #' @seealso [ebv()] and [accuracy()] for the pieces, [h2()] for the ratio
 #' @export
 solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
@@ -97,6 +100,15 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
       (length(pv) && (!eh_multicaracter(fit) || !is.null(trait)) &&
        acuracia_sem_pedigree(fit, g)))
     out$acc <- casa(accuracy(fit, pedigree, group = group, trait = trait))
+  # O BLOCO de cada animal quando os registros formam blocos sem parentesco entre si e os
+  # efeitos fixos absorvem a diferenca entre eles (o aviso do ajuste): os EBV so se comparam
+  # dentro do bloco, entao a tabela diz de qual bloco e cada um
+  if (!is.null(fit$blocks$animal)) {
+    nivel <- if (eh_multicaracter(fit) && is.null(trait)) sub("[|][^|]*$", "", out$id)
+             else out$id
+    bl <- unname(fit$blocks$animal[nivel])
+    if (any(!is.na(bl))) out$block <- bl
+  }
   # O TIPO DE CADA NIVEL numa precisao com niveis latentes (dominance_inverse()): os desvios
   # dos animais e os efeitos de subclasse estao no mesmo vetor, e ordenar os dois juntos
   # punha pares "pai x mae" no meio do ranking dos animais (medido no exemplo 13.1 de Mrode

@@ -46,7 +46,13 @@ rule and message as in \code{\link[=model]{model()}}; a factor or text column in
 rather than read as its codes.}
 
 \item{pedigree}{data.frame animal, sire, dam; required with \code{animal()}, \code{sire()} or
-\code{indirect()} unless \code{k_inverse} is given}
+\code{indirect()} unless \code{k_inverse} is given. The ids are
+matched to the data by the rule of \code{\link[=model]{model()}} (see \code{pedigree} there): an absent
+animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+stops the fit, and the pedigree is pruned to the data, the genotyped and their
+ancestors
+(with \verb{k_inverse =} the levels are the ids of that K, an id outside it stops
+the fit, and the unknown 0 is no effect, counted by the same message)}
 
 \item{censor}{MANDATORY: the censoring indicator, as a column name or a vector --
 1 (or TRUE) for a complete record, 0 (or FALSE) for a right-censored one. If no
@@ -90,7 +96,11 @@ piece of a subject observed from time zero); NULL means every row starts at 0}
 in every piece of a subject (so \code{random(pen)} refuses an animal that changes pen).
 A missing subject (\code{NA}, \code{NaN}, \code{Inf}, \code{-Inf}, blank text or the text "NaN") is
 refused on every row, as the subject of \code{\link[=model_ar1]{model_ar1()}}: those pieces would form one
-history}
+history. So is the unknown code 0 when the subject column is also the column of a
+relationship term (\code{animal(id)} with \code{subject = "id"}): there 0 is an unknown animal,
+and the pieces of distinct unknown animals would be read as the history of one
+subject. Give them ids of their own (an id with no line in the pedigree enters as a
+founder) or drop those rows}
 
 \item{gaps}{\code{"error"} (default) refuses a gap between two pieces of a subject;
 \code{"allow"} accepts it as time out of observation, in which no risk is counted}

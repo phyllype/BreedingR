@@ -30,7 +30,8 @@ scalar one}
 
 \item{data}{data.frame}
 
-\item{pedigree}{data.frame animal, sire, dam (required: the model is single step)}
+\item{pedigree}{data.frame animal, sire, dam (required: the model is single step). The
+ids are matched to the data by the rule of \code{\link[=model]{model()}} (see \code{pedigree} there)}
 
 \item{genotypes}{list with \code{ids} and \code{m} (0/1/2 matrix); NA is imputed with the mean}
 

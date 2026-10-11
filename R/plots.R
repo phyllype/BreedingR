@@ -112,9 +112,25 @@ plot.breeding_fit <- function(x, limits = NULL, ...) {
 #'   `covariates`, each covariate is checked: the code only applies to the trait, and
 #'   a -999 in a covariate enters the regression LITERALLY, in real data this once went
 #'   unnoticed past two programs at the same time
+#' @param id the animal column of the data. With `pedigree`, the records with an observed
+#'   trait (`missing_code` counts as missing, as in the fit) are split into BLOCKS, the
+#'   connected components of the relationship graph (the animals linked through their
+#'   sires and dams; an animal absent from the pedigree is a founder, as in the fit), and
+#'   the classes of `classes` that give each block levels of its own are named. Two blocks
+#'   with no relative in common whose records sit in different contemporary groups cannot
+#'   be compared: any genetic difference between them is absorbed by the groups (Fernando,
+#'   Gianola and Grossman 1983; Kennedy and Trus 1993). Every fitter warns about it from
+#'   its own terms; `describe()` sees only the pedigree and the classes given, so blocks
+#'   that genotypes link are counted here and not warned about by a single-step fit
+#' @references Fernando, R.L., Gianola, D. & Grossman, M. (1983). Identifying all
+#'   connected subsets in a two-way classification without interaction. Journal of Dairy
+#'   Science 66:1399-1402.
+#'
+#'   Kennedy, B.W. & Trus, D. (1993). Considerations on genetic connectedness between
+#'   management units under an animal model. Journal of Animal Science 71:2341-2352.
 #' @export
 describe <- function(data, trait, classes = NULL, pedigree = NULL,
-                      covariates = NULL, missing_code = NULL) {
+                      covariates = NULL, missing_code = NULL, id = NULL) {
   if (!trait %in% names(data)) stop("no column '", trait, "'")
   y <- data[[trait]]
   out <- list(trait = trait,
@@ -140,6 +156,12 @@ describe <- function(data, trait, classes = NULL, pedigree = NULL,
                          founders = sum(is.na(p$sire) & is.na(p$dam)),
                          f_mean = mean(p$F), f_max = max(p$F),
                          inbred = sum(p$F > 1e-9))
+  }
+  if (!is.null(id) && !is.null(pedigree)) {
+    if (!id %in% names(data)) stop("no column '", id, "'")
+    falta <- setdiff(classes, names(data))
+    if (length(falta)) stop("no column '", falta[1L], "'")
+    out$blocks <- blocos_describe(data, trait, id, classes, pedigree, missing_code)
   }
   if (!is.null(covariates) && !is.null(missing_code)) {
     obs <- is.finite(y) & abs(y - missing_code) > 1e-9
@@ -170,6 +192,16 @@ print.br_describe <- function(x, ...) {
     cat("  pedigree: ", x$pedigree$n, " animals, ", x$pedigree$founders,
         " founder(s), mean F ", format(x$pedigree$f_mean, digits = 4),
         ", maximum ", format(x$pedigree$f_max, digits = 4), "\n", sep = "")
+  if (!is.null(x$blocks))
+    cat("  ", if (length(x$blocks$absorbed_by)) "WARNING: " else "note: ",
+        "the records form ", x$blocks$n, " blocks with no relationship between them (",
+        paste(utils::head(x$blocks$records, 5L), collapse = ", "),
+        if (length(x$blocks$records) > 5L) ", ..." else "", " record(s))",
+        if (length(x$blocks$absorbed_by))
+          paste0("; ", paste(x$blocks$absorbed_by, collapse = ", "), " give(s) each block ",
+                 "levels of its own, so a fit with ", if (length(x$blocks$absorbed_by) == 1L)
+                   "it" else "them", " compares breeding values only within a block")
+        else "; no class given gives each block levels of its own", "\n", sep = "")
   for (vz in x$leak)
     if (vz$n)
       cat("  WARNING: covariate '", vz$column, "' has ", vz$n, " record(s) with the ",

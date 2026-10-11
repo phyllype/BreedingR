@@ -10,8 +10,151 @@
 #include <cstdlib>
 #include <unordered_map>
 #include <algorithm>
+#include <limits>
+#include <cmath>
 
 namespace br {
+
+// O EIXO DO TEMPO do AR(1)/CAR(1): grade ou continuo, e o passo da grade.
+//
+// O AR(1) discreto (Wade e Quaas, 1993; o corAR1 do nlme, que exige covariavel inteira e usa
+// phi^|lag| na unidade dela; o AR1 do ASReml, de niveis igualmente espacados) tem rho em
+// (-1, 1) e correlacao rho^k entre registros k PASSOS distantes. O CAR(1) de tempo continuo (o
+// corCAR1 do nlme, com rho em (0, 1); a estrutura EXP do ASReml; a "power distance" do
+// Genstat, extensao do AR1 a dado desigualmente espacado) tem rho^dt com rho em [0, 1): um
+// processo de Markov em tempo continuo nao tem correlacao negativa. Antes daqui o passo era
+// SEMPRE a unidade do dado, e a correlacao negativa so existia entre registros a um numero
+// IMPAR de unidades: com o tempo em segundos (POSIXct, um dia = 86400, par), em dias x 2, ou
+// com um unico intervalo de 0.5, ela sumia, e o ajuste ficava pior com converged = TRUE (medido
+// em 12aca18 no dado de test-estrutura-e3.R, 120 sujeitos x 6 dias, rho -0.4: em POSIXct
+// -2logL 866.61 contra 784.00 em dias; 103 a 271 unidades nos casos do levantamento). Dividir
+// o tempo pelo passo e uma reparametrizacao do BreedingR, e nao a do nlme: la a unidade da
+// covariavel e o passo.
+//
+// A regra le so as RAZOES entre intervalos, entao e a mesma em qualquer unidade: o passo h e o
+// maior numero que divide todo intervalo entre registros consecutivos de um sujeito, h =
+// menor / Q, com menor o menor intervalo e Q inteiro de 1 a 1000. Q sai razao a razao: o menor
+// multiplicador m que torna inteira uma razao x e o denominador de uma convergente da fracao
+// continua de x, e Q acumula o produto; no fim todo intervalo e conferido contra h. Sem Q ate
+// 1000 o tempo e continuo e vale o CAR(1). O teto: com um passo mais de mil vezes menor que o
+// menor intervalo o sinal de rho^k dependeria da paridade de um k enorme, o que nao e um
+// modelo de correlacao negativa (e o que um arredondamento fino dos tempos produziria). Antes
+// do teto um MDC de intervalos inteiros dava grade com qualquer Q: 86400 e 86401 s viravam uma
+// grade de 1 s, e as mesmas datas em dias, tempo continuo. A folga de "inteiro" e 1e-6 de
+// passo mais o erro da subtracao de dois tempos de modulo ate tmax, propagado na razao,
+// 4 eps tmax (1 + k) / h: com a folga fixa o mesmo dado com a origem do tempo em 1e6 deixava
+// de ser grade (o erro da subtracao escala com |t|, e nao com o intervalo).
+//
+// Na grade o tempo vira o numero de passos desde o primeiro registro usado do sujeito, somado
+// intervalo a intervalo com cada um arredondado, inteiro exato: o sinal de rho^k depende da
+// paridade de k, e um k de 1.9999999 trocava esse sinal. O rho passa a ser POR PASSO, e o R diz
+// o passo (time_step). O que a grade nao representa (correlacao negativa com intervalos de um
+// numero PAR de passos, ou no tempo continuo) o model_ar1() confere depois do ajuste; os dois
+// modos de sinal de uma grade de paridades mistas, ajusta_ar1 (no fim do arquivo).
+static void eixo_tempo_ar1(DesenhoAR& d) {
+  d.tempo_dado = d.tempo;
+  d.tempo_inteiro = true;
+  d.passo_tempo = 1.0;
+  d.paridade_mista = false;
+  std::vector<double> gaps;
+  double tmax = 0.0;
+  for (const std::vector<std::size_t>& s : d.sujeitos) {
+    for (std::size_t k = 0; k < s.size(); k++) tmax = std::max(tmax, std::fabs(d.tempo[s[k]]));
+    for (std::size_t k = 0; k + 1 < s.size(); k++)
+      gaps.push_back(d.tempo[s[k + 1]] - d.tempo[s[k]]);
+  }
+  if (gaps.empty()) return;
+  // em ordem crescente: a ordem dos sujeitos e a de um mapa de hash (muda com os rotulos e
+  // entre libstdc++ e libc++), e com a folga de "inteiro" a busca abaixo podia depender dela
+  std::sort(gaps.begin(), gaps.end());
+  const double menor = gaps.front();
+  const double eps = std::numeric_limits<double>::epsilon();
+  const unsigned long long qmax = 1000;
+  // g e um numero inteiro de passos h = menor / q?
+  auto inteiro = [&](double g, unsigned long long q) {
+    const double h = menor / static_cast<double>(q);
+    const double k = g / h;
+    return std::fabs(k - std::floor(k + 0.5)) <= 1e-6 + 4.0 * eps * tmax * (1.0 + k) / h;
+  };
+  unsigned long long Q = 0;
+  if (menor > 0.0 && std::isfinite(menor) && std::isfinite(tmax)) {
+    Q = 1;
+    for (double g : gaps) {
+      if (inteiro(g, Q)) continue;
+      // as convergentes de x = g Q / menor: q_n = a_n q_(n-1) + q_(n-2), q_0 = 1, q_(-1) = 0
+      const double x = g * static_cast<double>(Q) / menor;
+      double z = x - std::floor(x);
+      unsigned long long q1 = 1, q2 = 0, m = 0;
+      for (int it = 0; it < 64 && z > 0.0; it++) {
+        const double inv = 1.0 / z;
+        const double a = std::floor(inv);
+        if (!(a <= static_cast<double>(qmax))) break;
+        const unsigned long long qn = static_cast<unsigned long long>(a) * q1 + q2;
+        if (qn * Q > qmax) break;
+        q2 = q1;
+        q1 = qn;
+        if (inteiro(g, Q * qn)) {
+          m = qn;
+          break;
+        }
+        z = inv - a;
+      }
+      if (m == 0) {
+        Q = 0;
+        break;
+      }
+      // m e o multiplicador RELATIVO ao Q de agora (a busca testou g contra Q * m), entao o
+      // novo Q e o produto, que e o mmc dos denominadores das razoes ja vistas. Com o mmc de Q
+      // e m (antes) e mdc(Q, m) > 1, g ficava fora da grade, a conferencia final zerava Q e o
+      // eixo virava continuo conforme a ordem dos intervalos: 2, 3, 2.5 dava passo NA e
+      // 2, 2.5, 3 dava 0.5, e os mesmos 40 sujeitos em dias inteiros (intervalos 4, 6 e 4, 5)
+      // davam passo 1 ou NA conforme os rotulos
+      Q = Q * m;
+      if (Q > qmax) {
+        Q = 0;
+        break;
+      }
+    }
+    for (double g : gaps)
+      if (Q > 0 && !inteiro(g, Q)) Q = 0;
+  }
+  if (Q == 0) {
+    d.tempo_inteiro = false;
+    d.passo_tempo = std::nan("");
+    return;
+  }
+  const double h = menor / static_cast<double>(Q);
+  // o passo devolvido sai de TODOS os intervalos, soma dos intervalos sobre soma dos passos (os
+  // passos sao inteiros exatos): o menor intervalo sozinho carrega o erro da subtracao, e com a
+  // origem em 1e10 o passo 0.3 saia 0.29999924. Os intervalos somam em ordem crescente (ja
+  // ordenados acima), que nao depende da ordem dos sujeitos
+  {
+    double soma_g = 0.0, soma_k = 0.0;
+    for (double g : gaps) {
+      soma_g += g;
+      soma_k += std::floor(g / h + 0.5);
+    }
+    d.passo_tempo = soma_k > 0.0 ? soma_g / soma_k : h;
+  }
+  std::size_t n_par = 0, n_impar = 0;
+  for (const std::vector<std::size_t>& s : d.sujeitos) {
+    double k = 0.0;
+    for (std::size_t j = 0; j < s.size(); j++) {
+      if (j > 0) {
+        const double passos = std::floor((d.tempo_dado[s[j]] - d.tempo_dado[s[j - 1]]) / h + 0.5);
+        k += passos;
+        if (std::fmod(passos, 2.0) == 0.0) n_par++; else n_impar++;
+      }
+      d.tempo[s[j]] = k;
+    }
+  }
+  // as duas paridades com ao menos 10% dos intervalos cada (o espelho de ajusta_ar1): com menos
+  // o sinal de rho fica decidido por uns poucos pares, e o espelho achava modos sem sentido
+  // fisico (um registro em t = 2.1 entre diarios: rho -0.949 por decimo de dia, correlacao -0.95
+  // a 0.1 dia e +0.59 a 1 dia, 1.5 unidade de -2logL abaixo do ajuste em dias)
+  const double n_g = static_cast<double>(n_par + n_impar);
+  d.paridade_mista = n_par >= 0.1 * n_g && n_impar >= 0.1 * n_g && n_par > 0 && n_impar > 0;
+}
 
 DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
                             const Tabela& tab, const Pedigree* ped,
@@ -125,9 +268,17 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
     for (DesenhoTermo& a : d.aleatorios) pa.push_back(&a);
     casa_niveis_nulos(m, pa, kern_nulos, tab, d.nlin);
   }
-  for (const DesenhoTermo& a : d.aleatorios)
-    for (std::size_t i = 0; i < d.nlin; i++)
-      if (!a.casou[i]) d.usa[i] = 0;
+  {
+    std::vector<char> sem_obs(d.nlin, 0);
+    for (std::size_t i = 0; i < d.nlin; i++) sem_obs[i] = d.usa[i] ? 0 : 1;
+    for (const DesenhoTermo& a : d.aleatorios)
+      for (std::size_t i = 0; i < d.nlin; i++)
+        if (!a.casou[i]) d.usa[i] = 0;
+    if (d.n_usadas() == 0)
+      throw Erro(sem_linhas(m, tab, d.aleatorios, sem_obs,
+                            "every trait missing (NA, NaN, Inf or the missing code) or no "
+                            "finite time"));
+  }
   // POSTO DE X SOBRE AS LINHAS QUE ENTRAM, nao sobre a tabela inteira. E o mesmo conserto
   // que o univariado ja tem (mme.cpp, mesma marca). Um nivel fixo cujos registros TODOS
   // sairam continua com coluna nao-nula na tabela, entao um posto medido sobre tudo o
@@ -202,14 +353,9 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
   m.ntheta = off + t * (t + 1) / 2 + 1;
   d.offset_s2e = off;
   d.offset_rho = off + t * (t + 1) / 2;
-  // grade inteira? (ver o campo em mme.h). Basta olhar os intervalos CONSECUTIVOS: se
-  // todos sao inteiros, toda soma deles tambem e.
-  d.tempo_inteiro = true;
-  for (const std::vector<std::size_t>& s : d.sujeitos)
-    for (std::size_t k = 0; k + 1 < s.size(); k++) {
-      const double g = std::fabs(d.tempo[s[k + 1]] - d.tempo[s[k]]);
-      if (std::fabs(g - std::floor(g + 0.5)) > 1e-9) d.tempo_inteiro = false;
-    }
+  // grade ou tempo continuo, e o passo da grade (ver os campos em mme.h). Basta olhar os
+  // intervalos CONSECUTIVOS: se todos sao multiplos do passo, toda soma deles tambem e.
+  eixo_tempo_ar1(d);
 
   d.modelo = std::move(m);
 
@@ -265,14 +411,6 @@ DesenhoAR monta_desenho_ar1(Modelo m, const std::vector<std::string>& alvos,
             d.n_mv++;
           }
       }
-    d.cols_suj.assign(d.sujeitos.size(), {});
-    for (std::size_t s = 0; s < d.sujeitos.size(); s++) {
-      std::vector<std::uint32_t>& cs = d.cols_suj[s];
-      for (std::size_t r : d.sujeitos[s])
-        for (const auto& e : d.lw[r]) cs.push_back(e.col);
-      std::sort(cs.begin(), cs.end());
-      cs.erase(std::unique(cs.begin(), cs.end()), cs.end());
-    }
   }
   return d;
 }
@@ -394,9 +532,15 @@ static std::vector<double> partida_ar1(const DesenhoAR& d) {
 // grupos, var(residual), rho) viram a partida do multicaracter: grupos e R0 na diagonal por
 // caracteristica, covariancias entre caracteristicas zero, e o rho medio. A mesma regra de
 // fronteira do multicaracter (partida_univariados_mt): a variancia que o univariado deixou
-// abaixo de 1e-4 da partida automatica parte de 1% dela.
+// abaixo de 1e-4 da partida automatica parte de 1% dela. O rho de cada univariado e POR PASSO
+// da grade das linhas daquela caracteristica (eixo_tempo_ar1), e a grade do multicaracter e a
+// das linhas com alguma caracteristica: y todo dia e y2 so em dia impar dao passos 1 e 2, e a
+// media de um rho por dia com um por 2 dias nao e um rho de nada (medido: -0.402 e +0.120 davam
+// a partida -0.141, contra -0.4 simulado). Quando algum passo difere do deste desenho o rho
+// parte da automatica, e os componentes continuam vindo dos univariados.
 std::vector<double> partida_univariados_ar1(const DesenhoAR& d,
-                                            const std::vector<std::vector<double> >& uni) {
+                                            const std::vector<std::vector<double> >& uni,
+                                            const std::vector<double>& passos) {
   const std::size_t t = d.t;
   std::size_t n_u = 2;
   for (const Grupo& g : d.modelo.grupos) {
@@ -415,8 +559,15 @@ std::vector<double> partida_univariados_ar1(const DesenhoAR& d,
     soma_rho += r;
   }
   theta[d.offset_rho] = soma_rho / static_cast<double>(t);
-  if (!d.tempo_inteiro && theta[d.offset_rho] < 0.0) return {};
   const std::vector<double> auto_ = partida_ar1(d);
+  bool mesmo_passo = passos.size() == t;
+  for (std::size_t tau = 0; mesmo_passo && tau < t; tau++) {
+    const double p = passos[tau], q = d.passo_tempo;
+    mesmo_passo = std::isfinite(p) == std::isfinite(q) &&
+                  (!std::isfinite(q) || std::fabs(p - q) <= 1e-9 * std::fabs(q));
+  }
+  if (!mesmo_passo) theta[d.offset_rho] = auto_[d.offset_rho];
+  if (!d.tempo_inteiro && theta[d.offset_rho] < 0.0) return {};
   for (std::size_t k = 0; k < theta.size(); k++)
     if (k != d.offset_rho && auto_[k] > 0.0 && theta[k] < 1e-4 * auto_[k])
       theta[k] = 1e-2 * auto_[k];
@@ -1044,18 +1195,68 @@ static AjusteMT caminha_ar1(DesenhoAR& d, const std::vector<double>* theta0,
   return R;
 }
 
+// O ESPELHO DO RHO. Numa grade com intervalos de paridades mistas (segunda, quarta e sexta:
+// intervalos de 2 e 3 dias) a verossimilhanca em rho pode ter um modo de cada sinal, porque rho
+// e -rho dao a mesma correlacao nos intervalos de um numero par de passos e a oposta nos de um
+// numero impar. A partida automatica e positiva (rho0 = 0.3^(1/dt), dt a mediana) e, com a
+// mediana par, a caminhada cai no modo positivo mesmo quando o negativo e o otimo; nada a
+// avisa, porque o modo positivo e um otimo local certificado. Entao, nessa grade, o -2logL e
+// avaliado no theta final com o rho trocado de sinal (uma montagem e um fator); quando ele e
+// menor, uma segunda caminhada parte dali e volta o melhor dos dois ajustes, com a primeira dita
+// em `message`. O espelho conserva a magnitude de toda correlacao e so troca o sinal das de
+// intervalo impar, entao a avaliacao compara as duas hipoteses de sinal no mesmo ponto. Medido
+// (150 sujeitos x 9 registros em segunda, quarta e sexta, rho -0.6 por dia): a partida
+// automatica parava em +0.558 e -2logL 1418.54 com converged TRUE; o espelho chega a -0.614 e
+// 1367.96, o otimo de uma partida em -0.5. So vale com as duas paridades em ao menos 10% dos
+// intervalos (paridade_mista, eixo_tempo_ar1): com quase todo intervalo impar o espelho troca o
+// sinal de toda correlacao (o caminhante ja atravessa o zero), com quase todo par o sinal fica
+// decidido por uns poucos pares, e no tempo continuo o rho e >= 0.
 AjusteMT ajusta_ar1(DesenhoAR& d, const std::vector<double>* theta0, std::size_t maxiter,
                     double tol, bool verboso) {
-  AjusteMT R = caminha_ar1(d, theta0, maxiter, tol, verboso, 0);
   MapaZ mz;
   for (const Grupo& gr : d.modelo.grupos) mz.blocos.push_back(std::make_pair(gr.offset, gr.dim));
   mz.blocos.push_back(std::make_pair(d.offset_s2e, d.t));
   mz.correlacoes.push_back(d.offset_rho);
-  // a partida de var(y) em unidades ORIGINAIS: y ja voltou da padronizacao
-  return explora_fronteira(std::move(R), mz, partida_ar1(d), maxiter,
-                           [&](const std::vector<double>& th0, std::size_t it0) {
-                             return caminha_ar1(d, &th0, maxiter, tol, verboso, it0);
-                           }, verboso);
+  auto ajusta = [&](const std::vector<double>* th) {
+    AjusteMT R = caminha_ar1(d, th, maxiter, tol, verboso, 0);
+    // a partida de var(y) em unidades ORIGINAIS: y ja voltou da padronizacao
+    return explora_fronteira(std::move(R), mz, partida_ar1(d), maxiter,
+                             [&](const std::vector<double>& th0, std::size_t it0) {
+                               return caminha_ar1(d, &th0, maxiter, tol, verboso, it0);
+                             }, verboso);
+  };
+  AjusteMT R = ajusta(theta0);
+  if (maxiter == 0 || !d.paridade_mista || R.theta.size() != d.modelo.ntheta ||
+      !std::isfinite(R.neg2logl))
+    return R;
+  const double rho = R.theta[d.offset_rho];
+  if (!(std::fabs(rho) >= 1e-4 && std::fabs(rho) < 1.0)) return R;
+  std::vector<double> esp = R.theta;
+  esp[d.offset_rho] = -rho;
+  const AvaliacaoAR a = avalia_ar1(d, esp);
+  if (!a.ok || !(a.neg2logl < R.neg2logl - 1e-3)) return R;
+  if (verboso)
+    Rprintf("second walk from the sign-flipped rho = %.6g (-2logL %.6f there)\n", -rho,
+            a.neg2logl);
+  AjusteMT R2 = ajusta(&esp);
+  char buf[400];
+  if (R2.theta.size() == d.modelo.ntheta && std::isfinite(R2.neg2logl) &&
+      R2.neg2logl < R.neg2logl - 2e-4) {
+    std::snprintf(buf, sizeof buf,
+                  "the gaps of this grid are odd and even numbers of steps, so rho can have a "
+                  "mode of each sign: the walk from the start ended at rho = %.4g and -2logL "
+                  "%.6f, and a second walk from rho = %.4g reached the fit returned here",
+                  rho, R.neg2logl, -rho);
+    R2.mensagem = R2.mensagem.empty() ? std::string(buf) : std::string(buf) + "; " + R2.mensagem;
+    R2.espelhado = true;
+    return R2;
+  }
+  std::snprintf(buf, sizeof buf,
+                "the gaps of this grid are odd and even numbers of steps, so a second walk "
+                "started from rho = %.4g: it ended at -2logL %.6f, not better, and the first "
+                "fit is kept", -rho, R2.neg2logl);
+  R.mensagem = R.mensagem.empty() ? std::string(buf) : R.mensagem + "; " + buf;
+  return R;
 }
 
 }  // namespace br

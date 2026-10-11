@@ -16,7 +16,11 @@
 #'   A missing trait (NA or the `missing_code` code) does not drop the record: it enters
 #'   with the R0 submatrix of its observation pattern.
 #' @param data data.frame
-#' @param pedigree data.frame animal, sire, dam
+#' @param pedigree data.frame animal, sire, dam. The ids are
+#'   matched to the data by the rule of [model()] (see `pedigree` there): an absent
+#'   animal enters as a founder, an unknown 0 is no effect, the same id written two ways
+#'   stops the fit, and the pedigree is pruned to the data, the genotyped and their
+#'   ancestors
 #' @param genotypes list with `ids` and `m` (0/1/2 matrix) for single-step; NA is imputed
 #'   by the mean, as in [model()]
 #' @param blend weight of A22 in the G blend (0.05 by default)
@@ -200,28 +204,30 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
 
-  lst <- lapply(data[used_columns], function(col) {
-    if (is.factor(col)) as.character(col)
-    else if (is.character(col)) col
-    else as.double(col)
-  })
-  ped_id <- ped_sire <- ped_dam <- character(0)
-  if (!is.null(pedigree)) {
-    cp <- colunas_pedigree(pedigree)
-    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
-  }
-  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes))
+  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
 
   kern <- monta_kernels(terms, environment(formula), data, traits, missing_code)
+  # ids dos dados contra o pedigree: a regra de model() (prepara_estrutura, R/estrutura.R)
+  pe <- prepara_estrutura(terms, data, lst, pedigree, traits, missing_code, metafounders,
+                          kern, g$gid)
+  ped_id <- ped_sire <- ped_dam <- character(0)
+  if (!is.null(pe$cp)) {
+    ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
+  }
+  confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes), ped_id,
+                  pe$info$founders)
 
   t0 <- proc.time()[["elapsed"]]
+  # as partidas univariadas sobre o pedigree JA preparado, e caladas: os avisos de estrutura
+  # saem uma vez, pelo ajuste multicaracter
   uni <- if (is.null(start) && maxiter > 0L)
-    otimos_univariados(function(f1, d1)
-      model(f1, d1, pedigree, genotypes = genotypes, blend = blend,
+    otimos_univariados(function(f1, d1) calado_estrutura(
+      model(f1, d1, if (is.null(pe$cp)) pedigree else pedigree_preparado(pe$cp),
+            genotypes = genotypes, blend = blend,
             apy_core = nucleo_resolvido(apy_core, nuc), vecchia_k = vecchia_k,
-            metafounders = metafounders, gamma = gamma, verbose = FALSE),
+            metafounders = metafounders, gamma = gamma, verbose = FALSE)),
       formula, traits, data, missing_code, verbose) else list()
   ajusta <- function(uni) .Call(R_ajustar_mt,
              lst, names(lst), traits,
@@ -261,7 +267,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   # a diagonal de cada K declarada: a priori de cada nivel de um kernel() em accuracy()
   r$k_prior <- priori_kernels(terms, kern)
   r$k_level_type <- tipos_kernels(terms, kern)
-  structure(r, class = "breeding_fit_mt")
+  structure(anota_estrutura(r, pe), class = "breeding_fit_mt")
 }
 
 # A PARTIDA PADRAO DOS AJUSTES MULTICARACTER: o otimo univariado de cada caracteristica,
@@ -359,7 +365,8 @@ partida_de_reserva <- function(r, ajusta, maxiter) {
 #' @param pedigree data.frame or NULL
 #' @param theta vector of components at which to evaluate
 #' @param missing_code missing-value code, or NULL
-#' @param with_dense TRUE also computes the dense V form
+#' @param with_dense TRUE also computes the dense V form, with no size limit, unlike
+#'   [eval_internal_ar1()], whose default skips it above 2000 cells
 #' @param metafounders as in [model()]
 #' @param gamma as in [model()]
 #' @export
@@ -378,13 +385,13 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
   # "undefined columns selected" do R, que nao diz qual coluna falta
   falta <- setdiff(used_columns, names(data))
   if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
-  lst <- lapply(data[used_columns], function(col) {
-    if (is.factor(col)) as.character(col) else if (is.character(col)) col else as.double(col)
-  })
+  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
+  kern <- monta_kernels(terms, environment(formula), data, traits, missing_code)
+  pe <- prepara_estrutura(terms, data, lst, pedigree, traits, missing_code, metafounders,
+                          kern)
   ped_id <- ped_sire <- ped_dam <- character(0)
-  if (!is.null(pedigree)) {
-    cp <- colunas_pedigree(pedigree)
-    ped_id <- cp$id; ped_sire <- cp$sire; ped_dam <- cp$dam
+  if (!is.null(pe$cp)) {
+    ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
   }
   .Call(R_avaliar_mt,
         lst, names(lst), traits,
@@ -402,7 +409,7 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
              rotulo_motor(metafounders),
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
-             monta_kernels(terms, environment(formula), data, traits, missing_code),
+             kern,
              vapply(terms, function(t) t$dilution, numeric(1)))
 }
 

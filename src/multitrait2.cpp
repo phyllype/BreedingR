@@ -159,9 +159,18 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
     for (DesenhoTermo& a : d.aleatorios) pa.push_back(&a);
     casa_niveis_nulos(m, pa, kern_nulos, tab, d.nlin);
   }
-  for (const DesenhoTermo& a : d.aleatorios)
-    for (std::size_t i = 0; i < d.nlin; i++)
-      if (!a.casou[i]) d.usa[i] = 0;
+  {
+    std::vector<char> sem_obs(d.nlin, 0);
+    for (std::size_t i = 0; i < d.nlin; i++) sem_obs[i] = d.usa[i] ? 0 : 1;
+    for (const DesenhoTermo& a : d.aleatorios)
+      for (std::size_t i = 0; i < d.nlin; i++)
+        if (!a.casou[i]) d.usa[i] = 0;
+    // antes de qualquer posto: sem linha, o posto ficava sem coluna e a recusa saia como
+    // "no estimable fixed effect for any trait", que aponta para o lugar errado
+    if (d.n_usadas() == 0)
+      throw Erro(sem_linhas(m, tab, d.aleatorios, sem_obs,
+                            "every trait missing (NA, NaN, Inf or the missing code)"));
+  }
   // POSTO DE X SOBRE AS LINHAS QUE ENTRAM, nao sobre a tabela inteira. E o mesmo conserto
   // que o univariado ja tem (mme.cpp, mesma marca). Um nivel fixo cujos registros TODOS
   // sairam continua com coluna nao-nula na tabela, entao um posto medido sobre tudo o

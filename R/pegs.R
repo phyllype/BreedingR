@@ -78,11 +78,15 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
                          "rows would form one more trait; drop those rows or fill them"))
   g <- valida_genotipos(genotypes)
   if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
-  # o animal como o motor escreve o id dos genotipos: 100000 e "100000", nao "1e+05"
-  ids <- rotulo_motor(data[[id]])
+  # o animal como o motor escreve o id dos genotipos: 100000 e "100000", nao "1e+05". Um id
+  # numerico acima de 2^53 ja perdeu digitos e e recusado (recusa_grandes(), R/estrutura.R):
+  # antes 150 ids de 16 digitos viravam 55 e a recusa saia como "an animal appears in more
+  # than one row"
+  ids <- rotulo_motor(data[[id]], paste0("the column '", id, "' of the data"))
   if (!is.null(environment)) {
     if (length(traits) != 1L) stop("with environment =, give ONE trait column")
-    env <- rotulo_motor(data[[environment]])
+    env <- rotulo_motor(data[[environment]],
+                        paste0("the column '", environment, "' of the data"))
     if (anyDuplicated(paste(ids, env, sep = "\r")))
       stop("an animal appears more than once in the same environment: aggregate first")
     niveis <- sort(unique(env[!is.na(env)]))
@@ -103,6 +107,11 @@ pegs <- function(data, traits, id, genotypes, environment = NULL,
   # um registro sem genotipo sai e e contado em `dropped`; o mesmo id escrito de dois jeitos
   # nos dois lados nao e registro sem genotipo, e erro declarado
   recusa_cientifico(ids[is.na(em)], g$gid, "the data", "the genotypes")
+  # e a grafia diferente (espaco, CR, caixa, zeros a esquerda), a regra de model()
+  confere_grafias(ids[is.na(em)], g$gid, paste0("the column '", id, "' of the data"),
+                  "genotypes$ids", function(v) sum(ids %in% v),
+                  "leave the analysis as records without genotype", cientifico = FALSE,
+                  zero = FALSE)
   k <- ncol(Y)
   tipo <- match(cov_structure, c("unstructured", "hcs", "xfa")) - 1L
   if (!estimate && is.null(start)) stop("estimate = FALSE needs start = list(Vb =, Ve =)")

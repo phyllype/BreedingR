@@ -31,7 +31,9 @@ eval_internal(
 
 \item{missing_code}{missing-value code or NULL}
 
-\item{with_dense}{TRUE also computes the dense V form, which only handles a small problem}
+\item{with_dense}{TRUE also computes the dense V form, which only handles a small problem;
+there is no size limit here, unlike \code{\link[=eval_internal_ar1]{eval_internal_ar1()}}, whose default skips it above
+2000 cells}
 
 \item{metafounders}{as in \code{\link[=model]{model()}}}
 
