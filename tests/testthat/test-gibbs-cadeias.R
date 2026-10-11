@@ -6,7 +6,8 @@
 # saem do gerador de quem chama, antes de qualquer execucao); (3) com theta fixo a media
 # juntada das cadeias reproduz o BLUP e a variancia juntada a PEV, como na cadeia unica; (4)
 # chains = 1 nao toca no gerador fora da propria cadeia; (5) uma cadeia real mais curta fica
-# fora das amostras, das medias e dos residuos, e residual_diagnostics() confere o resto.
+# fora das amostras, das medias (o E[b] padronizado interno inclusive) e dos residuos, e
+# residual_diagnostics() confere o resto.
 
 simula_c <- function(n = 150, seed = 5, va = 0.5) {
   set.seed(seed)
@@ -94,16 +95,19 @@ test_that("uma cadeia real que guarda menos amostras fica fora de tudo, residuos
   # deixa-la fora das amostras, de b, de ebv, do residuo medio e dos sorteios pivotais, e
   # residual_diagnostics() remonta W E[loc] dos dados e confere contra o ajustado juntado
   z <- simula_c(n = 80)
+  # as cadeias como saem do motor, antes de junta_cadeias()
+  brutas <- NULL
   curta <- function(cadeia, sementes, cores) {
     e <- environment(cadeia)
     n0 <- e$n_iter
-    lapply(seq_along(sementes), function(k) {
+    brutas <<- lapply(seq_along(sementes), function(k) {
       if (k == 2L) {
         e$n_iter <- n0 - 100L
         on.exit(e$n_iter <- n0)
       }
       cadeia(sementes[k])
     })
+    brutas
   }
   set.seed(23)
   g <- with_mocked_bindings(
@@ -119,6 +123,14 @@ test_that("uma cadeia real que guarda menos amostras fica fora de tudo, residuos
   expect_equal(unname(g$b), unname(rowMeans(g$chain_b[, c(1L, 3L)])), tolerance = 1e-12)
   expect_equal(unname(g$ebv$animal), unname(rowMeans(g$chain_ebv$animal[, c(1L, 3L)])),
                tolerance = 1e-12)
+  # o E[b] padronizado (interno, o b da conferencia de residual_diagnostics()) junta as mesmas
+  # cadeias: a media das tres daria outro W E[loc]
+  expect_equal(g$b_standardized,
+               (brutas[[1]]$b_standardized + brutas[[3]]$b_standardized) / 2,
+               tolerance = 1e-12)
+  expect_false(isTRUE(all.equal(g$b_standardized,
+                                Reduce(`+`, lapply(brutas, `[[`, "b_standardized")) / 3,
+                                tolerance = 1e-8)))
   expect_identical(ncol(g$pdm_residuals), 10L)
   dg <- residual_diagnostics(g, z$d, z$ped, nsim = 19L, seed = 24)
   expect_identical(dg$draws, 10L)

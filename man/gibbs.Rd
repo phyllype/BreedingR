@@ -176,7 +176,9 @@ enter), which by linearity is \verb{y - X E[b] - Z E[u]} (the liability for the 
 the liability scale for the probit), and \code{pdm_residuals} the stored draws described
 in \code{residual_draws}; with several chains all four pool the chains pooled for \code{b} and
 \code{ebv}. \code{\link[=residuals.breeding_fit]{residuals.breeding_fit()}} and \code{\link[=residual_diagnostics]{residual_diagnostics()}} read them, with
-\code{missing_code} as given
+\code{missing_code} as given. \code{b_standardized} (internal) is \code{E[b]} on the engine's
+standardized scale (each covariate centred and scaled), pooled the same way, which
+\code{\link[=residual_diagnostics]{residual_diagnostics()}} uses to check the chain against the data
 }
 \description{
 The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here: a

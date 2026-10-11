@@ -519,6 +519,17 @@ prepara_nulos <- function(fit, data, pedigree, genotypes, cadeia = FALSE) {
   vk <- if (is.null(fit$genomic$vecchia_k)) 0L else as.integer(fit$genomic$vecchia_k)
   kern <- monta_kernels(terms, environment(fit$formula), data, trait, mc)
   b <- fit$b
+  # numa cadeia, loc = (E[b], E[u]) e W loc tem de dar o ajustado que ela guardou. O E[b] na
+  # escala padronizada do motor (b_standardized, guardado pelo gibbs()) entra sem volta; o b na
+  # unidade do dado volta a essa escala no motor, e com uma covariavel muito deslocada
+  # b0 + m b_x se cancela e perde eps |b0| (idade + 1,7e12: 3,27e-6, acima da tolerancia de
+  # 1e-8 max|ajustado|, e a cadeia era recusada com os proprios dados). A cadeia de uma versao
+  # sem o campo (ou com ele incompleto) segue pelo b na unidade do dado. Com o E[b]
+  # padronizado a conferencia nao ve uma troca afim positiva da coluna inteira de uma
+  # covariavel nos dados dados (a x + c com a > 0), que o caminho antigo recusava: o desenho
+  # padronizado e o mesmo, e a cadeia desses dados seria a mesma a menos do arredondamento
+  pad <- cadeia && length(fit$b_standardized) == length(b) &&
+    all(is.finite(fit$b_standardized))
   r <- if (ar) .Call(R_residuos_prepara_ar1,
            lst, names(lst), trait,
            vapply(terms, function(t) t$nome, character(1)),
@@ -556,7 +567,9 @@ prepara_nulos <- function(fit, data, pedigree, genotypes, cadeia = FALSE) {
            kern, vapply(terms, function(t) t$dilution, numeric(1)),
            vapply(terms, function(t) if (is.null(t$kfixo)) NA_real_ else t$kfixo, numeric(1)),
            if (cadeia) numeric(0) else as.double(fit$theta), as.double(b), names(b),
-           if (cadeia) as.double(c(b, unlist(fit$ebv, use.names = FALSE))) else numeric(0))
+           if (cadeia) as.double(c(if (pad) fit$b_standardized else b,
+                                   unlist(fit$ebv, use.names = FALSE))) else numeric(0),
+           pad)
   if (!identical(r$used, linhas_do_ajuste(fit))) {
     libera_nulos(r)
     stop("the rebuilt design uses other records than the fit (", sum(r$used), " against ",
@@ -1011,7 +1024,10 @@ cauda_de <- function(k, normalidade) {
 #' with `p < 0.05` was 0.042 to 0.047 and the combined p rejected none of 200 data sets.
 #' The chain is checked against the data too:
 #' the design rebuilt from `data` times the posterior means must give the fitted values the
-#' chain stored, and each random group must have the levels of the chain. Beyond that the pedigree
+#' chain stored, and each random group must have the levels of the chain. The check runs on
+#' the engine's standardized scale, so a covariate with a large offset (a timestamp) passes,
+#' and a whole covariate column changed by `a x + c` with `a > 0` is not seen: those data
+#' give the same standardized design. Beyond that the pedigree
 #' and the genotypes are NOT checked against the chain (it keeps nothing of its `K` to
 #' compare with): they enter only the `K_jj` of the standardized breeding values, so another
 #' pedigree or other genotypes with the same animals change those `z` without an error, and

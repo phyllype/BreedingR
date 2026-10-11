@@ -265,7 +265,10 @@ with every record in one category, which \code{\link[=gibbs]{gibbs()}} refuses),
 with \code{p < 0.05} was 0.042 to 0.047 and the combined p rejected none of 200 data sets.
 The chain is checked against the data too:
 the design rebuilt from \code{data} times the posterior means must give the fitted values the
-chain stored, and each random group must have the levels of the chain. Beyond that the pedigree
+chain stored, and each random group must have the levels of the chain. The check runs on
+the engine's standardized scale, so a covariate with a large offset (a timestamp) passes,
+and a whole covariate column changed by \verb{a x + c} with \code{a > 0} is not seen: those data
+give the same standardized design. Beyond that the pedigree
 and the genotypes are NOT checked against the chain (it keeps nothing of its \code{K} to
 compare with): they enter only the \code{K_jj} of the standardized breeding values, so another
 pedigree or other genotypes with the same animals change those \code{z} without an error, and

@@ -1957,13 +1957,15 @@ static SEXP entrega_preparo(std::unique_ptr<br::PreparoNulos> P,
 // desenho do R_ajustar, mais theta, b com os nomes e loc). Com theta: monta e fatora as MME,
 // devolve o ponteiro e o residuo dos dados no fator. Sem theta (a conferencia de uma cadeia
 // do gibbs()): so o desenho, devolvendo W loc nas linhas usadas, sem fator das MME. Nos dois,
-// a diagonal de K_g de cada grupo.
+// a diagonal de K_g de cada grupo. loc_padronizado (logico) diz que as x.ncol primeiras
+// posicoes de loc ja estao na escala padronizada do desenho (o b_standardized que o gibbs()
+// guarda) e entram sem a volta de desfaz_escala_b; sem ele, loc traz b na unidade do dado.
 SEXP R_residuos_prepara(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                         SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                         SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP gid, SEXP gm,
                         SEXP mistura, SEXP anucleo, SEXP vk, SEXP mfx, SEXP gmx, SEXP pesos,
                         SEXP kern, SEXP tdil, SEXP tfix, SEXP theta, SEXP b, SEXP bnomes,
-                        SEXP loc) {
+                        SEXP loc, SEXP loc_padronizado) {
   GUARDA(
     br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
                                ausente, usa_ausente, tdil, tfix);
@@ -1999,8 +2001,13 @@ SEXP R_residuos_prepara(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol
       for (std::size_t g = 0; g < m.grupos.size(); g++) { off[g] = acc; acc += d.largura(g); }
       const br::LinhasW W = br::linhas_w(d, off);
       std::vector<double> lv(REAL(loc), REAL(loc) + XLENGTH(loc));
-      br::desfaz_escala_b(d.volta_x[0], [](std::size_t j) { return (int) j; },
-                          lv.data(), false);
+      // b na unidade do dado volta a escala padronizada aqui, e com uma covariavel muito
+      // deslocada b0 + m b_x se cancela e perde eps |b0| (idade + 1,7e12: 3,27e-6 no W loc).
+      // O b padronizado da cadeia, o mesmo E[loc] do W E[loc] que ela guardou, entra como
+      // esta, e W loc so difere do ajustado guardado no arredondamento da soma
+      if (Rf_asLogical(loc_padronizado) != TRUE)
+        br::desfaz_escala_b(d.volta_x[0], [](std::size_t j) { return (int) j; },
+                            lv.data(), false);
       std::vector<double> ajust;
       for (std::size_t i = 0; i < d.nlin; i++) {
         if (!d.usa[i]) continue;
@@ -2185,6 +2192,15 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
     }
     Rf_setAttrib(bfix, R_NamesSymbol, bnms);
     Rf_setAttrib(bsd, R_NamesSymbol, Rf_duplicate(bnms));
+    // a mesma media na escala padronizada do motor (as x.ncol primeiras posicoes de E[loc],
+    // sem a volta a unidade do dado), interna: residual_diagnostics() confere a cadeia com o
+    // W E[loc] dela, e o b na unidade do dado, levado de volta a essa escala, perde eps |b0|
+    // no cancelamento b0 + m b_x de uma covariavel muito deslocada
+    SEXP bpad = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) d.x.ncol));
+    for (std::size_t k = 0; k < d.x.ncol; k++)
+      REAL(bpad)[k] = S.media_b.size() == d.x.ncol && S.media_loc.size() >= d.x.ncol
+                        ? S.media_loc[k] : NA_REAL;
+    Rf_setAttrib(bpad, R_NamesSymbol, Rf_duplicate(bnms));
     SEXP saiu = PROTECT(Rf_allocVector(STRSXP, (R_xlen_t) d.saiu_x.size()));
     for (std::size_t k = 0; k < d.saiu_x.size(); k++)
       SET_STRING_ELT(saiu, (R_xlen_t) k, Rf_mkChar(d.saiu_x[k].c_str()));
@@ -2194,10 +2210,11 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
     if (S.partida.size() == S.ntheta) Rf_setAttrib(part, R_NamesSymbol, Rf_duplicate(nms_t));
     const char* campos[] = {"samples", "names", "ebv", "ebv_sd", "message", "n_used",
                             "b", "b_sd", "dropped_x", "dense_block", "start",
-                            "residual", "pdm_residuals", "fitted", "fitted_fixed"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 15));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 15));
-    for (int q = 0; q < 15; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "residual", "pdm_residuals", "fitted", "fitted_fixed",
+                            "b_standardized"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 16));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 16));
+    for (int q = 0; q < 16; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
     // o residuo medio a posteriori e os ajustados W E[loc] e X E[b] por linha da tabela (NA
     // fora das usadas), e os sorteios pivotais e_s / sqrt(s2e_s), n_usadas x n_pdm
     {
@@ -2231,8 +2248,9 @@ SEXP R_gibbs(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov
     SET_VECTOR_ELT(out, 7, bsd);
     SET_VECTOR_ELT(out, 8, saiu);
     SET_VECTOR_ELT(out, 10, part);
+    SET_VECTOR_ELT(out, 15, bpad);
     Rf_setAttrib(out, R_NamesSymbol, nms);
-    UNPROTECT(12);
+    UNPROTECT(13);
     return out;
   )
 }
@@ -3154,7 +3172,7 @@ static const R_CallMethodDef metodos[] = {
   {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  30},
   {"R_avaliar_ar1",  (DL_FUNC) &R_avaliar_ar1, 24},
   {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 32},
-  {"R_residuos_prepara",     (DL_FUNC) &R_residuos_prepara,     31},
+  {"R_residuos_prepara",     (DL_FUNC) &R_residuos_prepara,     32},
   {"R_residuos_prepara_ar1", (DL_FUNC) &R_residuos_prepara_ar1, 30},
   {"R_residuos_lote",        (DL_FUNC) &R_residuos_lote,         4},
   {"R_residuos_libera",      (DL_FUNC) &R_residuos_libera,       1},

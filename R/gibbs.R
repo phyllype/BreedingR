@@ -141,7 +141,9 @@
 #'   the liability scale for the probit), and `pdm_residuals` the stored draws described
 #'   in `residual_draws`; with several chains all four pool the chains pooled for `b` and
 #'   `ebv`. [residuals.breeding_fit()] and [residual_diagnostics()] read them, with
-#'   `missing_code` as given
+#'   `missing_code` as given. `b_standardized` (internal) is `E[b]` on the engine's
+#'   standardized scale (each covariate centred and scaled), pooled the same way, which
+#'   [residual_diagnostics()] uses to check the chain against the data
 #' @param verbose print the chain as it runs, the iteration count every so often, so a
 #'   long chain is a progress report instead of silence. Defaults to interactive(),
 #'   live in a session and quiet in scripts and checks. Every fitter also honors Ctrl+C now
@@ -505,6 +507,11 @@ junta_cadeias <- function(rs, esperado) {
   r$residual <- media(lapply(rs, `[[`, "residual"))
   r$fitted <- media(lapply(rs, `[[`, "fitted"))
   r$fitted_fixed <- media(lapply(rs, `[[`, "fitted_fixed"))
+  # o E[b] na escala padronizada do motor (interno, a guarda de residual_diagnostics()): as
+  # mesmas cadeias e os mesmos pesos, para W E[loc] remontado bater com o fitted junto. Sem o
+  # campo (uma lista montada a mao) nao ha o que juntar
+  if (!is.null(r$b_standardized))
+    r$b_standardized <- media(lapply(rs, `[[`, "b_standardized"))
   r$pdm_residuals <- do.call(cbind, lapply(rs[usadas], `[[`, "pdm_residuals"))
   msg <- unique(r$chain_messages)
   msg <- msg[nzchar(msg)]

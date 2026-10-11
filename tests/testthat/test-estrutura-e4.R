@@ -497,6 +497,128 @@ test_that("E4-3: gibbs() with the offset samples the hand-centred chain, back-tr
   expect_equal(unlist(g$ebv), unlist(gc$ebv), tolerance = 1e-8)
 })
 
+# A GUARDA DA CADEIA COM O DESLOCAMENTO. residual_diagnostics() de uma cadeia remonta o desenho
+# dos dados dados e confere W E[loc] contra o ajustado que a cadeia guardou, a 1e-8
+# max|ajustado|. Em 171b58a o E[b] ia na unidade do dado e voltava a escala padronizada no
+# motor, onde b0 + m b_x se cancela e perde eps |b0|: com idade + 1,7e12 (um carimbo de tempo
+# em ms) a cadeia recusava os proprios dados ("largest difference 3.27e-06"; 7,58e-7 com
+# + 1e11). O gibbs() guarda agora o E[b] padronizado (b_standardized, interno), que entra sem
+# volta, e a diferenca nos proprios dados e 0 (medido). A tolerancia nao muda: alarga-la pela
+# soma de |b| deixava passar rev(x) com x = idade * 1e-15 e x + 80 em 10% das linhas de 300
+# inclinacoes aninhadas. Como o E[b] entra na escala que os dados dados definem, a guarda nao
+# ve mais uma troca afim positiva da coluna inteira de uma covariavel (a x + c com a > 0), que
+# 171b58a recusava: o desenho padronizado e o mesmo, a cadeia desses dados seria a mesma a
+# menos do arredondamento, e o diagnostico e o deles. rev(x), x + 80 em parte das linhas e -x
+# continuam recusados.
+# 11 sorteios, impar: o sorteio representativo (o do efeito no relatorio) e o mais perto da
+# mediana da estatistica normal entre os sorteios, e com um numero impar a mediana e um deles.
+# Com 10 ela cai no meio dos dois do meio, a mesma distancia dos dois, e o ultimo bit decidia
+# o efeito
+cadeia_e4 <- function(dx, ped, f = y ~ cg + cov(age) + animal(id), chains = 1L) {
+  set.seed(3)
+  gibbs(f, dx, ped, n_iter = 300L, burnin = 50L, thin = 5L, theta_fixed = c(0.4, 0.6),
+        residual_draws = 11L, chains = chains, cores = 1L, verbose = FALSE)
+}
+diagnostico_e4 <- function(g, dx, ped) residual_diagnostics(g, dx, ped, nsim = 19L, seed = 1)
+recusa_e4 <- paste0("^the design rebuilt from the data given does not reproduce the fitted ",
+                    "values of the chain \\(largest difference [0-9.e+-]+\\): pass the data ",
+                    "of the chain$")
+
+test_that("E4-3: residual_diagnostics() takes a gibbs() chain with the offset, as the centred one", {
+  z <- dado_e4()
+  dd <- z$d
+  dd$age <- z$d$age + 1.7e12
+  g0 <- cadeia_e4(z$d, z$ped)
+  g <- cadeia_e4(dd, z$ped)
+  # o campo e o E[b] na escala do motor: a idade padronizada pelo dp das linhas usadas
+  expect_identical(names(g$b_standardized), names(g$b))
+  expect_equal(g$b[["age=age"]], g$b_standardized[["age=age"]] / stats::sd(dd$age),
+               tolerance = 1e-8)
+  r0 <- diagnostico_e4(g0, z$d, z$ped)
+  r <- diagnostico_e4(g, dd, z$ped)
+  # as estatisticas sao as do dado sem deslocamento (5e-14 medido; o efeito do koenker contra
+  # a idade, calculado com a idade na unidade do dado, 1,1e-11). O sorteio representativo e o
+  # mesmo nos dois, e o segundo mais perto da mediana fica a 3,6e-5 dela (com 10 sorteios a
+  # margem entre os dois do meio era 1e-16 sem deslocamento e 0 com ele)
+  expect_identical(r$tests[c("check", "against")], r0$tests[c("check", "against")])
+  expect_equal(r$tests$statistic, r0$tests$statistic, tolerance = 1e-6)
+  expect_equal(r$tests$effect, r0$tests$effect, tolerance = 1e-6)
+  expect_equal(r$random$animal$z, r0$random$animal$z, tolerance = 1e-6)
+  # a idade invertida, com o mesmo deslocamento, continua recusada (2,2 contra 1,2e-7)
+  dd$age <- rev(dd$age)
+  expect_error(diagnostico_e4(g, dd, z$ped), recusa_e4)
+})
+
+test_that("E4-3: the chain guard refuses a reversed covariate of tiny scale", {
+  z <- dado_e4()
+  dx <- z$d
+  dx$x <- z$d$age * 1e-15
+  g <- cadeia_e4(dx, z$ped, y ~ cg + cov(x) + animal(id))
+  # b_x na casa de 1e13 (1,16e13 medido): a tolerancia nao cresce com b
+  expect_gt(abs(g$b[["x=x"]]), 1e12)
+  expect_s3_class(diagnostico_e4(g, dx, z$ped), "breeding_residual_diagnostics")
+  dx$x <- rev(dx$x)
+  expect_error(diagnostico_e4(g, dx, z$ped), recusa_e4)
+})
+
+test_that("E4-3: 300 nested slopes at the offset: the chain takes its data and refuses a shift", {
+  s <- simulate_breeding(n_founders = 60, n_generations = 3, offspring_per_generation = 480,
+                         h2 = 0.4, seed = 21)
+  set.seed(4)
+  d <- s$data
+  d$grupo <- sprintf("G%03d", sample(rep_len(1:300, nrow(d))))
+  d$age <- round(stats::runif(nrow(d), 100, 300))
+  d$y <- d$y + 0.012 * (d$age - 200)
+  d$x <- d$age + 1.7e12
+  set.seed(3)
+  g <- gibbs(y ~ grupo + cov(x, nested = "grupo") + animal(id), d, s$pedigree, n_iter = 60L,
+             burnin = 10L, thin = 5L, theta_fixed = c(0.4, 0.6), residual_draws = 5L,
+             verbose = FALSE)
+  # medido: diferenca 0 nos proprios dados (1,19e-5 em 171b58a, recusada) e 3,9 com x + 80
+  # em 10% das linhas, contra a tolerancia de 1,4e-7
+  expect_s3_class(diagnostico_e4(g, d, s$pedigree), "breeding_residual_diagnostics")
+  muda <- sample(nrow(d), nrow(d) %/% 10L)
+  d$x[muda] <- d$x[muda] + 80
+  expect_error(diagnostico_e4(g, d, s$pedigree), recusa_e4)
+})
+
+test_that("E4-3: a chain without b_standardized (an older build) goes the old way", {
+  z <- dado_e4()
+  dd <- z$d
+  dd$age <- z$d$age + 1.7e12
+  g0 <- cadeia_e4(z$d, z$ped)
+  g <- cadeia_e4(dd, z$ped)
+  r0 <- diagnostico_e4(g0, z$d, z$ped)
+  g0$b_standardized <- NULL
+  g$b_standardized <- NULL
+  # sem deslocamento o caminho antigo diagnostica, com os mesmos testes; com ele recusa, com
+  # a mensagem de antes
+  expect_identical(diagnostico_e4(g0, z$d, z$ped)$tests, r0$tests)
+  expect_error(diagnostico_e4(g, dd, z$ped), recusa_e4)
+})
+
+test_that("E4-3: two chains with the offset pool b_standardized over the chains used", {
+  z <- dado_e4()
+  dd <- z$d
+  dd$age <- z$d$age + 1.7e12
+  # as cadeias como roda_cadeias() as devolve, antes de junta_cadeias()
+  brutas <- NULL
+  roda <- BreedingR:::roda_cadeias
+  g <- with_mocked_bindings(
+    cadeia_e4(dd, z$ped, chains = 2L),
+    roda_cadeias = function(cadeia, sementes, cores) {
+      brutas <<- roda(cadeia, sementes, cores)
+      brutas
+    }, .package = "BreedingR")
+  expect_identical(g$chains_used, 1:2)
+  expect_false(isTRUE(all.equal(brutas[[1]]$b_standardized, brutas[[2]]$b_standardized)))
+  expect_equal(g$b_standardized,
+               (brutas[[1]]$b_standardized + brutas[[2]]$b_standardized) / 2,
+               tolerance = 1e-12)
+  r <- diagnostico_e4(g, dd, z$ped)
+  expect_identical(r$draws, 22L)
+})
+
 test_that("E4-3: the threshold and survival fitters standardize the covariate too", {
   z <- dado_e4()
   m <- mean(z$d$age)

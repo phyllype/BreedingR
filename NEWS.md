@@ -1222,6 +1222,21 @@
   nested in herd, where the rank test drops more than one level of cg that has used
   records. A very large offset can still make such a fit fail as at 12aca18; fit cg
   before herd, or leave herd out.
+* `residual_diagnostics()` of a `gibbs()` chain whose covariate has a large offset no
+  longer refuses the chain's own data. With age + 1.7e12 (a timestamp in milliseconds) it
+  stopped with "the design rebuilt from the data given does not reproduce the fitted
+  values of the chain (largest difference 3.27e-06)"; with age + 1e11 the difference was
+  7.58e-07, against a tolerance of 1.21e-07, and 300 nested slopes,
+  `y ~ grupo + cov(x, nested = "grupo") + animal(id)` with x + 1.7e12, gave 1.19e-05. The
+  check took the posterior mean of `b` from the unit of the data back to the engine's
+  standardized scale, where the intercept and the covariate term cancel. The chain now
+  also keeps that mean on the engine's scale (`b_standardized`, pooled over the same
+  chains as `b`). On its own data the difference is now 0, and the statistics match those
+  of the data without the offset to 5e-14. The tolerance is unchanged, and the check
+  still refuses a reversed covariate (difference 2.22), a reversed covariate of scale
+  1e-15 (2.22) and 80 added to 10% of the rows of the 300 nested slopes (3.94). It no
+  longer sees a whole covariate column changed by `a x + c` with `a > 0`, which gives the
+  same standardized design. A chain made by an earlier version is checked as before.
 * When the censoring indicator of `model_survival()` or of `residuals()` of a survival
   fit, or the `event` of `survival_split()`, is a factor or text, it is read by its
   labels: "0" and "1", or "TRUE" and "FALSE", in any level order. The fit message says so.
