@@ -16,9 +16,11 @@ term reads it; for a group of \code{kernel()} terms, of iid terms, or of a term 
 declared \verb{k_inverse =} other than an \code{\link[=h_inverse]{h_inverse()}}, it may be omitted. A term fitted
 with \code{k_inverse = h_inverse(...)} or \verb{genotypes =} is a pedigree term and needs it}
 
-\item{group}{covariance group; by default the group of the first pedigree or genomic
-term, else of the first \code{kernel()} with an estimated variance, else the first group
-(the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}} and \code{\link[=h2]{h2()}})}
+\item{group}{covariance group; by default the group of the direct genetic term: the
+first pedigree, genomic or \code{kernel()} term with an estimated variance that is not
+\code{maternal()} or \code{indirect()} (pedigree before \code{kernel()}), else the first \code{maternal()}
+term, else the first group; the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}},
+\code{\link[=h2]{h2()}} and \code{\link[=h2_curve]{h2_curve()}}}
 
 \item{trait}{required in the multi-trait case (\code{model_mt()}, or \code{model_ar1()} with
 \code{cbind()}): accuracy is per trait, with the corresponding var(term@trait)}
@@ -98,10 +100,9 @@ components that includes a variance or covariance of the group, the PEV and the
 variance move together along that ridge and the accuracy of every level is returned as
 \code{NA}, with a warning naming the components; a fit with no estimates (theta \code{NA}, the
 start was inadmissible) gives \code{NA} too, saying so (it used to stop with "no component
-'var(animal)'"). A fit at given components (\code{maxiter = 0} with \code{n_em = 0}) is read at
-those components without a word. A PEV above the prior variance of its level beyond
-rounding gives
-accuracy 0 with a warning that counts those levels: the prior used is then not the one
+'var(animal)'"). A fit at given components (\verb{start =} with \code{maxiter = 0} and
+\code{n_em = 0}) is read at those components without a word. A PEV above the prior variance
+of its level beyond rounding gives accuracy 0 with a warning that counts those levels: the prior used is then not the one
 the level was fitted with, as for a non-genotyped animal of a single step (see above).
 }
 \references{

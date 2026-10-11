@@ -430,7 +430,9 @@ print.breeding_indirect_residual <- function(x, ...) {
 #'   must be the same values as the column named in the formula; a missing label (`NA`,
 #'   `NaN`, `Inf`, `-Inf`, blank text or the text "NaN") is refused with its row, as in a
 #'   level column of [model()]
-#' @return a square matrix, records by records, positive semi-definite
+#' @return a square matrix, records by records, positive semi-definite, with the attribute
+#'   `br_associative` holding `dilution`: [h2()] and [t2()] read a `kernel()` that carries
+#'   it as this residual structure and not as a relationship matrix
 #' @references Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:
 #'   quantitative genetics of inheritance and response to selection. Genetics 175:277-288.
 #'
@@ -482,5 +484,8 @@ associative_matrix <- function(pen, id, labels = NULL, dilution = 0) {
     # (n - 1)^(-d), e o bloco e o nao diluido vezes o quadrado do peso
     D[k, k] <- (if (n > 1) (n - 1)^(-2 * dilution) else 0) * (diag(length(k)) + (n - 2))
   }
+  # a marca com a diluicao: h2() e t2() reconhecem por ela o kernel() que e a covariancia
+  # residual associativa (com baias de 2, ou d = 0.5, a diagonal sozinha nao a distingue)
+  attr(D, "br_associative") <- dilution
   D
 }

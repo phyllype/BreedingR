@@ -275,8 +275,8 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   r$k_level_type <- tipos_kernels(terms, kern)
   # o que a escala de h2(), t2() e do share le: a diagonal media de cada K nos registros,
   # os kernels que sao a associative_matrix() do indirect() e o avo conhecido do sire(mgs =)
-  r <- anota_escala(r, terms, data)
-  r$components_given <- maxiter == 0
+  r <- anota_escala(r, terms, data, traits, missing_code)
+  r$components_given <- maxiter == 0 && !is.null(start)
   structure(anota_estrutura(r, notas), class = "breeding_fit_mt")
 }
 
@@ -457,7 +457,8 @@ rg <- function(fit, term = "animal", t1 = NULL, t2 = NULL) {
   nomes <- c(paste0("var(", term, "@", t1, ")"), paste0("var(", term, "@", t2, ")"),
              paste0("cov(", term, "@", t2, ",", term, "@", t1, ")"),
              paste0("cov(", term, "@", t1, ",", term, "@", t2, ")"))
-  if (estado_para_extrator(fit, "rg()", names(th), intersect(nomes, names(th))))
+  # rg() le so as tres componentes do termo: um conjunto fora delas nao lhe diz respeito
+  if (estado_para_extrator(fit, "rg()", intersect(nomes, names(th))))
     return(NA_real_)
   c12 / sqrt(v1 * v2)
 }

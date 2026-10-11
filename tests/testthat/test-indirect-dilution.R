@@ -408,10 +408,10 @@ test_that("associative_matrix(dilution = d) e o bloco que o Monte Carlo mede", {
   # e_i = eD_i + (n - 1)^(-d) sum_{j != i} eS_j. Para d = 0 tem de ser o bloco de antes,
   # I + (n - 2) J, bit a bit; para d > 0, esse bloco vezes (n - 1)^(-2d)
   A0 <- associative_matrix(rep("x", 5), letters[1:5])
-  expect_equal(unname(A0), unname(diag(5) + 3))
+  expect_equal(unname(A0), structure(diag(5) + 3, br_associative = 0))
   expect_identical(associative_matrix(rep("x", 5), letters[1:5], dilution = 0), A0)
   A1 <- associative_matrix(rep("x", 5), letters[1:5], dilution = 1)
-  expect_equal(unname(A1), unname((diag(5) + 3) / 16))
+  expect_equal(unname(A1), structure((diag(5) + 3) / 16, br_associative = 1))
   set.seed(1)
   R <- replicate(60000, { eS <- rnorm(5, sd = sqrt(0.4))
     rnorm(5) + (sum(eS) - eS) / 4 })
@@ -419,5 +419,6 @@ test_that("associative_matrix(dilution = d) e o bloco que o Monte Carlo mede", {
   expect_equal(mean(diag(C)), 1 + 0.4 * A1[1, 1], tolerance = 0.02)
   expect_equal(mean(C[upper.tri(C)]), 0.4 * A1[1, 2], tolerance = 0.1)
   # a baia de um animal nao tem companheiro: bloco zero para qualquer d, sem 0^negativo
-  expect_equal(unname(associative_matrix("x", "a", dilution = 2)), matrix(0, 1, 1))
+  expect_equal(unname(associative_matrix("x", "a", dilution = 2)),
+               structure(matrix(0, 1, 1), br_associative = 2))
 })

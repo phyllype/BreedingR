@@ -769,14 +769,10 @@ alvo_h2_gibbs <- function(nm, indireto, fit = NULL) {
     return(list(alvo = alvo, peso = as.double(den), mult = 1, fator = 1,
                 nome = paste0(nm[alvo], " / phenotypic")))
   }
-  cand <- NULL
-  for (e in c(2L, 3L)) {
-    cs <- direto_primeiro(Filter(function(t) t$estrutura == e && !isTRUE(t$social) &&
-                                   !variancia_dada(t) && paste0("var(", t$nome, ")") %in% nm,
-                                 termos))
-    if (length(cs)) { cand <- cs[[1]]; break }
-  }
-  if (is.null(cand)) return(NULL)
+  # o mesmo termo do grupo padrao dos extratores (candidatos_geneticos())
+  cs <- Filter(function(t) paste0("var(", t$nome, ")") %in% nm, candidatos_geneticos(fit))
+  if (!length(cs)) return(NULL)
+  cand <- cs[[1]]
   alvo <- match(paste0("var(", cand$nome, ")"), nm)
   m <- multiplicadores(list(theta = stats::setNames(rep(1, length(nm)), nm),
                             formula = fit$formula, metafounders = fit$metafounders,

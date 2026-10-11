@@ -27,7 +27,9 @@ becomes \verb{(n - 1)^(-2d) [I + (n - 2) J]}. Keep it equal to the formula's val
 a mismatch the residual describes a different model from the genetic side.}
 }
 \value{
-a square matrix, records by records, positive semi-definite
+a square matrix, records by records, positive semi-definite, with the attribute
+\code{br_associative} holding \code{dilution}: \code{\link[=h2]{h2()}} and \code{\link[=t2]{t2()}} read a \code{kernel()} that carries
+it as this residual structure and not as a relationship matrix
 }
 \description{
 Builds the known matrix \code{D} such that the residual covariance of the associative model

@@ -643,7 +643,7 @@ test_that("registros repetidos sem pe() avisam em todo ajustador que estima, e d
                                  "more than one record \\(2 records between them\\)"))
   # 1 de 341 registros repete um animal: o vies e pequeno, e o aviso pede para conferir
   # linhas duplicadas em vez de dizer que o h2 infla
-  expect_match(w1$avisos, "\\(0.3% of the records repeat an animal\\) moves h2 little: check that the rows are not duplicates")
+  expect_match(w1$avisos, "\\(0.29% of the records repeat an animal\\) moves h2 little: check that the rows are not duplicates")
   expect_false(grepl("inflates h2", w1$avisos))
 })
 
@@ -652,12 +652,15 @@ test_that("indirect() sem companheiro para em todo ajustador que estima, e avisa
   d1 <- z$d
   d1$pen <- paste0("solo", seq_len(nrow(d1)))
   msg <- "indirect term 'indirect': no record has a pen mate \\(every pen holds a single animal\\)"
-  expect_error(model(e6_fi, d1, z$ped, verbose = FALSE), msg)
-  expect_error(gibbs(e6_fi, d1, z$ped, n_iter = 50, burnin = 10, verbose = FALSE), msg)
+  # cada ajustador para com o proprio nome na frente
+  expect_error(model(e6_fi, d1, z$ped, verbose = FALSE), paste0("model\\(\\): ", msg))
+  expect_error(gibbs(e6_fi, d1, z$ped, n_iter = 50, burnin = 10, verbose = FALSE),
+               paste0("gibbs\\(\\): ", msg))
   expect_error(model_mt(cbind(y, b) ~ cg + animal(id, group = "g") +
                           indirect(id, pen = "pen", group = "g"), d1, z$ped, verbose = FALSE),
-               msg)
-  expect_error(model_ar1(e6_fi, d1, z$ped, subject = "id", time = "t", verbose = FALSE), msg)
+               paste0("model_mt\\(\\): ", msg))
+  expect_error(model_ar1(e6_fi, d1, z$ped, subject = "id", time = "t", verbose = FALSE),
+               paste0("model_ar1\\(\\): ", msg))
   expect_error(indirect_residual(e6_fi, d1, z$ped, verbose = FALSE), msg)
   expect_error(model_threshold(b ~ cg + animal(id, group = "g") +
                                  indirect(id, pen = "pen", group = "g"), d1, z$ped,
@@ -1059,14 +1062,36 @@ test_that("accuracy() avisa a PEV acima da priori no passo unico, no animal nao 
 
 test_that("nenhum teste usa o valor de expect_warning(), que muda entre versoes do testthat", {
   # o testthat 3.2.1 devolve a condicao e as versoes seguintes o valor; a Suggests aceita
-  # testthat >= 3.1.7. O padrao vai montado em pedacos para nao casar com este arquivo
-  padrao <- paste0("(<-|=)\\s*expect_", "(warning|message)\\(")
-  fs <- list.files(test_path(), "^(test|helper)-.*[.]R$", full.names = TRUE)
-  achados <- unlist(lapply(fs, function(f) {
-    i <- grep(padrao, readLines(f, warn = FALSE))
-    if (length(i)) paste0(basename(f), ":", i)
-  }))
-  expect_identical(achados, NULL)
+  # testthat >= 3.1.7. Pela arvore de cada arquivo: expect_warning() e expect_message() so
+  # podem ser instrucao, ou estar dentro de outro expect_* de condicao ou de suppress*()
+  alvo <- c("expect_warning", "expect_message")
+  livres <- c(alvo, "expect_error", "expect_condition", "suppressWarnings",
+              "suppressMessages", "invisible")
+  nome_de <- function(x) {
+    f <- x[[1]]
+    if (is.call(f) && identical(f[[1]], as.name("::"))) f <- f[[3]]
+    if (is.name(f)) as.character(f) else ""
+  }
+  achados <- character(0)
+  visita <- function(x, instrucao, onde) {
+    if (!is.call(x)) return(invisible(NULL))
+    nm <- nome_de(x)
+    if (nm %in% alvo && !instrucao) achados <<- c(achados, onde)
+    filhos <- as.list(x)[-1]
+    for (i in seq_along(filhos)) {
+      if (!is.call(filhos[[i]])) next
+      livre <- nm == "{" || nm %in% livres ||
+        (nm %in% c("if", "for", "while") && i > if (nm == "for") 2L else 1L) ||
+        (nm == "test_that" && i == 2L)
+      visita(filhos[[i]], livre, onde)
+    }
+  }
+  for (f in list.files(test_path(), "^(test|helper)-.*[.]R$", full.names = TRUE)) {
+    ex <- parse(f, keep.source = TRUE)
+    linhas <- utils::getSrcLocation(ex, "line")
+    for (k in seq_along(ex)) visita(ex[[k]], TRUE, paste0(basename(f), ":", linhas[k]))
+  }
+  expect_identical(unique(achados), character(0))
 })
 
 test_that("model_survival() com lambda dado avisa o termo dentro de um fixo, que so a referencia informa", {
@@ -1080,4 +1105,331 @@ test_that("model_survival() com lambda dado avisa o termo dentro de um fixo, que
   expect_error(model_survival(time ~ cg + sire(sire), z$d, z$ped, censor = "ev",
                               verbose = FALSE),
                "model_survival\\(\\): sire\\(sire\\) is nested in the fixed effect cg")
+})
+
+test_that("o grupo padrao e o efeito direto tambem com kernel() genomico e maternal() de pedigree", {
+  s <- simulate_breeding(n_founders = 40, n_generations = 3, offspring_per_generation = 80,
+                         n_markers = 500, seed = 31)
+  pd <- s$pedigree
+  d <- s$data
+  d$dam <- pd$dam[match(d$id, pd$id)]
+  d <- d[d$dam != "0", ]
+  G <- g_matrix(s$genotypes)
+  G <- G + diag(0.01, nrow(G))
+  d <- d[d$id %in% rownames(G), ]
+  fk <- model(y ~ cg + kernel(id, K = G, nome = "gen") + maternal(dam), d, pd,
+              start = c(0.3, 0.1, 0.6), maxiter = 0L, n_em = 0L, verbose = FALSE)
+  expect_identical(BreedingR:::grupo_padrao(fk), "gen")
+  expect_equal(h2(fk), 0.3, tolerance = 1e-12)
+  gk <- gibbs(y ~ cg + kernel(id, K = G, nome = "gen") + maternal(dam), d, pd,
+              theta_fixed = c(0.3, 0.1, 0.6), n_iter = 20, burnin = 2, thin = 1, verbose = FALSE)
+  expect_identical(summary(gk)$h2$ratio, "var(gen) / phenotypic")
+  # dois kernel(): o de variancia dada nao e o grupo, mesmo escrito primeiro
+  d$rec <- paste0("r", seq_len(nrow(d)))
+  Ke <- diag(stats::runif(nrow(d), 0.1, 0.5))
+  dimnames(Ke) <- list(d$rec, d$rec)
+  f2 <- model(y ~ cg + kernel(rec, K = Ke, fixed = 1, nome = "erro") +
+                kernel(id, K = G, nome = "gen"), d, start = c(1, 0.3, 0.6), maxiter = 0L,
+              n_em = 0L, verbose = FALSE)
+  expect_identical(BreedingR:::grupo_padrao(f2), "gen")
+})
+
+test_that("t2() e h2(n =) leem o mesmo direto com maternal() no grupo do indirect(), em qualquer ordem", {
+  z <- e6_baias()
+  d <- z$d
+  d$dam <- z$ped$dam[match(d$id, z$ped$id)]
+  d <- d[d$dam != "0", ]
+  # os componentes pelo nome, em qualquer ordem da formula
+  comp <- c("var(maternal)" = 0.1, "var(animal)" = 0.3, "var(indirect)" = 0.05,
+            "var(residual)" = 0.6, "maternal,animal" = 0.02, "indirect,animal" = 0.03,
+            "indirect,maternal" = 0.01)
+  partida <- function(fo) vapply(names(model(fo, d, z$ped, maxiter = 0L, n_em = 0L,
+                                             verbose = FALSE)$theta), function(nm) {
+    if (nm %in% names(comp)) return(comp[[nm]])
+    ab <- strsplit(sub("^cov\\((.*)\\)$", "\\1", nm), ",", fixed = TRUE)[[1]]
+    k <- c(paste(ab, collapse = ","), paste(rev(ab), collapse = ","))
+    comp[[k[k %in% names(comp)][1]]]
+  }, numeric(1), USE.NAMES = FALSE)
+  fom <- y ~ cg + maternal(dam, group = "g") + animal(id, group = "g") +
+    indirect(id, pen = "pen", group = "g")
+  fm <- model(fom, d, z$ped, start = partida(fom), maxiter = 0L, n_em = 0L, verbose = FALSE)
+  # a mesma verossimilhanca escrita na outra ordem: os mesmos componentes pelo nome (uma
+  # covariancia pode vir com os termos na outra ordem)
+  fo <- y ~ cg + animal(id, group = "g") + maternal(dam, group = "g") +
+    indirect(id, pen = "pen", group = "g")
+  fa <- model(fo, d, z$ped, start = partida(fo), maxiter = 0L, n_em = 0L, verbose = FALSE)
+  expect_true(fm$components_given && fa$components_given)
+  expect_equal(fa$neg2logl, fm$neg2logl, tolerance = 1e-8)
+  for (f in list(fm, fa)) {
+    expect_equal(t2(f, n = 4)$h2_direct, h2(f, n = 4), tolerance = 1e-12)
+  }
+  expect_equal(t2(fm, n = 4, r = 0.5)$var_tbv, t2(fa, n = 4, r = 0.5)$var_tbv, tolerance = 1e-12)
+  expect_equal(h2(fm, n = 4, r = 0.5), h2(fa, n = 4, r = 0.5), tolerance = 1e-12)
+  # um grupo com o nome de um dos termos e o grupo, e o h2 e o do direto
+  fg <- model(y ~ cg + maternal(dam, group = "maternal") + animal(id, group = "maternal"), d,
+              z$ped, start = c(0.1, 0, 0.3, 0.6), maxiter = 0L, n_em = 0L, verbose = FALSE)
+  expect_equal(h2(fg), fg$theta[["var(animal)"]] / sum(fg$theta[c("var(maternal)",
+                                                                    "var(animal)",
+                                                                    "var(residual)")]),
+               tolerance = 1e-12)
+})
+
+test_that("so a associative_matrix() e lida como residuo associativo, mesmo com baias de 2", {
+  z <- e6_baias()
+  d <- z$d
+  d$pen <- sprintf("q%03d", rep(seq_len(nrow(d) / 2), each = 2))
+  d$dam <- z$ped$dam[match(d$id, z$ped$id)]
+  d <- d[d$dam != "0", ]
+  d <- d[d$pen %in% names(which(table(d$pen) == 2)), ]
+  I <- diag(length(unique(d$dam)))
+  dimnames(I) <- list(unique(d$dam), unique(d$dam))
+  f <- model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "pen", group = "g") +
+               kernel(dam, K = I, nome = "litter"), d, z$ped,
+             start = c(0.3, 0, 0.05, 0.1, 0.6), maxiter = 0L, n_em = 0L, verbose = FALSE)
+  expect_null(f$k_associative)
+  expect_equal(t2(f, n = c(2, 5))$var_p, 0.3 + c(1, 4) * 0.05 + 0.1 + 0.6, tolerance = 1e-12)
+  # a associative_matrix() de baias de 2 traz a marca e e lida
+  d$rec <- paste0("r", seq_len(nrow(d)))
+  D <- associative_matrix(d$pen, d$id, d$rec)
+  fd <- model(y ~ cg + animal(id, group = "g") + indirect(id, pen = "pen", group = "g") +
+                kernel(rec, K = D, nome = "es"), d, z$ped,
+              start = c(0.3, 0, 0.05, 0.1, 0.6), maxiter = 0L, n_em = 0L, verbose = FALSE)
+  expect_equal(fd$k_associative, c(es = 0))
+  expect_equal(t2(fd, n = c(2, 5))$var_p, 0.3 + c(1, 4) * 0.05 + c(1, 4) * 0.1 + 0.6,
+               tolerance = 1e-12)
+})
+
+test_that("sire(mgs =) no multicaracter: a fracao de avo conhecido e a dos registros de cada traco", {
+  set.seed(3)
+  id <- sprintf("t%03d", 1:50)
+  s <- k <- rep("0", 50)
+  for (i in 11:50) {
+    s[i] <- id[sample(seq_len(i - 1), 1)]
+    k[i] <- if (stats::runif(1) < 0.8) id[sample(seq_len(i - 1), 1)] else "0"
+  }
+  ped <- sire_mgs(data.frame(id = id, sire = s, mgs = k, stringsAsFactors = FALSE))
+  dm <- data.frame(sire = sample(id[5:50], 400, TRUE),
+                   mgs = ifelse(stats::runif(400) < 0.5, sample(id[1:40], 400, TRUE), "0"),
+                   herd = sample(c("h1", "h2", "h3"), 400, TRUE), y1 = stats::rnorm(400, 10),
+                   stringsAsFactors = FALSE)
+  dm$y2 <- ifelse(dm$mgs != "0", stats::rnorm(400, 10), NA)
+  fm <- model_mt(cbind(y1, y2) ~ herd + sire(sire, mgs = "mgs"), dm, ped,
+                 start = c(0.3, 0, 0.3, 1.2, 0, 1.2), maxiter = 0L, verbose = FALSE)
+  f2 <- model(y2 ~ herd + sire(sire, mgs = "mgs"), dm, ped, start = c(0.3, 1.2), maxiter = 0L,
+              n_em = 0L, verbose = FALSE)
+  expect_equal(f2$mgs_known[["sire"]], 1)
+  expect_equal(unname(fm$mgs_known[c("sire@y1", "sire@y2")]), c(mean(dm$mgs != "0"), 1))
+  expect_equal(h2(fm)[["y2"]], h2(f2), tolerance = 1e-12)
+  # os registros sem observacao ficam fora da fracao (no univariado tambem)
+  f1 <- model(y2 ~ herd + sire(sire, mgs = "mgs"), transform(dm, y2 = ifelse(is.na(y2), y1, y2)),
+              ped, start = c(0.3, 1.2), maxiter = 0L, n_em = 0L, verbose = FALSE)
+  expect_equal(f1$mgs_known[["sire"]], mean(dm$mgs != "0"))
+  # sem nenhum avo conhecido, a nota nao diz que os shares somam menos que 1
+  f0 <- model(y1 ~ herd + sire(sire, mgs = "mgs"), transform(dm, mgs = "0"), ped,
+              start = c(0.3, 1.2), maxiter = 0L, n_em = 0L, verbose = FALSE)
+  nota <- paste(utils::capture.output(print(f0)), collapse = " ")
+  expect_match(nota, "no record of the trait has a known maternal grandsire")
+  expect_false(grepl("add up to less than 1", nota))
+})
+
+test_that("o peso harmonico medio e o dos registros que entraram, e nao de todas as linhas", {
+  s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 50,
+                         seed = 3)
+  d <- s$data
+  set.seed(5)
+  d$w <- stats::runif(nrow(d), 0.2, 1)
+  d$y[1:40] <- NA
+  d$w[1:40] <- 0.001
+  f <- model(y ~ cg + animal(id), d, s$pedigree, weights = "w", start = c(0.3, 0.6),
+             maxiter = 0L, n_em = 0L, verbose = FALSE)
+  expect_equal(h2(f), 0.3 / (0.3 + 0.6 * mean(1 / d$w[-(1:40)])), tolerance = 1e-12)
+})
+
+test_that("o aviso de rotulo reaproveitado nao le um cg de lote x sexo nem a semana de nascimento", {
+  fl <- function(f) stats::as.formula(paste0("y ~ ", f, " + animal(id, group = \"g\") + ",
+                                             "indirect(id, pen = \"pen\", group = \"g\")"))
+  reaproveita <- function(f, d) any(grepl("reused label", e6_notas(fl(f), d)))
+  # baias de rotulo unico que misturam os sexos, cg = lote x sexo (o desenho comum)
+  for (b in c(8, 10, 20)) for (sd in 1:3) {
+    set.seed(sd)
+    n <- 1200 - 1200 %% b
+    p <- rep(seq_len(n / b), each = b)
+    dx <- data.frame(id = paste0("a", 1:n), pen = paste0("p", p),
+                     lote = paste0("L", (p - 1) %/% (max(p) %/% 4 + 1)),
+                     sexo = sample(c("M", "F"), n, TRUE), y = 0, stringsAsFactors = FALSE)
+    dx$cg <- paste(dx$lote, dx$sexo)
+    expect_false(reaproveita("cg", dx), label = paste("cg lote x sexo, baias de", b, sd))
+    expect_false(reaproveita("sexo + cg", dx), label = paste("sexo + cg, baias de", b, sd))
+  }
+  # baias de 20 cheias pela ordem de nascimento, semana de nascimento como efeito fixo
+  for (sd in 1:3) {
+    set.seed(sd)
+    n <- 800
+    dw <- data.frame(id = paste0("a", 1:n), pen = paste0("p", (seq_len(n) - 1) %/% 20),
+                     semana = paste0("w", cumsum(stats::rbinom(n, 1, 1 / 80))), y = 0,
+                     stringsAsFactors = FALSE)
+    expect_false(reaproveita("semana", dw), label = paste("semana, semente", sd))
+  }
+})
+
+test_that("dois lotes so sao lidos pelo efeito aninhado neles, e o aviso nomeia o lote", {
+  fl <- function(f) stats::as.formula(paste0("y ~ ", f, " + animal(id, group = \"g\") + ",
+                                             "indirect(id, pen = \"pen\", group = \"g\")"))
+  lido <- function(f, d, col)
+    any(grepl(paste0("more than one level of the fixed effect ", col, " split"),
+              e6_notas(fl(f), d)))
+  # dois lotes de 50 baias de 2, rotulos recomecando em cada lote, um cg de grupo aninhado
+  d <- data.frame(id = paste0("a", 1:200), lote = rep(c("A", "B"), each = 100),
+                  pen = paste0("p", rep(rep(1:50, each = 2), 2)), y = 0,
+                  stringsAsFactors = FALSE)
+  d$cg <- paste0(d$lote, (as.integer(sub("p", "", d$pen)) - 1) %/% 5)
+  expect_true(lido("lote + cg", d, "lote"))
+  # sem nada aninhado, dois lotes nao sao lidos (nao se distinguem do sexo balanceado)
+  expect_false(lido("lote", d, "lote"))
+  # o periodo de teste dentro do lote, todo animal nos dois: o cg e do registro e nao e
+  # lido, e so o lote, pelo cg aninhado nele, acha a fusao
+  d2 <- rbind(d, d)
+  d2$cg <- paste0(d2$lote, "_t", rep(1:2, each = nrow(d)))
+  expect_true(lido("lote + cg + pe(id)", d2, "lote"))
+  expect_false(lido("lote + cg + pe(id)", d2, "cg"))
+})
+
+test_that("so um kernel() de K diagonal e variancia estimada cala o aviso de repeticao", {
+  z <- e6_repetidos()
+  ids <- z$ped$id
+  # uma K de parentesco (aqui a A) deixa a covariancia de ambiente nos termos geneticos
+  A <- a_tabular(z$ped)
+  wA <- e6_avisos(model(y ~ cg + animal(id) + kernel(id, K = A), z$d, z$ped, maxiter = 1L,
+                        verbose = FALSE))
+  expect_true(any(grepl("have more than one record", wA$avisos)))
+  # um kernel(fixed =) nao estima nada
+  I <- diag(length(ids))
+  dimnames(I) <- list(ids, ids)
+  wF <- e6_avisos(model(y ~ cg + animal(id) + kernel(id, K = I, fixed = 0.01), z$d, z$ped,
+                        maxiter = 1L, verbose = FALSE))
+  expect_true(any(grepl("have more than one record", wF$avisos)))
+  # e uns 3% de registros repetidos ja dizem que o h2 infla (a fronteira e 1%)
+  d1 <- z$d[!duplicated(z$d$id), ]
+  w3 <- e6_avisos(model(y ~ cg + animal(id), rbind(d1, d1[1:10, ]), z$ped, maxiter = 1L,
+                        verbose = FALSE))
+  expect_match(w3$avisos, "inflates h2")
+  expect_false(grepl("moves h2 little", w3$avisos))
+})
+
+test_that("model_survival() com lambda dado e um termo de um nivel so nao fala de absorcao", {
+  z <- e6_pai_por_cg()
+  d <- z$d
+  d$um <- "L1"
+  w <- e6_avisos(model_survival(time ~ cg + random(um), d, censor = "ev", lambda = 0.02,
+                                rho = 1, verbose = FALSE))
+  # o termo de um nivel so e lido como aninhado no cg fora da referencia, e nunca como
+  # absorvido por um intercepto que este modelo nao tem
+  expect_false(any(grepl("intercept absorbs", w$avisos)))
+})
+
+test_that("o estado do ajuste: pe e residuo sem repeticao nao tornam os EBV arbitrarios", {
+  s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 50,
+                         h2 = 0.4, seed = 3)
+  f <- model(y ~ cg + animal(id) + pe(id), s$data, s$pedigree, verbose = FALSE)
+  skip_if_not(length(BreedingR:::componentes_singulares(f)) > 0L,
+              "o ajuste nao deu o veredito SINGULAR nesta plataforma")
+  so <- e6_avisos(solutions(f, s$pedigree))
+  expect_false(any(grepl("arbitrary point", so$avisos)))
+  expect_true(any(grepl("only through a combination the ridge leaves unchanged", so$avisos)))
+  expect_false(anyNA(so$valor$acc[so$valor$term %in% c(NA, "animal")]))
+  a <- e6_avisos(accuracy(f, s$pedigree))
+  expect_false(anyNA(a$valor))
+  expect_true(any(grepl("only through the prediction error variance", a$avisos)))
+  h <- e6_avisos(h2(f))
+  expect_false(is.na(h$valor))
+  expect_true(any(grepl("only through the phenotypic variance", h$avisos)))
+})
+
+test_that("maxiter = 0 sem start = nao sao componentes dados; com start = sao", {
+  s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 50,
+                         seed = 3)
+  d <- s$data
+  d$y2 <- d$y + stats::rnorm(nrow(d))
+  f0 <- model(y ~ cg + animal(id), d, s$pedigree, maxiter = 0L, n_em = 0L, verbose = FALSE)
+  expect_false(f0$components_given)
+  expect_warning(h2(f0), "did not converge", class = "breedingr_estado")
+  f1 <- model(y ~ cg + animal(id), d, s$pedigree, start = c(0.4, 0.6), maxiter = 0L,
+              n_em = 0L, verbose = FALSE)
+  expect_true(f1$components_given)
+  expect_silent(h2(f1))
+  fm0 <- model_mt(cbind(y, y2) ~ cg + animal(id), d, s$pedigree, maxiter = 0L, verbose = FALSE)
+  expect_false(fm0$components_given)
+  fm1 <- model_mt(cbind(y, y2) ~ cg + animal(id), d, s$pedigree,
+                  start = c(0.4, 0.1, 0.4, 0.6, 0.1, 1.6), maxiter = 0L, verbose = FALSE)
+  expect_true(fm1$components_given)
+  expect_silent(rg(fm1))
+  expect_silent(h2(fm1))
+  fa1 <- model_ar1(y ~ cg + animal(id), transform(d, t = 1L), s$pedigree, subject = "id",
+                   time = "t", start = c(0.4, 0.6, 0.3), maxiter = 0L, verbose = FALSE)
+  expect_true(fa1$components_given)
+})
+
+test_that("o veredito SINGULAR: conjuntos repetidos saem uma vez, e o h2 multicaracter avisa uma vez", {
+  fit <- list(message = paste0("SINGULAR: the data do not separate var(a), var(b); and ",
+                               "var(c), var(d); and var(b), var(a). Along that direction"))
+  expect_length(BreedingR:::componentes_singulares(fit), 2L)
+  s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 50,
+                         seed = 3)
+  d <- s$data[1:30, ]
+  d$y2 <- d$y + stats::rnorm(30)
+  fm <- suppressWarnings(model_mt(cbind(y, y2) ~ cg + animal(id), d, s$pedigree,
+                                  verbose = FALSE))
+  skip_if_not(length(BreedingR:::componentes_singulares(fm)) > 0L,
+              "o ajuste nao deu o veredito SINGULAR nesta plataforma")
+  h <- e6_avisos(h2(fm))
+  expect_identical(anyDuplicated(h$avisos), 0L)
+  # rg() so le as tres componentes do termo animal
+  expect_true(is.na(suppressWarnings(rg(fm))))
+  # t2() de um ajuste sem estimativas diz isso
+  z <- e6_baias()
+  fi <- model(e6_fi, z$d, z$ped, start = c(0.3, 0.02, 0.05, 0.6), maxiter = 0L, n_em = 0L,
+              verbose = FALSE)
+  fi$theta[] <- NA_real_
+  expect_warning(t2(fi, n = 4), "this fit has no estimates", class = "breedingr_estado")
+})
+
+test_that("a varredura de rotulo ausente guarda o resultado de cada coluna, e nao o da primeira", {
+  z <- e6_pai_por_cg()
+  d <- z$d
+  # uma coluna fixa com um rotulo ausente antes do cg que absorve o pai: ela sai da
+  # conferencia, e o cg ainda e lido
+  d$lote <- rep(c("l1", "l2"), 100)
+  d$lote[1] <- NA
+  f1 <- y ~ lote + cg + sire(sire)
+  expect_error(e6_notas(f1, d), "sire\\(sire\\) is nested in the fixed effect cg")
+  # o inverso: a primeira coluna completa nao torna completa a do termo com rotulo ausente
+  # (o termo sai da conferencia, e o motor da o erro do rotulo)
+  d2 <- z$d
+  d2$sire[d2$sire == "S1"] <- NA
+  expect_silent(e6_notas(f1, transform(d2, lote = rep(c("l1", "l2"), 100))))
+})
+
+test_that("h2_curve() le o grupo do direto e o residuo no peso harmonico medio", {
+  z <- e6_repetidos()
+  d <- z$d
+  set.seed(2)
+  d$x <- stats::runif(nrow(d), -1, 1)
+  d$phi0 <- 1
+  d$phi1 <- d$x
+  d$w <- stats::runif(nrow(d), 0.2, 1)
+  f <- suppressWarnings(model(y ~ cg + pe(id, base = c("phi0", "phi1")) +
+                                rn(id, base = c("phi0", "phi1")), d, z$ped, weights = "w",
+                              maxiter = 3L, verbose = FALSE))
+  cv <- suppressWarnings(h2_curve(f, limits = c(-1, 1), points = 5L))
+  expect_identical(cv, suppressWarnings(h2_curve(f, group = "rn", limits = c(-1, 1),
+                                                 points = 5L)))
+  # pesos 10 w: o mesmo ajuste, a mesma curva
+  f10 <- suppressWarnings(model(y ~ cg + pe(id, base = c("phi0", "phi1")) +
+                                  rn(id, base = c("phi0", "phi1")), transform(d, w = 10 * w),
+                                z$ped, weights = "w",
+                                start = unname(f$theta * ifelse(names(f$theta) ==
+                                                                  "var(residual)", 10, 1)),
+                                maxiter = 0L, n_em = 0L, verbose = FALSE))
+  expect_equal(suppressWarnings(h2_curve(f10, limits = c(-1, 1), points = 5L))$h2, cv$h2,
+               tolerance = 1e-8)
 })

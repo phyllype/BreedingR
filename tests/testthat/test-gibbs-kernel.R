@@ -76,10 +76,11 @@ test_that("gibbs(): kernel(fixed =) prende o componente e amostra o resto", {
   niv <- unique(z$d$id)
   V <- diag(runif(length(niv), 0.5, 1.5)); dimnames(V) <- list(niv, niv)
   set.seed(2)
-  # fixture_gk() tem varios registros por animal: o kernel() na coluna do animal os agrupa
-  # como um pe(), e o aviso de repeticao nao sai
-  g <- gibbs(y ~ cg + animal(id) + kernel(id, K = V, fixed = 0.3), z$d, z$ped,
-             n_iter = 80L, burnin = 5L, thin = 1L, verbose = FALSE)
+  # fixture_gk() tem varios registros por animal sem pe(): o kernel(fixed =) nao estima
+  # nada, e o aviso de repeticao sai
+  expect_warning(g <- gibbs(y ~ cg + animal(id) + kernel(id, K = V, fixed = 0.3), z$d, z$ped,
+                            n_iter = 80L, burnin = 5L, thin = 1L, verbose = FALSE),
+                 "have more than one record", class = "breedingr_estrutura")
   k <- grep("^var\\(kernel", colnames(g$samples))
   expect_true(all(g$samples[, k] == 0.3))
   expect_gt(stats::sd(g$samples[, "var(animal)"]), 0)

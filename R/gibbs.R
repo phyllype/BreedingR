@@ -17,7 +17,7 @@
 #' design that does not identify a component stops the chain unless `theta_fixed =` gives
 #' the components (a random term inside a fixed effect leaves the chain walking the prior
 #' of that variance), and the warnings go to `message`. The h2 row of `summary()` and of
-#' [mcmc_diagnostics()] follows the rule of [h2()]: the first pedigree or genomic term,
+#' [mcmc_diagnostics()] follows the rule of [h2()]: the direct genetic term,
 #' `4 var(sire)` in a sire model, the components as estimated (the base of Gamma with
 #' metafounders), a `kernel(fixed =)` or an [associative_matrix()] at its mean diagonal over
 #' the records and the grandsire part of `sire(mgs =)` in the denominator; with only `pe()`
@@ -352,7 +352,7 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # registros com avo conhecido de cada sire(mgs =). O h2 do summary() e dos derivados de
   # mcmc_diagnostics() segue a regra de h2(); antes o kernel(fixed =) entrava com
   # coeficiente 1 so aqui, porque o gibbs() nao guardava a diagonal
-  obs <- !observacao_ausente(data[[trait]], missing_code)
+  obs <- !observacao_ausente(data[[trait]], missing_code) & linhas_do_kernel(terms, kern, data)
   r <- anota_escala(c(r, list(k_prior = priori_kernels(terms, kern), used = obs)), terms, data)
   r$used <- NULL
   r <- structure(anota_estrutura(r, notas), class = "breeding_gibbs")

@@ -179,7 +179,7 @@ The structure checks of \code{\link[=model]{model()}} (see its section "Structur
 design that does not identify a component stops the chain unless \verb{theta_fixed =} gives
 the components (a random term inside a fixed effect leaves the chain walking the prior
 of that variance), and the warnings go to \code{message}. The h2 row of \code{summary()} and of
-\code{\link[=mcmc_diagnostics]{mcmc_diagnostics()}} follows the rule of \code{\link[=h2]{h2()}}: the first pedigree or genomic term,
+\code{\link[=mcmc_diagnostics]{mcmc_diagnostics()}} follows the rule of \code{\link[=h2]{h2()}}: the direct genetic term,
 \verb{4 var(sire)} in a sire model, the components as estimated (the base of Gamma with
 metafounders), a \code{kernel(fixed =)} or an \code{\link[=associative_matrix]{associative_matrix()}} at its mean diagonal over
 the records and the grandsire part of \code{sire(mgs =)} in the denominator; with only \code{pe()}

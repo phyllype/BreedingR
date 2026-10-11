@@ -256,7 +256,10 @@ failure, so a good animal has a negative solution.
 The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here, but
 for the warning about repeated records: the pieces of one animal are not repeated
 records. Without \verb{sigma2 =} a design that does not identify a frailty component stops,
-with it the design is a warning.
+with it the design is a warning. With \code{lambda} given there is no intercept and the first
+level of each fixed class effect is held at the baseline: a frailty term nested in a
+fixed effect is then informed by the records of that reference level alone, and the fit
+goes on with a warning that says so.
 }
 \examples{
 # Example 16.1 of Mrode & Pocrnic (data on p.284, solutions on p.291): length of

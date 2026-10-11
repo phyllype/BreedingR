@@ -47,7 +47,9 @@ ARGS_MARCADOR <- local({
 #'   since the fixed effects are per trait. A `kernel(fixed = )` term, whose variance is
 #'   given, is not checked. The check takes one fixed effect at a time; a confounding by a
 #'   combination of fixed effects is left to the SINGULAR verdict of the fit (see [h2()]
-#'   for how the extractors read it);
+#'   for how the extractors read it). [model_survival()] with `lambda` given warns instead:
+#'   the first level of the fixed effect is held at the baseline, and its records alone
+#'   inform the variance;
 #' * `indirect()` with every pen of one animal (the indirect incidence is all zero), with
 #'   all the records in one pen, or with the pen (or anything finer) as a fixed effect: the
 #'   fixed part absorbs the sum of each pen, and what is left of the indirect incidence of
@@ -69,7 +71,8 @@ ARGS_MARCADOR <- local({
 #'
 #' The fit goes on with a warning, also written in `message`, when:
 #' * an `animal()` term has repeated records of some animal and no `pe()`, `random()` or
-#'   `kernel()` reads the same column, or a column that groups the records the same way
+#'   `kernel()` with a diagonal K and an estimated variance reads the same column, or a
+#'   column that groups the records the same way
 #'   (nor, in [model_ar1()], is the animal the `subject`): the permanent-environment
 #'   covariance between records of the same animal goes into the additive variance and
 #'   inflates h2, by more the larger the share of repeated records. The warning counts the repeated animals and their
@@ -92,13 +95,22 @@ ARGS_MARCADOR <- local({
 #'   among the pens with mates, or another fixed class effect with more levels is nested in
 #'   it (the contemporary group within the batch). A two-level effect of the animal, such
 #'   as sex, is not read (unless a fixed class effect is nested in it), whether it is drawn
-#'   at random within the pens or balanced by design in every pen. The data cannot tell merged pens from pens that truly mix levels when the groups
-#'   are large, or when two batches have nothing nested in them: two batches of merged pens
-#'   then look like pens balanced for a two-level effect and are not read, and batches of
-#'   pens of 5 merged by label are not detected unless a contemporary group is nested in
-#'   the batch. Merged pens of 2 or 3 animals over three or more batches, with some tens of
-#'   labels, are detected. `options(BreedingR.warn_pen_labels = FALSE)`
-#'   silences this check;
+#'   at random within the pens or balanced by design in every pen. The data cannot tell
+#'   merged pens from pens that truly mix levels when the groups are large, or when two
+#'   batches have nothing nested in them: two batches of merged pens then look like pens
+#'   balanced for a two-level effect and are not read. A contemporary group nested in the
+#'   batch makes merged pens of 2 or 3 animals over two batches detectable; merged pens of
+#'   5 or more are not detected, since they look the same as a contemporary group that
+#'   includes sex in pens that mix the sexes. Merged pens of 2 or 3 animals over three or more batches, with 30 or more
+#'   labels and every animal present, are detected; animals missing from the data leave
+#'   groups of one and can hide the merging of pens of 2. An effect of three or more levels
+#'   is read only when its levels meet in the mixed pens the way merged batches do (most
+#'   pairs of levels share some pen): a contemporary group defined within sex in pens that
+#'   mix the sexes (the sexes of one batch meet, never two batches) and a birth-week group
+#'   in pens filled in birth order (neighbouring weeks meet) are not read. An effect of the
+#'   animal with three or more levels balanced in every pen (three sex classes in equal
+#'   numbers) does look like merged pens and is reported. `options(BreedingR.warn_pen_labels
+#'   = FALSE)` silences this check;
 #' * a `pe()` or `random()` term has fewer than 5 levels among the records: its variance
 #'   comes from that many levels and is barely determined, and labels that number
 #'   something inside another unit (the parity within each dam used as the litter) merge
@@ -504,7 +516,8 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # os kernels que sao a associative_matrix() do indirect() e o avo conhecido do sire(mgs =)
   r <- anota_escala(r, terms, data)
   # maxiter = 0 avalia o ponto pedido: os extratores o leem sem aviso de convergencia
-  r$components_given <- maxiter == 0 && n_em == 0
+  # sem start = o ponto e a partida padrao, e nao componentes que o usuario deu
+  r$components_given <- maxiter == 0 && n_em == 0 && !is.null(start)
   structure(anota_estrutura(r, notas), class = "breeding_fit")
 }
 
@@ -1265,7 +1278,8 @@ tabela_componentes <- function(theta, se, indireto = FALSE, sem_share = NULL, fi
   nm <- names(theta)
   est <- unname(theta)
   mult <- if (is.null(fit)) rep(1, length(est)) else unname(multiplicadores(fit))
-  nota_esc <- if (!is.null(fit) && is.null(sem_share)) nota_escala(fit)
+  nota_esc <- if (!is.null(fit) && is.null(sem_share) && !any(grepl("\\[\\d+\\]", nm)))
+    nota_escala(fit)
   membros <- lapply(nm, function(s) strsplit(sub("^(var|cov)\\((.*)\\)$", "\\2", s), ",", fixed = TRUE)[[1]])
   traco <- function(m) if (grepl("@", m, fixed = TRUE)) sub(".*@", "", m) else ""
   tr <- vapply(membros, function(m) {
@@ -1408,9 +1422,11 @@ mostra_fixos <- function(b, dropped, nota = "implicit intercept") {
 #' "level|trait"; use `trait=` to slice out one trait.
 #' @param fit result of model(), model_mt(), model_ar1(), model_threshold(),
 #'   model_survival() or snp_blup()
-#' @param group covariance group; by default the group of the first pedigree or genomic
-#'   term, else of the first `kernel()` with an estimated variance, else the first group
-#'   (the same default in [ebv()], [solutions()], [accuracy()] and [h2()])
+#' @param group covariance group; by default the group of the direct genetic term: the
+#'   first pedigree, genomic or `kernel()` term with an estimated variance that is not
+#'   `maternal()` or `indirect()` (pedigree before `kernel()`), else the first `maternal()`
+#'   term, else the first group; the same default in [ebv()], [solutions()], [accuracy()],
+#'   [h2()] and [h2_curve()]
 #' @param trait multi-trait only: which trait to slice out; all of them if omitted
 #' @export
 ebv <- function(fit, group = NULL, trait = NULL) {
@@ -1544,10 +1560,9 @@ print.summary.breeding_fit <- function(x, ...) {
 #' variance move together along that ridge and the accuracy of every level is returned as
 #' `NA`, with a warning naming the components; a fit with no estimates (theta `NA`, the
 #' start was inadmissible) gives `NA` too, saying so (it used to stop with "no component
-#' 'var(animal)'"). A fit at given components (`maxiter = 0` with `n_em = 0`) is read at
-#' those components without a word. A PEV above the prior variance of its level beyond
-#' rounding gives
-#' accuracy 0 with a warning that counts those levels: the prior used is then not the one
+#' 'var(animal)'"). A fit at given components (`start =` with `maxiter = 0` and
+#' `n_em = 0`) is read at those components without a word. A PEV above the prior variance
+#' of its level beyond rounding gives accuracy 0 with a warning that counts those levels: the prior used is then not the one
 #' the level was fitted with, as for a non-genotyped animal of a single step (see above).
 #' @param fit result of model(), model_mt(), model_ar1(), model_threshold() or
 #'   model_survival() (log-hazard scale, from the Laplace PEV of the frailty)
@@ -1556,9 +1571,11 @@ print.summary.breeding_fit <- function(x, ...) {
 #'   term reads it; for a group of `kernel()` terms, of iid terms, or of a term given a
 #'   declared `k_inverse =` other than an [h_inverse()], it may be omitted. A term fitted
 #'   with `k_inverse = h_inverse(...)` or `genotypes =` is a pedigree term and needs it
-#' @param group covariance group; by default the group of the first pedigree or genomic
-#'   term, else of the first `kernel()` with an estimated variance, else the first group
-#'   (the same default in [ebv()], [solutions()], [accuracy()] and [h2()])
+#' @param group covariance group; by default the group of the direct genetic term: the
+#'   first pedigree, genomic or `kernel()` term with an estimated variance that is not
+#'   `maternal()` or `indirect()` (pedigree before `kernel()`), else the first `maternal()`
+#'   term, else the first group; the same default in [ebv()], [solutions()], [accuracy()],
+#'   [h2()] and [h2_curve()]
 #' @param trait required in the multi-trait case (`model_mt()`, or `model_ar1()` with
 #'   `cbind()`): accuracy is per trait, with the corresponding var(term@trait)
 #' @return a numeric vector named by level, in the order of `fit$pev[[group]]`; a group
@@ -1630,7 +1647,8 @@ accuracy <- function(fit, pedigree, group = NULL, trait = NULL) {
   comps_g <- componentes_do_grupo(fit, group)
   if (mt) comps_g <- comps_g[grepl(paste0("@", trait, ","), comps_g, fixed = TRUE) |
                                grepl(paste0("@", trait, ")"), comps_g, fixed = TRUE)]
-  if (estado_para_extrator(fit, "accuracy()", names(fit$theta), comps_g)) {
+  if (estado_para_extrator(fit, "accuracy()", names(fit$theta), comps_g,
+                           como = "the prediction error variance")) {
     pv[] <- NA_real_
     return(pv)
   }
@@ -1777,7 +1795,9 @@ priori_kernels <- function(terms, kern) {
   tem <- !vapply(kern, is.null, logical(1))
   nomes <- vapply(terms[tem], function(t) t$nome, character(1))
   stats::setNames(Map(function(k, nome) {
-    if (!is.null(k[[2]])) return(stats::setNames(diag(k[[2]]), k[[1]]))
+    # a marca de associative_matrix() vai junto: kernels_associativos() a le
+    if (!is.null(k[[2]])) return(structure(stats::setNames(diag(k[[2]]), k[[1]]),
+                                           br_associative = attr(k[[2]], "br_associative")))
     if (length(k) >= 9L && !is.null(k[[9]])) return(stats::setNames(k[[9]], k[[1]]))
     # uma precisao generica: a diagonal de K pela inversa seletiva, uma fatoracao a mais
     # depois do ajuste. Uma falha aqui (memoria) nao pode levar junto um ajuste ja feito:

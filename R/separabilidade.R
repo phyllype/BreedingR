@@ -94,6 +94,19 @@ sem_avisos_estrutura <- function(expr)
 # O erro sai aqui, antes do ajuste; os avisos voltam como notas e saem DEPOIS dele, em
 # anota_estrutura(): um dado que o motor ainda recusa (um NA numa covariavel) da so o erro
 # explicativo, sem um aviso de estrutura na frente.
+# As linhas cujo nivel de cada kernel() esta nos rotulos da K: as outras saem da analise
+# (no motor e no gibbs()), e ficam fora das conferencias e da escala de h2()
+linhas_do_kernel <- function(terms, kern, data) {
+  entra <- rep(TRUE, nrow(data))
+  if (length(kern)) for (i in seq_along(terms)) {
+    t <- terms[[i]]
+    if (t$estrutura != 3L || i > length(kern) || is.null(kern[[i]]) ||
+        !t$column %in% names(data)) next
+    entra <- entra & rotulo_motor(data[[t$column]]) %in% kern[[i]][[1]]
+  }
+  entra
+}
+
 confere_estrutura <- function(terms, data, resp, missing_code, quem, estima,
                               repeticao = TRUE, sujeito = NULL, intercepto = TRUE,
                               kern = NULL) {
@@ -113,13 +126,7 @@ confere_estrutura <- function(terms, data, resp, missing_code, quem, estima,
     v
   }
   # os registros que um kernel() tira da analise (nivel sem linha na K), antes do filtro
-  entra_k <- rep(TRUE, nrow(data))
-  if (length(kern)) for (i in seq_along(terms)) {
-    t <- terms[[i]]
-    if (t$estrutura != 3L || i > length(kern) || is.null(kern[[i]]) ||
-        !t$column %in% names(data)) next
-    entra_k <- entra_k & rotulo_motor(data[[t$column]]) %in% kern[[i]][[1]]
-  }
+  entra_k <- linhas_do_kernel(terms, kern, data)
   fixos <- Filter(function(t) t$estrutura == 0L && !isTRUE(t$covariavel) &&
                     completa(t$column), terms)
   terms <- Filter(function(t) t$estrutura == 0L || (completa(t$column) &&
@@ -141,7 +148,7 @@ confere_estrutura <- function(terms, data, resp, missing_code, quem, estima,
     confere_baias(s, terms, fixos, cod, nrow(data), li, por_traco, quem, estima, avisa,
                   intercepto)
   if (estima) {
-    if (repeticao) confere_repeticao(terms, cod, obs_t, sujeito, avisa)
+    if (repeticao) confere_repeticao(terms, cod, obs_t, sujeito, avisa, kern)
     confere_poucos_niveis(terms, cod, li, avisa)
   }
   unique(notas)
@@ -372,8 +379,10 @@ absorcao_baia <- function(s, direto, fixos, cod, pen, tam, com_mates, li, traco,
 # toda baia de 4 disparava com 20 baias) nem de um efeito do registro (o periodo de teste,
 # com todo animal em todo periodo, disparava com 3 periodos e 100 baias). Um lote guarda
 # cada animal uma vez so e e de grupo: tem 3 ou mais niveis nas baias com companheiros, ou
-# outro efeito fixo de classe de mais niveis esta aninhado nele (o cg dentro do lote). Dois
-# lotes com nada aninhado nao se distinguem do sexo balanceado e nao sao lidos.
+# outro efeito fixo de classe de mais niveis esta aninhado nele (o cg dentro do lote). Os 3
+# ou mais niveis tem de se cruzar nas baias como lotes fundidos (pares_cruzados() >= 0.5),
+# e nao em blocos ou em cadeia. Dois lotes com nada aninhado nao se distinguem do sexo
+# balanceado e nao sao lidos.
 efeito_de_lote <- function(f, fixos, cod, pen, id, tam) {
   mates <- tam[pen] >= 2L
   kf <- cod(f$column)$k[mates]
@@ -382,13 +391,38 @@ efeito_de_lote <- function(f, fixos, cod, pen, id, tam) {
   par <- !duplicated(as.double(ki) * (max(kf) + 1) + kf)
   if (anyDuplicated(ki[par])) return(FALSE)
   nf <- length(unique(kf))
-  if (nf >= 3L) return(TRUE)
+  if (nf >= 3L && pares_cruzados(pen, cod(f$column)$k, mates) >= 0.5) return(TRUE)
   for (g in fixos) {
     if (identical(g$column, f$column)) next
     kg <- cod(g$column)$k[mates]
     if (length(unique(kg)) > nf && funcao_de(kf, kg)) return(TRUE)
   }
   FALSE
+}
+
+# A FRACAO DOS PARES DE NIVEIS DE kf QUE DIVIDEM ALGUMA BAIA (nas baias com companheiros).
+# Com o rotulo reaproveitado todo rotulo cruza todos os lotes, e quase todo par de lotes se
+# encontra numa baia. Um cg de lote x sexo em baias que misturam os sexos so junta os dois
+# sexos do mesmo lote (blocos), e a semana de nascimento em baias cheias pela ordem de
+# nascimento junta semanas vizinhas (cadeia): os dois disparavam o aviso em dado certo.
+pares_cruzados <- function(pen, kf, mates) {
+  p <- pen[mates]
+  k <- kf[mates]
+  u <- !duplicated(as.double(p) * (max(k) + 1) + k)
+  p <- p[u]
+  k <- k[u]
+  mista <- p %in% p[duplicated(p)]
+  p <- p[mista]
+  k <- k[mista]
+  niv <- unique(kf[mates])
+  L <- length(niv)
+  if (L < 2L || !length(p)) return(0)
+  km <- match(k, niv)
+  pares <- unique(unlist(lapply(split(km, p), function(v) {
+    cb <- utils::combn(sort(v), 2)
+    cb[1, ] * (L + 1) + cb[2, ]
+  })))
+  length(pares) / choose(L, 2)
 }
 
 # O NUMERO DA BAIA REAPROVEITADO. Se a numeracao recomeca em cada lote, baias que nunca se
@@ -488,12 +522,18 @@ cauda_bernoullis <- function(q, s) {
 # Nao avisa quando pe(), random() ou kernel() le a mesma coluna, ou uma coluna que agrupa os
 # registros do mesmo jeito (pe(id2) com id2 uma copia de id), ou quando o AR(1) tem o animal
 # como sujeito.
-confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa) {
+confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa, kern = NULL) {
   ani <- Filter(function(t) identical(t$marcador, "animal") && !nzchar(t$base), terms)
-  # um kernel() na coluna do animal (ou numa que agrupa igual) tambem da a cada animal um
-  # efeito que os registros dele dividem: kernel(id, K = I) e o pe(id), e kernel(id, K = D)
-  # leva a covariancia de dominancia entre os registros do animal
-  iid <- Filter(function(t) t$estrutura %in% c(1L, 3L) && !nzchar(t$base), terms)
+  # um kernel() de K diagonal e variancia estimada na coluna do animal (ou numa que agrupa
+  # igual) faz o papel do pe(): kernel(id, K = I) e o pe(id). Um K de parentesco (A, G, a
+  # dominancia D) deixa a covariancia de ambiente permanente nos termos geneticos, e um
+  # kernel(fixed =) nao estima nada: esses nao calam o aviso
+  cand <- which(vapply(terms, function(t) !nzchar(t$base) && (t$estrutura == 1L ||
+                                (t$estrutura == 3L && !variancia_dada(t))), logical(1)))
+  # a diagonal da K so e conferida no kernel() que agrupa os registros como o animal, e uma
+  # vez (custa uma passada pela K)
+  faz_pe <- function(i) terms[[i]]$estrutura == 1L ||
+    (i <= length(kern) && kernel_diagonal(kern[[i]]))
   for (a in ani) {
     ka <- cod(a$column)$k
     mesma_particao <- function(t) {
@@ -505,7 +545,9 @@ confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa) {
     }
     # o sujeito do AR(1) conta como um pe(): na mesma coluna ou numa que agrupa igual
     suj <- if (is.null(sujeito)) list() else list(list(column = sujeito))
-    if (any(vapply(c(iid, suj), mesma_particao, logical(1)))) next
+    if (any(vapply(suj, mesma_particao, logical(1))) ||
+        any(vapply(cand, function(i) mesma_particao(terms[[i]]) && faz_pe(i), logical(1))))
+      next
     for (tr in names(obs_t)) {
       reg <- tabulate(ka[obs_t[[tr]] & ka > 0L])
       reg <- reg[reg > 0L]
@@ -516,8 +558,8 @@ confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa) {
       # desenho de repetibilidade
       fr <- (sum(rep_a) - length(rep_a)) / sum(reg)
       efeito <- if (fr < 0.01)
-        sprintf(paste0(", which at this share (%.1f%% of the records repeat an animal) moves ",
-                       "h2 little: check that the rows are not duplicates, or"), 100 * fr)
+        paste0(", which at this share (", format(signif(100 * fr, 2)), "% of the records ",
+               "repeat an animal) moves h2 little: check that the rows are not duplicates, or")
       else ", which inflates h2 by more the larger the share of repeated records;"
       avisa(sprintf(paste0(
         "%s: %d of the %d animals with records of %s %s more than one record (%d records ",
@@ -531,6 +573,16 @@ confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa) {
     }
   }
   invisible(NULL)
+}
+
+# A K de um kernel() e diagonal? k e o item de monta_kernels(): list(rotulos, K densa) ou,
+# com Kinv =, os triplos em k[[3]], k[[4]] e k[[5]] (a inversa de uma diagonal e diagonal)
+kernel_diagonal <- function(k) {
+  if (is.null(k)) return(FALSE)
+  K <- k[[2]]
+  if (!is.null(K)) return(sum(K != 0) == sum(diag(K) != 0))
+  if (length(k) >= 5L && !is.null(k[[3]])) return(all(k[[3]] == k[[4]] | k[[5]] == 0))
+  FALSE
 }
 
 # UM TERMO iid DE POUCOS NIVEIS (pe(), random()): a variancia sai de poucos niveis e mal se
@@ -550,7 +602,7 @@ confere_poucos_niveis <- function(terms, cod, li, avisa) {
                  " level(s) and is barely determined. If these labels number something ",
                  "inside another unit (a parity within each dam, a pen within each batch), ",
                  "records of different units share one level: give each unit a unique ",
-                 "label, such as paste(dam, ", t$column, ")"))
+                 "label, such as paste(dam, parity) or paste(batch, pen)"))
   }
   invisible(NULL)
 }
@@ -588,7 +640,8 @@ componentes_singulares <- function(fit) {
     corpo <- sub(" \\(smallest eigenvalue$", "", sub("^in the direction of ", "", m2))
     out <- c(out, list(strsplit(corpo, ", ", fixed = TRUE)[[1]]))
   }
-  out
+  # o motor lista um conjunto por autovetor nulo: o mesmo conjunto pode vir duas vezes
+  out[!duplicated(lapply(out, sort))]
 }
 
 # COMPONENTES DADOS: model() com maxiter = 0 e n_em = 0, model_mt() e model_ar1() com
@@ -624,7 +677,12 @@ nao_separados <- function(fit, nomes) {
 # os dados nao separam. Um ajuste que nao convergiu e lido no ultimo ponto, com aviso. Com
 # `convergencia = FALSE` o aviso de convergencia fica para quem chama (uma vez por chamada, e
 # nao uma por caracter).
-estado_para_extrator <- function(fit, quem, comps, num = comps, convergencia = TRUE) {
+#
+# `como` diz por onde o valor le os componentes que so tocam o resto: a variancia fenotipica
+# em h2() e t2(); a PEV em accuracy() e solutions(), que uma crista do lado do residuo deixa
+# igual (medido: os EBV e a acuracia mudam menos de 1e-10 ao longo da crista pe-residuo).
+estado_para_extrator <- function(fit, quem, comps, num = comps, convergencia = TRUE,
+                                 como = "the phenotypic variance") {
   if (sem_estimativas(fit, comps)) {
     aviso_estado(quem, ": this fit has no estimates (theta is NA: it stopped before a first ",
                  "evaluation, see fit$message), so the value is NA")
@@ -644,9 +702,8 @@ estado_para_extrator <- function(fit, quem, comps, num = comps, convergencia = T
   else if (length(soma))
     aviso_estado(quem, ": ", texto_singular(soma), "; the value uses ",
                  paste(intersect(unlist(soma), comps), collapse = ", "), " only through ",
-                 "the phenotypic variance, so it holds only where the ridge leaves that sum ",
-                 "unchanged, as with permanent environment and residual under one record ",
-                 "per animal")
+                 como, ", so it holds only where the ridge leaves that sum unchanged, as with ",
+                 "permanent environment and residual under one record per animal")
   length(leva) > 0L
 }
 
@@ -664,6 +721,12 @@ texto_singular <- function(ss) {
 avisa_convergencia <- function(fit, quem) {
   if (componentes_dados(fit) || isTRUE(fit$converged) || sem_estimativas(fit))
     return(invisible(NULL))
+  # o snp_blup() nao estima componentes: o que nao convergiu e o gradiente conjugado
+  if (inherits(fit, "breeding_snp_blup"))
+    return(aviso_estado(quem, ": the conjugate-gradient solve stopped at iteration ",
+                        fit$iters, " before its tolerance (relative residual ",
+                        format(fit$resnorm, digits = 3), "): the solutions are not yet the ",
+                        "BLUP; raise maxiter"))
   aviso_estado(quem, ": this fit did not converge (see fit$message): the value is read at ",
                "the last iterate, not at an optimum")
 }
@@ -679,10 +742,10 @@ aviso_estado <- function(...)
 # O que um ajuste guarda para a escala de h2(), t2() e do share: a diagonal media de cada K
 # nos registros, os kernels que sao a associative_matrix() do indirect() e a fracao de
 # registros com avo materno conhecido de cada sire(mgs =)
-anota_escala <- function(r, terms, data) {
+anota_escala <- function(r, terms, data, resp = NULL, missing_code = NULL) {
   r$k_record_diag <- diagonal_nos_registros(terms, r$k_prior, data, r$used)
   r$k_associative <- kernels_associativos(terms, r$k_prior, data, r$used)
-  r$mgs_known <- fracao_avo_conhecido(terms, data, r$used)
+  r$mgs_known <- fracao_avo_conhecido(terms, data, r$used, resp, missing_code)
   r
 }
 
@@ -726,7 +789,12 @@ kernels_associativos <- function(terms, kprior, data, usadas) {
     if (t$estrutura != 3L || is.null(kprior[[t$nome]]) || !t$column %in% names(data)) next
     d <- unname(kprior[[t$nome]][rotulo_motor(data[[t$column]])])
     k <- usa & !is.na(d)
-    if (any(k) && all(abs(d[k] - esperado[k]) <= 1e-9 * pmax(1, esperado[k])))
+    # com toda baia de 2 animais, ou d = 0.5, a diagonal esperada e 1 em todo registro e
+    # qualquer K de correlacao casaria: ai so a marca de associative_matrix() decide
+    marcado <- isTRUE(all.equal(attr(kprior[[t$nome]], "br_associative"), s$dilution))
+    ambiguo <- all(abs(esperado[k] - 1) <= 1e-12)
+    if (any(k) && (marcado || !ambiguo) &&
+        all(abs(d[k] - esperado[k]) <= 1e-9 * pmax(1, esperado[k])))
       out[[t$nome]] <- s$dilution
   }
   if (length(out)) out else NULL
@@ -735,16 +803,25 @@ kernels_associativos <- function(terms, kprior, data, usadas) {
 # A FRACAO DOS REGISTROS COM AVO MATERNO CONHECIDO de cada sire(mgs =): o registro leva
 # s + m / 2, e com o avo desconhecido ("0", "NA" ou branco) so s. Nomeada pelo termo; NULL
 # sem sire(mgs =).
-fracao_avo_conhecido <- function(terms, data, usadas) {
+fracao_avo_conhecido <- function(terms, data, usadas, resp = NULL, missing_code = NULL) {
   out <- numeric(0)
+  usa <- function(n) if (length(usadas) == n) usadas %in% TRUE else rep(TRUE, n)
   for (t in terms) {
     if (!identical(t$marcador, "sire") || !startsWith(t$nested, "mgs:")) next
     col <- sub("^mgs:", "", t$nested)
     if (!col %in% names(data)) next
     m <- rotulo_motor(data[[col]])
-    if (length(usadas) == length(m)) m <- m[usadas %in% TRUE]
-    if (!length(m)) next
-    out[[t$nome]] <- mean(!(is.na(m) | m %in% c("0", "NA") | !nzchar(trimws(m))))
+    conhecido <- !(is.na(m) | m %in% c("0", "NA") | !nzchar(trimws(m)))
+    u <- usa(length(m))
+    resp <- intersect(resp, names(data))
+    # no multicaracter, uma fracao por caracteristica, nas linhas em que ela foi medida: um
+    # traco medido so nos filhos de avo conhecido tem f = 1
+    if (length(resp) > 1L) {
+      for (tr in resp) {
+        l <- u & !observacao_ausente(data[[tr]], missing_code)
+        if (any(l)) out[[paste0(t$nome, "@", tr)]] <- mean(conhecido[l])
+      }
+    } else if (any(u)) out[[t$nome]] <- mean(conhecido[u])
   }
   if (length(out)) out else NULL
 }
@@ -837,9 +914,11 @@ extra_mgs <- function(fit, the, t) {
     f <- stats::setNames(rep(1, length(termos)), vapply(termos, function(x) x$nome, ""))
   }
   s <- 0
-  for (k in names(f)) {
+  for (k in unique(sub("@.*$", "", names(f)))) {
+    fk <- if (nzchar(t) && paste0(k, "@", t) %in% names(f)) f[[paste0(k, "@", t)]]
+          else if (k %in% names(f)) f[[k]] else next
     nm <- nome_comp("var", k, t)
-    if (nm %in% names(the)) s <- s + f[[k]] * the[[nm]] / 4
+    if (nm %in% names(the)) s <- s + fk * the[[nm]] / 4
   }
   s
 }
@@ -909,13 +988,15 @@ avisa_var_scale <- function(quem, vs, alternativa)
 avisa_diagonal_kernel <- function(quem, kd, alternativa) {
   aviso_estado(quem, ": the K of ", paste(sprintf("kernel '%s' has mean diagonal %.3g",
                                                  names(kd), kd), collapse = " and the K of "),
-               " over the records that entered the fit, far from the 1 of a relationship ",
-               "matrix: the component is the variance at diagonal 1, and a record carries ",
-               "that diagonal times it on average. The ratio reads the components as ",
-               "estimated, as BLUPF90, ASReml and WOMBAT report it; with each such K at its ",
-               "mean diagonal over the records it would be ",
+               " over the records that entered the fit: the component is the variance at ",
+               "diagonal 1, and a record carries that diagonal times it on average. The ",
+               "ratio reads the components as estimated, as BLUPF90, ASReml and WOMBAT ",
+               "report it, which is the usual ratio when K is a relationship matrix (the A or ",
+               "H of an inbred population, whose diagonal is 1 + F, gives the h2 of animal()); ",
+               "for a K on another scale (a partial multibreed matrix, an unscaled kernel), ",
+               "with each such K at its mean diagonal over the records it would be ",
                paste(format(alternativa, digits = 4), collapse = ", "),
-               ". Scale K to mean diagonal 1 (K / mean(diag(K))) for a ratio that is both")
+               ", and scaling K to mean diagonal 1 (K / mean(diag(K))) makes the two agree")
 }
 
 # A nota da escala no print e no summary: o que o share multiplica, com os numeros. NULL
@@ -946,11 +1027,15 @@ nota_escala <- function(fit) {
   }
   f <- fit$mgs_known
   for (k in names(f))
-    partes <- c(partes, sprintf(paste0("the phenotypic variance also holds var(%s) / 4 from ",
-                                       "the maternal grandsire on the %.3g%% of the records ",
-                                       "that have one, so the shares add up to less than 1 ",
-                                       "and h2() is four times the var(%s) share"),
-                                k, 100 * f[[k]], k))
+    partes <- c(partes, if (f[[k]] > 0)
+      sprintf(paste0("the phenotypic variance also holds var(%s) / 4 from the maternal ",
+                     "grandsire on the %.3g%% of the records that have one, so the shares add ",
+                     "up to less than 1 and h2() is four times the var(%s) share"),
+              k, 100 * f[[k]], sub("@.*$", "", k))
+    else sprintf(paste0("no record of %s has a known maternal grandsire, so the term reads as ",
+                        "a sire model: h2() is four times the var(%s) share"),
+                 if (grepl("@", k, fixed = TRUE)) sub("^.*@", "", k) else "the trait",
+                 sub("@.*$", "", k)))
   kd <- kernels_fora_de_um(fit, names(fit$theta))
   for (k in names(kd))
     partes <- c(partes, sprintf(paste0("var(%s) as estimated, the variance at diagonal 1 of a ",
@@ -961,25 +1046,29 @@ nota_escala <- function(fit) {
 }
 
 # O GRUPO PADRAO DOS EXTRATORES (ebv(), solutions(), accuracy(), h2(), h2_curve(), plot()):
-# o do primeiro termo com pedigree ou genomica (o direto antes do maternal(), em qualquer
-# ordem da formula); sem nenhum, o do primeiro kernel() cuja
-# variancia e estimada e que nao e a associative_matrix() do indirect(); sem nenhum, o
-# primeiro grupo. Com random(lote) escrito antes de animal(id) o primeiro grupo era o do
+# o do termo genetico direto (candidatos_geneticos()); sem nenhum, o primeiro grupo. Com random(lote) escrito antes de animal(id) o primeiro grupo era o do
 # lote, e h2() devolvia var(random) / Vp com o nome de herdabilidade; agora todos os
 # extratores leem o mesmo grupo.
 grupo_padrao <- function(fit) {
   g <- names(fit$ebv)
   if (!length(g)) return(NULL)
-  termos <- termos_do_ajuste(fit)
   grupo_de <- function(t) if (nzchar(t$group)) t$group else t$nome
-  for (e in c(2L, 3L)) {
-    cand <- direto_primeiro(Filter(function(t) t$estrutura == e && !isTRUE(t$social) &&
-                                     !variancia_dada(t) &&
-                                     !t$nome %in% names(fit$k_associative), termos))
-    gr <- intersect(vapply(cand, grupo_de, character(1)), g)
-    if (length(gr)) return(gr[1])
-  }
-  g[1]
+  gr <- intersect(vapply(candidatos_geneticos(fit), grupo_de, character(1)), g)
+  if (length(gr)) gr[1] else g[1]
+}
+
+# OS TERMOS GENETICOS CANDIDATOS AO GRUPO PADRAO, em ordem: pedigree, genomica e kernel()
+# de variancia estimada (fora a associative_matrix() do indirect()), o direto de qualquer
+# estrutura antes do maternal(), e entre os diretos o pedigree antes do kernel(). Com
+# kernel(id, K = G) para o direto e maternal(dam) de pedigree o grupo era o materno, porque
+# todo termo de pedigree vinha antes de todo kernel()
+candidatos_geneticos <- function(fit) {
+  termos <- Filter(function(t) t$estrutura %in% c(2L, 3L) && !isTRUE(t$social) &&
+                     !variancia_dada(t) && !t$nome %in% names(fit$k_associative),
+                   termos_do_ajuste(fit))
+  if (!length(termos)) return(list())
+  materno <- vapply(termos, function(t) identical(t$marcador, "maternal"), logical(1))
+  termos[order(materno, vapply(termos, function(t) t$estrutura, integer(1)))]
 }
 
 # Os termos com o efeito direto antes do maternal() e do indirect(), na ordem da formula

@@ -171,6 +171,25 @@ if (exists("efeito_de_lote", asNamespace("BreedingR"), inherits = FALSE)) {
     np, avisa("periodo", data.frame(id = paste0("a", rep(1:400, each = np)),
                                     pen = paste0("p", rep(0:99, each = 4 * np)),
                                     periodo = paste0("T", rep(1:np, 400)), y = 0))))
+  for (b in c(8, 10, 20)) cat(sprintf(
+    "  cg = batch x sex, sex drawn per animal, unique labels, pens of %2d: %.2f\n", b,
+    taxa(function(sd) {
+      set.seed(sd)
+      n <- 1200 - 1200 %% b
+      p <- rep(seq_len(n / b), each = b)
+      avisa("cg", transform(data.frame(id = paste0("a", 1:n), pen = paste0("p", p),
+                                       lote = paste0("L", (p - 1) %/% (max(p) %/% 4 + 1)),
+                                       sexo = sample(c("M", "F"), n, TRUE), y = 0),
+                            cg = paste(lote, sexo)))
+    })))
+  cat(sprintf("  birth week, pens of 20 filled in birth order, unique labels: %.2f\n",
+              taxa(function(sd) {
+                set.seed(sd)
+                avisa("semana", data.frame(id = paste0("a", 1:800),
+                                           pen = paste0("p", (seq_len(800) - 1) %/% 20),
+                                           semana = paste0("w", cumsum(stats::rbinom(800, 1, 1 / 80))),
+                                           y = 0))
+              })))
   for (tam in c(2, 3, 5)) for (nl in c(2, 3, 5)) cat(sprintf(
     "  pens of %d merged over %d batches, 50 labels: lote alone %s, with cg nested in lote %s\n",
     tam, nl,

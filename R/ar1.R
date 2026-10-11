@@ -235,8 +235,8 @@ model_ar1 <- function(formula, data, pedigree = NULL, subject, time,
   r$k_level_type <- tipos_kernels(terms, kern)
   # o que a escala de h2(), t2() e do share le: a diagonal media de cada K nos registros,
   # os kernels que sao a associative_matrix() do indirect() e o avo conhecido do sire(mgs =)
-  r <- anota_escala(r, terms, data)
-  r$components_given <- maxiter == 0
+  r <- anota_escala(r, terms, data, trait, missing_code)
+  r$components_given <- maxiter == 0 && !is.null(start)
   structure(anota_estrutura(r, notas), class = "breeding_fit_ar1")
 }
 

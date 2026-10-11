@@ -34,9 +34,11 @@ eh_norma_reacao <- function(theta) any(grepl("\\[\\d+\\]", names(theta)))
 #'   accuracy is per trait. A [snp_blup()] fit has no PEV (it solves by conjugate
 #'   gradients) and takes no `pedigree`; for [model_survival()] the accuracy is on the
 #'   log-hazard scale, from the Laplace PEV of the frailty
-#' @param group covariance group; by default the group of the first pedigree or genomic
-#'   term, else of the first `kernel()` with an estimated variance, else the first group
-#'   (the same default in [ebv()], [solutions()], [accuracy()] and [h2()])
+#' @param group covariance group; by default the group of the direct genetic term: the
+#'   first pedigree, genomic or `kernel()` term with an estimated variance that is not
+#'   `maternal()` or `indirect()` (pedigree before `kernel()`), else the first `maternal()`
+#'   term, else the first group; the same default in [ebv()], [solutions()], [accuracy()],
+#'   [h2()] and [h2_curve()]
 #' @param trait for a multi-trait fit (`model_mt()`, or `model_ar1()` with `cbind()`),
 #'   which trait. Without it the table lists every trait, with ids written "level|trait",
 #'   and has no `acc` column; given a `pedigree` but no `trait =`, the call stops and
@@ -64,7 +66,9 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
   g <- group
   # O ESTADO DO AJUSTE, dito uma vez: os avisos de estado de accuracy() abaixo saem calados
   # (a classe breedingr_estado), com o NA que eles explicam
-  avisa_estado_solucoes(fit, g)
+  avisa_estado_solucoes(fit, g, com_acc = !is.null(pedigree) ||
+                          (length(fit$pev[[g]]) && (!eh_multicaracter(fit) || !is.null(trait)) &&
+                             acuracia_sem_pedigree(fit, g)))
   # O EFEITO DE CADA LINHA. Num grupo de varios termos (direto-materno, direto-indireto, dois
   # termos iid) ou de varios coeficientes (norma de reacao) o mesmo id aparece uma vez por
   # efeito, e o se e a acc eram casados so pelo id: todas as linhas do id recebiam os do
@@ -121,21 +125,30 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
 # Os avisos de solutions() sobre o estado do ajuste: sem estimativas, sem convergencia, ou
 # com componentes que os dados nao separam (os EBV sao entao os de um ponto arbitrario da
 # crista, e a acuracia sai NA onde depende deles)
-avisa_estado_solucoes <- function(fit, g) {
+avisa_estado_solucoes <- function(fit, g, com_acc = TRUE) {
   if (!length(fit$theta)) return(invisible(NULL))
   if (sem_estimativas(fit)) {
     aviso_estado("solutions(): this fit has no estimates (theta is NA: it stopped before a ",
-                 "first evaluation, see fit$message), so ebv, se and acc are NA")
+                 "first evaluation, see fit$message), so ebv, se", if (com_acc) " and acc",
+                 " are NA")
     return(invisible(NULL))
   }
   avisa_convergencia(fit, "solutions()")
   do_grupo <- tryCatch(componentes_do_grupo(fit, g), error = function(e) character(0))
   ss <- nao_separados(fit, names(fit$theta))
-  if (length(ss))
+  # um conjunto que toca os componentes do grupo move os EBV ao longo da crista; um que so
+  # toca o resto (pe e residuo com um registro por animal, a covariancia residual entre
+  # caracteres medidos em animais diferentes) deixa os EBV e a PEV iguais
+  if (!length(ss)) return(invisible(NULL))
+  if (length(intersect(unlist(ss), do_grupo)))
     aviso_estado("solutions(): ", texto_singular(ss), ": ebv and se are those of one ",
                  "arbitrary point of that ridge",
-                 if (length(intersect(unlist(ss), do_grupo)))
-                   ", and acc, which depends on them, is NA")
+                 if (com_acc) ", and acc, which depends on them, is NA")
+  else
+    aviso_estado("solutions(): ", texto_singular(ss), "; ebv, se",
+                 if (com_acc) " and acc", " use ", paste(unique(unlist(ss)), collapse = ", "),
+                 " only through a combination the ridge leaves unchanged, so they hold, as ",
+                 "with permanent environment and residual under one record per animal")
   invisible(NULL)
 }
 
@@ -254,6 +267,7 @@ efeito_por_linha <- function(fit, g, n_total, trait) {
 #'   `var_scale`; `scale = TRUE` returns that number (then the h2 of the fit with
 #'   metafounders is close to the h2 of the fit without them), and `scale = FALSE` keeps
 #'   the default and silences the warning.
+#'
 #' Two kinds of `kernel()` are not relationships but covariances of the records, and enter
 #' at the variance they put on a record:
 #' * a `kernel()` that is the [associative_matrix()] of the `indirect()` term of the same
@@ -263,6 +277,7 @@ efeito_por_linha <- function(fit, g, n_total, trait) {
 #' * a `kernel(fixed = v)` term, the known covariance of a two-stage analysis (the sampling
 #'   variances of the first-stage estimates): at `v` times the mean diagonal of its K over
 #'   the records, the mean sampling variance, and not at `v`.
+#'
 #' A covariance between two terms takes the geometric mean of the two factors.
 #'
 #' WEIGHTS. With `weights` in [model()], `var(residual)` is the residual variance at
@@ -286,14 +301,18 @@ efeito_por_linha <- function(fit, g, n_total, trait) {
 #' returned as `NA`, with a warning naming the components; a set that only touches the
 #' denominator (permanent environment and residual with one record per animal) leaves the
 #' number, with a warning. A fit with no estimates (theta `NA`) gives `NA`, saying so. A
-#' fit at given components (`maxiter = 0` and `n_em = 0` in [model()], `maxiter = 0` in
-#' [model_mt()] and [model_ar1()]) is read at those components without a word; with
-#' `n_em > 0` the EM rounds moved the start, and the fit is read as an estimate.
+#' fit at given components (`start =` with `maxiter = 0` and `n_em = 0` in [model()],
+#' `start =` with `maxiter = 0` in [model_mt()] and [model_ar1()]) is read at those
+#' components without a word; with `n_em > 0` the EM rounds moved the start, and without
+#' `start =` the point is the default start, so either fit is read as one that did not
+#' converge.
 #'
 #' @param fit result of `model()`, `model_mt()` or `model_ar1()`
-#' @param group covariance group; by default the group of the first pedigree or genomic
-#'   term, else of the first `kernel()` with an estimated variance, else the first group,
-#'   the same default as [ebv()], [solutions()] and [accuracy()]
+#' @param group covariance group; by default the group of the direct genetic term: the
+#'   first pedigree, genomic or `kernel()` term with an estimated variance that is not
+#'   `maternal()` or `indirect()` (pedigree before `kernel()`), else the first `maternal()`
+#'   term, else the first group; the same default in [ebv()], [solutions()], [accuracy()],
+#'   [h2()] and [h2_curve()]
 #' @param trait for a multi-trait fit, which trait; all of them by default
 #' @param n group size, required when the model has an `indirect()` term and ignored
 #'   otherwise; a vector gives one value per size
@@ -349,11 +368,13 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
   # var(indirect) / Vp).
   mt <- any(grepl("@", names(th), fixed = TRUE))
   sufixo <- if (mt) "@" else ")"
-  if (!any(startsWith(names(th), paste0("var(", group, sufixo)))) {
-    no_grupo <- direto_primeiro(Filter(function(t) identical(t$group, group) &&
-                                         t$estrutura != 0L, termos))
-    if (length(no_grupo)) group <- no_grupo[[1]]$nome
-  }
+  # o grupo e lido antes do nome de termo: maternal(dam, group = "maternal") com animal()
+  # no mesmo grupo e o grupo, e nao o termo materno
+  no_grupo <- direto_primeiro(Filter(function(t) identical(t$group, group) &&
+                                       t$estrutura != 0L, termos))
+  if (length(no_grupo) > 1L ||
+      (length(no_grupo) && !any(startsWith(names(th), paste0("var(", group, sufixo)))))
+    group <- no_grupo[[1]]$nome
   # O MARCADOR DO TERMO decide o que a razao e: 4 var(sire) / Vp num sire() (fator_h2), e
   # no sire(mgs =) o Vp ganha a parte do avo (extra_mgs). Num termo sem parentesco (pe(),
   # random()) var / Vp e uma razao de variancias (um c2, uma parte da repetibilidade) e nao
@@ -388,7 +409,9 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
       fator * the[[alvo]] / vp
     }, numeric(1))
   lidos <- character(0)
-  vals <- lapply(tr, function(t) {
+  # os avisos de estado de cada caracteristica, juntos: o mesmo texto sai uma vez so
+  vistos <- character(0)
+  vals <- withCallingHandlers(lapply(tr, function(t) {
     alvo <- nome_comp("var", group, t)
     if (!alvo %in% names(th))
       stop("there is no '", alvo, "'. Available: ", paste(names(th), collapse = ", "))
@@ -397,6 +420,9 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
     if (estado_para_extrator(fit, "h2()", comps, alvo, convergencia = FALSE))
       return(rep(NA_real_, length(ns)))
     razao(t, alvo)
+  }), breedingr_estado = function(w) {
+    if (conditionMessage(w) %in% vistos) invokeRestart("muffleWarning")
+    vistos <<- c(vistos, conditionMessage(w))
   })
   # a K de um kernel() com diagonal media longe de 1: o numero fica, e o aviso diz o outro
   kd <- kernels_fora_de_um(fit, lidos)
@@ -608,8 +634,10 @@ bloco_indireto <- function(fit) {
   soc <- Filter(function(t) isTRUE(t$social), ts)
   if (!length(soc)) return(NULL)
   s <- soc[[1]]
-  dir <- Filter(function(t) !isTRUE(t$social) && t$estrutura != 0L && nzchar(t$group) &&
-                  identical(t$group, s$group), ts)
+  # o direto do grupo em qualquer ordem da formula: com maternal() escrito antes de animal()
+  # o t2 lia o materno como direto, e h2(n =) e t2()$h2_direct discordavam
+  dir <- direto_primeiro(Filter(function(t) !isTRUE(t$social) && t$estrutura != 0L &&
+                                  nzchar(t$group) && identical(t$group, s$group), ts))
   if (!length(dir))
     stop("the indirect() term has no direct term in its group: declare both with the ",
          "same group = so the direct-indirect covariance is estimated")
@@ -755,6 +783,7 @@ summary.breeding_gibbs <- function(object, probs = c(0.025, 0.5, 0.975), ...) {
   nm <- colnames(s)
   ah <- alvo_h2_gibbs(nm, tem_indireto(object), object)
   if (!is.null(ah)) {
+    avisa_diagonal_desconhecida(object, nm, "summary()")
     r <- razao_h2_gibbs(s, ah)
     h <- data.frame(ratio = ah$nome, mean = mean(r), sd = stats::sd(r),
                     t(stats::setNames(stats::quantile(r, probs, names = FALSE), colnames(q))),

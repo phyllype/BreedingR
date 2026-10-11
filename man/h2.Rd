@@ -17,9 +17,11 @@ h2(
 \arguments{
 \item{fit}{result of \code{model()}, \code{model_mt()} or \code{model_ar1()}}
 
-\item{group}{covariance group; by default the group of the first pedigree or genomic
-term, else of the first \code{kernel()} with an estimated variance, else the first group,
-the same default as \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}} and \code{\link[=accuracy]{accuracy()}}}
+\item{group}{covariance group; by default the group of the direct genetic term: the
+first pedigree, genomic or \code{kernel()} term with an estimated variance that is not
+\code{maternal()} or \code{indirect()} (pedigree before \code{kernel()}), else the first \code{maternal()}
+term, else the first group; the same default in \code{\link[=ebv]{ebv()}}, \code{\link[=solutions]{solutions()}}, \code{\link[=accuracy]{accuracy()}},
+\code{\link[=h2]{h2()}} and \code{\link[=h2_curve]{h2_curve()}}}
 
 \item{trait}{for a multi-trait fit, which trait; all of them by default}
 
@@ -108,8 +110,11 @@ given, a warning gives the ratio on the usual base, each pedigree component time
 \code{var_scale}; \code{scale = TRUE} returns that number (then the h2 of the fit with
 metafounders is close to the h2 of the fit without them), and \code{scale = FALSE} keeps
 the default and silences the warning.
+}
+
 Two kinds of \code{kernel()} are not relationships but covariances of the records, and enter
 at the variance they put on a record:
+\itemize{
 \item a \code{kernel()} that is the \code{\link[=associative_matrix]{associative_matrix()}} of the \code{indirect()} term of the same
 fit (recognised by its diagonal, \verb{(n_i - 1)^(1 - 2d)} on every record): at
 \verb{(n - 1)^(1 - 2d)} times its component for the group size \code{n} asked for, or at its
@@ -117,8 +122,9 @@ mean diagonal over the records without \code{n} (the share column);
 \item a \code{kernel(fixed = v)} term, the known covariance of a two-stage analysis (the sampling
 variances of the first-stage estimates): at \code{v} times the mean diagonal of its K over
 the records, the mean sampling variance, and not at \code{v}.
-A covariance between two terms takes the geometric mean of the two factors.
 }
+
+A covariance between two terms takes the geometric mean of the two factors.
 
 WEIGHTS. With \code{weights} in \code{\link[=model]{model()}}, \code{var(residual)} is the residual variance at
 weight 1, and a record of weight w has \code{var(residual) / w}; weights w and 10 w give the
@@ -141,9 +147,11 @@ of components the data do not separate, the ratio moves along that ridge and is
 returned as \code{NA}, with a warning naming the components; a set that only touches the
 denominator (permanent environment and residual with one record per animal) leaves the
 number, with a warning. A fit with no estimates (theta \code{NA}) gives \code{NA}, saying so. A
-fit at given components (\code{maxiter = 0} and \code{n_em = 0} in \code{\link[=model]{model()}}, \code{maxiter = 0} in
-\code{\link[=model_mt]{model_mt()}} and \code{\link[=model_ar1]{model_ar1()}}) is read at those components without a word; with
-\code{n_em > 0} the EM rounds moved the start, and the fit is read as an estimate.
+fit at given components (\verb{start =} with \code{maxiter = 0} and \code{n_em = 0} in \code{\link[=model]{model()}},
+\verb{start =} with \code{maxiter = 0} in \code{\link[=model_mt]{model_mt()}} and \code{\link[=model_ar1]{model_ar1()}}) is read at those
+components without a word; with \code{n_em > 0} the EM rounds moved the start, and without
+\verb{start =} the point is the default start, so either fit is read as one that did not
+converge.
 }
 \references{
 Willham, R.L. (1972). The role of maternal effects in animal breeding:

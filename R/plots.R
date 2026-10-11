@@ -6,7 +6,9 @@
 #' phi(x) the Legendre basis evaluated at x. The phenotypic variance V_P(x) is evaluated at x
 #' too: every other random regression on the same basis (the permanent environment of a
 #' test-day model) enters as phi(x)' P phi(x), each scalar term with its variance, and the
-#' residual. A covariance between two scalar terms enters with coefficient 1, as in [h2()].
+#' residual. A covariance between two scalar terms enters with coefficient 1, as in [h2()],
+#' and the residual of a fit with `weights` is read at the harmonic mean weight of the
+#' records, as in [h2()] (weights w and 10 w give the same curve).
 #' Every random regression of the fit is evaluated on the Legendre basis with these limits.
 #'
 #' The LIMITS must be the same ones used to generate the basis in the fit: the scale is part
@@ -14,7 +16,8 @@
 #' here would produce a curve from another basis.
 #'
 #' @param fit result of [model()] with an rn() term
-#' @param group name of the reaction-norm group
+#' @param group name of the reaction-norm group; by default the group of the direct
+#'   genetic term, as in [h2()]
 #' @param limits the same ones passed to [legendre()] when preparing the data
 #' @param points where to evaluate the curve
 #' @return a data.frame with `x`, the point on the gradient, `va`, the additive variance there,
@@ -25,7 +28,9 @@ h2_curve <- function(fit, group = NULL, limits, points = 101L) {
   if (missing(limits)) stop("provide the limits used in legendre(): the scale is part of the model")
   if (is.null(group)) group <- grupo_padrao(fit)
 
-  th <- fit$theta
+  # a escala de h2() (R/separabilidade.R): var(residual) de um ajuste com pesos no peso
+  # harmonico medio dos registros, e nao no peso 1
+  th <- fit$theta * multiplicadores(fit)
   nomes <- names(th)
   # components of the group: var(g[i]) and cov(g[i],g[j])
   pref <- paste0("var(", group, "[")
