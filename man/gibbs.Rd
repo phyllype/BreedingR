@@ -87,12 +87,32 @@ eigenvalue, which does not generate a covariance matrix at all}
 the residual. \code{"jeffreys"} (the default) is \code{p(s2) ~ 1/s2}, and \verb{|C|^-(d+1)/2} for a
 \verb{d x d} group: the full conditional is \verb{(u'K^-1 u) / chisq(nl)}. It is improper, and
 so, in principle, is the posterior of every random effect whose likelihood stays
-positive at a variance of zero (Hobert and Casella 1996); with a well identified
-component the spurious mass near zero is negligible, with a weak one it is not.
-\code{"flat"} is uniform on the variance (\code{chisq(nl - 2)}; for a group, uniform on \code{C},
-\code{InvWishart(nl - d - 1)}). \code{"uniform_sd"} is uniform on the standard deviation
-(\code{chisq(nl - 1)}), the choice Gelman (2006) recommends for a variance with few
-levels; scalar groups only. \code{c(df = nu0, scale = S0)} is the proper scaled inverse
+positive at a variance of zero (Hobert and Casella 1996). For a scalar variance the
+divergence at zero is logarithmic: with a well identified component the spurious mass
+near zero is negligible, with a weak one it is not (the residual too: on 1600 records
+and 2000 animals with \code{indirect()}, 12.6\% of the kept draws of one chain had
+\code{var(residual)} below 0.1, against a REML estimate of 0.597, and the smallest bulk ESS
+was 82 after 200000 iterations). For a covariance group it is a power, \verb{|C|^-(d+1)/2} as
+\code{C} nears a singular matrix (a correlation of +-1), and the posterior has infinite mass
+on that boundary even when the data identify every component: a chain that gets there
+stays. Measured with \code{animal()} and \code{indirect()} in one group on pens of 2 to 8
+(\code{validation/indirect_gibbs_recovery.R}): 4 of 30 data sets of 1600 records had a
+chain held at a correlation of +-1 (the smallest eigenvalue of the correlation matrix
+1.2e-8 to 2.0e-8, against REML correlations of 0.53 to 0.71, none SINGULAR), still
+there at 200000 iterations; on 200 records, 15 of 20 data sets within 10000 iterations,
+12 of them with a REML correlation below 0.99. With the flat prior no chain was held in
+any of these 50 data sets (on the 20 small ones \verb{1 - |cor|} stayed above \code{9e-3} over
+the same 10000 iterations). \code{gibbs()} warns, adds the reason to \code{message}, and
+\code{\link[=mcmc_diagnostics]{mcmc_diagnostics()}} says \code{"not mixed"}, when more than 1\% of the kept draws of a chain
+sit within \code{1e-6} of a singular correlation matrix. With a covariance group on a
+Gaussian trait prefer \code{"flat"} (with enough levels for the group) or a proper prior;
+with \code{family = "probit"} only a proper \code{c(df =, scale =)}, since the binary likelihood
+stays positive as the variances grow and the flat prior leaves that posterior improper
+too (on one data set of \code{validation/indirect_gibbs_probit_recovery.R} the flat chains
+took \code{var(animal)} past 30). \code{"flat"} is uniform on the variance (\code{chisq(nl - 2)}; for
+a group, uniform on \code{C}, \code{InvWishart(nl - d - 1)}). \code{"uniform_sd"} is uniform on the
+standard deviation (\code{chisq(nl - 1)}), the choice Gelman (2006) recommends for a
+variance with few levels; scalar groups only. \code{c(df = nu0, scale = S0)} is the proper scaled inverse
 chi-square of the BLUPF90 Gibbs programs (\verb{OPTION prior}), \verb{(u'K^-1 u + nu0 S0) / chisq(nl + nu0)}, and \verb{InvWishart(nl + nu0, U'K^-1 U + nu0 S0 I)} for a group: \code{S0}
 is the prior guess of a variance, \code{nu0} its degree of belief. A ridge of \code{1e-10}
 times the mean diagonal of the scale matrix keeps the draw off an exactly singular
@@ -117,8 +137,12 @@ level, drop its records, or fit the effect as random. A missing observation (\co
 \code{NaN}, \code{Inf}, \code{-Inf}, blank text, the text "NaN" or \code{missing_code}) drops its
 record, as in \code{\link[=model_threshold]{model_threshold()}}; it is never one of the two values. Everything
 else is the chain of the Gaussian case: \code{kernel()}, \code{indirect()}, genotypes, APY and
-\verb{prior =}. This is the unbiased alternative to the Laplace estimate of
-\code{\link[=model_threshold]{model_threshold()}}}
+\verb{prior =}. It does not use the Laplace approximation of \code{\link[=model_threshold]{model_threshold()}}, but it
+does not rescue a design the binary records leave weak: with \code{indirect()} and the
+components estimated, on pens of 2 to 8 with 3200 records and 4000 animals, no chain
+of 30 data sets reached a bulk ESS of 400 (ESS 2.5 to 23.3 on the variances after 2 x
+6000 iterations, the mean still drifting), where REML on the liability itself
+recovers the components (\code{validation/indirect_gibbs_probit_recovery.R})}
 
 \item{chains}{number of independent chains, each from its own seed. The seeds are
 drawn from R's generator, so \code{set.seed()} governs every chain, and the result is
@@ -182,9 +206,20 @@ standardized scale (each covariate centred and scaled), pooled the same way, whi
 }
 \description{
 The structure checks of \code{\link[=model]{model()}} (see its section "Structure checks") apply here: a
-design that does not identify a component stops the chain unless \verb{theta_fixed =} gives
+design that one of them finds unidentified stops the chain unless \verb{theta_fixed =} gives
 the components (a random term inside a fixed effect leaves the chain walking the prior
-of that variance), and the warnings go to \code{message}. The h2 row of \code{summary()} and of
+of that variance), and the warnings go to \code{message}. Those checks read the structure of
+the design; a ridge that only the likelihood shows is not among them, and the chain has
+no SINGULAR verdict where \code{\link[=model]{model()}} reports the information matrix SINGULAR. Measured on
+30 data sets of 1600 records each (\code{validation/indirect_gibbs_recovery.R}): with pens
+all of 4 animals, two full sibs from each of two families (\code{indirect()}), \code{\link[=model]{model()}} was
+SINGULAR in 30 of 30 and the message of the chain empty in 29 (in the 30th a chain got
+the boundary warning described in \code{prior}, not a SINGULAR verdict); with records on
+unrelated founders only (\code{var(animal)} against \code{var(residual)}), SINGULAR in 30 of 30
+and the message empty in 30 of 30. On such a ridge the chain wanders (R-hat up to 2.5
+over the separate components, while the combinations the data identify are recovered),
+and under the default prior it can end on that boundary. Fit \code{\link[=model]{model()}} with the same
+formula first and read its SINGULAR verdict. The h2 row of \code{summary()} and of
 \code{\link[=mcmc_diagnostics]{mcmc_diagnostics()}} follows the rule of \code{\link[=h2]{h2()}}: the direct genetic term,
 \verb{4 var(sire)} in a sire model, the components as estimated (the base of Gamma with
 metafounders), a \code{kernel(fixed =)} or an \code{\link[=associative_matrix]{associative_matrix()}} at its mean diagonal over

@@ -39,9 +39,12 @@ columns above plus \code{type}, \code{component} or \code{derived}, \code{status
 \code{ess_low}, and \code{mcse_sd_q50} and \code{mcse_sd_q90}, the median and 90\% quantile over the
 levels of the Monte Carlo error of the pooled mean in posterior sd, from the spread of
 the chain means),
-\code{worst_levels}, \code{verdict}, \code{reasons}, \code{notes}, \code{thresholds} and \code{info} (chains, kept
-draws per chain, stopped chains, \code{n_iter}, \code{burnin}, \code{thin}, seconds and the smallest
-bulk-ESS per second).
+\code{worst_levels}, \code{boundary} (on a \code{\link[=gibbs]{gibbs()}} fit: one row per covariance group and chain
+on the boundary, with \code{group}, \code{cor} for a group of two terms, \code{chain}, \code{share} and
+\code{min_eigen}, the smallest eigenvalue of the correlation matrix over the kept draws; no
+rows when no chain is there), \code{verdict}, \code{reasons}, \code{notes}, \code{thresholds} and \code{info}
+(chains, kept draws per chain, stopped chains, \code{n_iter}, \code{burnin}, \code{thin}, seconds and
+the smallest bulk-ESS per second).
 }
 \description{
 One table per parameter, a multivariate summary, a location summary and a verdict for
@@ -200,8 +203,17 @@ values.
 
 The verdict is the worst row, in the order \code{"chain stopped"} > \code{"not mixed"} >
 \code{"burn-in too short"} > \code{"run longer"} > \code{"ok"}; a flagged location, or a location term
-with \code{ess_low}, makes it at least \code{"run longer"}. \code{"chain stopped"} means a chain of
-\code{\link[=gibbs]{gibbs()}} stopped early (an inadmissible theta or a failed Cholesky inside the chain): it is
+with \code{ess_low}, makes it at least \code{"run longer"}. On a \code{\link[=gibbs]{gibbs()}} fit, a covariance group
+(two or more terms joined by a \code{cov()}: direct and indirect, direct and maternal, the
+coefficients of \code{rn()}) with more than 1\% of the kept draws of a chain within \code{1e-6} of a
+singular correlation matrix (its smallest eigenvalue; for two terms, \verb{|cor| > 0.999999})
+makes it at least \code{"not mixed"}, with that reason first (after a stopped chain, if any):
+the chain sits on the boundary of the covariance matrices, where the default prior of
+\code{\link[=gibbs]{gibbs()}} gives the posterior infinite mass, and a longer chain does not leave it (see
+\code{prior} in \code{\link[=gibbs]{gibbs()}}). Under a posterior with no infinite mass there, and whose
+correlation is not itself at +-1, the share of draws that close to the boundary is of the
+order of \code{1e-6}. The groups and chains are in \code{boundary}. \code{"chain stopped"} means a chain
+of \code{\link[=gibbs]{gibbs()}} stopped early (an inadmissible theta or a failed Cholesky inside the chain): it is
 left out of the pooled results and of every diagnostic here. With one chain (the default
 of \code{\link[=gibbs]{gibbs()}}) the R-hat is the split R-hat of its two halves, and the between-chain
 checks (disagreement, isolated chain, location R-hat) are inactive: run \code{chains = 4} for

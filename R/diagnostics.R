@@ -812,6 +812,133 @@ derivados_gibbs <- function(fit) {
   }
 }
 
+# OS GRUPOS DE COVARIANCIA, pelos nomes (a leitura de derivados_gibbs()): os var() ligados
+# por cov(a,b). Cada grupo de dois termos ou mais da as colunas das variancias (`var`), os
+# termos e, por cov, a coluna e a posicao dos dois termos no grupo (`cov`, j / a / b).
+grupos_cov_gibbs <- function(nm) {
+  vs <- grep("^var\\(", nm)
+  termo <- sub("^var\\((.*)\\)$", "\\1", nm[vs])
+  arestas <- Filter(Negate(is.null), lapply(grep("^cov\\(", nm), function(j) {
+    ab <- strsplit(sub("^cov\\((.*)\\)$", "\\1", nm[j]), ",", fixed = TRUE)[[1]]
+    k <- match(ab, termo)
+    if (length(ab) != 2L || anyNA(k)) NULL else c(j, k)
+  }))
+  if (!length(arestas)) return(list())
+  # componentes conexas: cada aresta leva os dois termos ao menor rotulo, ate parar
+  rot <- seq_along(vs)
+  repeat {
+    antes <- rot
+    for (e in arestas) rot[e[2:3]] <- min(rot[e[2:3]])
+    if (identical(rot, antes)) break
+  }
+  lapply(unique(rot[duplicated(rot)]), function(g) {
+    k <- which(rot == g)
+    list(var = vs[k], termos = termo[k],
+         cov = do.call(rbind, lapply(Filter(function(e) rot[e[2]] == g, arestas),
+                                     function(e) c(e[1], match(e[2:3], k)))))
+  })
+}
+
+# o menor autovalor da matriz de CORRELACAO do grupo em cada amostra (linha de m): livre da
+# escala de cada termo, 1 - |r| num grupo 2 x 2. Uma variancia que nao e positiva (a Wishart
+# inversa nao da, mas amostras lidas de fora podem trazer) conta como fronteira.
+menor_autovalor_cor <- function(m, gr) {
+  s <- sqrt(pmax(m[, gr$var, drop = FALSE], 0))
+  q <- if (length(gr$var) == 2L) 1 - abs(m[, gr$cov[1, 1]]) / (s[, 1] * s[, 2])
+       else vapply(seq_len(nrow(m)), function(i) {
+         R <- diag(length(gr$var))
+         for (e in seq_len(nrow(gr$cov))) {
+           a <- gr$cov[e, 2]
+           b <- gr$cov[e, 3]
+           R[a, b] <- R[b, a] <- m[i, gr$cov[e, 1]] / (s[i, a] * s[i, b])
+         }
+         if (anyNA(R) || any(!is.finite(R))) return(0)
+         min(eigen(R, symmetric = TRUE, only.values = TRUE)$values)
+       }, numeric(1))
+  q[!is.finite(q)] <- 0
+  q
+}
+
+# A FRONTEIRA DOS GRUPOS DE COVARIANCIA. A priori de Jeffreys de um grupo d x d,
+# |C|^-(d+1)/2, diverge como potencia quando C chega a uma matriz singular (uma correlacao
+# de +-1): a posteriori e impropria ali, de massa infinita, e a cadeia que chega perto nao
+# volta (Hobert e Casella 1996; a 1/s2 de uma variancia escalar diverge so como log). Medido
+# no desenho IDENTIFICADO de baias de 2 a 8 (1600 registros, 2000 animais;
+# validation/indirect_gibbs_recovery.R jeffreys): 4 de 30 replicas com uma cadeia presa a
+# |cor| > 0.99 e o menor autovalor da correlacao de 1.2e-8 a 2e-8, onde o gibbs() de c99ad26
+# ficava calado; com 200 registros (modo fronteira), 15 de 20 dados em 10000 iteracoes. Sob
+# uma priori sem massa infinita ali ("flat", c(df =, scale =)), e com a correlacao da
+# posteriori longe de +-1, a fracao a 1e-6 da fronteira e da ordem de 1e-6: nos mesmos 20
+# dados a plana nao desceu de 9e-3 em 10000 iteracoes, e em 480 cadeias de 5000 no dado 9
+# (REML cor 0.73) de 1.2e-5. Por grupo amostrado e por cadeia usada: a fracao das amostras
+# guardadas com o menor autovalor da correlacao abaixo de `limiar`; sai uma linha por cadeia
+# acima de `fracao`. Os grupos que o modelo prende (theta_fixed) ficam de fora.
+fronteira_gibbs <- function(fit, limiar = 1e-6, fracao = 0.01) {
+  out <- data.frame(group = character(0), cor = character(0), chain = integer(0),
+                    share = numeric(0), min_eigen = numeric(0), stringsAsFactors = FALSE)
+  nm <- if (is.null(fit$names)) colnames(fit$samples) else fit$names
+  grs <- grupos_cov_gibbs(nm)
+  if (!length(grs) || !NROW(fit$samples)) return(out)
+  cad <- cadeias_do_ajuste(fit)
+  fixos <- fit$fixed_components
+  for (gr in grs) {
+    if (!is.null(fixos) && all(fixos[nm[gr$var]])) next
+    for (k in seq_along(cad$cadeias)) {
+      q <- menor_autovalor_cor(cad$cadeias[[k]], gr)
+      if (!length(q) || mean(q < limiar) <= fracao) next
+      out[nrow(out) + 1L, ] <- list(paste(gr$termos, collapse = ", "),
+                                    if (length(gr$var) == 2L) sub("^cov", "cor", nm[gr$cov[1, 1]])
+                                    else NA_character_,
+                                    cad$usadas[k], mean(q < limiar), min(q))
+    }
+  }
+  out
+}
+
+# o texto da fronteira, um por grupo: o motivo de mcmc_diagnostics() e o aviso e a mensagem
+# do gibbs(). A causa depende da priori: a de Jeffreys (a padrao) da massa infinita ali e
+# prende a cadeia; a plana e a propria nao, e quem poe a cadeia ali e o dado. O remedio
+# depende da familia: no gaussiano a plana serve (com niveis bastantes); no probit a
+# verossimilhanca binaria fica positiva quando as variancias crescem, a plana deixa a
+# posteriori impropria no infinito (medido: var(animal) passou de 30,
+# validation/indirect_gibbs_probit_recovery.R), e so a propria c(df =, scale =) serve. A
+# fracao vai com uma casa abaixo de 10%: a regra e "mais de 1%", e 1.1% nao pode sair "1%"
+texto_fronteira <- function(fr, prior, family = "gaussian") {
+  jeffreys <- is.null(prior) || identical(prior, "jeffreys")
+  plana <- identical(prior, "flat")
+  probit <- identical(family, "probit")
+  vapply(split(fr, factor(fr$group, unique(fr$group))), function(x) {
+    paste0("covariance group (", x$group[1], "): ",
+           paste(ifelse(100 * x$share < 9.95, sprintf("%.1f%%", 100 * x$share),
+                        sprintf("%.0f%%", 100 * x$share)), collapse = ", "),
+           " of the kept draws of chain", if (nrow(x) > 1L) "s", " ",
+           paste(x$chain, collapse = ", "),
+           " sit within 1e-6 of a singular correlation matrix",
+           if (!is.na(x$cor[1])) paste0(" (|", x$cor[1], "| above 0.999999)"), "; ",
+           if (jeffreys && !probit)
+             paste0("under prior = \"jeffreys\" the posterior has infinite mass on that ",
+                    "boundary (Hobert and Casella 1996), even when the data identify the ",
+                    "group, and a longer chain does not leave it: refit with prior = \"flat\" ",
+                    "or a proper c(df = , scale = ), and read the SINGULAR verdict of model() ",
+                    "on the same formula")
+           else if (jeffreys)
+             paste0("under prior = \"jeffreys\" the posterior has infinite mass on that ",
+                    "boundary (Hobert and Casella 1996), and a longer chain does not leave ",
+                    "it: refit with a proper prior = c(df = , scale = ). With family = ",
+                    "\"probit\" the flat prior is no remedy: the binary likelihood stays ",
+                    "positive as the variances grow, so that posterior is improper too")
+           else if (plana && probit)
+             paste0("the flat prior puts no infinite mass on that boundary, but with family = ",
+                    "\"probit\" it leaves the posterior improper as the variances grow (the ",
+                    "binary likelihood stays positive there): refit with a proper prior = ",
+                    "c(df = , scale = )")
+           else paste0("this prior puts no infinite mass on that boundary, so the data put the ",
+                       "chain there",
+                       if (probit) ": the binary records may not separate the terms of the group"
+                       else ": read the SINGULAR verdict of model() on the same formula"))
+  }, character(1), USE.NAMES = FALSE)
+}
+
 diagnostico_gibbs <- function(fit, derived, locations, probs, lim) {
   cad <- cadeias_do_ajuste(fit)
   X <- cad$cadeias
@@ -891,6 +1018,16 @@ diagnostico_gibbs <- function(fit, derived, locations, probs, lim) {
       }
     }
   }
+  # a cadeia presa na fronteira de um grupo de covariancia (fronteira_gibbs()): o R-hat e a
+  # ESS so diziam "run longer", e sob a priori de Jeffreys mais cadeia nao a tira de la. Vai
+  # em primeiro, que e o motivo que print() mostra
+  fronteira <- fronteira_gibbs(fit)
+  if (nrow(fronteira)) {
+    sev <- max(sev, 3L)
+    out$reasons <- c(texto_fronteira(fronteira, fit$prior,
+                                     if (is.null(fit$family)) "gaussian" else fit$family),
+                     out$reasons)
+  }
   if (length(cad$paradas)) {
     sev <- 4L
     out$reasons <- c(sprintf("chain %d stopped after %d of %d kept draws%s", cad$paradas,
@@ -907,7 +1044,7 @@ diagnostico_gibbs <- function(fit, derived, locations, probs, lim) {
   menor <- minimo(out$table$ess_bulk[vivas])
   seg <- fit$seconds
   structure(c(out[c("table", "multivariate", "reasons", "notes")],
-              list(locations = loc, worst_levels = piores,
+              list(locations = loc, worst_levels = piores, boundary = fronteira,
                    verdict = c("ok", "run longer", "burn-in too short", "not mixed",
                                "chain stopped")[sev + 1L],
                    thresholds = lim,
@@ -1127,8 +1264,17 @@ cadeias_de_dados <- function(x) {
 #'
 #' The verdict is the worst row, in the order `"chain stopped"` > `"not mixed"` >
 #' `"burn-in too short"` > `"run longer"` > `"ok"`; a flagged location, or a location term
-#' with `ess_low`, makes it at least `"run longer"`. `"chain stopped"` means a chain of
-#' [gibbs()] stopped early (an inadmissible theta or a failed Cholesky inside the chain): it is
+#' with `ess_low`, makes it at least `"run longer"`. On a [gibbs()] fit, a covariance group
+#' (two or more terms joined by a `cov()`: direct and indirect, direct and maternal, the
+#' coefficients of `rn()`) with more than 1% of the kept draws of a chain within `1e-6` of a
+#' singular correlation matrix (its smallest eigenvalue; for two terms, `|cor| > 0.999999`)
+#' makes it at least `"not mixed"`, with that reason first (after a stopped chain, if any):
+#' the chain sits on the boundary of the covariance matrices, where the default prior of
+#' [gibbs()] gives the posterior infinite mass, and a longer chain does not leave it (see
+#' `prior` in [gibbs()]). Under a posterior with no infinite mass there, and whose
+#' correlation is not itself at +-1, the share of draws that close to the boundary is of the
+#' order of `1e-6`. The groups and chains are in `boundary`. `"chain stopped"` means a chain
+#' of [gibbs()] stopped early (an inadmissible theta or a failed Cholesky inside the chain): it is
 #' left out of the pooled results and of every diagnostic here. With one chain (the default
 #' of [gibbs()]) the R-hat is the split R-hat of its two halves, and the between-chain
 #' checks (disagreement, isolated chain, location R-hat) are inactive: run `chains = 4` for
@@ -1169,9 +1315,12 @@ cadeias_de_dados <- function(x) {
 #'   `ess_low`, and `mcse_sd_q50` and `mcse_sd_q90`, the median and 90% quantile over the
 #'   levels of the Monte Carlo error of the pooled mean in posterior sd, from the spread of
 #'   the chain means),
-#'   `worst_levels`, `verdict`, `reasons`, `notes`, `thresholds` and `info` (chains, kept
-#'   draws per chain, stopped chains, `n_iter`, `burnin`, `thin`, seconds and the smallest
-#'   bulk-ESS per second).
+#'   `worst_levels`, `boundary` (on a [gibbs()] fit: one row per covariance group and chain
+#'   on the boundary, with `group`, `cor` for a group of two terms, `chain`, `share` and
+#'   `min_eigen`, the smallest eigenvalue of the correlation matrix over the kept draws; no
+#'   rows when no chain is there), `verdict`, `reasons`, `notes`, `thresholds` and `info`
+#'   (chains, kept draws per chain, stopped chains, `n_iter`, `burnin`, `thin`, seconds and
+#'   the smallest bulk-ESS per second).
 #' @references Vehtari, A., Gelman, A., Simpson, D., Carpenter, B. & Burkner, P.-C. (2021).
 #'   Rank-normalization, folding, and localization: an improved R-hat for assessing
 #'   convergence of MCMC. Bayesian Analysis 16:667-718.

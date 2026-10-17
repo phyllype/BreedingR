@@ -377,4 +377,22 @@ test_that("pens 10, 20, 30 and '10', '20', '30' give the same indirect_residual(
   expect_true(all(am_n[1:2, -(1:2)] == 0))
 })
 
+test_that("t2() recusa a cadeia do gibbs() sem o aviso falso de theta NA", {
+  # a cadeia nao tem theta (estimativa pontual). Em c99ad26 t2(g, n =) avisava "this fit has
+  # no estimates (theta is NA: it stopped before a first evaluation ...)", o que e falso, e
+  # morria em "subscript out of bounds"; h2() ja recusava a cadeia
+  s <- simula_ige(n_baias = 30)
+  set.seed(3)
+  g <- gibbs(f_ige, s$data, s$ped, theta_fixed = th_ige, n_iter = 300L, burnin = 50L,
+             thin = 1L, verbose = FALSE)
+  # um aviso vira erro aqui: so a recusa pode sair
+  recusa <- tryCatch(withCallingHandlers(t2(g, n = 4), warning = function(w)
+                       stop("warning: ", conditionMessage(w))),
+                     error = conditionMessage)
+  expect_match(recusa, paste0("^expected the result of model\\(\\), model_mt\\(\\) or ",
+                              "model_threshold\\(\\): a gibbs\\(\\) chain has no point estimate"))
+  expect_match(recusa, "fit$samples", fixed = TRUE)
+  expect_error(h2(g, n = 4), "expected the result of model")
+})
+
 options(op_parentesco)

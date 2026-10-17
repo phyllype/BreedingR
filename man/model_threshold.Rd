@@ -230,8 +230,13 @@ Read the estimate knowing its known bias: with a binary trait and few records pe
 level of the random effect the Laplace approximation UNDERESTIMATES the variance
 (Tempelman 1998); many daughters per sire is where it is reliable. Gibbs sampling with
 data augmentation (\code{\link[=gibbs]{gibbs()}} with \code{family = "probit"} for a binary trait, or
-THRGIBBS1F90) does not use the approximation; with \code{indirect()} its recovery of the
-components is not validated in this package.
+THRGIBBS1F90) does not use the approximation. With \code{indirect()} on a binary trait
+neither recovers the components: on pens of 2 to 8 with 3200 records and 4000 animals
+(30 data sets; \code{validation/indirect_gibbs_probit_recovery.R}), where REML on the
+liability itself gives 1.011 / 0.203 / 0.300 against 1 / 0.2 / 0.3, the Laplace
+minimum sat at \verb{|r| > 0.99} in 29 of 30, averaging 0.204 / 0.173 / 0.150 over the 30
+(bias of \code{var(animal)} -0.796, SE 0.010), and the \code{\link[=gibbs]{gibbs()}} probit chains reached a bulk
+ESS of 400 in 0 of 30.
 
 INDIRECT GENETIC EFFECTS. \code{indirect(id, pen = "pen", dilution = d)} enters the
 liability exactly as it enters the phenotype in \code{\link[=model]{model()}}: record i receives

@@ -530,7 +530,7 @@ liability (Gianola and Foulley), residual FIXED at 1 for identifiability, thresh
 place of the intercept, components GIVEN via `start=`. With `estimate = TRUE` the same
 `start=` is only the starting point and the components are estimated as the minimum of the
 Laplace -2logL the fit reports, known to run low for a binary trait with few records per level;
-`gibbs(family = "probit")` is the unbiased route there. `predict()` returns the
+`gibbs(family = "probit")` avoids the Laplace approximation. `predict()` returns the
 per-category probabilities:
 
 ```{r}

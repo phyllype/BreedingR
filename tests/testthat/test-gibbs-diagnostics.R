@@ -972,6 +972,69 @@ test_that("'fixed' e o que o modelo prende: theta_fixed, kernel(fixed =), residu
   expect_equal(tr$sd[tr$type == "derived"], stats::sd(cc), tolerance = 1e-12)
 })
 
+test_that("fronteira de um grupo de covariancia: menor autovalor da correlacao, livre de escala", {
+  # a regra de fronteira_gibbs() em amostras montadas. Um grupo de 3 termos (os nomes do
+  # rn()): metade das amostras da cadeia 1 de posto 2 (acusada), a cadeia 2 com correlacoes
+  # de 0.99 (menor autovalor 0.01) e o terceiro termo 1e4 vezes menor em variancia (nao
+  # acusada: a regra e na correlacao, e nao na escala). Um grupo de 2 termos a 1 - |r| = 1e-5
+  # na cadeia 1 (fora) e a 1e-7 em metade das amostras da cadeia 2 (dentro)
+  set.seed(11)
+  nm <- c("var(rn[0])", "cov(rn[1],rn[0])", "cov(rn[2],rn[0])", "var(rn[1])",
+          "cov(rn[2],rn[1])", "var(rn[2])", "var(a)", "cov(b,a)", "var(b)", "var(residual)")
+  amostra <- function(C3, r)
+    c(C3[1, 1], C3[2, 1], C3[3, 1], C3[2, 2], C3[3, 2], C3[3, 3], 2, r, 0.5, 1)
+  n <- 200L
+  cad1 <- t(vapply(seq_len(n), function(i)
+    amostra(tcrossprod(matrix(stats::rnorm(if (i <= n / 2) 6 else 9), 3)), 1 - 1e-5),
+    numeric(10)))
+  R99 <- matrix(0.99, 3, 3)
+  diag(R99) <- 1
+  D <- diag(c(1, 1, 1e-2))
+  cad2 <- t(vapply(seq_len(n), function(i)
+    amostra(exp(stats::rnorm(1)) * D %*% R99 %*% D, if (i %% 2L) 1 - 1e-7 else 0.5),
+    numeric(10)))
+  ajuste <- list(names = nm, samples = rbind(cad1, cad2), chain_samples = list(cad1, cad2),
+                 chains_used = 1:2, n_expected = n,
+                 fixed_components = stats::setNames(rep(FALSE, 10), nm))
+  fr <- BreedingR:::fronteira_gibbs(ajuste)
+  expect_identical(fr$group, c("rn[0], rn[1], rn[2]", "a, b"))
+  expect_identical(fr$chain, c(1L, 2L))
+  expect_equal(fr$share, c(0.5, 0.5))
+  expect_identical(fr$cor, c(NA, "cor(b,a)"))
+  expect_lt(fr$min_eigen[1], 1e-12)
+  expect_equal(fr$min_eigen[2], 1e-7, tolerance = 1e-6)
+  # o texto: a causa depende da priori, e o remedio da familia
+  tj <- BreedingR:::texto_fronteira(fr, "jeffreys")
+  expect_length(tj, 2L)
+  expect_match(tj[1], "^covariance group \\(rn\\[0\\], rn\\[1\\], rn\\[2\\]\\): 50% of the kept")
+  expect_match(tj[2], "(|cor(b,a)| above 0.999999)", fixed = TRUE)
+  expect_match(tj, "infinite mass", fixed = TRUE)
+  expect_match(tj, "refit with prior = \"flat\" or a proper c(df = , scale = )", fixed = TRUE)
+  for (p in list("flat", c(df = 4, scale = 1))) {
+    tp <- BreedingR:::texto_fronteira(fr, p)
+    expect_match(tp, "puts no infinite mass on that boundary", fixed = TRUE)
+    expect_match(tp, "read the SINGULAR verdict of model()", fixed = TRUE)
+    expect_false(any(grepl("posterior is proper", tp, fixed = TRUE)))
+  }
+  # no probit a plana nao e remedio: a verossimilhanca binaria fica positiva quando as
+  # variancias crescem, e so a priori propria fica
+  tpj <- BreedingR:::texto_fronteira(fr, "jeffreys", "probit")
+  expect_match(tpj, "refit with a proper prior = c(df = , scale = )", fixed = TRUE)
+  expect_false(any(grepl("refit with prior = \"flat\"", tpj, fixed = TRUE)))
+  expect_match(BreedingR:::texto_fronteira(fr, "flat", "probit"),
+               "it leaves the posterior improper as the variances grow", fixed = TRUE)
+  expect_false(any(grepl("prior = \"flat\"", BreedingR:::texto_fronteira(fr, c(df = 4, scale = 1),
+                                                                         "probit"), fixed = TRUE)))
+  # a fracao abaixo de 10% sai com uma casa: a regra e "mais de 1%", e 1.125% nao e "1%"
+  fr1 <- fr[2, ]
+  fr1$share <- 0.01125
+  expect_match(BreedingR:::texto_fronteira(fr1, "jeffreys"), ": 1.1% of the kept draws of chain 2 ",
+               fixed = TRUE)
+  # o grupo que o modelo prende (theta_fixed) nao e diagnosticado
+  ajuste$fixed_components[] <- TRUE
+  expect_identical(nrow(BreedingR:::fronteira_gibbs(ajuste)), 0L)
+})
+
 test_that("uma falha nos diagnosticos nao derruba o gibbs(): o ajuste volta sem eles", {
   s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 80,
                          h2 = 0.3, seed = 2)

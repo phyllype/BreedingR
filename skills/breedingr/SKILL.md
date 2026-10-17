@@ -86,11 +86,25 @@ verdict: `ok`, `run longer`, `burn-in too short`, `not mixed` or `chain stopped`
 above 1.01 alone is not `not mixed`: at low ESS converged chains exceed it too (R-hat^2 is
 about 1 + 2M/ESS), so `not mixed` needs chains apart beyond their autocorrelation with at
 least 100 bulk draws in the weakest chain. With one chain only its
-two halves are compared; run `chains = 4` for the between-chain checks. `model_threshold(estimate = TRUE)` runs LOW for a binary trait with few
-records per level of the random effect (Tempelman 1998); `gibbs(family = "probit")` is the
-unbiased route there. With `indirect()` the Laplace components of a threshold trait ran lower
+two halves are compared; run `chains = 4` for the between-chain checks. A covariance
+group (direct and indirect, direct and maternal) under `"jeffreys"` has infinite posterior
+mass at a correlation of +-1, and a chain that gets there stays even when the data
+identify the group: with `animal()` and `indirect()` in one group on pens of 2 to 8, 4 of
+30 data sets of 1600 records had a chain held there, and with `"flat"` none, the posterior
+means then landing beside REML (`validation/indirect_gibbs_recovery.R`). When more than 1%
+of a chain's kept draws sit within 1e-6 of a singular correlation matrix, `gibbs()` warns
+and the verdict is `not mixed`: refit with `prior = "flat"` or a proper prior on a Gaussian
+trait, and with a proper `c(df =, scale =)` under `family = "probit"` (there the flat prior
+leaves the posterior improper as the variances grow), not with a longer chain. The chain has
+no SINGULAR verdict (pens all of 4 holding 2 + 2 full sibs run without one), so fit `model()`
+on the same formula first. `model_threshold(estimate = TRUE)` runs LOW for a binary trait with few
+records per level of the random effect (Tempelman 1998); `gibbs(family = "probit")` does
+not use that approximation. With `indirect()` the Laplace components of a threshold trait ran lower
 still at prototype scale (paired s2D -0.03 against the direct-only fit at 2329 records), and
-the Gibbs route is not validated for the components there. In `model_survival()` each row is an elementary record
+on a binary trait with pens of 2 to 8 (3200 records, 30 data sets;
+`validation/indirect_gibbs_probit_recovery.R`) neither route recovers them: the Laplace
+minimum sits at |r| > 0.99 in 29 of 30 with var(animal) 0.204 on average against 1, and the probit
+chains reach a bulk ESS of 400 in 0 of 30. In `model_survival()` each row is an elementary record
 `(entry, stop]` of one subject, with `censor = 1` only on the last piece of a subject that
 failed; never set a covariate that is only known later from the start of the life.
 `survival_split(subjects, changes)` builds those pieces from one row per subject (end of
@@ -324,6 +338,7 @@ decrement is the other half. Ctrl+C interrupts any fitter.
 | `start_from = "var(y)"` and "the univariate start was also tried" in the message | the univariate start stalled without a certificate before `maxiter`, so the `var(y)` start was fitted too and won; the message gives the -2logL the univariate start ended at, and `fit$neg2logl` is the returned one. When the univariate start wins, `start_from` stays "univariate fits" and the message says "the var(y) start was also tried" |
 | h2 = 1 with residual 0 | rows were replicated to fake weights; use `weights =` |
 | `SINGULAR` in the message | the data do not separate the named components: their SEs are NaN and the point depends on `start=`; `pe(id)` with one record per animal, or indirect effects in pens of one size built from full-sib families (pens of different sizes, or relatives across pens, separate them) |
+| "sit within 1e-6 of a singular correlation matrix" in a `gibbs()` warning, verdict `not mixed` | a chain held at a correlation of +-1 in a covariance group; under `prior = "jeffreys"` the posterior has infinite mass there and a longer chain does not leave it. On a Gaussian trait refit with `prior = "flat"` or a proper `c(df =, scale =)`; with `family = "probit"` only the proper one, since the flat prior leaves the probit posterior improper as the variances grow. Read the SINGULAR verdict of `model()` on the same formula |
 | converged at `maxiter` and the message says the likelihood is flat | a flat ridge (`model()`, `model_mt()`, `model_ar1()`): the decrement is under tolerance and more iterations will not choose a point; read the SEs and the correlation of the components |
 | empty `share` column | the fit has `indirect()` (use `h2(fit, n = )` or `t2()`), or it is `model_survival()` |
 | "the extreme category problem" or "no failure among their records" in an error | a fixed level (often a small contemporary group) has every record in one end category, or no failure: merge it, drop its records, or fit it as `random(cg)` |

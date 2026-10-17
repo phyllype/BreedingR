@@ -534,7 +534,9 @@ confere_peso_escala <- function(fit, weight, scale) {
 #' effect of the mates that residual is a convention rather than the variance of every
 #' record (the limit declared in [model_threshold()]). A [model_survival()] fit is
 #' refused: the frailty model has no residual variance, so there is no phenotypic
-#' variance on the log-hazard scale to divide by.
+#' variance on the log-hazard scale to divide by. A [gibbs()] chain is refused too, as in
+#' [h2()]: it has no point estimate, and its T2 is the posterior of the ratio, computed
+#' from each row of `fit$samples` with the formulas above.
 #'
 #' @param fit result of [model()], [model_mt()] or [model_threshold()] with an
 #'   `indirect()` term
@@ -562,6 +564,12 @@ t2 <- function(fit, n, r = 0, trait = NULL, weight = NULL, scale = FALSE) {
     stop("the frailty model of model_survival() has no residual variance, so there is no ",
          "phenotypic variance on the log-hazard scale for T2 or h2_direct to divide by",
          call. = FALSE)
+  # a cadeia do gibbs() nao tem theta: t2() avisava "theta is NA: it stopped before a first
+  # evaluation", o que e falso, e morria em "subscript out of bounds" (h2() ja recusava)
+  if (inherits(fit, "breeding_gibbs"))
+    stop("expected the result of model(), model_mt() or model_threshold(): a gibbs() chain ",
+         "has no point estimate (theta). Its T2 is the posterior of the ratio, computed draw ",
+         "by draw from the rows of fit$samples with the formulas of ?t2", call. = FALSE)
   ige <- bloco_indireto(fit)
   if (is.null(ige)) stop("this fit has no indirect() term: T2 is the heritability, use h2()")
   if (!is.numeric(n) || any(!is.finite(n)) || any(n < 1))

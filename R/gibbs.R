@@ -14,9 +14,20 @@
 #' Gibbs sampler for a single-trait mixed model
 #'
 #' The structure checks of [model()] (see its section "Structure checks") apply here: a
-#' design that does not identify a component stops the chain unless `theta_fixed =` gives
+#' design that one of them finds unidentified stops the chain unless `theta_fixed =` gives
 #' the components (a random term inside a fixed effect leaves the chain walking the prior
-#' of that variance), and the warnings go to `message`. The h2 row of `summary()` and of
+#' of that variance), and the warnings go to `message`. Those checks read the structure of
+#' the design; a ridge that only the likelihood shows is not among them, and the chain has
+#' no SINGULAR verdict where [model()] reports the information matrix SINGULAR. Measured on
+#' 30 data sets of 1600 records each (`validation/indirect_gibbs_recovery.R`): with pens
+#' all of 4 animals, two full sibs from each of two families (`indirect()`), [model()] was
+#' SINGULAR in 30 of 30 and the message of the chain empty in 29 (in the 30th a chain got
+#' the boundary warning described in `prior`, not a SINGULAR verdict); with records on
+#' unrelated founders only (`var(animal)` against `var(residual)`), SINGULAR in 30 of 30
+#' and the message empty in 30 of 30. On such a ridge the chain wanders (R-hat up to 2.5
+#' over the separate components, while the combinations the data identify are recovered),
+#' and under the default prior it can end on that boundary. Fit [model()] with the same
+#' formula first and read its SINGULAR verdict. The h2 row of `summary()` and of
 #' [mcmc_diagnostics()] follows the rule of [h2()]: the direct genetic term,
 #' `4 var(sire)` in a sire model, the components as estimated (the base of Gamma with
 #' metafounders), a `kernel(fixed =)` or an [associative_matrix()] at its mean diagonal over
@@ -51,12 +62,32 @@
 #'   the residual. `"jeffreys"` (the default) is `p(s2) ~ 1/s2`, and `|C|^-(d+1)/2` for a
 #'   `d x d` group: the full conditional is `(u'K^-1 u) / chisq(nl)`. It is improper, and
 #'   so, in principle, is the posterior of every random effect whose likelihood stays
-#'   positive at a variance of zero (Hobert and Casella 1996); with a well identified
-#'   component the spurious mass near zero is negligible, with a weak one it is not.
-#'   `"flat"` is uniform on the variance (`chisq(nl - 2)`; for a group, uniform on `C`,
-#'   `InvWishart(nl - d - 1)`). `"uniform_sd"` is uniform on the standard deviation
-#'   (`chisq(nl - 1)`), the choice Gelman (2006) recommends for a variance with few
-#'   levels; scalar groups only. `c(df = nu0, scale = S0)` is the proper scaled inverse
+#'   positive at a variance of zero (Hobert and Casella 1996). For a scalar variance the
+#'   divergence at zero is logarithmic: with a well identified component the spurious mass
+#'   near zero is negligible, with a weak one it is not (the residual too: on 1600 records
+#'   and 2000 animals with `indirect()`, 12.6% of the kept draws of one chain had
+#'   `var(residual)` below 0.1, against a REML estimate of 0.597, and the smallest bulk ESS
+#'   was 82 after 200000 iterations). For a covariance group it is a power, `|C|^-(d+1)/2` as
+#'   `C` nears a singular matrix (a correlation of +-1), and the posterior has infinite mass
+#'   on that boundary even when the data identify every component: a chain that gets there
+#'   stays. Measured with `animal()` and `indirect()` in one group on pens of 2 to 8
+#'   (`validation/indirect_gibbs_recovery.R`): 4 of 30 data sets of 1600 records had a
+#'   chain held at a correlation of +-1 (the smallest eigenvalue of the correlation matrix
+#'   1.2e-8 to 2.0e-8, against REML correlations of 0.53 to 0.71, none SINGULAR), still
+#'   there at 200000 iterations; on 200 records, 15 of 20 data sets within 10000 iterations,
+#'   12 of them with a REML correlation below 0.99. With the flat prior no chain was held in
+#'   any of these 50 data sets (on the 20 small ones `1 - |cor|` stayed above `9e-3` over
+#'   the same 10000 iterations). `gibbs()` warns, adds the reason to `message`, and
+#'   [mcmc_diagnostics()] says `"not mixed"`, when more than 1% of the kept draws of a chain
+#'   sit within `1e-6` of a singular correlation matrix. With a covariance group on a
+#'   Gaussian trait prefer `"flat"` (with enough levels for the group) or a proper prior;
+#'   with `family = "probit"` only a proper `c(df =, scale =)`, since the binary likelihood
+#'   stays positive as the variances grow and the flat prior leaves that posterior improper
+#'   too (on one data set of `validation/indirect_gibbs_probit_recovery.R` the flat chains
+#'   took `var(animal)` past 30). `"flat"` is uniform on the variance (`chisq(nl - 2)`; for
+#'   a group, uniform on `C`, `InvWishart(nl - d - 1)`). `"uniform_sd"` is uniform on the
+#'   standard deviation (`chisq(nl - 1)`), the choice Gelman (2006) recommends for a
+#'   variance with few levels; scalar groups only. `c(df = nu0, scale = S0)` is the proper scaled inverse
 #'   chi-square of the BLUPF90 Gibbs programs (`OPTION prior`), `(u'K^-1 u + nu0 S0) /
 #'   chisq(nl + nu0)`, and `InvWishart(nl + nu0, U'K^-1 U + nu0 S0 I)` for a group: `S0`
 #'   is the prior guess of a variance, `nu0` its degree of belief. A ridge of `1e-10`
@@ -81,8 +112,12 @@
 #'   `NaN`, `Inf`, `-Inf`, blank text, the text "NaN" or `missing_code`) drops its
 #'   record, as in [model_threshold()]; it is never one of the two values. Everything
 #'   else is the chain of the Gaussian case: `kernel()`, `indirect()`, genotypes, APY and
-#'   `prior =`. This is the unbiased alternative to the Laplace estimate of
-#'   [model_threshold()]
+#'   `prior =`. It does not use the Laplace approximation of [model_threshold()], but it
+#'   does not rescue a design the binary records leave weak: with `indirect()` and the
+#'   components estimated, on pens of 2 to 8 with 3200 records and 4000 animals, no chain
+#'   of 30 data sets reached a bulk ESS of 400 (ESS 2.5 to 23.3 on the variances after 2 x
+#'   6000 iterations, the mean still drifting), where REML on the liability itself
+#'   recovers the components (`validation/indirect_gibbs_probit_recovery.R`)
 #' @param chains number of independent chains, each from its own seed. The seeds are
 #'   drawn from R's generator, so `set.seed()` governs every chain, and the result is
 #'   the same run in series or in parallel. With more than one, `samples`, `mean`,
@@ -385,6 +420,15 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
     d <- NULL
   }
   r$diagnostics <- d
+  # a cadeia presa na fronteira de um grupo de covariancia (fronteira_gibbs(),
+  # R/diagnostics.R): sob a priori de Jeffreys ela nao sai, e o gibbs() ficava calado (4 de 30
+  # replicas identificadas, validation/indirect_gibbs_recovery.R). Aviso e mensagem
+  fr <- if (!is.null(d)) d$boundary else tryCatch(fronteira_gibbs(r), error = function(e) NULL)
+  if (NROW(fr)) {
+    txt <- paste(texto_fronteira(fr, prior, family), collapse = "; ")
+    r$message <- paste0(r$message, if (nzchar(r$message)) "; ", txt)
+    warning("gibbs(): ", txt, call. = FALSE)
+  }
   na <- stats::setNames(rep(NA_real_, ncol(r$samples)), r$names)
   comp <- if (is.null(r$diagnostics)) NULL else r$diagnostics$table[seq_len(ncol(r$samples)), ]
   r$ess <- if (is.null(comp)) na else stats::setNames(comp$ess_bulk, r$names)

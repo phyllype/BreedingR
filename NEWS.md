@@ -485,9 +485,11 @@
   a proper `c(df =, scale =)` as in `OPTION prior` of the BLUPF90 Gibbs programs.
 * `gibbs(family = "probit")`: the threshold model for a binary trait by data
   augmentation (Albert and Chib, 1993; Sorensen et al., 1995), with the residual
-  variance fixed at 1. It is the unbiased route to the components of a binary
-  trait, and it carries everything the Gaussian chain carries: `kernel()`,
-  `indirect()`, genotypes and APY.
+  variance fixed at 1. It does not use the Laplace approximation of
+  `model_threshold()`, and it carries everything the Gaussian chain carries:
+  `kernel()`, `indirect()`, genotypes and APY. With `indirect()` and the components
+  estimated its chains did not converge on a binary trait
+  (`validation/indirect_gibbs_probit_recovery.R`).
 * `model_threshold(estimate = TRUE)` and `model_survival()` estimate the components as the
   MINIMUM of the Laplace -2logL the fit reports: `optimize()` in the log of the variance for
   one component, Nelder-Mead and then Newton steps on a numerical Hessian (log variances,
@@ -584,8 +586,9 @@
   bias is consistent with the Laplace approximation (it shrinks as the categories carry more
   information) but it is not isolated: no exact marginal and no Gibbs run on the same design
   separate it from the rest. `gibbs(family = "probit")` does not use the approximation, but
-  its recovery of the components with `indirect()` is not validated (only its EBVs at fixed
-  components). The Weibull frailty has a bias of its own with one record
+  with `indirect()` and the components estimated it does not recover them either on a
+  binary trait (`validation/indirect_gibbs_probit_recovery.R`, in the `gibbs()` with
+  `indirect()` entry below). The Weibull frailty has a bias of its own with one record
   per animal and 40% censoring, and the indirect term adds none: s2D 0.207 (SE 0.015) against
   0.195 (SE 0.016) for the direct-only control (paired +0.012, SE 0.014), cov -0.057 and s2S
   0.067 against -0.05 and 0.08, rho 1.39 against 1.4; the declared gate of that scenario
@@ -779,6 +782,66 @@
   0.7755 from the quadrature (z = 0.15 and 0.08 against the Monte Carlo error),
   the posterior standard deviations within 1 percent, R-hat 1.0007
   (`validation/gibbs_harville.R`).
+
+* `gibbs()` with `indirect()` and the components ESTIMATED: gated, and validated for a
+  Gaussian trait, where `prior = "flat"` recovers the components beside REML; the default
+  prior held a chain at the boundary in 4 of 30 data sets (now warned, see Fixed); on a
+  binary trait it was measured and does not recover them. Every earlier gate of the pair
+  held the components with `theta_fixed =`. Gates:
+  `tests/testthat/test-indireto-gibbs-estimado.R` (thresholds from the `portao` mode of the
+  validation script, 100 chain seeds and 15 data seeds per gate), and in
+  `tests/testthat/test-indireto-identificabilidade.R` the chain held at the boundary.
+  `validation/indirect_gibbs_recovery.R`: full-sib families with one record per offspring,
+  1600 records and 2000 animals per data set, planted 1 / 0.2 / 0.3 / 1, 30 replicates per
+  design, means over the replicates with their Monte Carlo SE.
+  - Pens of 2 to 8, which identify the components. With `prior = "flat"` and 2 chains run
+    until every component reached a bulk ESS of 400 (50 000 to 200 000 iterations; 30 of
+    30 got there), the posterior means are 1.056 (0.034), 0.207 (0.012), 0.306 (0.009) and
+    0.988 (0.029), with 95% interval coverage 0.97 / 0.90 / 0.87 / 0.93 (binomial SE 0.040).
+    REML on the same data gives 0.982 / 0.210 / 0.295 / 1.029 with Wald coverage 1.00 /
+    0.90 / 0.83 / 0.93 on the same 30, and over 300 replicates 0.998 / 0.206 / 0.300 /
+    0.999 with Wald coverage 0.96 / 0.93 / 0.92 / 0.93 (binomial SE 0.013: about 2 SE
+    under 0.95 for cov, var(indirect) and var(residual)). Across replicates the two
+    correlate 0.999 to 1.000, and the flat prior puts the posterior mean -0.28 to +0.33
+    posterior SD from REML. The breeding values correlate with the true ones as the BLUP
+    at the REML components does (0.622 direct, 0.675 indirect).
+  - The same data under the default `prior = "jeffreys"`: a chain was held at a
+    direct-indirect correlation of +-1 in 4 of 30 replicates (6, 9, 22, 30), and `gibbs()`
+    now warns in those 4 and in no other. A bulk ESS of 400 was reached in 25 of 30: not
+    in those 4, nor in replicate 19, where 12.6% of the draws of one chain had
+    var(residual) below 0.1 and the ESS stayed at 82 after 200 000 iterations. All 30 give
+    0.984 (0.042), 0.220 (0.014), 0.296 (0.010) and 1.046 (0.038), coverage 0.97 / 0.83 /
+    0.83 / 0.90, and the direct breeding values lose 0.007 of correlation with the true
+    ones (0.615 against 0.622, SE 0.003); the other 26, replicate 19 among them, give
+    1.033 / 0.203 / 0.305 / 0.995, coverage 1.00 / 0.92 / 0.88 / 0.96.
+  - Pens all of 4 holding 2 + 2 full sibs of two families (`model()` SINGULAR in 30 of
+    30): `gibbs()` runs and has no SINGULAR verdict; its message was empty in 29 of 30
+    under Jeffreys (the 30th got only the boundary warning) and in 30 of 30 under flat,
+    and in 30 of 30 under both at c99ad26. It recovers the two identified combinations
+    (`va + 6 cov + 9 vs` 4.891 under Jeffreys and 4.961 under flat against 4.9, REML
+    4.833; `va - 2 cov + vs` 0.895 and 0.936 against 0.9, REML 0.865) and wanders along
+    the ridge for the separate components: R-hat above 1.01 in 30 of 30 (up to 2.48 under
+    Jeffreys, 1.89 under flat), and under Jeffreys a posterior median of the correlation
+    beyond +-0.95 in 4 of 30.
+  - Records on unrelated founders only (pens of 2 to 8, `fundadores` mode): `model()`
+    SINGULAR on var(animal) and var(residual) in 30 of 30, the message of the chain empty
+    in 30 of 30.
+
+  `validation/indirect_gibbs_probit_recovery.R`, the same families and pens on a binary
+  trait (3200 records and 4000 animals, 30 replicates): the components are NOT recovered.
+  REML on the liability, which real data do not have, gives 1.011 / 0.203 / 0.300, so the
+  design identifies them. The Laplace minimum of `model_threshold()` sits at |r| > 0.99 in
+  29 of 30, averaging 0.204 / 0.173 / 0.150 over the 30 (bias of var(animal) -0.796, SE
+  0.010). `gibbs(family = "probit")` with 2 chains of 6000 reaches a bulk ESS of 400, or
+  an R-hat under 1.01, in 0 of 30 replicates, and is still drifting (var(animal) +0.346
+  from the first half of the chain to the second, SE 0.119). On one data set (seed 1)
+  with 2 chains of 40 000 the ESS of var(animal) is 3.4, with the chains not yet
+  stationary: Jeffreys holds one chain near the Laplace point, and the flat prior lets
+  var(animal) climb to 33. On one data set (seed 3) with `dilution = 0.6` the Jeffreys
+  chains, not converged (ESS 3.6 on var(indirect)), end at var(indirect) 0.075, where REML
+  on the liability gives 0.290. `mcmc_diagnostics()` flags these chains (verdict `ok` in
+  0 of 20 at the size of a test, and in 0 of 160 chains in the `portao` mode of the
+  Gaussian script).
 
 * `br_threads()`: OpenMP where a genomic evaluation spends its k^3. The dense
   tail of every sparse Cholesky (the genotyped block after the ordering) is
@@ -1237,6 +1300,43 @@
   1e-15 (2.22) and 80 added to 10% of the rows of the 300 nested slopes (3.94). It no
   longer sees a whole covariate column changed by `a x + c` with `a > 0`, which gives the
   same standardized design. A chain made by an earlier version is checked as before.
+* `t2()` on a `gibbs()` chain stopped with "subscript out of bounds" after a false warning
+  that the fit "has no estimates (theta is NA: it stopped before a first evaluation)". It
+  now refuses the chain as `h2()` does ("expected the result of model(), model_mt() or
+  model_threshold(): a gibbs() chain has no point estimate (theta)"), and says that T2 of
+  a chain is computed draw by draw from `fit$samples`.
+* `gibbs()` said nothing when a chain sat on the boundary of a covariance group (a
+  correlation of +-1 between direct and indirect, or direct and maternal). There the
+  default prior `"jeffreys"`, `|C|^-(d+1)/2`, gives the posterior infinite mass, and a
+  longer chain does not leave it. On the identified design of pens of 2 to 8 (1600
+  records, 2000 animals; `validation/indirect_gibbs_recovery.R jeffreys`), 4 of 30 data
+  sets had a chain held at |cor| > 0.99 at 200 000 iterations, with the smallest
+  eigenvalue of the correlation matrix 1.2e-8 to 2.0e-8, REML correlations of 0.53 to 0.71
+  and no SINGULAR verdict; c99ad26 returned an empty message there. `gibbs()` now warns and
+  adds the reason to `message`, and `mcmc_diagnostics()` says at least "not mixed", with
+  that reason first after any stopped chain, when more than 1% of a chain's kept draws lie
+  within 1e-6 of a singular correlation matrix; the groups and chains are in `boundary`.
+  On the 30 data sets it warns in those 4 and in no other. On one data set of 200 records
+  (REML correlation 0.73; the `fronteira` mode), 379 of 480 Jeffreys chains of 5000
+  iterations were flagged, at least one in each of 120 chain seeds, and 0 of 480 flat
+  chains (1 - |cor| never below 1.2e-5); on 20 data sets of 200 records a Jeffreys chain of
+  10 000 iterations was flagged in 15, 12 of them with a REML correlation below 0.99, and a
+  flat chain in none. The message says to refit with `prior = "flat"` or a proper
+  `c(df =, scale =)` on a Gaussian trait, and only with the proper one under `family =
+  "probit"`, where the flat prior leaves the posterior improper as the variances grow. The
+  default prior is unchanged.
+* The help of `gibbs()` said that a design that does not identify a component stops the
+  chain. The structure checks stop it only in the structural cases they list. A ridge that
+  only the likelihood shows runs without a SINGULAR verdict where `model()` reports
+  SINGULAR, in 30 of 30 data sets each (`validation/indirect_gibbs_recovery.R`): with pens
+  all of 4 holding two full sibs from each of two families the message of the chain was
+  empty in 29 of 30 (the 30th got only the boundary warning above), and with records on
+  unrelated founders only (`fundadores` mode) in 30 of 30. The help now says so. Its
+  `prior` entry no longer says that the spurious mass at zero is negligible for a well
+  identified component: that holds for a scalar variance, not for a covariance group. Its
+  `family` entry no longer calls the probit chain the unbiased alternative to the Laplace
+  estimate of `model_threshold()`: with `indirect()` and the components estimated neither
+  recovers them on a binary trait (`validation/indirect_gibbs_probit_recovery.R`).
 * When the censoring indicator of `model_survival()` or of `residuals()` of a survival
   fit, or the `event` of `survival_split()`, is a factor or text, it is read by its
   labels: "0" and "1", or "TRUE" and "FALSE", in any level order. The fit message says so.

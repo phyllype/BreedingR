@@ -63,7 +63,9 @@ residual fixed at 1 in the denominator; with pens of unequal size and an environ
 effect of the mates that residual is a convention rather than the variance of every
 record (the limit declared in \code{\link[=model_threshold]{model_threshold()}}). A \code{\link[=model_survival]{model_survival()}} fit is
 refused: the frailty model has no residual variance, so there is no phenotypic
-variance on the log-hazard scale to divide by.
+variance on the log-hazard scale to divide by. A \code{\link[=gibbs]{gibbs()}} chain is refused too, as in
+\code{\link[=h2]{h2()}}: it has no point estimate, and its T2 is the posterior of the ratio, computed
+from each row of \code{fit$samples} with the formulas above.
 }
 \references{
 Bijma, P., Muir, W.M. & Van Arendonk, J.A.M. (2007). Multilevel selection 1:

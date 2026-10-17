@@ -585,7 +585,19 @@ variance; `"uniform_sd"` is uniform on the standard deviation, the one Gelman (2
 recommends for a variance with few levels; and `c(df =, scale =)` is the proper scaled
 inverse chi-square of the BLUPF90 Gibbs programs. The improper ones can leave the
 posterior of a weakly identified component with spurious mass near zero (Hobert and
-Casella, 1996). Where REML gives a point and a standard error from the information
+Casella, 1996). For a covariance group the default is worse: `|C|^-(d+1)/2` grows without
+bound as `C` nears a singular matrix, so the posterior has infinite mass at a correlation
+of +-1 even when the data identify every component, and a chain that gets there stays.
+With direct and indirect effects in one group on pens of 2 to 8 (1600 records, 30 data
+sets) that happened in 4 of 30 under `"jeffreys"` and in none under `"flat"`, whose
+posterior means landed beside REML; `gibbs()` warns when a chain sits there. On a
+Gaussian trait the flat prior or a proper one avoids that boundary; with `family =
+"probit"` only a proper one does, because the binary likelihood stays positive as the
+variances grow and the flat prior leaves that posterior improper too. The chain also has
+no SINGULAR verdict of its own, so a design that only the likelihood fails to identify
+runs without one (pens all of 4 holding two full sibs from each of two families, or
+records on unrelated founders only: the message of the chain was empty in 29 and in 30 of
+30 data sets, where `model()` on the same formula says SINGULAR in all 60). Where REML gives a point and a standard error from the information
 matrix, the sampler gives the whole posterior, worth the cost when a component sits near
 a boundary, where the normal approximation behind the standard error is least
 trustworthy. `summary()` of the chain gives the posterior quantiles and the heritability
@@ -595,7 +607,10 @@ to variance components in animal models, and Mrode and Pocrnic (2023, ch. 18) se
 the same sampler and the conjugate draws it uses. With `family = "probit"` it samples a
 binary trait on its liability, each record's liability drawn from a normal truncated at
 the threshold and the residual fixed at 1 (Albert and Chib, 1993; Sorensen et al.,
-1995), which is the unbiased route to the components of such a trait.
+1995), which avoids the Laplace approximation. It does not rescue every design: with
+`indirect()` and the components estimated on binary records (3200 records, 30 data sets)
+the chains reached a bulk ESS of 400 in none, and the Laplace minimum sat at `|r| > 0.99`
+in 29, where REML on the liability itself recovers the components.
 
 ```{r}
 g <- gibbs(y ~ cg + animal(id), d, s$pedigree, n_iter = 2000, burnin = 400, thin = 4)
@@ -661,8 +676,8 @@ from its numerical Hessian. (The EM step of Foulley, Im, Gianola and Hoeschele, 
 that minimum, because the step ignores how the weights move with s2.) Its known weakness is a binary trait with few records per level of
 the random effect, where the Laplace approximation underestimates the variance
 (Tempelman, 1998); on 80 sires with 50 daughters each and a planted variance of 0.15 it
-averaged 0.161 (SE 0.007) over 10 replicates, and `gibbs(family = "probit")` is the
-unbiased alternative for a binary trait without `indirect()`. `cbind(quant, binary)` fits the
+averaged 0.161 (SE 0.007) over 10 replicates, and `gibbs(family = "probit")` avoids that
+approximation. `cbind(quant, binary)` fits the
 joint quantitative-binary analysis of Foulley, Gianola and Thompson (1983), with the PEV
 of u1 and of the ranking value u2, and `predict()` the probability of Eqn 15.25; Mrode and
 Pocrnic (2023, ch. 15) carry both through worked examples, which are the package's
