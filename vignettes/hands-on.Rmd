@@ -1,0 +1,349 @@
+---
+title: "Hands-on: every function, step by step"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Hands-on: every function, step by step}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+set.seed(2026)
+```
+
+Thirty-nine of the forty-nine exported functions, exercised in the order of a real workflow,
+on data simulated in the document itself. The help pages document the ten that the
+tour leaves out. They are the inference helpers `se_function()` and `profile_theta()`,
+`qc_phenotypes()`, `parentage_check()`, `h_inverse()`, `read_blupf90_snp()`,
+`estimate_gamma()`, `half_t()`, `mcmc_diagnostics()` and the `_mt` twin of
+`eval_internal()`. The test suite runs all of them. Each chunk runs at build time, so this
+walkthrough cannot drift away from the code. The companion vignette ("from data to
+breeding value") tells the story; this one is the tool bench.
+
+## Step 0: simulate a population to work on
+
+`simulate_breeding()` gene-drops haplotypes, so the genotypes it emits are consistent
+with the pedigree it emits: one honest generator for every example.
+
+```{r}
+library(BreedingR)
+s <- simulate_breeding(n_founders = 40, n_generations = 2,
+                       offspring_per_generation = 80, h2 = 0.4,
+                       n_markers = 200, seed = 7)
+str(s, max.level = 1)
+```
+
+## Step 1: the pedigree toolbox
+
+```{r}
+p <- pedigree(s$pedigree)      # topological order + Meuwissen-Luo (1992) inbreeding
+head(p, 3)
+ai <- a_inverse(s$pedigree)    # Henderson's (1976) sparse A^-1, as triplets i/j/x/n
+str(ai[c("i", "j", "x", "n")])
+```
+
+`a22_inverse()` takes 1-based positions in the topological order of `pedigree()`:
+
+```{r}
+gid <- s$genotypes$ids[141:200]
+a22i <- a22_inverse(s$pedigree, geno = match(gid, p$id))
+dim(a22i)
+```
+
+A pedigree whose third column holds the MATERNAL GRANDSIRE is declared, never guessed:
+read as a dam, the grandsire would enter with weight 1/2 where the grandsire rules give
+1/4 (Mrode and Pocrnic, 2023, secs. 3.6 and 3.7), and no check downstream could see it.
+`sire_mgs()` declares it, the declaration travels to every fitter, and a third column
+named `mgs` that was not declared is an error:
+
+```{r}
+bulls <- data.frame(id = c("s1", "s2", "s3", "s4"), sire = c("0", "0", "s1", "s3"),
+                    mgs = c("0", "0", "s2", "s2"))
+pedigree(sire_mgs(bulls))                  # s4: F = 1/16 through the grandsire s2
+```
+
+## Step 2: fit the base animal model, read everything out of it
+
+```{r}
+fit <- model(y ~ cg + animal(id), s$data, s$pedigree)
+fit
+summary(fit)
+coef(fit)
+round(h2(fit), 3)                           # simulated truth: 0.4
+```
+
+`h2()` takes the numerator by name and divides by the phenotypic variance of the trait:
+the variances and covariances. In an animal model it is the `share` of `var(animal)` in
+the printed table.
+
+The fixed effects travel in the same solution vector, named `term=level`. The
+parametrization is the implicit intercept with dropped columns at zero, so a table from
+another convention (the book's, BLUPF90's) agrees only on CONTRASTS between levels:
+
+```{r}
+coef(fit, effects = "fixed")                # the same vector as fit$b
+```
+
+```{r}
+e <- ebv(fit)                               # named vector, all pedigree animals
+acc <- accuracy(fit, s$pedigree)            # with the (1+F) in the denominator
+round(cor(e[names(s$tbv)], s$tbv), 2)       # against the simulator's own truth
+summary(acc)
+head(solutions(fit, s$pedigree), 3)         # id, ebv, se, acc, sorted by ebv
+```
+
+## Step 3: the formula markers, one by one
+
+Repeated records ask for a permanent environment; `random()` is the iid effect for
+litter or batch; a missing-value code leaves the likelihood via `missing_code=`:
+
+```{r}
+d3 <- s$data[rep(1:nrow(s$data), each = 2), ]
+d3$y <- d3$y + rnorm(nrow(d3), 0, 0.5)
+d3$y[1] <- -999
+d3$lot <- sample(sprintf("lot%02d", 1:20), nrow(d3), TRUE)
+f4 <- model(y ~ cg + random(lot) + animal(id) + pe(id), d3, s$pedigree,
+            missing_code = -999)
+round(f4$theta, 3)
+```
+
+A `random()` with fewer than five levels warns that its variance is barely determined;
+three lots, or a litter numbered by parity, would.
+
+The full maternal model of Mrode and Pocrnic (2023, Eqn 8.1): direct and maternal genetic share
+ONE covariance matrix via `group=`, and there is ONE permanent environment, the dam's,
+which carries her non-additive maternal genetics as well. `d5` has two records per
+animal, so a second `pe()` on the animal itself is identifiable here too; on one record
+per animal it would BE the residual. Two `pe()` in one model must be NAMED:
+
+```{r}
+d5 <- d3
+d5$dam <- s$pedigree$dam[match(d5$id, s$pedigree$id)]
+d5 <- d5[d5$dam != "0", ]
+f5 <- model(y ~ cg + animal(id, group = "g") + maternal(dam, group = "g") +
+              pe(id, nome = "pe_animal") + pe(dam, nome = "pe_dam"),
+            d5, s$pedigree, missing_code = -999)
+names(f5$theta)
+```
+
+The reaction norm is `rn()` over a basis you build with `legendre()`; `h2_curve()` and
+`plot()` then read h2 along the gradient, and `h2()` refuses the fit, because here the
+heritability is a function of the gradient and not one number. The `pe(id)` beside the
+norm needs repeated records: with one record per animal it IS the residual, and the fit
+says SINGULAR and names the two. So the example reuses the two records per animal of
+`d3`, each at its own THI:
+
+```{r}
+d6 <- d3
+d6$thi <- runif(nrow(d6), 55, 80)
+d6 <- cbind(d6, legendre(d6$thi, order = 1, limits = c(55, 80)))
+f6 <- model(y ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d6, s$pedigree,
+            missing_code = -999)
+head(h2_curve(f6, limits = c(55, 80), points = 5))
+plot(f6, limits = c(55, 80))
+```
+
+A sire model uses `sire()` when only males carry the genetic term. Unknown-parent
+groups enter as metafounders (Legarra et al., 2015): a parent label with no line of its own,
+declared with its gamma:
+
+```{r}
+ped8 <- s$pedigree
+ped8$sire[ped8$sire == "0"] <- "L1"
+ped8$dam[ped8$dam == "0"] <- "L2"
+f8 <- model(y ~ cg + animal(id), s$data, ped8,
+            metafounders = c("L1", "L2"), gamma = c(0.7, 0.7))
+f8$converged
+```
+
+## Step 4: genomics, from files and QC to the single step
+
+`read_plink()` reads the binary trio (or a .raw); here we write a tiny .bed by hand so
+the example carries its own truth:
+
+```{r}
+pref <- file.path(tempdir(), "toy")
+codes <- c(`2` = 0L, `1` = 2L, `0` = 3L)                 # 2 bits per genotype
+pack <- function(g) { v <- codes[as.character(g)]
+  sum(v * 4L^(seq_along(v) - 1L)) }
+con <- file(paste0(pref, ".bed"), "wb")
+writeBin(as.raw(c(0x6c, 0x1b, 0x01, pack(c(2, 1, 0, 2)), pack(c(0, 0, 1, 1)))), con)
+close(con)
+writeLines(sprintf("F%d I%d 0 0 0 -9", 1:4, 1:4), paste0(pref, ".fam"))
+writeLines(sprintf("1 SNP%d 0 %d A B", 1:2, 1:2), paste0(pref, ".bim"))
+read_plink(pref)$m
+```
+
+`qc_genotypes()` filters animals and markers by call rate, markers by MAF and
+(optionally) HWE, and reports what each filter removed: silent filtering is how panels
+lose the markers that mattered.
+
+```{r}
+q <- qc_genotypes(s$genotypes, min_call_rate = 0.9, min_maf = 0.05)
+c(animals = length(q$ids), kept = ncol(q$m), by_call = q$n_call, by_maf = q$n_maf)
+```
+
+The APY core can be chosen by rule: `apy_core_select()` counts the eigenvalues of G that
+explain 98% of its trace (Pocrnic et al., 2016) and draws that many animals at random
+with a recorded seed, and `apy_core = "auto"` does the same inside a fit. On a genotyped
+set this small the rule asks for nearly every animal, and the function warns when one
+factorization with the core costs more than half of the exact one; `size =` overrides
+the count and the table of counts is still reported:
+
+```{r}
+gen <- list(ids = gid, m = s$genotypes$m[141:200, ])
+core <- apy_core_select(gen, size = 25)
+core
+```
+
+The single step is an argument, not a function: `genotypes=` upgrades A to H. The
+inverse of G* is exact by default, and `apy_core=` uses a global core:
+
+```{r}
+fss <- model(y ~ cg + animal(id), s$data, s$pedigree, genotypes = gen)
+fap <- model(y ~ cg + animal(id), s$data, s$pedigree, genotypes = gen,
+             apy_core = core)
+round(c(apy = cor(ebv(fss, "animal"), ebv(fap, "animal"))), 3)
+fss$dense_block                             # the k of the k^3 each factorization pays
+```
+
+Without `apy_core=` the dense block of the factor holds at least every genotyped animal,
+and the fill of the pedigree can add to it.
+
+The standalone inverse exposes the same approximation with its diagnostics (the
+Mendelian/conditional residual of each animal), and `g_matrix()` builds the raw
+VanRaden G of the book's examples (no blend, no A22 adjustment):
+
+```{r}
+ap <- apy_inverse(gen$m, core = 1:30)
+G  <- g_matrix(gen)
+c(min_apy_res = round(min(ap$mendeliano), 3), diag_G = round(mean(diag(G)), 3))
+```
+
+Marker effects come out of a single-step fit by backsolving, or directly by fitting the
+markers as equations with `snp_blup()`, the path that never builds G (theta is GIVEN, the
+routine-evaluation flow):
+
+```{r}
+a_hat <- snp_effects(fss, s$pedigree, gen)
+fsnp <- snp_blup(y ~ cg + animal(id), s$data, s$pedigree, gen,
+                 theta = unname(fss$theta))
+round(cor(unclass(a_hat), fsnp$g[!is.na(fsnp$g)]), 3)
+```
+
+`pegs()` is the multi-environment route of Xavier and Habier (2022): no mixed model
+equations, no relationship matrix, the effects of one marker for every environment solved
+together by randomized Gauss-Seidel. It assumes the residuals of different environments are
+independent, which holds when each animal is recorded in one place; for traits of the same
+record, `model_mt()`. Here the herds of the simulated data stand in for environments.
+It is ONE trait, so every true correlation is 1; with 60 animals split three ways the
+estimates below are noise, which is what pseudo-expectation gives on data this small
+(the method needs thousands of animals to pin `r_g` down):
+
+```{r}
+set.seed(1)
+pg <- pegs(s$data[s$data$id %in% gid, ], "y", "id", gen, environment = "cg")
+round(pg$Gcor, 2)
+```
+
+## Step 5: multi-trait
+
+`cbind()` on the left, full R0, missingness handled record by record; `rg()` reads the
+genetic correlation:
+
+```{r}
+dmt <- s$data
+dmt$y2 <- 5 + 0.5 * s$tbv[dmt$id] + rnorm(nrow(dmt), 0, 0.8)
+fmt <- model_mt(cbind(y, y2) ~ cg + animal(id), dmt, s$pedigree)
+round(rg(fmt, "animal", "y", "y2"), 2)
+head(ebv(fmt, "animal", trait = "y2"), 3)
+```
+
+## Step 6: the Bayesian half
+
+`gibbs()` samples the SAME models; `ess()` and `geweke_z()` are the chain diagnostics
+(also computed automatically on the result). With `theta_fixed=` it samples only the
+locations, the mode whose posterior mean must be the BLUP. Left unset, the prior is the
+hierarchical half-t of `half_t()` on a scalar term such as `animal(id)` here, `"flat"` on a
+covariance group and on the residual, and the interweaving step of Yu and
+Meng (2011) runs on every estimated term (`asis`); `prior =` puts one prior on every term
+(`"jeffreys"`, `"flat"`, `"uniform_sd"`, `"half_t"` or a proper `c(df =, scale =)`) and
+leaves that step off, and `family = "probit"` samples a binary trait on its liability, where
+the default prior is `half_t(df = 4)` with a normal prior on the fixed effects and the
+PX-DA move (`px`).
+`summary()` gives the posterior quantiles and the heritability computed draw by draw.
+`chains = 3` runs independent chains (their seeds come from `set.seed()`, and `cores =`
+runs them at the same time with the same result), pools them, and adds `rhat()`, the
+rank-normalized split R-hat of Vehtari et al. (2021):
+
+```{r}
+gb <- gibbs(y ~ cg + animal(id), s$data, s$pedigree,
+            n_iter = 2000, burnin = 400, thin = 4, chains = 3)
+summary(gb)
+round(c(ess = ess(gb$chain_samples[[1]][, "var(animal)"]),
+        geweke = geweke_z(gb$chain_samples[[1]][, "var(animal)"]),
+        rhat = rhat(sapply(gb$chain_samples, function(m) m[, "var(animal)"]))), 3)
+```
+
+## Step 7: selection decisions
+
+```{r}
+idx <- selection_index(list(y = ebv(fit, "animal"),
+                            y2 = ebv(fmt, "animal", trait = "y2")),
+                       weights = c(y = 2, y2 = 1))
+head(idx, 3)
+drift <- rank_drift(ebv(fit, "animal"), ebv(fss, "animal"), top = 50)
+c(spearman = round(drift$spearman, 3), retention = drift$retention)
+```
+
+## Step 8: the environmental axis
+
+```{r}
+round(thi(c(22, 30), c(60, 85)), 1)          # NRC 1971
+heat_load(c(60, 70, 76), threshold = 68)     # zero in comfort, linear above
+```
+
+## Step 9: the exposed internals
+
+The internals are exported for the gates, and they double as sparse tools: the same
+triplet list `i/j/x/n` that `a_inverse()` returns feeds all three:
+
+```{r}
+ch <- sparse_chol(ai)                        # minimum degree (George & Liu 1989; dense
+                                             # nodes set aside as in AMD) + symbolic + factor
+x1 <- sparse_solve(ai, rep(1, ai$n))         # SOLVES A^-1 x = 1, so x = A %*% 1: the
+                                             # row sums of A, without ever forming A
+si <- selected_inverse(ai)                   # A at the factor's pattern (PEV reads this)
+round(c(logdet = ch$logdet, x1_first = x1[1]), 3)
+inv_pd(matrix(c(4, 1, 1, 3), 2))             # dense positive-definite inverse
+br_version()
+br_threads()                                 # OpenMP threads of the dense tail (default 1)
+```
+
+And `eval_internal()` (with its `_mt` twin) evaluates -2logL by the TWO
+independent routes at any theta: the identity every gate in the package leans on.
+
+```{r}
+ev <- eval_internal(y ~ cg + animal(id), s$data, s$pedigree, theta = c(0.4, 0.6))
+round(abs(ev$neg2logl - ev$neg2logl_V), 10)
+```
+
+## Step 10: the observed and the liability scale
+
+`h2_observed()` and `h2_liability()` are the Dempster and Lerner conversion between the
+0/1 observed scale and the liability scale: at incidence 0.234 half the heritability
+is scale, not biology.
+
+```{r}
+round(c(observed = h2_observed(0.1781, 0.234),
+        liability = h2_liability(0.0934, 0.234)), 4)
+```
+
+## The rule behind the tour
+
+A new model is almost never a new function: it is a marker inside the formula of one
+engine. A sibling fitter exists only when the mathematics changes: `model_mt()` (the
+residual becomes R0), `gibbs()` (the algorithm samples instead of maximizing) and
+`snp_blup()` (a fixed-components solver with markers as equations). Everything else
+orbits the fit.

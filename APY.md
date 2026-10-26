@@ -1,0 +1,156 @@
+# APY and the Mendelian residual
+
+Theory note: why APY works and what the Mendelian residual means. Nothing here is
+needed to use the package; it is the reasoning behind `apy_core=`.
+
+## Why APY works
+
+Single-step needs G^-1, and inverting G costs n^3: with tens of thousands of genotyped
+animals it stops being a matrix and becomes a wall. APY (Misztal et al., 2014) gets
+past it with an observation about the data, not about computing: **the genome of a
+population carries a limited amount of independent information**. Once a set of
+animals covers that variation (the core), every additional animal is almost entirely a
+recombination of what the core already has, plus a small remainder of its own.
+
+Think of a library: after the reference collection is catalogued, each new book is
+mostly a recombination of chapters already seen. You do not catalogue the new book at
+the same depth; you note how it maps onto the references and the little it brings that
+is new. That little is the Mendelian residual.
+
+The population reading of "limited information": the genome is transmitted in a bounded
+number of effectively independent chromosome segments, which grows with the effective
+population size Ne and the genome length. A closed, selected line has small Ne, hence a
+modest number of segments. Pocrnic and colleagues (2016) showed the optimal core size tracks
+the number of eigenvalues explaining about 98% of the variance of G: **the right core
+has the size of the realized genomic dimensionality of the population.** Note the unit
+of that rule: it counts eigenvectors, and a core of n animals always captures less
+variance than the top n eigenvectors, so the eigenvalue count is a floor for the
+animal count at equal coverage, not an equivalence.
+
+## The statistics, tied to Henderson
+
+For an animal i outside the core:
+
+```
+u_i = g_iC . G_CC^-1 . u_C + phi_i        Var(phi_i) = m_i = g_ii - g_iC G_CC^-1 g_Ci
+```
+
+The breeding value is the conditional expectation given the core, plus an own
+deviation. Compare with the pedigree recursion:
+
+```
+u_i = 1/2 u_sire + 1/2 u_dam + phi_i      Var(phi_i) ~ 1/2 sigma2_a
+```
+
+Same structure. In matrix form the recursion is `u = T phi`, so `A = T D T'` with T
+triangular and D diagonal: an LDL' (square-root-free Cholesky) factorization of A in
+pedigree order, written analytically by the biology instead of computed numerically.
+The famous A^-1 rules exist because T^-1 is trivially sparse (1 on the diagonal, -1/2
+at the parents), and that sparsity exists because of the Markov property of
+inheritance: conditional on its two parents, an animal is independent of every other
+ancestor.
+
+The pedigree hands over three things that G does not:
+
+1. **Who explains each animal is known a priori, and it is two animals.** The factor
+   row has known positions (the parents' columns) and known coefficients (1/2 and 1/2,
+   the expectation of meiosis, not estimates). In G there is no such pair: the
+   regression vector `g_iC G_CC^-1` is dense over the whole core and has to be
+   computed.
+2. **How much is left over is a formula, not a computation.** The Mendelian sampling
+   variance is analytic (1/2 sigma2_a, adjusted for parental inbreeding). Its genomic
+   analogue m_i must be computed from the matrix itself.
+3. **The sparsity is exact.** Henderson's (1976) A^-1 is the true inverse. The APY G^-1
+   imposes conditional independence of the non-core residuals given the core; that is
+   the approximation, and it is why APY warrants validation and A^-1 does not.
+
+APY is the attempt to recreate in G the luck the pedigree gives for free in A: it has
+to *choose* the universal parents (the core), *compute* the coefficients, *compute*
+the remainder, and *validate* the result. Four steps that cost zero in A because
+meiosis already answered them.
+
+## The Mendelian residual, piece by piece
+
+```
+m_i = g_ii - g_iC . G_CC^-1 . g_Ci  =  Var(u_i | u_core)
+```
+
+`g_ii` is the animal's own diagonal of G (its total genetic variance, about 1+F in
+sigma2_a units). `g_iC` are its genomic relationships with the core. The quadratic
+form is the variance of the **best possible prediction** of the animal from the core.
+So m_i is a subtraction of variances, total minus explained, which makes it a
+conditional variance: the uncertainty about the animal that remains even knowing the
+whole core perfectly. `m_i / g_ii` is the fraction of the animal that the panel cannot
+explain.
+
+The ruler, with concrete landmarks (sigma2_a units, no inbreeding):
+
+| situation of animal i                 | m_i   |
+|---------------------------------------|-------|
+| clone/identical twin of a core animal | ~0    |
+| both parents in the core              | ~0.5  |
+| one parent in the core                | ~0.75 |
+| unrelated to the core                 | ~1    |
+
+The 0.5 landmark is what gives the quantity its name: with both parents in the core
+the best prediction is the parent average, and what remains is **exactly the Mendelian
+sampling** of classical theory, the lottery of meiosis. Even knowing the parents
+completely, the offspring draws one of 2^n possible gamete combinations, and half of
+the genetic variance sits in that draw. m_i generalizes the idea: when the explainer
+is not the parents but an arbitrary panel, it measures the animal's genomic novelty
+relative to that panel.
+
+Two jobs inside APY:
+
+1. **In the inverse.** The m_i form the diagonal M_NN, and each non-core animal enters
+   weighted by 1/m_i: an animal that is almost fully explained carries almost no
+   independent information. This is also where the package's declared error lives:
+   m_i ~ 0 (a clone among the non-core) blows up 1/m_i, and the fit stops with
+   "degenerate Mendelian residual in APY" instead of returning garbage. It is the last
+   line and not the first: what usually keeps it from firing is the regularizer
+   described below.
+2. **As a diversity meter.** The log-novelties close a determinant, but which one
+   depends on how much of the recursion is run. Condition EVERY animal on all the
+   previous ones and the residuals are the D of an LDL' of G, so
+   `sum_i log d_i = log|G|` exactly. That full recursion is not APY. APY runs a
+   truncated version of the same recursion: the core is inverted whole and everyone
+   else conditions on the core, so what its m_i close is
+
+       log|G_APY| = log|G_CC| + sum_{i not in core} log m_i
+
+   and G_APY is not G. Measured on a simulated population of 210 animals with 3000
+   markers and a core of 105: the full recursion gives `sum log d_i` = -129.705, equal
+   to `log|G|`, while the APY sum over the non-core is -67.688, which plus `log|G_CC|`
+   gives -107.014, the log-determinant of the APY matrix and not of G. Two readings
+   survive. The quantity is a GENERALIZED variance, a volume in the space of the
+   animals, not a variance. And the trend still reads: when new cohorts arrive with
+   rapidly shrinking m_i, selection is narrowing the line, and the funnel has a number.
+
+**The regularizer the recursion carries.** Neither the ruler above nor the guard of
+item 1 is read off a raw G, because neither path hands you one: both regularize first,
+and with different parameters. The standalone `apy_inverse()` works on `G + lambda I`, `lambda = 0.01` by default and reported in the result, but
+only when they build G from genotypes; hand them a ready matrix in `g =` and lambda is
+ignored while still being reported back. The fitters have no lambda at all:
+`apy_core =` runs the recursion on `G*`, already pulled to the scale
+of A22 and mixed with it at weight `blend` (0.05 by default), and `blend` plays the
+role there.
+
+Two consequences. The landmarks are a ruler for the unregularized matrix; with the
+default each m_i sits higher, by 0.012 to 0.017 on the panel measured above. The
+degeneracy guard is a last line, not a duplicate detector: the regularizer is exactly
+what keeps it from firing. A non-core animal whose genotype row is copied from a core
+animal stops `apy_inverse(lambda = 0)`, and stops a fit at `blend = 0` with "degenerate
+Mendelian residual in APY"; at the defaults the same clone goes through with m_i near
+0.02 instead of 0. Duplicates are to be caught before the inverse, not by it.
+
+## Practical note on core choice
+
+Core composition matters little when the size is adequate: random cores at the 98 to
+99% eigenvalue size perform at the level of the exact inverse, a result established at
+scale by Fragomeni et al. (2015, J. Dairy Sci. 98:4090, genomic recursions on 6.9M
+Holsteins) and confirmed across many core definitions since (Abdollahi-Arpanahi et
+al., 2022, Genet. Sel. Evol. 54:34). The analogous result in numerical linear algebra: APY is a
+Nystrom-type approximation, core choice is landmark selection, and randomized pivoting
+is near-optimal for column Nystrom approximations. The effective lever is the size,
+and the size question is answered by the eigenvalue spectrum of the population's own
+G, not by how the members are picked.

@@ -1,0 +1,174 @@
+---
+title: "What BreedingR fits"
+description: >
+  The map of models and terms, and a commented call for each one.
+---
+
+## The map
+
+What the package fits, and the term that asks for it. Everything in the first table is the
+same engine and the same `kron(C^-1, K^-1)` penalty, which is why none of these has a
+fitter of its own.
+
+| To fit | Write | The fitter |
+|---|---|---|
+| animal model, repeatability | `animal(id)`, `pe(id)` | `model()` |
+| direct-maternal, correlation estimated | `animal(id, group=)` + `maternal(dam, group=)` | `model()` |
+| reaction norm on a gradient | `rn(id, base=)` | `model()` |
+| several traits, full residual matrix | `cbind(y1, y2) ~ ...` | `model_mt()` |
+| the same models, sampled instead of maximised | same formula, `prior=` | `gibbs()` |
+| binary trait, sampled on the liability | same formula, `family = "probit"` | `gibbs()` |
+
+Relationships and genomics are arguments, not different programs.
+
+| For | Use |
+|---|---|
+| pedigree A-inverse, inbreeding | `pedigree()`, `a_inverse()`, `a22_inverse()` |
+| a pedigree of sires and maternal grandsires | `sire_mgs()`, or `pedigree(type = "sire_mgs")`; dams where known and grandsires elsewhere with `sire_mgs(ped, dam = "dam")` |
+| base populations that are not one pool | `metafounders=`, `gamma=` (full matrix, singular allowed); `estimate_gamma()` from the genotypes |
+| single step | `genotypes=`, and `apy_core=` when G is large |
+| the APY core, by the eigenvalues of G | `apy_core_select()`, or `apy_core = "auto"` |
+| the single-step H-inverse, as triplets | `h_inverse()` |
+| the single step without ever forming G | `snp_blup()` |
+| many environments of one trait, from markers | `pegs()` (residuals uncorrelated across environments) |
+| marker effects from a single-step fit | `snp_effects()`, with the blend, APY core and metafounders read from the fit |
+| the genomic relationship matrix | `g_matrix()` |
+
+And around the fit: `solutions()`, `h2()`, `ebv()`, `accuracy()`, `rg()`,
+`h2_curve()`, `h2_observed()`,
+`h2_liability()`, `selection_index()`, `rank_drift()`, `profile_theta()`, `se_function()`,
+`qc_genotypes()`, `parentage_check()`, `qc_phenotypes()`, `read_plink()`,
+`thi()`, `heat_load()`, `simulate_breeding()`, `mcmc_diagnostics()`,
+`ess()`, `geweke_z()`, `rhat()`.
+
+## Animal model, repeatability, direct-maternal and sire models
+
+```r
+# animal model
+model(weight ~ cg + cov(age) + animal(id), data, pedigree = ped)
+
+# repeatability: the permanent environment of a subject with repeated records, what
+# those records share and is not additive genetic, so it also carries the non-additive
+# genetic effects; repeatability is share(animal) + share(pe) in the printed table
+model(weight ~ cg + animal(id) + pe(id), data, ped)
+
+# direct-maternal, with the correlation BETWEEN the two estimated
+model(weight ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), data, ped)
+
+# the full maternal model (Mrode & Pocrnic, 2023, Eqn 8.1): ONE permanent environment, the
+# DAM's, which carries her non-additive maternal genetics as well.
+# A SECOND pe() on the animal itself is not part of Eqn 8.1, and with one record per
+# animal it IS the residual: the likelihood cannot separate the two. On simulated data
+# both models returned the same -2logL, 388.9537, and the extra term only split the
+# 0.578 residual into 0.143 and 0.435. On a second simulated set the fit drifted
+# instead: var(animal) 0.375 -> 0.279, the direct-maternal covariance -0.031 -> -0.001,
+# and it stopped at the zero boundary. That second pe() belongs where the animal itself
+# has REPEATED records, and there both pe() must be named (nome=), so that no component
+# is renamed by the arrival of another term
+model(weight ~ cg + animal(id, group = "g") + maternal(dam, group = "g") +
+        pe(dam), data, ped)
+
+# a pedigree of sires and maternal grandsires is DECLARED, never guessed: the grandsire
+# path weighs 1/4 (Mrode & Pocrnic, 2023, secs. 3.6 and 3.7), and a third column named
+# mgs, mgsire or maternal_grandsire is refused unless declared; sire(sire, mgs = "mgs")
+# is the sire and maternal-grandsire model, 1 on the sire and 1/2 on the grandsire
+model(y ~ herd + sire(sire), d, sire_mgs(bulls))
+model(y ~ herd + sire(sire, mgs = "mgs"), d, sire_mgs(bulls))
+```
+
+## Random regression and reaction norms
+
+```r
+# reaction norm on a Legendre basis; pe() needs repeated records, since with one record
+# per animal it IS the residual and the fit says SINGULAR. h2() refuses a reaction norm:
+# h2_curve() gives h2 along the gradient, with every random regression, a pe() on the
+# same basis included, evaluated at the point
+d <- cbind(d, legendre(d$thi, order = 1))
+model(y ~ cg + rn(id, base = c("phi0", "phi1")) + pe(id), d, ped)
+```
+
+## Several traits
+
+```r
+# multi-trait with full R0 and missingness by pattern; a fixed level with no record for
+# one trait drops as the pair (column, trait), reported in dropped_x as 'CG=5|y1'
+model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped);  rg(fit, "animal", "t1", "t2")
+```
+
+## The Bayesian half
+
+```r
+# the Bayesian half: block Gibbs with conjugate updates. Left unset, the priors are the
+# ones the validation chose: on a Gaussian trait the hierarchical half-t of Huang and Wand
+# (2013) on each scalar random term (scale read from the design), "flat" on each
+# covariance group (direct and maternal, rn()) and "flat" on the
+# residual, with the interweaving step of Yu and Meng (2011) on every estimated term
+# (asis). prior = "jeffreys", "flat", "uniform_sd" (Gelman, 2006), "half_t"
+# or a proper c(df =, scale =) puts one prior on every term, and on the residual unless
+# prior_residual = says otherwise ("half_t" leaves "uniform_sd" there), and leaves asis and
+# px off unless asked for. On a covariance group "jeffreys" puts infinite posterior mass at
+# a correlation of +-1 (Hobert and Casella, 1996): a chain that gets there stays, even when
+# the data identify the group, and gibbs() warns. family = "probit" samples a binary trait
+# on its liability, the residual fixed at 1 (Albert and Chib, 1993; Sorensen et al., 1995),
+# by default with half_t(df = 4) on every term, a normal prior (sd 1) on the fixed effects
+# of the liability, the PX-DA move (px) and the interweaving step on each covariance group;
+# "jeffreys", "flat" and "uniform_sd" are refused there unless allow_improper = TRUE: the
+# first leaves the posterior improper at zero, and the other two do so as the variances
+# grow when the random effects can reproduce every record's category (one binary record per
+# animal). Fit model() first and read its SINGULAR verdict, which the chain does not give
+gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)
+```
+
+## Single step, metafounders and markers
+
+```r
+# single step (ssGBLUP); the same genotypes= and apy_core= work in model_mt() and
+# gibbs(). For the inverse of G*: exact, or apy_core= (a global core; "auto" sizes it by
+# the eigenvalues of G)
+model(y ~ cg + animal(id), d, ped, genotypes = list(ids = gids, m = M))
+gen <- read_blupf90_snp("snp.dat")   # the BLUPF90 SNP_FILE as a raw matrix, 1 byte/genotype
+core <- apy_core_select(list(ids = gids, m = M))   # choose once, pass it to every fit
+
+# unknown-parent groups as metafounders (Legarra et al., 2015). gamma takes a vector for a
+# diagonal, or a full MATRIX whose off-diagonal is the ancestral relationship BETWEEN two
+# base populations, which is the parameter a multibreed analysis exists for. A SINGULAR
+# gamma is accepted through the pseudo-inverse: gamma = 0 is the unknown-parent-group
+# limit, and two metafounders standing for one population have identical rows
+model(y ~ cg + animal(id), d, ped, metafounders = c("L1", "L2"),
+      gamma = matrix(c(0.7, 0.2, 0.2, 0.6), 2, 2))
+
+# marker effects backsolved from a single-step fit f (model(..., genotypes =)); blend,
+# APY core and metafounders are read from f
+snp_effects(f, ped, genotypes = list(ids = gids, m = M))
+
+# the single step WITHOUT G: markers as equations (ssSNPBLUP; Liu et al., 2014), conjugate gradients,
+# A22^-1 applied matrix-free; theta is given, as in routine practice
+snp_blup(y ~ cg + animal(id), d, ped, genotypes = list(ids = gids, m = M),
+         theta = c(0.4, 0.6))
+
+# PLINK .bed/.raw straight into genotypes=, with QC that reports what it removed
+g <- qc_genotypes(read_plink("chip"), min_maf = 0.01, hwe_p = 1e-7, pedigree = ped)
+```
+
+## Around the fit
+
+Around the fit: `pedigree()` (topological order plus Meuwissen-Luo inbreeding),
+`a_inverse()`, `a22_inverse()`, `solutions()` (id, ebv, se and acc in one table, sorted
+by breeding value; a `term` column when a group has more than one effect per level), `h2()` (over the phenotypic variance of the trait, covariances
+included; a direct-maternal covariance enters with coefficient 1, Willham, 1972), `ebv()`,
+`accuracy()` (prior per level: `1 + F`, the diagonal of `G*` for a genotyped animal in a
+single step, 1 for an iid term), `residuals()` and `fitted()` (conditional, standardized by
+the leverage, marginal and Pearson), `h2_curve()` and `plot()` for the reaction norm,
+`simulate_breeding()`, a gene-dropping simulator so that examples and method studies
+share one honest generator, `thi()` and `heat_load()` for the heat-stress axis, and
+`selection_index()` and `rank_drift()` for the selection side.
+
+The full map of the 49 functions, grouped by kinship, is in
+[FUNCTIONS.md](FUNCTIONS.md); the hands-on that works through 39 of them,
+step by step on data simulated in the document itself, is the vignette
+`vignettes/hands-on.Rmd` (every chunk runs at build time, so it cannot rot). The theory
+behind `apy_core=` (why APY works and what the Mendelian residual means) is in
+[APY.md](APY.md).
+
+The works cited here by author and year are listed in full in the
+[references](https://phyllype.github.io/BreedingR/REFERENCES.html).

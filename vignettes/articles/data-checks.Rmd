@@ -1,0 +1,50 @@
+---
+title: "Quality control and structure checks"
+description: >
+  What qc_phenotypes(), qc_genotypes() and the fitters check before a model touches the data.
+---
+
+## Before the model
+
+`qc_phenotypes()` marks the missing code, turns outliers beyond a Tukey (1977) fence into
+missing values, and reports class levels too small to estimate. It flags rather than
+deletes: removing a row would reshape contemporary groups without saying so. `qc_genotypes()` filters animals and markers by call rate (worst first, in
+passes, so what it keeps passes every fitter), markers by minor allele frequency and
+Hardy-Weinberg equilibrium, and, with `pedigree =`, the offspring whose genotype
+contradicts a genotyped parent; it reports what each filter removed. `parentage_check()`
+lists the genotyped parent-offspring pairs with their opposite homozygotes. Every function
+that takes `genotypes =` refuses a repeated or missing id and rownames that contradict the
+ids. The fitters and the functions that build G from the genotypes also refuse an animal
+below a 0.90 call rate, since its missing markers would be imputed by the mean. The
+single-step fitters warn when a genotyped pair contradicts the pedigree, leaving out the
+markers named in `genotypes$sex_markers`. Every fitter also reads the structure of the
+design before it fits. A random term nested in a fixed effect stops the fit with what to
+do. Repeated records without `pe()` give a warning (see "Structure checks" in `?model`).
+Before a fit, a
+missing-value code or an absurd value in the trait or a covariate is named with its first
+row, and covariates such as dates or timestamps are standardized internally.
+
+## Missing labels and missing values
+
+Only the observation may be missing. Some columns give a level: a class, the id of a
+random or relationship term, a nested class, the maternal grandsire, and the id and
+environment of `pegs()`. They may not hold `NA`, `NaN`, `Inf`, `-Inf`, blank text (an
+empty cell of a text column, as `read.csv()` reads it) or the text "NaN"; in the
+maternal-grandsire column of `sire(mgs =)` blank text is the unknown grandsire, like "0",
+and only the other values stop the fit. A covariate of
+`cov()` or `base =` may not hold `NA`, `NaN`, `Inf` or `-Inf`. Every fitter checks every
+row, including rows whose trait is missing, and stops with the term, the column, the count
+and the first row, so missing rows are never grouped into one shared level and a covariate
+never leaves the model in silence. `qc_phenotypes(classes =)` counts the missing labels
+before the fit, in `missing_labels`. `missing_code` marks the trait, as `OPTION missing`
+does in BLUPF90. A covariate cell equal to the code (an unknown age of -999 in a BLUPF90
+data file) is refused on every row, like `NA`, when it lies more than 10 robust SDs from
+the other cells, and warned about otherwise; a BLUPF90 class code 0 is one level "0" here.
+Turn those cells into `NA` before the fit, and the fit names them. The exception is the
+column of a relationship term (`animal()`, `maternal()`, `sire()`, `rn()`, the grandsire
+of `sire(mgs =)`) and a `pe()` or `random()` on that same column: there 0 is
+an unknown animal, as in a BLUPF90 pedigree, and the record stays in the analysis with
+that effect absent. `pe(dam)` with no `maternal(dam)` reads 0 as one ordinary level.
+
+The works cited here by author and year are listed in full in the
+[references](https://phyllype.github.io/BreedingR/REFERENCES.html).

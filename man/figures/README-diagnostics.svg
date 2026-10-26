@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="374.4pt" height="266.4pt" viewBox="0 0 374.4 266.4" font-family='Roboto, "Helvetica Neue", Arial, sans-serif'>
+<style>text { white-space: pre; }</style>
+<defs>
+<clipPath id="c1"><rect x="109.44" y="37.44" width="250.56" height="171.36"/></clipPath>
+</defs>
+<path fill="none" stroke="#59636e" stroke-width="0.75" d="M118.72 208.8l185.19 0M118.72 208.8l0 4.32M180.45 208.8l0 4.32M242.18 208.8l0 4.32M303.91 208.8l0 4.32"/>
+<g fill="#59636e" font-size="12">
+<text x="118.72" y="228.96" text-anchor="middle">0</text>
+<text x="180.45" y="228.96" text-anchor="middle">500</text>
+<text x="242.18" y="228.96" text-anchor="middle">1000</text>
+<text x="303.91" y="228.96" text-anchor="middle">1500</text>
+</g>
+<text fill="#1f2328" font-size="12" x="234.72" y="256.32" text-anchor="middle">bulk effective sample size</text>
+<g clip-path="url(#c1)">
+<path fill="none" stroke="#d1d9e0" stroke-width="0.45" d="M118.72 208.8l0 -171.36M180.45 208.8l0 -171.36M242.18 208.8l0 -171.36M303.91 208.8l0 -171.36"/>
+<path fill="none" stroke="#d9822b" stroke-width="1.05" stroke-dasharray="3.15 5.25" d="M168.1 208.8l0 -171.36"/>
+</g>
+<g fill="#1f2328" font-size="10">
+<text x="100.8" y="176.29" text-anchor="end">heritability</text>
+<text x="100.8" y="126.71" text-anchor="end">var(residual)</text>
+<text x="100.8" y="77.13" text-anchor="end">var(animal)</text>
+</g>
+<text fill="#1f2328" font-size="12" x="109.44" y="23.04">mcmc_diagnostics(): verdict "ok"</text>
+<g clip-path="url(#c1)">
+<path fill="none" stroke="#c3ccd4" stroke-width="0.75" d="M118.72 73.54l178.01 0M118.72 123.12l185.6 0M118.72 172.7l166.03 0"/>
+<g fill="#0f5a55" stroke="#0f5a55" stroke-width="0.75">
+<circle cx="296.7" cy="73.5" r="3.8"/>
+<circle cx="304.3" cy="123.1" r="3.8"/>
+<circle cx="284.8" cy="172.7" r="3.8"/>
+</g>
+<g fill="#1f2328" font-size="9">
+<text x="296.73" y="64.9" text-anchor="middle">R-hat 1.000</text>
+<text x="304.32" y="114.48" text-anchor="middle">R-hat 1.001</text>
+<text x="284.75" y="164.06" text-anchor="middle">R-hat 1.000</text>
+</g>
+<text fill="#d9822b" font-size="9" x="175.3" y="53.38">400</text>
+</g>
+</svg>

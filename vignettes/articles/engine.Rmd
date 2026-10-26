@@ -1,0 +1,93 @@
+---
+title: "How the engine works"
+description: >
+  From the pedigree to the breeding values: the sparse equations, AI-REML, the single step, the model families and the covariance group.
+---
+
+BreedingR puts specific models into practice: reaction norms on an environmental gradient,
+direct-maternal models, several traits at once and the single step. The numerics are written in the
+package itself, in `src/`, and `R CMD INSTALL` compiles them. No separate binary, no
+service, no run-time dependency.
+
+## From the pedigree to the breeding values
+
+The package covers the chain end to end.
+The pedigree becomes the relationship matrix `A` and its sparse inverse by Henderson's
+(1976) rules, with inbreeding by the Meuwissen and Luo (1992) trace and, where the base
+population is not one homogeneous pool, metafounders (Legarra et al., 2015). A pedigree
+of sires and maternal grandsires is declared with `sire_mgs()`, never guessed. The model
+is written as a formula; the mixed model
+equations are assembled sparse, one record at a time, and factored by a sparse Cholesky
+after a minimum degree ordering (George and Liu, 1989) that sets dense nodes aside, as the
+dense-row rule of AMD does (Amestoy, Davis and Duff, 1996). `model()`, `model_mt()` and
+`gibbs()` compute the ordering and the symbolic analysis once and reuse them. The
+dense tail of the factor, where the genotyped animals end up, is
+factored in tiles on `br_threads()` threads (OpenMP, default 1), and so are its inverse
+inside the selected inverse, the dense inverses of G* and A22 and the product Z Z' of the
+G in the single step; each
+number has one owner thread and a fixed summation order, so the result is the same bit for
+bit with any number of threads. The variance components come from
+AI-REML (Gilmour, Thompson and Cullis, 1995): analytic score, average information, EM
+warm-up and an EM rescue (Dempster, Laird and Rubin, 1977), a damped step that walks in
+log-Cholesky coordinates so a covariance boundary is a limit rather than a wall, and
+convergence that takes both a small RELATIVE step and a Newton decrement under tolerance,
+so a stalled step cannot pass for an optimum. Breeding values fall out of the same solution, and
+their accuracy out of the selected inverse (Takahashi, Fagan and Chin, 1973), over the
+prior variance each animal has: `1 + F`, or the diagonal of `G*` for a genotyped animal
+in a single step.
+
+## Genotypes in the same fit
+
+Genotypes enter as an argument to the same fit: `G` by VanRaden (2008), brought to the
+scale of `A22` by an affine adjustment and a blend, and the single-step `H^-1` built as
+`A^-1` plus a correction on the genotyped block. When the genotyped set is large enough
+that inverting `G*` hurts, the same fit accepts APY (Misztal, Legarra and Aguilar, 2014)
+with a core, chosen by hand or by `apy_core = "auto"`, which takes as many animals as
+eigenvalues of `G` explain 98% of its trace (Pocrnic et al., 2016), and builds it without
+any matrix of the size of the genotyped set squared (G only on the core rows, A22 by
+Colleau's algorithm, A22^-1 by a sparse Schur complement); or `snp_blup()`, which never
+builds `G` at all and solves the marker equations by conjugate gradients.
+
+## Model families as formula terms
+
+Several further model families are formula terms here, because the unit of layout is the
+covariance group rather than the term: direct-maternal (Willham, 1972),
+reaction norms on an environmental gradient (Kirkpatrick, Lofsvold and Bulmer, 1990),
+and multi-trait with a full residual covariance. The same models can be sampled instead of maximized,
+through a block Gibbs sampler (Geman and Geman, 1984) over the same equations.
+
+## A binary trait
+
+The trunk is Gaussian, but the trait does not have to be: `gibbs(family = "probit")`
+samples a binary trait by data augmentation (Albert and Chib, 1993; Sorensen et al.,
+1995).
+
+## The design decision that carries everything
+
+The layout unit is the **covariance group**, not the term. `group = "g"` puts two random
+terms in the same covariance matrix with the correlation estimated, and that is why
+direct-maternal and the reaction norm **have no dedicated fitter**: they are the same engine with different incidences and the same
+`kron(C^-1, K^-1)` penalty. The terms of a group index one set of levels, and level l of
+one term covaries with level l of the other: the pedigree animals or, for terms without a
+relationship matrix, the union of the level names of their columns.
+
+The formula therefore departs from `(1 | group)` on purpose: that notation has nowhere
+to say that two different terms share a covariance matrix.
+
+## A fit that reports itself
+
+A long fit reports itself as it goes. With `verbose = TRUE`, the default in an
+interactive session, each AI iteration prints its -2logL, its relative step and the
+current value of every component being estimated, not just the residual, so a run that is
+drifting shows it while there is still time to stop; Ctrl+C interrupts any fitter. What
+`converged` means, and why the relative step alone is not enough, is under
+[Choices worth knowing about](choices.html).
+
+Before the first iteration `model()` also prints the size of the dense block of the
+factor, and `model()`, `model_mt()` and `gibbs()` keep it in
+`fit$dense_block`. That k is what each factorization pays, about `k^3 / 3` flops: in a
+single step without `apy_core=` it is at least the number of genotyped animals, and the
+fill of the pedigree can add to it.
+
+The works cited here by author and year are listed in full in the
+[references](https://phyllype.github.io/BreedingR/REFERENCES.html).

@@ -1,0 +1,233 @@
+# ESTIMAR Gamma, o parentesco entre metafundadores, a partir dos genotipos (restricao #14).
+#
+# O alvo e o de Legarra et al. (2015) na forma invariante de Legarra et al. (2024a):
+# Gamma = (2P - 1)'(2P - 1) / (m/2), com P as frequencias alelicas das bases, que e o
+# parentesco genomico entre pseudo-individuos cujo "genotipo" e 2p. Isso casa com G montada
+# em 0,5: Z = M - 1 e escala m/2, sem frequencia observada e sem ajuste afim, porque e
+# exatamente o que Gamma substitui.
+#
+# Dois estimadores, os do gammaf90:
+#   pseudo_em (o padrao; Legarra et al. 2024b): Gamma <- Gamma + Gamma (V'GV - Q2'V) Gamma,
+#     com V = (A22^Gamma)^-1 Q2 e Q2 as fracoes de genes de cada metafundador nos genotipados.
+#     E o bloco dos metafundadores de H^Gamma, soma de uma PEC e de um produto cruzado, entao
+#     fica PSD. Acerta com genotipos so nas ultimas geracoes, onde o GLS falha.
+#   gls (Garcia-Baccino et al. 2017): as frequencias da base por minimos quadrados
+#     generalizados, mu = (Q2' A22^-1 Q2)^-1 Q2' A22^-1 M, e Gamma delas. Viesado quando os
+#     genotipados estao longe das bases (diagonal para cima, fora dela para baixo).
+#
+# Nada n2 x n2 e formado: V sai de q solucoes esparsas no complemento de Schur da A^-1,
+# A22^-1 X = B_oo X - B_ou B_uu^-1 B_uo X, com B a A^-1 (de metafundadores ou classica).
+#
+# E um terceiro, so para UM metafundador: a maxima verossimilhanca de Legarra et al. (2024b).
+# Com um metafundador A^gamma = (1 - gamma/2) A + gamma 11' (Legarra et al. 2015), e a
+# verossimilhanca gaussiana dos marcadores, -(m/2) [log|A22^gamma| + tr((A22^gamma)^-1 G)],
+# sai pelo lema do determinante e por Sherman-Morrison em funcao de tres resumos de A22 e G:
+# s = 1'A22^-1 1, t = tr(A22^-1 G) e r = 1'A22^-1 G A22^-1 1. O maximo em [0, 2) e achado
+# direto nessa funcao de uma variavel (o artigo o escreve como a raiz de uma cubica).
+
+#' Estimate the relationships among metafounders from genotypes
+#'
+#' Gamma is the relationship among the base populations the metafounders stand for
+#' (Legarra et al. 2015), defined as `(2P - 1)'(2P - 1) / (m / 2)` with `P` the allele
+#' frequencies of the bases (Legarra et al. 2024a), which makes it invariant to which
+#' allele is counted. Two estimators are offered, the ones of the reference program
+#' gammaf90. `"pseudo_em"` (default) iterates
+#' `Gamma <- Gamma + Gamma (V' G V - Q2' V) Gamma`, with `G = Z Z' / (m / 2)` centred at
+#' 0.5, `Q2` the gene fractions of each metafounder in the genotyped animals and
+#' `V = (A22^Gamma)^-1 Q2` (Legarra et al. 2024b). It stays positive semi-definite and is
+#' accurate whether the genotyped animals are spread over the generations or only in the
+#' last ones. `"gls"` estimates the base allele frequencies by generalized least squares
+#' (Garcia-Baccino et al. 2017) and builds Gamma from them; it is biased when the
+#' genotyped animals are far from the bases (diagonal up, off-diagonal down). `"ml"`, for
+#' a single metafounder, is the maximum likelihood of Legarra et al. (2024b): with one
+#' metafounder `A^gamma = (1 - gamma/2) A + gamma 11'`, and the Gaussian likelihood of the
+#' markers is a function of `gamma` through three summaries of `A22` and `G`, maximized on
+#' `[0, 2)`. It reports the log-likelihood and a standard error from its curvature; the
+#' markers enter as independent, so linkage disequilibrium makes that error optimistic.
+#'
+#' Every unknown parent in `pedigree` must be one of the `metafounders` labels, the
+#' convention of gammaf90. Genotypes must be complete (impute beforehand: imputing by the
+#' mean shrinks the variance of a marker and pulls Gamma down), and the same markers have
+#' to be used wherever this Gamma is used. The result enters any fitter as
+#' `gamma = est$gamma`. A metafounder with no genotyped descendant is not estimable: its
+#' row and column are zero, as gammaf90 does, and the singular Gamma goes through the
+#' pseudo-inverse of the fitters.
+#'
+#' The genotype matrix may be double, integer or raw and is read as it is, marker by
+#' marker. Nothing of size genotyped x genotyped is formed, not even for `"ml"`: its
+#' summaries come from sparse solves on the Schur complement of the non-genotyped block
+#' of `A^-1`, by blocks of markers.
+#'
+#' @param pedigree data.frame animal, sire, dam, with every unknown parent given as a
+#'   metafounder label
+#' @param genotypes list with `ids` and `m` (animals x markers, 0/1/2, no NA)
+#' @param metafounders the metafounder labels
+#' @param method `"pseudo_em"` (default), `"gls"`, or `"ml"` (one metafounder only)
+#' @param start starting Gamma for `"pseudo_em"`; `0.01 I` by default, as gammaf90
+#' @param tol convergence on the largest absolute change of Gamma between iterations
+#' @param maxiter maximum pseudo-EM iterations
+#' @param bounded `"gls"` only: keep the estimated base frequencies in `[0, 1]`
+#' @param verbose print one line per iteration
+#' @return object of class `br_gamma`: `gamma` (with dimnames), `method`, `converged`,
+#'   `iterations`, `trace` (largest change per iteration), `estimable`, `p_base` (markers
+#'   x metafounders), `eigenvalues`, `n_markers` and `var_scale`, `1 + mean(diag)/2 -
+#'   mean(Gamma)`, the factor that relates the genetic variance on the metafounder base to
+#'   the usual one (`1 - gamma/2` with one metafounder, Legarra et al. 2015); with
+#'   `"ml"` also `loglik`, `se` and `boundary`
+#' @references Legarra, A., Christensen, O.F., Vitezica, Z.G., Aguilar, I. & Misztal, I.
+#'   (2015). Genetics 200:455-468.
+#'
+#'   Garcia-Baccino, C.A. et al. (2017). Genetics Selection Evolution 49:34.
+#'
+#'   Legarra, A., Bermann, M., Mei, Q. & Christensen, O.F. (2024a). Genetics Selection
+#'   Evolution 56:34.
+#'
+#'   Legarra, A. et al. (2024b). Genetics Selection Evolution 56:35.
+#' @export
+estimate_gamma <- function(pedigree, genotypes, metafounders,
+                           method = c("pseudo_em", "gls", "ml"), start = NULL, tol = 1e-8,
+                           maxiter = 1000L, bounded = TRUE, verbose = interactive()) {
+  method <- match.arg(method)
+  mf <- rotulo_motor(metafounders)
+  q <- length(mf)
+  if (!q) stop("give the metafounder labels")
+  cp <- colunas_pedigree(pedigree, mf = mf)
+  desconhecido <- (cp$sire %in% c("0", "") | cp$dam %in% c("0", ""))
+  if (any(desconhecido))
+    stop(sum(desconhecido), " animal(s) have an unknown parent that is not a metafounder (",
+         paste(utils::head(cp$id[desconhecido], 5), collapse = ", "), "): with metafounders ",
+         "every unknown parent is assigned to one of them")
+  # sem a recusa da taxa de chamada: este estimador nao imputa, e recusa qualquer ausente
+  # logo abaixo com a propria mensagem
+  g <- valida_genotipos(genotypes, taxa_chamada = FALSE)
+  if (!length(g$gid)) stop("genotypes must be a list with 'ids' and 'm'")
+  avisa_parentesco(cp, g)
+  # a matriz fica no tipo em que veio (double, integer ou raw): toda conta com ela e no C++,
+  # marcador a marcador, sem formar Z = M - 1 (que custava ~17 bytes por genotipo)
+  if (.Call(R_conta_ausentes, g$gm) > 0)
+    stop("genotypes with NA: impute them first. Imputing by the mean inside the estimator ",
+         "would shrink the variance of those markers and pull Gamma down")
+  n_marcadores <- ncol(g$gm)
+  s <- n_marcadores / 2
+
+  # pedigree com os metafundadores como linhas-base; a ordem e a de a_inverse()
+  p <- pedigree(pedigree, metafounders = mf, gamma = diag(0.5, q))
+  o <- match(g$gid, p$id)
+  if (anyNA(o)) stop("genotyped animal(s) without a line in the pedigree: ",
+                     paste(utils::head(g$gid[is.na(o)], 5), collapse = ", "))
+  # fracoes de genes: q_mf = e_k, q_i = (q_pai + q_mae) / 2, em ordem topologica, no C++, no
+  # lugar do laco em R por linha do pedigree (o custo que domina num pedigree fundo nao e este,
+  # e o A22^-1 X)
+  Q2 <- .Call(R_fracoes_genes, p$sire, p$dam, match(mf, p$id), o)
+  estimavel <- colSums(Q2) > 1e-10
+  # o pedigree classico (cada metafundador vira pai desconhecido), para o ML e o GLS
+  sire0 <- cp$sire; sire0[sire0 %in% mf] <- "0"
+  dam0 <- cp$dam; dam0[dam0 %in% mf] <- "0"
+
+  if (method == "ml") {
+    if (q != 1L)
+      stop("method = 'ml' is the maximum likelihood for ONE metafounder; with more, use ",
+           "'pseudo_em'")
+    # s = 1'A22^-1 1, t = tr(A22^-1 G) e r = 1'A22^-1 G A22^-1 1 no C++, sem A22^-1 densa
+    # (ela pode ser 100% cheia) e sem Z Z': resolucoes de Schur por bloco de marcadores
+    r <- .Call(R_gamma_ml_resumos, cp$id, sire0, dam0, g$gid, g$gm)
+    ss <- r$ss
+    tt <- r$tt / s
+    rr <- r$rr / s
+    nn <- length(g$gid)
+    ell <- function(gm) {
+      a <- 1 - gm / 2
+      -s * ((nn - 1) * log(a) + log(a + gm * ss) + tt / a - gm * rr / (a * (a + gm * ss)))
+    }
+    op <- stats::optimize(ell, c(0, 2 - 1e-8), maximum = TRUE, tol = 1e-10)
+    gm <- op$maximum
+    h <- 1e-4 * max(gm, 1e-2)
+    d2 <- if (gm > h && gm < 2 - h) (ell(gm + h) - 2 * op$objective + ell(gm - h)) / h^2 else NA
+    out <- list(gamma = matrix(gm, 1, 1), converged = TRUE, iterations = 0L,
+                trace = numeric(0), p_base = NULL, loglik = op$objective,
+                se = if (isTRUE(d2 < 0)) 1 / sqrt(-d2) else NA_real_,
+                boundary = gm < 1e-6 || gm > 2 - 1e-6)
+  } else if (method == "gls") {
+    V0 <- a22inv_vezes(cp$id, sire0, dam0, NULL, NULL, g$gid, Q2[, estimavel, drop = FALSE])
+    # V0' M (q x m) e o transposto de (M - 0)' V0, marcador a marcador no C++
+    mu <- solve(crossprod(Q2[, estimavel, drop = FALSE], V0),
+                t(.Call(R_genotipos_tv, g$gm, V0, 0)))
+    P <- matrix(0.5, n_marcadores, q)
+    P[, estimavel] <- t(mu) / 2
+    if (bounded) P <- pmin(pmax(P, 0), 1)
+    G <- crossprod(2 * P - 1) / s
+    G[!estimavel, ] <- 0; G[, !estimavel] <- 0
+    out <- list(gamma = G, converged = TRUE, iterations = 0L, trace = numeric(0), p_base = P)
+  } else {
+    G <- if (is.null(start)) diag(0.01, q) else as.matrix(start)
+    if (!all(dim(G) == q)) stop("start must be a ", q, " x ", q, " matrix")
+    G[!estimavel, ] <- 0; G[, !estimavel] <- 0
+    e <- which(estimavel)
+    # o Gamma de A^Gamma para V: um metafundador nao estimavel (nenhum genotipado descende
+    # dele) nao entra em A22^Gamma, mas com Gamma_kk = 0 a pseudo-inversa zera a precisao dele
+    # e o bloco nao genotipado de A^-1 fica singular. Para V ele leva Gamma_kk = 1: qualquer
+    # valor positivo da a mesma A22^Gamma. O Gamma devolvido segue com a linha e a coluna
+    # zeradas, como no gammaf90.
+    para_v <- function(G) {
+      G[!estimavel, ] <- 0; G[, !estimavel] <- 0
+      diag(G)[!estimavel] <- 1
+      G
+    }
+    traco <- numeric(0); conv <- FALSE
+    for (it in seq_len(maxiter)) {
+      V <- a22inv_vezes(cp$id, cp$sire, cp$dam, mf, para_v(G), g$gid, Q2[, e, drop = FALSE])
+      # Z'V com Z = M - 1, marcador a marcador no C++ (m x q)
+      ZV <- .Call(R_genotipos_tv, g$gm, V, 1)
+      Ge <- G[e, e, drop = FALSE]
+      novo <- Ge + Ge %*% (crossprod(ZV) / s - crossprod(Q2[, e, drop = FALSE], V)) %*% Ge
+      novo <- (novo + t(novo)) / 2
+      delta <- max(abs(novo - Ge))
+      G[e, e] <- novo
+      traco <- c(traco, delta)
+      if (isTRUE(verbose)) cat(sprintf("pseudo-EM %d  max|dGamma| %.3e\n", it, delta))
+      if (min(eigen(novo, symmetric = TRUE, only.values = TRUE)$values) < -1e-10)
+        stop("Gamma left the positive semi-definite cone at iteration ", it)
+      if (delta < tol) { conv <- TRUE; break }
+    }
+    V <- a22inv_vezes(cp$id, cp$sire, cp$dam, mf, para_v(G), g$gid, Q2[, e, drop = FALSE])
+    # as frequencias da base implicitas: p = (Gamma V' Z + 1) / 2 (a "Opcao 3" do artigo)
+    P <- matrix(0.5, n_marcadores, q)
+    P[, e] <- t(G[e, e, drop = FALSE] %*% t(.Call(R_genotipos_tv, g$gm, V, 1)) + 1) / 2
+    out <- list(gamma = G, converged = conv, iterations = length(traco), trace = traco,
+                p_base = P)
+  }
+  dimnames(out$gamma) <- list(mf, mf)
+  out$method <- method
+  out$estimable <- stats::setNames(estimavel, mf)
+  out$eigenvalues <- eigen(out$gamma, symmetric = TRUE, only.values = TRUE)$values
+  out$n_markers <- n_marcadores
+  out$var_scale <- 1 + mean(diag(out$gamma)) / 2 - mean(out$gamma)
+  if (any(diag(out$gamma) >= 2))
+    warning("a diagonal entry of Gamma reached 2: the fitters refuse it (the Mendelian ",
+            "variance of the offspring would not be positive)", call. = FALSE)
+  structure(out, class = "br_gamma")
+}
+
+#' @export
+print.br_gamma <- function(x, ...) {
+  cat("Gamma by ", x$method, ", ", x$n_markers, " markers",
+      if (x$method == "pseudo_em") paste0(", ", x$iterations, " iteration(s)",
+                                          if (!x$converged) " (DID NOT CONVERGE)" else ""),
+      if (x$method == "ml") paste0(", log-likelihood ", format(x$loglik, digits = 8),
+                                   ", SE ", format(x$se, digits = 3),
+                                   if (isTRUE(x$boundary)) " (at the boundary)" else ""),
+      "\n", sep = "")
+  print(round(x$gamma, 4))
+  if (any(!x$estimable))
+    cat("not estimable (no genotyped descendant): ",
+        paste(names(x$estimable)[!x$estimable], collapse = ", "), "\n", sep = "")
+  invisible(x)
+}
+
+# A22^-1 X sem formar A22: com B a A^-1 (o pedigree como em a_inverse(), metafundadores e
+# Gamma opcionais) e o = genotipados, A22^-1 X = B_oo X - B_ou B_uu^-1 B_uo X, no C++ com UMA
+# fatoracao do bloco nao genotipado para as colunas todas de X.
+a22inv_vezes <- function(id, sire, dam, mf, gamma, gids, X) {
+  .Call(R_a22inv_vezes, id, sire, dam, if (is.null(mf)) character(0) else mf,
+        if (is.null(gamma)) numeric(0) else as.double(gamma), gids, X)
+}

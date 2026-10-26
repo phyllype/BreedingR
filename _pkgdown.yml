@@ -1,0 +1,138 @@
+# Site do pacote, publicado pelo workflow .github/workflows/pkgdown.yaml no GitHub Pages.
+# Todo topico exportado precisa de uma linha em `reference`: o pkgdown para o build quando
+# falta algum. A saida fica fora de docs/, que guarda arquivos do repositorio.
+url: https://phyllype.github.io/BreedingR/
+destination: _site
+
+template:
+  bootstrap: 5
+  light-switch: true
+  bslib:
+    primary: "#0f5a55"
+    link-color: "#0f6b64"
+
+home:
+  title: "BreedingR: genetic parameters, breeding values and genomic prediction"
+  description: >
+    Variance components by AI-REML, breeding values and accuracy, single-step genomics,
+    reaction norms, several traits and a Gibbs sampler, on a C++ engine with no run-time
+    dependency.
+
+navbar:
+  structure:
+    left: [intro, reference, articles, functions, news]
+    right: [search, github, lightswitch]
+  components:
+    functions:
+      text: Function map
+      href: FUNCTIONS.html
+
+articles:
+  - title: Start here
+    navbar: ~
+    contents:
+      - BreedingR
+      - getting-started
+  - title: In depth
+    navbar: In depth
+    contents:
+      - theory
+      - hands-on
+  - title: Models, engine and validation
+    navbar: Models, engine and validation
+    contents:
+      - articles/models
+      - articles/engine
+      - articles/choices
+      - articles/data-checks
+      - articles/validation
+
+reference:
+  - title: Fitting a model
+    desc: One engine; the formula terms choose the model.
+    contents:
+      - model
+      - model_mt
+      - gibbs
+      - half_t
+
+  - title: Breeding values and genetic parameters
+    contents:
+      - solutions
+      - ebv
+      - accuracy
+      - coef.breeding_fit
+      - h2
+      - rg
+      - h2_curve
+      - h2_observed
+      - h2_liability
+      - se_function
+      - profile_theta
+
+  - title: Diagnostics
+    desc: Residuals of a fit and convergence of a chain.
+    contents:
+      - residuals.breeding_fit
+      - mcmc_diagnostics
+      - gibbs_draws
+      - ess
+      - rhat
+      - geweke_z
+
+  - title: Pedigree and relationship matrices
+    contents:
+      - pedigree
+      - sire_mgs
+      - a_inverse
+      - a22_inverse
+      - estimate_gamma
+
+  - title: Genomics
+    desc: Relationship matrices from markers and the single step.
+    contents:
+      - g_matrix
+      - h_inverse
+      - apy_inverse
+      - apy_core_select
+      - snp_blup
+      - snp_effects
+      - pegs
+
+  - title: Data and quality control
+    contents:
+      - read_plink
+      - read_blupf90_snp
+      - qc_phenotypes
+      - qc_genotypes
+      - parentage_check
+
+  - title: Environment and reaction norms
+    contents:
+      - legendre
+      - thi
+      - heat_load
+
+  - title: Selection decisions
+    contents:
+      - selection_index
+      - rank_drift
+
+  - title: Simulation
+    contents:
+      - simulate_breeding
+
+  - title: Sparse linear algebra and the engine
+    contents:
+      - sparse_chol
+      - sparse_solve
+      - selected_inverse
+      - inv_pd
+      - br_threads
+      - br_version
+
+  - title: Internal evaluations for the validation gates
+    desc: Exported so that the tests can compare the two routes of the likelihood.
+    contents:
+      - eval_internal
+      - eval_internal_mt

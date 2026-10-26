@@ -1,0 +1,152 @@
+---
+title: "Choices worth knowing about"
+description: >
+  Convergence, boundaries, starting values, units, the data rules and the priors of gibbs().
+---
+
+## Convergence
+
+Convergence takes TWO things, not one. The step criterion is the RELATIVE change in the
+components, `sqrt(sum(dtheta^2) / sum(theta^2)) < tol`, with a default of 1e-8: never an
+absolute threshold on the score, which grows with the number of records. Coming from the
+BLUPF90 family, mind the scale: those programs test that quantity squared, so a card's
+`conv_crit` is this `tol` squared. A 1e-12 there is `tol = 1e-6` here, and the 1e-8
+default here would be 1e-16 on that scale.
+
+A small step is not an optimum, though. A damped step can accept a tiny move with the
+gradient still far from zero, so `converged` also requires the NEWTON DECREMENT,
+`g' AI^-1 g`, which is about twice the remaining gap in -2logL, to fall under 2e-4. It is
+reported as `newton_dec`, next to `score`, so the certificate can be read rather than
+trusted. Components resting at a covariance boundary are excluded from it, because a
+component pinned there points out of the cone by construction and its gradient never
+vanishes; when that happens the message says how many were excluded, and the
+certification is conditional on that pinning.
+
+## Covariance boundaries
+
+In `model()` a component at its floor is excluded only when the score pushes it out of
+the cone. In `model_mt()` the step freezes a boundary block whatever the sign, so the certificate is checked on the likelihood: points inside the cone along the
+negative eigenvectors of the block's gradient, steps along the boundary face by finite
+differences, and a second walk from inside the cone. A point that lowers the -2logL by
+more than 1e-4 sends the walk there, or refuses the certificate when the walk cannot move.
+Without those checks a real bivariate fit had been certified 46.8 units above its interior
+optimum. A boundary face is flat, so a certified point is then polished along it while
+each step gains more than 1e-5 and the point still certifies. In simulated sweeps of 368
+fits from four starts per data set (run during development, not kept in `validation/`),
+every certified point then came within 9.4e-5 of the best of its starts, and in a
+separate search one pair of starts still certified points 1.7e-4 apart.
+
+## How a fit ends
+
+Two endings get their own verdict in `model()` and `model_mt()`. When `maxiter` runs out
+with the Newton decrement already under tolerance (and, in `model_mt()`, the boundary
+checks passed), the likelihood is flat along
+some direction: the fit returns `converged = TRUE` and says so, because more iterations
+would not choose a point on that ridge. When the average information is singular at the
+end, the message says SINGULAR and names the components the data do not separate; their
+standard errors are NaN, the reported point depends on `start=`, and only combinations of
+them are estimable. That is the design speaking, and the answer is more information, a
+simpler model, or a component held fixed. In `model_mt()`, a stop where
+no damped step and no EM step improves the likelihood is never a certificate: the message
+gives the iteration and the decrement. `maxiter = 0` evaluates the start and reports
+`converged = FALSE` in both fitters.
+
+## Where a fit starts, and in what units
+
+`model()` starts from `var(y)`, so a run does not inherit a neighbour's answer by
+accident. `model_mt()` starts from the univariate optimum of each trait with every covariance between traits at zero, the start one builds
+by hand in BLUPF90 or ASReml. On real data a bivariate fit with an autoregressive residual
+from `var(y)` had walked to
+r = -1 and r = +1 and stopped 41.3 -2logL units above the optimum the univariate start
+reached in 6 iterations. That was measured before the walk was standardized per trait and
+before the boundary checks above, and with the current engine no simulated case is known
+where the `var(y)` start fails. A variance that a univariate fit left at zero starts at 1%
+of the `var(y)` start, and the univariate fits run to their own optimum whatever
+`maxiter` is. When the fit from that start stalls without a certificate, the `var(y)`
+start is fitted too, and `start_from` says which start the returned fit used. The default
+rests on that one real case, and the univariate fits cost time: at 24 000 records, 1.1 to
+1.6 times the `var(y)` start on the median of 3 runs when both reach the same optimum
+(`validation/unit_shift_start_scale.R`).
+
+The multi-trait fitter walks on each trait divided by the power of two just above its
+standard deviation, and report in the original units. Neither the walk, nor the
+singularity verdict, nor the standard errors depend on the unit a trait is recorded in.
+`y1` and `0.01 * y1` give the same estimates up to the scale factors and the same -2logL
+up to the Jacobian, and a power-of-two factor gives the same fit bit for bit. Components
+resting at a boundary are the exception: when the data round differently they can move
+along the flat face they rest on (up to 0.6% measured, with the -2logL equal within
+2.5e-5 after the Jacobian).
+`model()` gets the same invariance from a variance floor proportional to the variance of
+`y`. The -2logL is formed from the residuals, so a constant added to `y` leaves it
+unchanged to 3e-14 (relative).
+
+When you do want a different start, `start=` takes one in `model()` and `model_mt()`
+alike: to warm-start from a submodel, or to check that the optimum does not
+depend on where the search began, which is the only direct evidence of a global optimum a
+non-convex likelihood offers.
+
+A covariance that stops being positive-definite ends the fit instead of being nudged back
+into range, and a fit that did not converge says so in the print, in the message and in
+the object.
+
+## The data rules
+
+The data rules are equally deliberate. An unknown genotype code becomes NA and is
+imputed by the marker mean; it never becomes the zero genotype, which is a real
+observation. An animal of the data missing from the pedigree, a maternal grandsire
+included, enters as a founder with a warning that counts and names it, as renumf90 numbers
+every animal with a record. An id that matches a pedigree line written another way (a trailing
+space, the case, leading zeros) stops the fit with both spellings. A parent cited without
+a line of its own is an error rather than a new founder.
+
+## The priors of gibbs()
+
+The priors of `gibbs()` depart from the software in the field, and each part of the
+default was decided against the simulated validation behind it (`?gibbs`, under `prior`).
+The Gibbs programs of BLUPF90 put flat priors on the variances unless `OPTION prior` gives
+a proper one (Misztal, 2017; Masuda, 2026); the default inverse-Wishart of MCMCglmm, with
+`nu = 0`, has the kernel of `prior = "jeffreys"` here, and its notes warn that it can leave
+a chain stuck at zero (Hadfield, n.d.); JWAS and BGLR use proper scaled inverse-Wishart
+priors (Cheng, Fernando and Garrick, 2018; Perez and de los Campos, 2014); brms puts a
+half-t with 3 degrees of freedom on each standard deviation (Burkner, 2017). No
+animal-breeding Gibbs program was found whose default is a hierarchical half-t. Here, left
+unset: the half-t of Huang and Wand (2013) on each scalar random term, with its scale read
+from the design, because on the scalar validation it had no chain stuck at a planted
+variance of 0.05 (0 of 360) where `"jeffreys"` had 35 of 360, with coverage 171 of 180
+against 160 of 180, and on an animal model of 2100 animals it landed beside REML (30 data
+sets, with one record per animal and with two records and `pe()`); `"flat"` on each
+covariance group, because `"jeffreys"` there holds chains at a
+correlation of +-1 and the half-t, though it removed that trap, moved a direct-maternal correlation of -0.8 toward zero by 0.43 posterior SD; and
+`"flat"` on the residual, which left the posterior of a scalar term where it was (it moves
+`var(residual)` by the one degree of freedom that separates the two priors). A rule
+written before the runs chose `"flat"`, and its clause on coverage did not say whose: read as that of the scalar term it passed, read as the residual's too it fails by one
+data set in 120. Two sampler steps are on by default, both leaving the posterior
+unchanged: the interweaving step of Yu and Meng (2011) on every estimated term of a
+Gaussian trait and on each covariance group of a binary one, which raised the effective
+sample size per iteration 5.2 to 10.6 times on covariance groups and 2.1 and 3.5 times on
+scalar terms alone (pooled over the cases measured), and, on a binary trait, the PX-DA
+move, on by a decision that overrides the rule written before the runs (keep a step only
+if the lower 95% bound of its paired ESS ratio passes 1). Hobert and
+Marchev (2008) prove Haar PX-DA at least as efficient as plain data augmentation for a
+two-block chain, which covers the step between liabilities and locations here but not the
+whole sweep. A plain proper inverse-Wishart was not the alternative: it inflates a variance
+that sits below its scale and pulls correlations toward zero (Alvarez, Niemi and Simpson,
+2014).
+On a binary trait the half-t has df = 4 and, when a component is estimated, the fixed
+effects of the liability a normal prior with standard deviation 1: with one binary record
+per animal the likelihood stays positive as the variances grow, so a flat prior leaves the
+posterior improper (Stock, Distl and Hoeschele, 2007, saw more than half of their threshold
+runs fail under a flat prior on the genetic covariances; Odegard et al., 2010, saw the
+standard sampler drift to an infinite variance), and with flat fixed effects so can a
+half-t whose df does not exceed the number of fixed-effect columns. A proper
+`c(df =, scale =)` is the scaled inverse chi-square of `OPTION prior` in the BLUPF90 Gibbs
+programs; which prior those programs use without the option was not checked here.
+
+## What the default prior does not do
+
+What the default does not do: on one binary record per animal with 80 fixed classes, the design of Odegard et al. (2010), the default left 4 of 10 data sets at medians
+of `var(animal)` of 15 to 62 after 4 chains of 25 000, against 0.25 planted (without `px`,
+the same posterior, 3 of 10 at 11 to 49).
+
+The works cited here by author and year are listed in full in the
+[references](https://phyllype.github.io/BreedingR/REFERENCES.html).

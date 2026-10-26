@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="648pt" height="280.8pt" viewBox="0 0 648 280.8" font-family='Roboto, "Helvetica Neue", Arial, sans-serif'>
+<style>text { white-space: pre; }</style>
+<defs>
+<clipPath id="c1"><rect x="0" y="0" width="324" height="280.8"/></clipPath>
+<clipPath id="c2"><rect x="64.8" y="51.84" width="252" height="221.76"/></clipPath>
+<clipPath id="c3"><rect x="388.8" y="51.84" width="252" height="221.76"/></clipPath>
+<clipPath id="c4"><rect x="324" y="0" width="324" height="280.8"/></clipPath>
+</defs>
+<g clip-path="url(#c2)">
+<path fill="#6fd0c0" d="M89.67 61.59h48.25v48.25h-48.25Z"/>
+<text fill="#1f2328" font-size="11" x="113.8" y="89.59" text-anchor="middle">1</text>
+<path fill="#5a968b" d="M141.01 61.59h48.25v48.25h-48.25Z"/>
+<text fill="#1f2328" font-size="11" x="165.13" y="89.48" text-anchor="middle">0.62</text>
+<path fill="#604f38" d="M192.34 61.59h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="216.47" y="89.48" text-anchor="middle">-0.24</text>
+<path fill="#445953" d="M243.67 61.59h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="267.8" y="89.48" text-anchor="middle">0.22</text>
+<path fill="#5a968b" d="M89.67 112.93h48.25v48.25h-48.25Z"/>
+<text fill="#1f2328" font-size="11" x="113.8" y="140.82" text-anchor="middle">0.62</text>
+<path fill="#6fd0c0" d="M141.01 112.93h48.25v48.25h-48.25Z"/>
+<text fill="#1f2328" font-size="11" x="165.13" y="140.92" text-anchor="middle">1</text>
+<path fill="#383835" d="M192.34 112.93h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="216.47" y="140.82" text-anchor="middle">0.00</text>
+<path fill="#4f4537" d="M243.67 112.93h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="267.8" y="140.82" text-anchor="middle">-0.14</text>
+<path fill="#604f38" d="M89.67 164.26h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="113.8" y="192.15" text-anchor="middle">-0.24</text>
+<path fill="#383835" d="M141.01 164.26h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="165.13" y="192.15" text-anchor="middle">0.00</text>
+<path fill="#6fd0c0" d="M192.34 164.26h48.25v48.25h-48.25Z"/>
+<text fill="#1f2328" font-size="11" x="216.47" y="192.25" text-anchor="middle">1</text>
+<path fill="#517d74" d="M243.67 164.26h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="267.8" y="192.15" text-anchor="middle">0.46</text>
+<path fill="#445953" d="M89.67 215.59h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="113.8" y="243.48" text-anchor="middle">0.22</text>
+<path fill="#4f4537" d="M141.01 215.59h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="165.13" y="243.48" text-anchor="middle">-0.14</text>
+<path fill="#517d74" d="M192.34 215.59h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="216.47" y="243.48" text-anchor="middle">0.46</text>
+<path fill="#6fd0c0" d="M243.67 215.59h48.25v48.25h-48.25Z"/>
+<text fill="#1f2328" font-size="11" x="267.8" y="243.59" text-anchor="middle">1</text>
+</g>
+<g fill="#e6edf3" font-size="10">
+<text x="113.8" y="48.96" text-anchor="middle">trait 1</text>
+<text x="165.13" y="48.96" text-anchor="middle">trait 2</text>
+<text x="216.47" y="48.96" text-anchor="middle">trait 3</text>
+<text x="267.8" y="48.96" text-anchor="middle">trait 4</text>
+<text x="64.8" y="243.31" text-anchor="end">trait 4</text>
+<text x="64.8" y="191.98" text-anchor="end">trait 3</text>
+<text x="64.8" y="140.64" text-anchor="end">trait 2</text>
+<text x="64.8" y="89.31" text-anchor="end">trait 1</text>
+</g>
+<g clip-path="url(#c1)">
+<text fill="#e6edf3" font-size="12" x="190.8" y="23.04" text-anchor="middle">model_mt(): genetic correlations, 2,700 animals</text>
+</g>
+<g clip-path="url(#c3)">
+<path fill="#6fd0c0" d="M413.67 61.59h48.25v48.25h-48.25Z"/>
+<text fill="#1f2328" font-size="11" x="437.8" y="89.59" text-anchor="middle">1</text>
+<path fill="#53837a" d="M465.01 61.59h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="489.13" y="89.48" text-anchor="middle">0.50</text>
+<path fill="#6a5539" d="M516.34 61.59h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="540.47" y="89.48" text-anchor="middle">-0.30</text>
+<path fill="#3d4742" d="M567.67 61.59h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="591.8" y="89.48" text-anchor="middle">0.10</text>
+<path fill="#53837a" d="M413.67 112.93h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="437.8" y="140.82" text-anchor="middle">0.50</text>
+<path fill="#6fd0c0" d="M465.01 112.93h48.25v48.25h-48.25Z"/>
+<text fill="#1f2328" font-size="11" x="489.13" y="140.92" text-anchor="middle">1</text>
+<path fill="#383835" d="M516.34 112.93h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="540.47" y="140.82" text-anchor="middle">0.00</text>
+<path fill="#6a5539" d="M567.67 112.93h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="591.8" y="140.82" text-anchor="middle">-0.30</text>
+<path fill="#6a5539" d="M413.67 164.26h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="437.8" y="192.15" text-anchor="middle">-0.30</text>
+<path fill="#383835" d="M465.01 164.26h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="489.13" y="192.15" text-anchor="middle">0.00</text>
+<path fill="#6fd0c0" d="M516.34 164.26h48.25v48.25h-48.25Z"/>
+<text fill="#1f2328" font-size="11" x="540.47" y="192.25" text-anchor="middle">1</text>
+<path fill="#4e746c" d="M567.67 164.26h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="591.8" y="192.15" text-anchor="middle">0.40</text>
+<path fill="#3d4742" d="M413.67 215.59h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="437.8" y="243.48" text-anchor="middle">0.10</text>
+<path fill="#6a5539" d="M465.01 215.59h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="489.13" y="243.48" text-anchor="middle">-0.30</text>
+<path fill="#4e746c" d="M516.34 215.59h48.25v48.25h-48.25Z"/>
+<text fill="#ffffff" font-size="11" x="540.47" y="243.48" text-anchor="middle">0.40</text>
+<path fill="#6fd0c0" d="M567.67 215.59h48.25v48.25h-48.25Z"/>
+<text fill="#1f2328" font-size="11" x="591.8" y="243.59" text-anchor="middle">1</text>
+</g>
+<g fill="#e6edf3" font-size="10">
+<text x="437.8" y="48.96" text-anchor="middle">trait 1</text>
+<text x="489.13" y="48.96" text-anchor="middle">trait 2</text>
+<text x="540.47" y="48.96" text-anchor="middle">trait 3</text>
+<text x="591.8" y="48.96" text-anchor="middle">trait 4</text>
+<text x="388.8" y="243.31" text-anchor="end">trait 4</text>
+<text x="388.8" y="191.98" text-anchor="end">trait 3</text>
+<text x="388.8" y="140.64" text-anchor="end">trait 2</text>
+<text x="388.8" y="89.31" text-anchor="end">trait 1</text>
+</g>
+<g clip-path="url(#c4)">
+<text fill="#e6edf3" font-size="12" x="514.8" y="23.04" text-anchor="middle">The values simulated</text>
+</g>
+</svg>

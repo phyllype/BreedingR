@@ -1,0 +1,95 @@
+# The verbose of every iterative fitter must print WHERE THE ESTIMATES ARE, not only that
+# a step happened. A trace that reports "-2logL fell, the relative step shrank" says the
+# fit is MOVING, never TOWARDS WHAT, and the three things worth interrupting a long run
+# for live in the component vector: a variance walking to zero, a correlation climbing to
+# the boundary, and a component blowing up. Before this, all four printed the step alone.
+
+fixture <- function(seed = 5) {
+  s <- simulate_breeding(n_founders = 30, n_generations = 2,
+                         offspring_per_generation = 40, h2 = 0.4,
+                         n_markers = 20, seed = seed)
+  s
+}
+
+test_that("model() prints the components at every iteration, and only when verbose", {
+  s <- fixture()
+  saida <- capture.output(
+    model(y ~ cg + animal(id), s$data, s$pedigree, maxiter = 3L, verbose = TRUE))
+  expect_true(any(grepl("var\\(animal\\)=", saida)))
+  expect_true(any(grepl("var\\(residual\\)=", saida)))
+  # one component line per iteration line, not one for the whole run
+  expect_gte(sum(grepl("var\\(animal\\)=", saida)), 2)
+  # and silence is silence: no component line leaks out with verbose off
+  quieto <- capture.output(
+    model(y ~ cg + animal(id), s$data, s$pedigree, maxiter = 3L, verbose = FALSE))
+  expect_false(any(grepl("var\\(animal\\)=", quieto)))
+})
+
+test_that("a covariance group prints its covariance, named, not just its variances", {
+  s <- fixture()
+  d <- s$data
+  d$dam <- s$pedigree$dam[match(d$id, s$pedigree$id)]
+  d <- d[d$dam != "0", ]
+  saida <- capture.output(
+    model(y ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), d, s$pedigree,
+          maxiter = 2L, verbose = TRUE))
+  expect_true(any(grepl("cov\\(maternal,animal\\)=", saida)))
+})
+
+test_that("gibbs() prints the current draw, which is how mixing becomes visible", {
+  s <- fixture()
+  g <- capture.output(
+    gibbs(y ~ cg + animal(id), s$data, s$pedigree, n_iter = 50L, burnin = 5L,
+          verbose = TRUE))
+  expect_true(any(grepl("var\\(animal\\)=", g)))
+  expect_gte(sum(grepl("var\\(animal\\)=", g)), 3)
+})
+
+test_that("many components wrap instead of running off the terminal", {
+  s <- fixture()
+  d <- s$data
+  set.seed(2); d$y2 <- d$y * 0.5 + rnorm(nrow(d))
+  saida <- capture.output(
+    model_mt(cbind(y, y2) ~ cg + animal(id), d, s$pedigree, maxiter = 2L, verbose = TRUE))
+  comp <- saida[grepl("var\\(animal@y\\)=", saida)]
+  expect_true(all(nchar(comp) <= 80))
+})
+
+test_that("each term gets its OWN line, so a matrix is read as a matrix", {
+  # The parameters of a covariance group are the vech of ONE matrix. Printed run-on with
+  # another term's, the reader has to work out by hand which numbers form which matrix.
+  # One line per term puts the additive matrix, the permanent-environment one and the
+  # residual side by side as separate objects, which is the reading that decides whether
+  # the fit is going well: the diagonal says where each variance is, the off-diagonal
+  # says whether a correlation is walking to the boundary.
+  s <- fixture()
+  d <- s$data
+  d$pe <- d$id
+  saida <- capture.output(
+    model(y ~ cg + animal(id) + pe(pe), rbind(d, d), s$pedigree,
+          maxiter = 2L, verbose = TRUE))
+  expect_true(any(grepl("^    \\[animal\\]", saida)))
+  expect_true(any(grepl("^    \\[pe\\]", saida)))
+  expect_true(any(grepl("^    \\[residual\\]", saida)))
+  # the additive line carries the additive and NOT the residual
+  la <- saida[grepl("^    \\[animal\\]", saida)][1]
+  expect_true(grepl("var\\(animal\\)=", la))
+  expect_false(grepl("var\\(residual\\)=", la))
+})
+
+test_that("a covariance group keeps its covariance on the group's own line", {
+  s <- fixture()
+  d <- s$data
+  d$dam <- s$pedigree$dam[match(d$id, s$pedigree$id)]
+  d <- d[d$dam != "0", ]
+  saida <- capture.output(
+    model(y ~ cg + animal(id, group = "g") + maternal(dam, group = "g"), d, s$pedigree,
+          maxiter = 2L, verbose = TRUE))
+  bloco <- saida[grepl("^    \\[g\\]", saida)]
+  expect_gte(length(bloco), 1)
+  # the group line holds the direct variance AND the direct-maternal covariance
+  expect_true(any(grepl("var\\(animal\\)=", bloco)))
+  expect_true(any(grepl("cov\\(maternal,animal\\)=", bloco)))
+  # and the residual is NOT on it
+  expect_false(any(grepl("var\\(residual\\)=", bloco)))
+})
