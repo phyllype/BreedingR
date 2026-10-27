@@ -925,6 +925,11 @@
 
 ## Fixed
 
+* A base of `rn()` or `pe(base =)` whose columns differ in scale by more than 100 times (t
+  and t^2 without scaling) gets a warning with the cause and the way out (`legendre()`, or
+  scaled columns): the fit stopped at `maxiter` with "Raise maxiter=". Gate in
+  `tests/testthat/test-estrutura-media4.R`.
+
 * A singular `gamma` (`gamma = 0`, or two metafounders with identical rows) is refused by
   the fitters with the cause and the way out (a small diagonal for the limit of unknown
   parent groups, one label for one population). The help said that the fitters took it;

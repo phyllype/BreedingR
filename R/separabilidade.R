@@ -148,6 +148,15 @@ confere_estrutura <- function(terms, data, resp, missing_code, quem, estima,
            "columns that are linearly dependent (rank ", r, " of ", length(cols), " among the ",
            "records), so their coefficients are not separable: drop or replace a column, for ",
            "example with legendre()", call. = FALSE)
+    # colunas de escalas muito diferentes (t de 50 a 300 e t^2): as variancias dos coeficientes
+    # diferem pelo quadrado da razao, e a caminhada parava no teto com "Raise maxiter=", sem a
+    # causa (catalogo de estrutura, prioridade media)
+    esc <- sqrt(colMeans(b^2))
+    if (r == length(cols) && estima && min(esc) > 0 && max(esc) / min(esc) > 100)
+      warning(quem, ": the columns of the base of ", t$nome, "() (", paste(cols, collapse = ", "),
+              ") differ in scale by a factor of ", signif(max(esc) / min(esc), 2), ": their ",
+              "variance components differ by its square, and the fit can stop at maxiter. ",
+              "Use legendre(), or scale the columns to similar ranges", call. = FALSE)
   }
   # uma coluna com rotulo ausente (NA, branco, "NaN", Inf) fica de fora daqui: o motor e os
   # ajustadores em R param nela com a coluna, a contagem e a linha, e uma conferencia de
