@@ -666,9 +666,11 @@ explora_reduzido <- function(r, terms, motor, n_em, verbose) {
   rotulos <- character(0)
   tt <- terms
   for (s in perto) {
-    i <- match(s, nomes)
-    # um nome com coeficiente (rn[0]) nao e um termo: o grupo de um termo so fica como esta
-    if (anyNA(i)) next
+    # o nome do componente leva ao termo: sem a caracteristica do model_mt() (animal@t1) e sem
+    # o coeficiente (rn[0]). A correlacao perto de +-1 dentro de UM termo (os coeficientes de um
+    # rn(), um termo entre caracteristicas) nao tem modelo reduzido aqui
+    i <- match(unique(sub("[[].*$", "", sub("@.*$", "", s))), nomes)
+    if (anyNA(i) || length(i) < 2L) next
     g <- unique(vapply(terms[i], function(t) t$group, character(1)))
     if (length(g) != 1L || !nzchar(g)) next
     for (k in i) tt[[k]]$group <- ""

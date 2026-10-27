@@ -2,6 +2,13 @@
 
 ## New
 
+* `model_mt()` takes the route of `model()` when a covariance group of several terms
+  (`group =`) ends near a correlation of +-1: it fits the same terms without the group and then
+  the full model from that optimum, and keeps the better by the same rules. The component
+  names lead to the terms without the trait (`animal@t1`) and without the coefficient
+  (`rn[0]`); a correlation near +-1 inside one term has no reduced model. Gate in
+  `tests/testthat/test-reduzido-mt.R` (a direct-maternal model of two traits simulated with no
+  genetic variance).
 * `gibbs()`: when the mixed model equations lose their Cholesky factor inside a chain of a
   Gaussian trait, the chain no longer stops: the locations are proposed from the equations
   with a small multiple of their diagonal added (the smallest of 1e-12 to 1e-6 of the

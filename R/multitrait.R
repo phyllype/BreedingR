@@ -275,16 +275,18 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
             apy_core = nucleo_resolvido(apy_core, nuc),
             metafounders = metafounders, gamma = gamma, verbose = FALSE)),
       formula, traits, data, missing_code, verbose, terms) else list()
-  ajusta <- function(uni) .Call(R_ajustar_mt,
+  # tt e st: os termos e a partida, os do ajuste por padrao; a caminhada do modelo reduzido
+  # (explora_reduzido, R/model.R) chama com os termos sem o grupo e com a partida dela
+  ajusta <- function(uni, tt = terms, st = start) .Call(R_ajustar_mt,
              lst, names(lst), traits,
-             vapply(terms, function(t) t$nome, character(1)),
-             vapply(terms, function(t) t$column, character(1)),
-             vapply(terms, function(t) t$covariavel, logical(1)),
-             vapply(terms, function(t) t$estrutura, integer(1)),
-             vapply(terms, function(t) t$group, character(1)),
-             vapply(terms, function(t) t$nested, character(1)),
-             vapply(terms, function(t) t$base, character(1)),
-             vapply(terms, function(t) t$social, logical(1)),
+             vapply(tt, function(t) t$nome, character(1)),
+             vapply(tt, function(t) t$column, character(1)),
+             vapply(tt, function(t) t$covariavel, logical(1)),
+             vapply(tt, function(t) t$estrutura, integer(1)),
+             vapply(tt, function(t) t$group, character(1)),
+             vapply(tt, function(t) t$nested, character(1)),
+             vapply(tt, function(t) t$base, character(1)),
+             vapply(tt, function(t) t$social, logical(1)),
              ped_id, ped_sire, ped_dam,
              if (is.null(missing_code)) 0.0 else as.double(missing_code), !is.null(missing_code),
              as.integer(maxiter), as.double(tol),
@@ -296,9 +298,15 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
              kern,
-             if (is.null(start)) numeric(0) else as.double(start),
-             vapply(terms, function(t) t$dilution, numeric(1)), uni, traits_dos_termos(terms))
+             if (is.null(st)) numeric(0) else as.double(st),
+             vapply(tt, function(t) t$dilution, numeric(1)), uni, traits_dos_termos(tt))
   r <- partida_de_reserva(ajusta(uni), ajusta, maxiter)
+  # O MODELO REDUZIDO perto de uma correlacao +-1 entre termos de um grupo (lista de correcoes,
+  # item 10), como no model(): os termos sem o grupo, partindo das variancias de var(y), e o
+  # modelo completo a partir do otimo deles
+  if (maxiter > 0L)
+    r <- explora_reduzido(r, terms, function(tt, st, n) ajusta(list(), tt, st), 0L,
+                          isTRUE(verbose))
   r$seconds <- proc.time()[["elapsed"]] - t0
   r <- anota_nucleo(r, nuc)
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
