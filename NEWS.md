@@ -925,6 +925,16 @@
 
 ## Fixed
 
+* More cases of the structure of the data stop with the cause and what to do, in place of
+  a generic error or a silent pass. The notation of other packages (`cg:sex`, `cg*sex`,
+  `factor()`, `I()`, `poly()`, `(1 | g)`, a transformed trait such as `log(y)`) gets a
+  message that says what to write here. `rg()` with a trait that is not in the fit, or the
+  same trait twice, says so (it stopped with "subscript out of bounds"). `apy_core =` with a
+  repeated id (it stopped with "not positive-definite"), or with positions in place of ids,
+  is refused. A single step with fewer than 3 genotyped animals is refused: the allele
+  frequencies of G come from them. A trait of `cbind()` in `model_mt()` with no record is
+  refused by name. Gates in `tests/testthat/test-estrutura-media2.R`.
+
 * Six cases of the structure of the data that passed without a word now stop with the
   cause, or warn where the data can be legitimate. A trait name with a character that the
   component names use (`@ | , ( ) [ ]`) is refused in `model_mt()` (`h2()` gave `Inf` for

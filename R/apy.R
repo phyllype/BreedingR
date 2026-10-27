@@ -402,6 +402,15 @@ nucleo_apy <- function(apy_core, genotypes) {
     fonte <- if (inherits(apy_core, "breeding_apy_core")) "apy_core_select" else "ids"
   }
   ids <- rotulo_motor(unclass(nuc))
+  # um id repetido no nucleo fazia a G do nucleo singular ("not positive-definite"), e numeros
+  # 1:20 no lugar dos ids paravam com "core animal '1' is not among the genotyped"
+  if (anyDuplicated(ids))
+    stop("apy_core: the id '", ids[anyDuplicated(ids)], "' appears more than once; each core ",
+         "animal enters once", call. = FALSE)
+  if (is.numeric(apy_core) && !is.null(genotypes$ids) &&
+      !all(ids %in% rotulo_motor(genotypes$ids)))
+    stop("apy_core holds numbers that are not ids of genotyped animals: give the ids of the ",
+         "core animals (genotypes$ids[k]), not their positions", call. = FALSE)
   structure(ids, registro = list(
     ids = ids, size = length(ids), source = fonte,
     variance_explained = attr(nuc, "variance_explained"), seed = attr(nuc, "seed")))

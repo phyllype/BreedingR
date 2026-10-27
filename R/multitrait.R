@@ -240,10 +240,21 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
                              unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
-  if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  if (length(falta)) stop(msg_falta_colunas(falta), call. = FALSE)
   # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
   # no traco e na covariavel (R/valores.R)
   confere_numeros(data, traits, terms, missing_code)
+  # uma caracteristica sem NENHUM registro (e outra com): a recusa dos graus de liberdade
+  # (src/entrada.cpp) falaria em "0 records" contra colunas, o que nao diz a causa. Todas
+  # vazias tem a recusa propria, mais adiante (prepara_estrutura)
+  vazias <- traits[vapply(traits, function(tr) all(observacao_ausente(data[[tr]], missing_code)),
+                          logical(1))]
+  if (length(vazias) && length(vazias) < length(traits))
+    stop(if (length(vazias) == 1L) "the trait " else "the traits ",
+         paste0("'", vazias, "'", collapse = ", "),
+         if (length(vazias) == 1L) " has" else " have", " no record in the data (every value ",
+         "is missing): drop ", if (length(vazias) == 1L) "it" else "them", " from cbind()",
+         call. = FALSE)
 
   lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
   g <- valida_genotipos(genotypes)
@@ -588,11 +599,21 @@ rg <- function(fit, term = "animal", t1 = NULL, t2 = NULL) {
   if (!inherits(fit, "breeding_fit_mt")) stop("expected the result of model_mt()")
   if (is.null(t1)) t1 <- fit$traits[1]
   if (is.null(t2)) t2 <- fit$traits[2]
+  # o caracter que nao existe e o mesmo caracter duas vezes paravam com o "subscript out of
+  # bounds" do R
+  fora <- setdiff(c(t1, t2), fit$traits)
+  if (length(fora))
+    stop("rg(): no trait ", paste0("'", fora, "'", collapse = ", "), " in this fit; its traits ",
+         "are ", paste(fit$traits, collapse = ", "), call. = FALSE)
+  if (identical(t1, t2))
+    stop("rg(): t1 and t2 are the same trait ('", t1, "'): the genetic correlation is between ",
+         "two traits", call. = FALSE)
   th <- fit$theta
-  v1 <- th[[paste0("var(", term, "@", t1, ")")]]
-  v2 <- th[[paste0("var(", term, "@", t2, ")")]]
-  c12 <- th[[paste0("cov(", term, "@", t2, ",", term, "@", t1, ")")]]
-  if (is.null(c12)) c12 <- th[[paste0("cov(", term, "@", t1, ",", term, "@", t2, ")")]]
+  pega <- function(nm) if (nm %in% names(th)) th[[nm]] else NULL
+  v1 <- pega(paste0("var(", term, "@", t1, ")"))
+  v2 <- pega(paste0("var(", term, "@", t2, ")"))
+  c12 <- pega(paste0("cov(", term, "@", t2, ",", term, "@", t1, ")"))
+  if (is.null(c12)) c12 <- pega(paste0("cov(", term, "@", t1, ",", term, "@", t2, ")"))
   if (is.null(v1) || is.null(v2) || is.null(c12))
     stop("could not find the parameters of '", term, "' between ", t1, " and ", t2,
          "; the available names are in names(coef(fit))")

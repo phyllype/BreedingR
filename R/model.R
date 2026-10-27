@@ -459,7 +459,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
                              unlist(lapply(terms, function(t) strsplit(t$base, ",")[[1]]))))
   used_columns <- used_columns[nzchar(used_columns)]
   falta <- setdiff(used_columns, names(data))
-  if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  if (length(falta)) stop(msg_falta_colunas(falta), call. = FALSE)
   # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
   # no traco e na covariavel (R/valores.R)
   confere_numeros(data, trait, terms, missing_code)
@@ -1067,6 +1067,11 @@ monta_kernels <- function(terms, envir, data = NULL, resp = NULL, missing_code =
     if (anyDuplicated(ids))
       stop("kernel '", t$nome, "': duplicated rowname(s) in K: ",
            paste(unique(ids[duplicated(ids)]), collapse = ", "))
+    # colnames em outra ordem que os rownames: K nao e a matriz que o usuario quis, e simetrizar
+    # pioraria
+    if (!is.null(colnames(K)) && !identical(colnames(K), ids))
+      stop("kernel '", t$nome, "': the column names of K are not its row names in the same ",
+           "order; reorder it with one order for both, K[ids, ids]", call. = FALSE)
     if (any(!is.finite(K)))
       stop("kernel '", t$nome, "': K has non-finite value(s)")
     assimetria <- max(abs(K - t(K)))
@@ -1266,6 +1271,33 @@ decompoe_formula <- function(expr, envir, com_traits = FALSE) {
   partes
 }
 
+# A NOTACAO DE OUTROS PACOTES que o leitor nao aceita (catalogo de estrutura, prioridade
+# media): o que escrever no lugar de cada uma
+conselho_notacao <- function(marc, e) {
+  dica <- if (marc %in% c(":", "*"))
+    "an interaction: build one column with the combined levels (d$cg_sex <- paste(d$cg, d$sex)) and write it"
+  else if (marc %in% c("factor", "as.factor", "as.character"))
+    "factor(): a text or factor column is already a class effect, so write the column name alone"
+  else if (marc %in% c("I", "poly", "log", "exp", "sqrt", "scale", "^"))
+    "a transformed covariate: compute the column first (d$x2 <- d$x^2) and write cov(x2)"
+  else if (marc == "|" || (marc == "(" && length(e) > 1L && is.call(e[[2]]) &&
+                           identical(as.character(e[[2]][[1]]), "|")))
+    "the (1 | g) of lme4, which is random(g) here"
+  else if (marc == "(") "parentheses: write the terms without them"
+  else if (marc == "offset") "an offset, which the fitters do not take: subtract it from the trait first"
+  else return("")
+  paste0(". This looks like ", dica)
+}
+
+# A COLUNA QUE FALTA nos dados: quando o nome e uma expressao (log(y), y/10), a transformacao
+# tem de virar coluna antes
+msg_falta_colunas <- function(falta) {
+  expr <- falta[grepl("[()/*+^ -]", falta)]
+  paste0("no column(s) in the data: ", paste(falta, collapse = ", "),
+         if (length(expr)) paste0(". A transformation such as ", expr[1], " must be a column of ",
+                                  "the data: compute it first (d$ly <- log(d$y)) and write its name"))
+}
+
 interpreta_termo <- function(e, envir) {
   if (is.name(e)) {
     n <- as.character(e)
@@ -1279,7 +1311,8 @@ interpreta_termo <- function(e, envir) {
     stop(marc, "() is not available in this version of BreedingR. Remove the term from ",
          "the formula", call. = FALSE)
   if (!marc %in% MARCADORES)
-    stop("unknown marker: '", marc, "'. Available: ", paste(MARCADORES, collapse = ", "))
+    stop("unknown marker: '", marc, "'. Available: ", paste(MARCADORES, collapse = ", "),
+         conselho_notacao(marc, e), call. = FALSE)
   args <- as.list(e)[-1]
   if (!length(args)) stop("'", marc, "()' without a column")
   sem_nome <- if (is.null(names(args))) rep(TRUE, length(args)) else names(args) == ""
@@ -1495,7 +1528,7 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
   # a mesma conferencia do model(): sem ela o data[used_columns] abaixo parava com o
   # "undefined columns selected" do R, que nao diz qual coluna falta
   falta <- setdiff(used_columns, names(data))
-  if (length(falta)) stop("no column(s) in the data: ", paste(falta, collapse = ", "))
+  if (length(falta)) stop(msg_falta_colunas(falta), call. = FALSE)
   # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
   # no traco e na covariavel (R/valores.R)
   confere_numeros(data, trait, terms, missing_code)

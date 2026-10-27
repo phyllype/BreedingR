@@ -980,6 +980,13 @@ std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& pe
                                 std::vector<std::size_t>* dr = nullptr) {
   if (XLENGTH(gid) == 0) return "";
   if (!pp) Rf_error("genotypes without a pedigree: H^-1 needs A^-1");
+  // as frequencias alelicas da G vem dos proprios genotipados: com um so a G e nula, e com dois
+  // ela forca um parentesco de -1 entre eles (catalogo de estrutura, prioridade media)
+  if (XLENGTH(gid) < 3)
+    throw br::Erro("the single step has " + std::to_string((long) XLENGTH(gid)) +
+                   " genotyped animal(s): the allele frequencies of G come from the genotyped "
+                   "themselves, so with fewer than 3 G is not defined (one animal) or forces a "
+                   "relationship of -1 between two. Fit on the pedigree alone, or add genotypes");
   auto gids = textos(gid, "genotypes");
   // os genotipos lidos direto do objeto do R, sem copia
   const br::Genotipos mg = genotipos_do_R(gm, gids.size());
