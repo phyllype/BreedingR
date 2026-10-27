@@ -2,6 +2,24 @@
 
 ## New
 
+* `gibbs()`: when the mixed model equations lose their Cholesky factor inside a chain of a
+  Gaussian trait, the chain no longer stops: the locations are proposed from the equations
+  with a small multiple of their diagonal added (the smallest of 1e-12 to 1e-6 of the
+  diagonal that factors), and a Metropolis-Hastings step against the true conditional accepts
+  the proposal or keeps the state. The ratio is in closed form,
+  `log alpha = delta (x_new' D x_new - x_old' D x_old) / (2 var(residual))`, so the step keeps
+  the posterior. `message` says how many iterations needed it, how many proposals were
+  rejected and the state at the first one. Where the equations are near singular the proposal
+  is narrower than the conditional and most proposals are rejected: the chain moves through
+  the other components. With `family = "probit"` the same step runs on the locations given the
+  liability, and the PX-DA move, which needs the exact solution, is left out in those
+  iterations. Gates in `tests/testthat/test-gibbs-piso.R`: with the rescue forced at every
+  iteration (delta 0.01 of the diagonal) and the components given, the posterior means of the
+  levels fall within 0.1 `sqrt(PEV)` of the BLUP and their posterior SDs within 5% of
+  `sqrt(PEV)`; in a probit sire model the posterior means fall within 0.1 posterior SD of the
+  exact chain and the SDs within 5% (simulation; with the components estimated and the PX-DA
+  move on, the posterior mean of the sire variance was 0.4666 against 0.4646 and 0.4635 of
+  two exact chains, Monte Carlo SE 0.001).
 * `gibbs()`: the draw of `var(residual)` is truncated at `1e-10 var(y)`, the floor of the
   residual in `model()`, and `message` says how many draws reached it. On a residual that the
   data hardly separate from the other variances (only their sum identified) the chain could

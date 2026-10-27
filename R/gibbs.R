@@ -242,7 +242,14 @@
 #'   floor the mixed model equations lose their Cholesky factor on a residual that the data
 #'   hardly separate from the other variances, and the chain stopped there (a synthetic case
 #'   of 100 animals of 12 dams stopped at 12063 of 19000 kept draws and runs to the end with
-#'   the floor)
+#'   the floor). Where the equations still lose the factor (a term nested in a fixed class,
+#'   near singular), the chain of a Gaussian trait goes on: the locations are proposed from
+#'   the equations with a small multiple of their diagonal added, and a Metropolis-Hastings
+#'   step against the true conditional accepts them or keeps the state, which keeps the
+#'   posterior; `message` says how many iterations needed it and how many proposals were
+#'   rejected. With `family = "probit"` the same step runs on the locations given the
+#'   liability, and the PX-DA move, which needs the exact solution, is left out in those
+#'   iterations
 #' @param prior_fixed the prior of the fixed effects. `Inf` is flat; a positive number puts
 #'   a normal prior with mean 0 and that standard deviation, on the liability scale, on every
 #'   fixed-effect coefficient as the engine codes it: the intercept (the liability of the

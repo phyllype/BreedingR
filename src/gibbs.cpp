@@ -689,6 +689,17 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
     return q > 0.0 && std::isfinite(q) ? num / q : piso_res;
   };
 
+  // O RESGATE DA CHOLESKY (item 39): o estado das localizacoes da iteracao anterior, as
+  // iteracoes resgatadas, as propostas rejeitadas e o estado na primeira falha
+  std::vector<double> loc_ant;
+  std::size_t n_resgates = 0, n_rejeitadas = 0;
+  std::string estado_resgate;
+  // o gancho do portao (tests/testthat/test-gibbs-piso.R): BREEDINGR_TESTE_RESGATE = delta
+  // forca o resgate em toda iteracao com esse delta, para conferir que o passo de MH da a
+  // condicional exata
+  const char* teste_resgate = std::getenv("BREEDINGR_TESTE_RESGATE");
+  const double forca_resgate = teste_resgate ? std::atof(teste_resgate) : 0.0;
+
   GetRNGstate();
   CacheSimbolica cs;
 
@@ -806,10 +817,14 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
     }
     const Csc& pc = permuta_cache(M.c, cs);
     Csc L;
+    // > 0 quando o fator e o de C + delta diag(C), a proposta do resgate abaixo; diag_c e a
+    // diagonal de C na ordem permutada
+    double delta_reg = 0.0;
+    std::vector<double> diag_c;
     // a matriz dos coeficientes das MME (nao a covariancia de um grupo): perde a Cholesky
     // quando uma variancia sorteada cai a ~1e-13 da escala, como o residuo sob Jeffreys com um
     // registro por animal (validation/indirect_gibbs_recovery.R, modo half_t)
-    if (!cholesky(pc, cs.sb, L)) {
+    if (forca_resgate > 0.0 || !cholesky(pc, cs.sb, L)) {
       // o ESTADO no ponto da falha (item 39 da lista de correcoes): o residuo sobre var(y) e,
       // por grupo, a menor variancia sobre var(y) e o menor autovalor sobre o maior, para que a
       // mensagem diga o que foi ao limite
@@ -850,7 +865,43 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
                       "term whose levels each sit in one class of a fixed effect (a dam in one "
                       "box) has its part between classes identified only by the prior, and the "
                       "chain wanders there; fit that class as random() or merge the classes";
-      break;
+      // O RESGATE (gaussiano, sem PX-DA): a proposta das
+      // localizacoes vem das MME com delta diag(C) somado, o menor delta de 1e-12 a 1e-6 que
+      // fatora, e um passo de Metropolis-Hastings contra a condicional verdadeira a aceita ou
+      // fica no estado anterior. Com p(x) ~ exp(-(x'Cx - 2x'r) / (2 s2e)) e a proposta q com
+      // C + delta D, log p - log q = delta x'Dx / (2 s2e), e a razao e
+      //   log alfa = delta (x_novo'D x_novo - x_ant'D x_ant) / (2 s2e),
+      // sem log|C| nem a solucao exata. O passo deixa a condicional invariante (um MH
+      // independente dentro do Gibbs). Na primeira iteracao nao ha estado anterior, e a proposta
+      // so escolhe o ponto de partida das localizacoes. No probit a localizacao dada a
+      // liability e gaussiana (s2e = 1) e o mesmo passo vale; o PX-DA, que move a liability e
+      // pede a solucao exata, fica de fora nas iteracoes do resgate (a escolha depende so de C,
+      // que o passo nao muda)
+      bool salvo = false;
+      {
+        Csc pc2 = pc;
+        std::vector<std::size_t> pos_diag(pc.ncol, static_cast<std::size_t>(-1));
+        for (std::size_t j = 0; j < pc.ncol; j++)
+          for (std::size_t q = pc.colptr[j]; q < pc.colptr[j + 1]; q++)
+            if (pc.linha[q] == j) pos_diag[j] = q;
+        bool tem_diag = true;
+        for (std::size_t q : pos_diag) if (q == static_cast<std::size_t>(-1)) tem_diag = false;
+        for (double dl = forca_resgate > 0.0 ? forca_resgate : 1e-12;
+             tem_diag && dl <= std::max(1.0001e-6, forca_resgate) && !salvo; dl *= 10.0) {
+          pc2.valor = pc.valor;
+          for (std::size_t j = 0; j < pc.ncol; j++) pc2.valor[pos_diag[j]] += dl * pc.valor[pos_diag[j]];
+          if (cholesky(pc2, cs.sb, L)) {
+            salvo = true;
+            delta_reg = dl;
+            diag_c.resize(pc.ncol);
+            for (std::size_t j = 0; j < pc.ncol; j++) diag_c[j] = pc.valor[pos_diag[j]];
+          }
+        }
+      }
+      if (!salvo) break;
+      if (n_resgates == 0) estado_resgate = estado;
+      n_resgates++;
+      S.mensagem.clear();
     }
 
     std::vector<double> pb(M.total);
@@ -865,7 +916,7 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
     // g > 0 (o limiar e 0): o passo deixa p(l | C) invariante, e as localizacoes sorteadas
     // em seguida da liability nova fecham a varredura sem mudar a posteriori. A media do
     // sorteio e linear em l, entao ela vai a g sol sem resolver de novo
-    if (ex.px) {
+    if (ex.px && delta_reg == 0.0) {
       double ll = 0.0;
       for (std::size_t r : usadas) ll += d_probit.y[r] * d_probit.y[r];
       double bry = 0.0;
@@ -886,6 +937,20 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
     std::vector<double> loc(M.total);
     for (std::size_t k = 0; k < M.total; k++)
       loc[cs.perm[k]] = sol_p[k] + std::sqrt(s2e) * ruido_p[k];
+    // a aceitacao do resgate (acima): a proposta de C + delta D contra a condicional de C
+    if (delta_reg > 0.0 && loc_ant.size() == loc.size()) {
+      double qn = 0.0, qa = 0.0;
+      for (std::size_t k = 0; k < M.total; k++) {
+        const double xn = loc[cs.perm[k]], xa = loc_ant[cs.perm[k]];
+        qn += diag_c[k] * xn * xn;
+        qa += diag_c[k] * xa * xa;
+      }
+      const double log_alfa = 0.5 * delta_reg * (qn - qa) / s2e;
+      if (!(std::log(unif_rand()) < log_alfa)) {
+        loc = loc_ant;
+        n_rejeitadas++;
+      }
+    }
 
     // ---- 2. residuo: e = y - W loc; s2e ~ e'e / chisq(n) com Jeffreys (as outras prioris mudam
     // os graus de liberdade, gl_priori: n - 2 na plana, n - 1 na uniforme no desvio)
@@ -1071,6 +1136,8 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
       }
     }
 
+    loc_ant = loc;
+
     // ---- 4. guarda a amostra
     if (it >= burnin && ((it - burnin) % thin == 0)) {
       n_amostras++;
@@ -1100,6 +1167,16 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
   }
 
   PutRNGstate();
+  if (n_resgates > 0) {
+    char buf[200];
+    std::snprintf(buf, sizeof buf, "%zu iteration(s), with %zu of the proposals rejected%s",
+                  n_resgates, n_rejeitadas, ex.px ? " and the PX-DA move left out there" : "");
+    const std::string nota = "the coefficient matrix of the mixed-model equations lost its "
+        "Cholesky factor inside the chain in " + std::string(buf) + " (at the first: " +
+        estado_resgate + "); the chain went on with a Metropolis-Hastings step whose proposal "
+        "adds a small multiple of the diagonal to the equations, which keeps the posterior";
+    S.mensagem = S.mensagem.empty() ? nota : S.mensagem + "; " + nota;
+  }
   if (n_piso_res > 0) {
     char buf[96];
     std::snprintf(buf, sizeof buf, "%.3g", piso_res);

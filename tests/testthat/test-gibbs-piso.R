@@ -36,3 +36,53 @@ test_that("a chain that never reaches the floor is the same chain", {
   expect_false(grepl("floor", g1$message))
   expect_gt(min(g1$samples[, "var(residual)"]), 1e-3)
 })
+
+test_that("the Metropolis-Hastings rescue of a lost Cholesky factor keeps the conditional", {
+  # o gancho BREEDINGR_TESTE_RESGATE forca o resgate em toda iteracao: a proposta das MME com
+  # delta diag(C) somado e o passo de MH contra a condicional verdadeira. Com os componentes
+  # dados, a condicional das localizacoes e N(BLUP, PEV): a cadeia tem de cair nela
+  set.seed(3)
+  d <- data.frame(g = sprintf("g%02d", rep(1:30, each = 4)), cg = rep(c("a", "b"), 60))
+  d$y <- c(a = 1, b = 2)[d$cg] + stats::rnorm(30)[as.integer(factor(d$g))] +
+    stats::rnorm(120, 0, sqrt(2))
+  th <- c(1, 2)
+  f <- suppressWarnings(model(y ~ cg + random(g), d, start = th, maxiter = 0L, n_em = 0L,
+                              verbose = FALSE))
+  Sys.setenv(BREEDINGR_TESTE_RESGATE = "0.01")
+  on.exit(Sys.unsetenv("BREEDINGR_TESTE_RESGATE"), add = TRUE)
+  set.seed(1)
+  g <- suppressWarnings(gibbs(y ~ cg + random(g), d, theta_fixed = th, n_iter = 20000L,
+                              burnin = 1000L, thin = 1L, verbose = FALSE))
+  Sys.unsetenv("BREEDINGR_TESTE_RESGATE")
+  nv <- names(f$ebv[[1]])
+  z <- (g$ebv[[1]][nv] - f$ebv[[1]]) / sqrt(f$pev[[1]])
+  expect_lt(max(abs(z)), 0.1)
+  r <- g$ebv_sd[[1]][nv] / sqrt(f$pev[[1]])
+  expect_true(all(r > 0.95 & r < 1.05))
+  expect_match(g$message, "went on with a Metropolis-Hastings step")
+  expect_match(g$message, "of the proposals rejected")
+})
+
+test_that("the rescue in a probit chain: the PX-DA move left out there, the same posterior", {
+  # SIMULACAO: modelo de touro binario com os componentes dados; o resgate forcado em toda
+  # iteracao (sem o PX-DA, que pede a solucao exata) contra a cadeia exata
+  set.seed(5)
+  d <- data.frame(s = sprintf("s%02d", rep(1:25, each = 12)), cg = rep(c("a", "b", "c"), 100))
+  l <- c(a = 0, b = 0.4, c = -0.3)[d$cg] + stats::rnorm(25, 0, 0.5)[as.integer(factor(d$s))] +
+    stats::rnorm(300)
+  d$y <- as.integer(l > 0.3)
+  corre <- function(forca) {
+    if (forca > 0) Sys.setenv(BREEDINGR_TESTE_RESGATE = forca)
+    on.exit(Sys.unsetenv("BREEDINGR_TESTE_RESGATE"), add = TRUE)
+    set.seed(1)
+    suppressWarnings(gibbs(y ~ cg + random(s), d, family = "probit", theta_fixed = c(0.25, 1),
+                           n_iter = 20000L, burnin = 1000L, thin = 1L, verbose = FALSE))
+  }
+  g0 <- corre(0)
+  g1 <- corre("0.01")
+  nv <- names(g0$ebv[[1]])
+  expect_lt(max(abs(g1$ebv[[1]][nv] - g0$ebv[[1]]) / g0$ebv_sd[[1]]), 0.1)
+  r <- g1$ebv_sd[[1]][nv] / g0$ebv_sd[[1]]
+  expect_true(all(r > 0.95 & r < 1.05))
+  expect_match(g1$message, "went on with a Metropolis-Hastings step")
+})
