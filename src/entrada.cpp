@@ -1073,6 +1073,28 @@ SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
 // porque uni, multi e AR carregam os mesmos campos que o passo unico toca). Devolve a
 // nota do relatorio, vazia sem genotipos. O extern "C++" existe porque este arquivo vive
 // num bloco extern "C", e template nao tem linkage de C.
+// SEM GRAUS DE LIBERDADE RESIDUAIS (achado na integracao da leva 3): com n registros (celulas de
+// uma caracteristica, no multicaracter) e p colunas de efeito fixo que o desenho mantem (o posto
+// de X), o REML tem n - p graus de liberdade. Com n - p <= 0 o -2logL nao e definido (as duas
+// formas da forma quadratica divergiam por milhares no mesmo theta) e a caminhada parava com um
+// decremento de Newton de 1e14, dizendo "did NOT converge" sem a causa. O ajuste que estima os
+// componentes recusa; com os componentes dados (maxiter = 0, n_em = 0) as solucoes seguem, e a
+// nota vai para a mensagem.
+extern "C++" {
+static std::string confere_gl_residuais(std::size_t n, std::size_t p, const std::string& traco,
+                                        bool estima) {
+  if (n > p) return "";
+  const std::string onde = traco.empty() ? std::string() : " of trait '" + traco + "'";
+  const std::string txt = "the " + std::to_string(n) + " record(s)" + onde +
+      " in the fit are not more than the " + std::to_string(p) +
+      " fixed-effect column(s) the design keeps: REML has no residual degree of freedom";
+  if (estima)
+    throw br::Erro(txt + ", so it has no information on the variance components. Remove fixed "
+                   "effects, or give the components (start= with maxiter = 0)");
+  return txt + ", and the -2logL is not defined; the solutions use the components given";
+}
+}  // extern "C++"
+
 
 SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
@@ -1110,6 +1132,12 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
 
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk,
                                            &diag_h_geno, &linha_h_geno);
+    // sem graus de liberdade residuais: recusa ao estimar, nota com os componentes dados
+    {
+      const std::string gl = confere_gl_residuais(d.n_usadas(), d.x.ncol, "",
+                                                  Rf_asInteger(maxiter) > 0 || Rf_asInteger(n_em) > 0);
+      if (!gl.empty()) nota = nota.empty() ? gl : nota + "; " + gl;
+    }
 
     std::vector<double> th0;
     if (XLENGTH(inicio) > 0) {
@@ -1407,6 +1435,16 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     std::vector<std::size_t> linha_h_geno;
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk,
                                            &diag_h_geno, &linha_h_geno);
+    // sem graus de liberdade residuais, por caracteristica: as celulas observadas dela contra
+    // as equacoes fixas dela
+    for (std::size_t tau = 0; tau < d.t; tau++) {
+      std::size_t n_tau = 0, p_tau = 0;
+      for (std::size_t i = 0; i < d.nlin; i++) if (d.usa[i] && d.obs[i * d.t + tau]) n_tau++;
+      for (std::size_t j = 0; j < d.x.ncol; j++) if (d.eq_fixa[j * d.t + tau] >= 0) p_tau++;
+      const std::string gl = confere_gl_residuais(n_tau, p_tau, d.alvos[tau],
+                                                  Rf_asInteger(maxiter) > 0);
+      if (!gl.empty()) nota = nota.empty() ? gl : nota + "; " + gl;
+    }
 
     std::vector<double> th0(REAL(start), REAL(start) + XLENGTH(start));
     if (!th0.empty() && th0.size() != d.modelo.ntheta)
@@ -1694,6 +1732,16 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     std::vector<std::size_t> linha_h_geno;
     std::string nota = genomica_no_desenho(d, pp, ped, gid, gm, mistura, anucleo, vk,
                                            &diag_h_geno, &linha_h_geno);
+    // sem graus de liberdade residuais, por caracteristica: as celulas observadas dela contra as
+    // colunas fixas (toda coluna tem equacao em toda caracteristica; a celula ausente e mv)
+    for (std::size_t tau = 0; tau < d.t; tau++) {
+      std::size_t n_tau = 0;
+      for (std::size_t i = 0; i < d.nlin; i++)
+        if (d.usa[i] && (d.obs.empty() || d.obs[i * d.t + tau])) n_tau++;
+      const std::string gl = confere_gl_residuais(n_tau, d.x.ncol, d.t > 1 ? d.alvos[tau] : "",
+                                                  Rf_asInteger(maxiter) > 0);
+      if (!gl.empty()) nota = nota.empty() ? gl : nota + "; " + gl;
+    }
 
     std::vector<double> th0(REAL(start), REAL(start) + XLENGTH(start));
     if (!th0.empty() && th0.size() != d.modelo.ntheta)

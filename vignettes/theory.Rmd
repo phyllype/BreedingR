@@ -220,7 +220,9 @@ What the dense nodes leave behind is a completely full block at the end of `L`: 
 columns that cost about `k^3 / 3` flops per factorization, which dominates the fit once
 `k` is large. The fit reports it as `fit$dense_block = c(dense = k, columns = n)`; in a
 single step without APY, `k` is at least the number of genotyped animals. That block is
-factored by scalar C++, not by BLAS, and nothing in the package runs in parallel.
+factored in tiles of 64 x 64 on the threads that `br_threads()` sets (OpenMP). Each output
+number is written by one thread and every sum runs in a fixed order, so the factor is the
+same bit for bit with 1 thread or with 16.
 
 Prediction error variances need the diagonal of `C_s^-1`, and the full inverse of a
 sparse matrix is dense, and for a pedigree of any size unaffordable. The identity of

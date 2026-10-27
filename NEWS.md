@@ -925,6 +925,13 @@
 
 ## Fixed
 
+* `model()` and `model_mt()`: a design whose fixed effects keep as many columns as the
+  records of a trait (no residual degree of freedom for REML) is refused when the
+  components are estimated, with the cause. Before, the fit stopped with "did NOT converge"
+  and a Newton decrement of 1e14, and the -2logL was not defined. With the components given
+  (`maxiter = 0`) the solutions are computed, and `message` says it. In `model_mt()` the
+  count is per trait. Gates in `tests/testthat/test-gl-residuais.R`.
+
 * `model()`: a `start=` with the residual variance below its floor (1e-10 `var(y)`) stopped
   with "the starting theta is INADMISSIBLE", which was false (the value is positive; the mixed
   model equations did not factor there). It now starts the residual from the automatic start,
