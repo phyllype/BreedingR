@@ -53,6 +53,9 @@ model(y ~ cg + animal(id,group="g") + maternal(dam,group="g") +
         pe(dam), d, ped)                        # full maternal model, Eqn 8.1
 model(y ~ cg + rn(id, base=c("phi0","phi1")) + pe(id), d2, ped)           # reaction norm
 model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped)                         # multi-trait
+model_mt(cbind(y1, y2) ~ cg + animal(id) + pe(id, traits = "y1"), d, ped) # y1 repeated, y2 one record
+model_mt(cbind(y1, y2) ~ cg + rn(id, base = c("phi0","phi1"), traits = "y1", group = "g") +
+           animal(id, traits = "y2", group = "g") + pe(id, traits = "y1"), d, ped) # RR on y1 with y2
 gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)                        # Bayesian
 gibbs(y01 ~ cg + sire(sire), d, ped, family = "probit")   # binary, liability sampled
 ```
@@ -263,6 +266,8 @@ decrement is the other half. Ctrl+C interrupts any fitter.
 | a variance pinned at ~0 | the effect is not identifiable from this design; the fit freezes it at the boundary and optimizes the rest conditional on that, and says so in the message |
 | `theta INADMISSIBLE` | starting covariance not positive-definite, or a group with a correlation forced to +/-1 |
 | fixed columns in `dropped_x` | linear dependence, including levels whose records are all missing; in `model_mt()`, `dropped_x_reason` says which ("no record", "aliased") |
+| every standard error `NaN` in `model_mt()` with a repeated trait and a one-record trait | on the one-record trait, `pe()` is not separable from the residual. Put it on the repeated trait only: `pe(id, traits = "y1")` |
+| "no record has both traits of cov(res@y2,res@y1)" | `model_mt()`: no row holds both traits, so the residual covariance is not in the likelihood; the fit holds it at 0 with no standard error. The genetic covariance is still estimated |
 | `CG=5\|y1` in `dropped_x` | `model_mt()`: that level has no record for that trait, and the pair (column, trait) drops (`dropped_x_reason` "no record of y1"; "aliased within y1" is a column collinear inside that trait). The class reference is chosen among the levels with records of every trait |
 | `did NOT converge: ... a component resting at a covariance boundary is not at a constrained optimum` | `model_mt()`: a point inside the cone or along the boundary face lowers the -2logL, and the walk had already moved off the boundary the most times allowed (10 re-entries into the cone, 20 moves along the face); pass a `start=` inside the cone, as the message says. When `maxiter` runs out at such a point the message is instead "stopped at ... iteration(s) without a certified optimum ... Raise maxiter=" |
 | "a second walk from inside the cone" in the message | a fit that ended with a block at a covariance boundary was walked again from inside the cone; the message says whether that walk found a lower point and by how much |

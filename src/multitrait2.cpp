@@ -12,12 +12,33 @@
 
 namespace br {
 
-// Reindexa o layout do modelo para t caracteristicas: cada grupo passa a dim * t, e o
-// residual passa a vech(R0) com t(t+1)/2 parametros.
-static void expande_layout_mt(Modelo& m, std::size_t t) {
+// Reindexa o layout do modelo para t caracteristicas: o termo q de um grupo passa a ocupar
+// n_coef * nt(q) coordenadas, com nt(q) os caracteres dele (todos, salvo um traits =), e o
+// residual passa a vech(R0) com t(t+1)/2 parametros. Os termos de um grupo podem ter
+// caracteres diferentes: rn(id, base, traits = "y1", group = "g") + animal(id, traits = "y2",
+// group = "g") e a G 3 x 3 de (a1_0, a1_1, a2) de um traco longitudinal com um de registro
+// unico. O bloco continua kron(C_g, K): cada coordenada so precisa dos niveis comuns.
+static void expande_layout_mt(Modelo& m, const std::vector<std::string>& alvos) {
+  const std::size_t t = alvos.size();
   std::size_t off = 0;
   for (Grupo& g : m.grupos) {
-    g.dim *= t;
+    g.tracos.assign(g.termos.size(), {});
+    g.dim = 0;
+    for (std::size_t q = 0; q < g.termos.size(); q++) {
+      const Termo& te = m.termos[g.termos[q]];
+      std::vector<char> tem(t, te.tracos.empty() ? 1 : 0);
+      for (const std::string& nm : te.tracos) {
+        const auto it = std::find(alvos.begin(), alvos.end(), nm);
+        if (it == alvos.end())
+          throw Erro("term '" + te.nome + "': traits = names '" + nm +
+                     "', which is not a trait of cbind()");
+        tem[static_cast<std::size_t>(it - alvos.begin())] = 1;
+      }
+      std::vector<std::size_t> este;
+      for (std::size_t tau = 0; tau < t; tau++) if (tem[tau]) este.push_back(tau);
+      if (este.size() < t) g.tracos[q] = este;   // todos: a lista fica vazia
+      g.dim += te.n_coef() * g.nt(q, t);
+    }
     g.offset = off;
     g.nparam = g.dim * (g.dim + 1) / 2;
     off += g.nparam;
@@ -46,9 +67,10 @@ static std::vector<std::string> nomes_theta_mt(const Modelo& m,
   std::vector<std::string> out(m.ntheta);
   for (const Grupo& g : m.grupos) {
     std::vector<std::string> rot;
-    for (std::size_t tm : g.termos)
-      for (std::size_t tau = 0; tau < t; tau++) {
-        const Termo& te = m.termos[tm];
+    for (std::size_t q = 0; q < g.termos.size(); q++)
+      for (std::size_t pt = 0; pt < g.nt(q, t); pt++) {
+        const std::size_t tau = g.traco(q, pt);
+        const Termo& te = m.termos[g.termos[q]];
         for (std::size_t c = 0; c < te.n_coef(); c++) {
           std::string b = te.nome;
           if (te.n_coef() > 1) b += "[" + std::to_string(c) + "]";
@@ -281,7 +303,11 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
 
   if (d.n_usadas() == 0) throw Erro("no row enters the analysis");
 
-  expande_layout_mt(m, d.t);
+  expande_layout_mt(m, alvos);
+  for (const Grupo& g : m.grupos)
+    for (std::size_t q = 0; q < g.termos.size(); q++)
+      for (DesenhoTermo& a : d.aleatorios)
+        if (a.termo == g.termos[q]) a.tracos = g.tracos[q];
   d.modelo = std::move(m);
   return d;
 }
@@ -354,10 +380,10 @@ static std::vector<double> partida_mt(const DesenhoMT& d) {
 std::vector<std::size_t> traco_das_coordenadas(const Modelo& m, const Grupo& g,
                                                std::size_t t) {
   std::vector<std::size_t> tr;
-  for (std::size_t tm : g.termos) {
-    const std::size_t nc = m.termos[tm].n_coef();
-    for (std::size_t tau = 0; tau < t; tau++)
-      for (std::size_t c = 0; c < nc; c++) tr.push_back(tau);
+  for (std::size_t q = 0; q < g.termos.size(); q++) {
+    const std::size_t nc = m.termos[g.termos[q]].n_coef();
+    for (std::size_t pt = 0; pt < g.nt(q, t); pt++)
+      for (std::size_t c = 0; c < nc; c++) tr.push_back(g.traco(q, pt));
   }
   if (tr.size() != g.dim) tr.clear();
   return tr;
@@ -415,35 +441,40 @@ bool grupos_de_univariados(const Modelo& m, std::size_t t,
                            const std::vector<std::vector<double> >& uni,
                            std::vector<double>& theta) {
   if (uni.size() != t) return false;
-  std::size_t off_u = 0;
+  // onde o grupo comeca no univariado de cada caracter: o univariado de tau so tem os termos
+  // que existem em tau (traits =), e um grupo sem nenhum deles nao esta la
+  std::vector<std::size_t> off_u(t, 0);
   for (const Grupo& g : m.grupos) {
-    // a coordenada univariada (termo q, coeficiente c) vira (q, tau, c) no multicaracter
-    std::vector<std::size_t> base;   // primeira coordenada do termo no grupo expandido
-    std::vector<std::size_t> nc;
-    std::size_t acc = 0, dim_u = 0;
-    for (std::size_t tm : g.termos) {
+    // primeira coordenada de cada termo no grupo expandido
+    std::vector<std::size_t> base, nc;
+    std::size_t acc = 0;
+    for (std::size_t q = 0; q < g.termos.size(); q++) {
       base.push_back(acc);
-      nc.push_back(m.termos[tm].n_coef());
-      acc += nc.back() * t;
-      dim_u += nc.back();
+      nc.push_back(m.termos[g.termos[q]].n_coef());
+      acc += nc.back() * g.nt(q, t);
     }
     if (acc != g.dim) return false;
-    std::vector<std::size_t> termo_de, coef_de;
-    for (std::size_t q = 0; q < nc.size(); q++)
-      for (std::size_t c = 0; c < nc[q]; c++) { termo_de.push_back(q); coef_de.push_back(c); }
     for (std::size_t tau = 0; tau < t; tau++) {
-      if (uni[tau].size() < off_u + dim_u * (dim_u + 1) / 2) return false;
+      // as coordenadas do grupo no univariado de tau, na ordem dele: (termo, coeficiente) dos
+      // termos que existem em tau, com a posicao pt de tau no termo
+      std::vector<std::size_t> mt;
+      for (std::size_t q = 0; q < g.termos.size(); q++)
+        for (std::size_t pt = 0; pt < g.nt(q, t); pt++)
+          if (g.traco(q, pt) == tau)
+            for (std::size_t c = 0; c < nc[q]; c++) mt.push_back(base[q] + pt * nc[q] + c);
+      const std::size_t dim_u = mt.size();
+      if (dim_u == 0) continue;
+      if (uni[tau].size() < off_u[tau] + dim_u * (dim_u + 1) / 2) return false;
       for (std::size_t ju = 0; ju < dim_u; ju++)
         for (std::size_t iu = ju; iu < dim_u; iu++) {
-          const double v = uni[tau][off_u + (ju * (2 * dim_u - ju + 1)) / 2 + (iu - ju)];
+          const double v = uni[tau][off_u[tau] + (ju * (2 * dim_u - ju + 1)) / 2 + (iu - ju)];
           if (!std::isfinite(v)) return false;
-          std::size_t i = base[termo_de[iu]] + tau * nc[termo_de[iu]] + coef_de[iu];
-          std::size_t j = base[termo_de[ju]] + tau * nc[termo_de[ju]] + coef_de[ju];
+          std::size_t i = mt[iu], j = mt[ju];
           if (i < j) std::swap(i, j);
           theta[g.offset + (j * (2 * g.dim - j + 1)) / 2 + (i - j)] = v;
         }
+      off_u[tau] += dim_u * (dim_u + 1) / 2;
     }
-    off_u += dim_u * (dim_u + 1) / 2;
   }
   return true;
 }
@@ -461,17 +492,23 @@ bool grupos_de_univariados(const Modelo& m, std::size_t t,
 std::vector<double> partida_univariados_mt(const DesenhoMT& d,
                                            const std::vector<std::vector<double> >& uni) {
   const std::size_t t = d.t;
-  std::size_t n_u = 1;
-  for (const Grupo& g : d.modelo.grupos) {
-    const std::size_t du = g.dim / t;
-    n_u += du * (du + 1) / 2;
-  }
-  for (const std::vector<double>& u : uni)
-    if (u.size() != n_u) return {};
+  // o tamanho do vetor univariado de cada caracter: so os grupos que o contem, e o residuo
+  std::vector<std::size_t> n_u(t, 1);
+  for (const Grupo& g : d.modelo.grupos)
+    for (std::size_t tau = 0; tau < t; tau++) {
+      std::size_t du = 0;   // as coordenadas do grupo no univariado de tau
+      for (std::size_t q = 0; q < g.termos.size(); q++)
+        for (std::size_t pt = 0; pt < g.nt(q, t); pt++)
+          if (g.traco(q, pt) == tau) du += d.modelo.termos[g.termos[q]].n_coef();
+      n_u[tau] += du * (du + 1) / 2;
+    }
+  if (uni.size() != t) return {};
+  for (std::size_t tau = 0; tau < t; tau++)
+    if (uni[tau].size() != n_u[tau]) return {};
   std::vector<double> theta(d.modelo.ntheta, 0.0);
   if (!grupos_de_univariados(d.modelo, t, uni, theta)) return {};
   for (std::size_t tau = 0; tau < t; tau++) {
-    const double v = uni[tau][n_u - 1];
+    const double v = uni[tau][n_u[tau] - 1];
     if (!std::isfinite(v)) return {};
     theta[d.modelo.offset_residual + (tau * (2 * t - tau + 1)) / 2] = v;
   }
@@ -509,6 +546,37 @@ std::vector<double> partida_univariados_mt(const DesenhoMT& d,
 // sem o gancho a mensagem dela ficava sem portao. Fora do teste a variavel nao existe e nada
 // muda.
 static bool teste_sem_passo() { return std::getenv("BREEDINGR_TESTE_SEM_PASSO") != nullptr; }
+
+// A COVARIANCIA RESIDUAL DE DOIS CARACTERES QUE NENHUM REGISTRO OBSERVA JUNTOS nao entra na
+// verossimilhanca: cada padrao de observacao usa so a submatriz de R0 dos seus caracteres.
+// E o desenho de um caracter de registros repetidos com outro de registro unico, cada um na
+// sua linha. Score e linha da AI dessa coordenada sao zero exato, a AI fica singular e a
+// inversa dela deixava TODO erro-padrao em NaN, nao so o dessa covariancia (medido: as oito
+// componentes de um bivariado animal + pe, todas NaN). Ela fica presa em zero e sai da
+// inversa; 1 = fora da verossimilhanca, por posicao em theta.
+static std::vector<char> residuos_sem_par(const DesenhoMT& d) {
+  const std::size_t t = d.t;
+  std::vector<char> junto(t * t, 0), fora(d.modelo.ntheta, 0);
+  for (std::size_t i = 0; i < d.nlin; i++) {
+    if (!d.usa[i]) continue;
+    for (std::size_t a = 0; a < t; a++)
+      for (std::size_t b = a + 1; b < t; b++)
+        if (d.obs[i * t + a] && d.obs[i * t + b]) junto[a * t + b] = 1;
+  }
+  for (std::size_t a = 0; a < t; a++)
+    for (std::size_t b = a + 1; b < t; b++)
+      if (!junto[a * t + b])
+        fora[d.modelo.offset_residual + (a * (2 * t - a + 1)) / 2 + (b - a)] = 1;
+  return fora;
+}
+
+// a submatriz de m nas coordenadas k: a AI restrita as que entram na verossimilhanca
+static Densa sub_densa(const Densa& m, const std::vector<std::size_t>& k) {
+  Densa s(k.size(), k.size());
+  for (std::size_t i = 0; i < k.size(); i++)
+    for (std::size_t j = 0; j < k.size(); j++) s.at(i, j) = m.at(k[i], k[j]);
+  return s;
+}
 
 // A CAMINHADA do multicaracter, de uma partida ate um veredito. ajusta_mt (no fim do arquivo)
 // a chama e, quando ela termina com um bloco na parede, chama de novo de dentro do cone
@@ -554,6 +622,8 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
   } else {
     theta = partida_mt(d);
   }
+  const std::vector<char> sem_par = residuos_sem_par(d);
+  for (std::size_t k = 0; k < theta.size(); k++) if (sem_par[k]) theta[k] = 0.0;
   R.partida = bruto(theta);
   CacheSimbolica cs;
   AvaliacaoMT cur = avalia_mt(d, theta, &cs);
@@ -602,8 +672,16 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
     double s = 0.0;
     for (std::size_t tau = 0; tau < d.t; tau++)
       s += theta[d.modelo.offset_residual + (tau * (2 * d.t - tau + 1)) / 2];
-    return passo_z(mz, d.modelo.ntheta, theta, av.score, av.ai,
-                   std::max(1.0, s / static_cast<double>(d.t)));
+    PassoZ P = passo_z(mz, d.modelo.ntheta, theta, av.score, av.ai,
+                       std::max(1.0, s / static_cast<double>(d.t)));
+    // a covariancia residual sem par (residuos_sem_par) nao e uma fronteira: esta fora da
+    // verossimilhanca e presa em zero. Sem isto a curvatura nula a punha na parede, a
+    // mensagem dizia "1 component resting at a covariance boundary" e a segunda caminhada
+    // de dentro do cone rodava por nada
+    if (P.ok)
+      for (std::size_t k = 0; k < sem_par.size(); k++)
+        if (sem_par[k]) { P.na_parede[k] = 0; P.congelado[k] = 1; }
+    return P;
   };
   // RESGATE EM, o que faltava para os espelhos terem a maquinaria completa do univariado.
   // O passo EM e multiplicativo, fica no cone e nao encolhe na fronteira, entao ele anda
@@ -1105,14 +1183,26 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
         "points out of the cone by construction, so its gradient never vanishes and the "
         "certificate is CONDITIONAL on the pinning; read those components with care";
   R.se.assign(d.modelo.ntheta, std::nan(""));
+  std::vector<std::size_t> na_veross;   // as coordenadas que entram na verossimilhanca
+  for (std::size_t k = 0; k < d.modelo.ntheta; k++) if (!sem_par[k]) na_veross.push_back(k);
   if (final_ok)
     try {
-      Densa inv = inv_geral(cur.ai);
-      for (std::size_t k = 0; k < d.modelo.ntheta; k++) {
-        const double v = 2.0 * inv.at(k, k);
-        if (v > 0.0) R.se[k] = std::sqrt(v);
+      Densa inv = inv_geral(sub_densa(cur.ai, na_veross));
+      for (std::size_t i = 0; i < na_veross.size(); i++) {
+        const double v = 2.0 * inv.at(i, i);
+        if (v > 0.0) R.se[na_veross[i]] = std::sqrt(v);
       }
     } catch (const Erro&) {}
+  {
+    const std::vector<std::string> nm = nomes_theta_mt(d.modelo, d.alvos);
+    std::string quais;
+    for (std::size_t k = 0; k < sem_par.size(); k++)
+      if (sem_par[k]) quais += (quais.empty() ? "" : ", ") + nm[k];
+    if (!quais.empty())
+      R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + "no record has both "
+          "traits of " + quais + ", so the data do not estimate it. The fit holds it at 0, "
+          "and it has no standard error";
+  }
 
   // o mesmo veredicto do model() (aireml.cpp): esgotado o maxiter com o decremento de
   // Newton ja abaixo da tolerancia, o que se tem e uma crista plana, e nao um ajuste
@@ -1176,8 +1266,18 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
     R.neg2logl = cur.neg2logl;
     R.solucao = cur.solucao;
     R.pev = cur.pev;
-    const std::string av = aviso_informacao(cur.ai, nomes_theta_mt(d.modelo, d.alvos), &R.se,
-                                            &fator_corte);
+    // o veredito de singularidade so sobre as coordenadas da verossimilhanca: a covariancia
+    // residual sem par ja foi dita acima, e com ela a AI e singular por construcao
+    const std::vector<std::string> nm = nomes_theta_mt(d.modelo, d.alvos);
+    std::vector<std::string> nm_v;
+    std::vector<double> se_v, fc_v;
+    for (std::size_t k : na_veross) {
+      nm_v.push_back(nm[k]);
+      se_v.push_back(R.se[k]);
+      fc_v.push_back(k < fator_corte.size() ? fator_corte[k] : 1.0);
+    }
+    const std::string av = aviso_informacao(sub_densa(cur.ai, na_veross), nm_v, &se_v, &fc_v);
+    for (std::size_t i = 0; i < na_veross.size(); i++) R.se[na_veross[i]] = se_v[i];
     if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
   } else {
     // nunca visto: o mesmo theta, so reescalado, deixou de ser avaliavel. O -2logL sai da

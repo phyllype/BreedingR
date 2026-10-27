@@ -21,7 +21,7 @@ MARCADORES_FORA <- c("indirect", "social", "kernel")
 # group at all and says nothing. The set below is what interpreta_termo() actually reads;
 # anything else is a typo or a misunderstanding, and both are worth stopping for.
 ARGS_MARCADOR <- local({
-  comum <- c("nome", "group", "nested", "base")
+  comum <- c("nome", "group", "nested", "base", "traits")
   list(animal = comum, maternal = comum, sire = c(comum, "mgs"), pe = comum, random = comum,
        cov = comum, rn = comum)
 })
@@ -95,6 +95,8 @@ ARGS_MARCADOR <- local({
 #'   the likelihood, and every fitter that estimates components stops before fitting and
 #'   names the two terms. At given components (`start =` with `maxiter = 0` and
 #'   `n_em = 0`, or `theta_fixed =` in [gibbs()]) the group is accepted.
+#'   `traits = "y1"` on a random term is for [model_mt()] only: see there. The other
+#'   fitters fit one trait and stop on it.
 #'   ONLY THE OBSERVATION MAY BE MISSING. A column that gives the level of a term (a
 #'   fixed class, the id of a random term, the maternal grandsire of `sire(mgs =)`, the
 #'   class of a nested covariate) may not hold a missing label on
@@ -966,7 +968,7 @@ linhas_com_resposta <- function(data, resp, missing_code) {
 # indirect() sozinho no lado direito respondia o quadro do proprio ajustador (dilution = tol
 # pegava o tol = 1e-8 do model(), calado). Sem valor padrao de proposito: quem esquecer o
 # ambiente para numa formula que precise dele, em vez de avaliar noutro lugar.
-decompoe_formula <- function(expr, envir) {
+decompoe_formula <- function(expr, envir, com_traits = FALSE) {
   partes <- list()
   anda <- function(e) {
     if (is.call(e) && identical(as.character(e[[1]]), "+")) {
@@ -976,6 +978,14 @@ decompoe_formula <- function(expr, envir) {
     invisible()
   }
   anda(expr)
+  # traits = so existe com varios caracteres: um ajustador de um caracter que o lesse em
+  # silencio ajustaria o termo no caracter que ele nao nomeia
+  if (!com_traits)
+    for (t in partes)
+      if (length(t$traits))
+        stop(t$marcador, "(", t$column, ", traits = ...): traits = selects the traits of a ",
+             "multi-trait fit, and this fitter fits one trait. Use model_mt(), or remove ",
+             "traits =", call. = FALSE)
   nomes <- vapply(partes, function(t) t$nome, character(1))
   cols <- vapply(partes, function(t) t$column, character(1))
   # A NAME IS A FUNCTION OF ITS OWN TERM, never of which other terms happen to be there.
@@ -1023,7 +1033,7 @@ interpreta_termo <- function(e, envir) {
     n <- as.character(e)
     return(list(nome = n, column = n, estrutura = 0L, covariavel = FALSE,
                 group = "", nested = "", base = "", social = FALSE, dilution = 0,
-                kexpr = NULL, kfixo = NA_real_))
+                kexpr = NULL, kfixo = NA_real_, traits = character(0)))
   }
   if (!is.call(e)) stop("did not understand the term: ", deparse(e))
   marc <- as.character(e[[1]])
@@ -1078,6 +1088,22 @@ interpreta_termo <- function(e, envir) {
   }
   if (marc == "rn" && !nzchar(base))
     stop("rn() requires base = c(...): without a base, use animal() or random()")
+  # traits = c("y1"): in model_mt(), the term applies only to these traits. A trait with
+  # repeated records and a trait with one record per animal need pe() only on the first:
+  # on the second, pe() and the residual are the same effect. A name without quotes is
+  # read as the name, as in group =.
+  traits <- character(0)
+  if (!is.null(args[["traits"]])) {
+    v <- args[["traits"]]
+    traits <- if (is.name(v)) as.character(v) else eval(v, envir)
+    if (!is.character(traits) || !length(traits) || anyNA(traits) ||
+        !all(nzchar(traits)) || anyDuplicated(traits))
+      stop(marc, "(", column, ", traits =): give the names of one or more traits of ",
+           "cbind(), each one time", call. = FALSE)
+    if (marc == "cov")
+      stop("cov(", column, ", traits =): traits = is for random terms. A fixed covariate ",
+           "applies to all the traits of model_mt()", call. = FALSE)
+  }
   # indirect(id, pen = "baia"): the INDIRECT genetic effect (associative model; Griffing,
   # 1967; Muir and Schinckel, 2002; Bijma et al., 2007). The incidence of row i marks the
   # pen mates; the direct effect stays in animal(id), and the two in the same group
@@ -1152,7 +1178,8 @@ interpreta_termo <- function(e, envir) {
   list(nome = nome, column = column, estrutura = estrutura,
        covariavel = marc == "cov", group = group, nested = nested, base = base,
        social = marc == "indirect", dilution = dilution, kexpr = kexpr, kfixo = kfixo,
-       kinv = kinv, marcador = marc, group_simbolo = is.name(args[["group"]]))
+       kinv = kinv, marcador = marc, group_simbolo = is.name(args[["group"]]),
+       traits = traits)
 }
 
 # A formula que o ajuste GUARDA leva os valores de base=, dilution= e fixed= com que foi
@@ -1176,6 +1203,7 @@ formula_resolvida <- function(formula, terms) {
       if (!is.null(e[["base"]])) e[["base"]] <- strsplit(t$base, ",", fixed = TRUE)[[1]]
       if (!is.null(e[["dilution"]])) e[["dilution"]] <- t$dilution
       if (!is.null(e[["fixed"]])) e[["fixed"]] <- t$kfixo
+      if (!is.null(e[["traits"]])) e[["traits"]] <- t$traits
       # group = g sem aspas ja e o grupo "g"; escrito como texto, a releitura nao depende de
       # haver ou nao uma variavel g no ambiente quando h2() ou accuracy() a fizerem
       if (is.name(e[["group"]])) e[["group"]] <- t$group

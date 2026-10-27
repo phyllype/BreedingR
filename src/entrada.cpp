@@ -695,6 +695,28 @@ static br::Modelo modelo_do_R(SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov, SEXP 
   return m;
 }
 
+// traits = de cada termo, so no multicaracter: um texto por termo, os nomes separados por
+// virgula, vazio = todos. Casado pelo NOME do termo, que o R ja garante unico.
+static void aplica_tracos(br::Modelo& m, SEXP tnome, SEXP ttra) {
+  if (TYPEOF(ttra) != STRSXP || XLENGTH(ttra) != XLENGTH(tnome))
+    Rf_error("traits: expected one text per term");
+  for (R_xlen_t k = 0; k < XLENGTH(ttra); k++) {
+    const std::string s = CHAR(STRING_ELT(ttra, k));
+    if (s.empty()) continue;
+    const std::string nome = CHAR(STRING_ELT(tnome, k));
+    for (br::Termo& te : m.termos) {
+      if (te.nome != nome) continue;
+      std::size_t ini = 0;
+      while (ini <= s.size()) {
+        std::size_t fim = s.find(',', ini);
+        if (fim == std::string::npos) fim = s.size();
+        if (fim > ini) te.tracos.push_back(s.substr(ini, fim - ini));
+        ini = fim + 1;
+      }
+    }
+  }
+}
+
 static br::Tabela tabela_do_R(SEXP dados, SEXP nomes) {
   br::Tabela t;
   const R_xlen_t nc = XLENGTH(dados);
@@ -1225,12 +1247,13 @@ SEXP R_a22_inversa(SEXP pid, SEXP ppai, SEXP pmae, SEXP geno) {
 SEXP R_avaliar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEXP tcov,
                   SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                   SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta,
-                  SEXP com_densa, SEXP mfx, SEXP gmx, SEXP kern, SEXP tdil) {
+                  SEXP com_densa, SEXP mfx, SEXP gmx, SEXP kern, SEXP tdil, SEXP ttra) {
   GUARDA(
     SEXP alvo1 = PROTECT(Rf_mkString(CHAR(STRING_ELT(alvos, 0))));
     br::Modelo m = modelo_do_R(alvo1, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
                                ausente, usa_ausente, tdil);
     UNPROTECT(1);
+    aplica_tracos(m, tnome, ttra);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
     const br::Pedigree* pp = nullptr;
@@ -1281,12 +1304,13 @@ SEXP R_avaliar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
 SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEXP tcov,
                   SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid,
                   SEXP ppai, SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP maxiter,
-                  SEXP tol, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start, SEXP tdil, SEXP uni) {
+                  SEXP tol, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP kern, SEXP start, SEXP tdil, SEXP uni, SEXP ttra) {
   GUARDA(
     SEXP alvo1 = PROTECT(Rf_mkString(CHAR(STRING_ELT(alvos, 0))));
     br::Modelo m = modelo_do_R(alvo1, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc,
                                ausente, usa_ausente, tdil);
     UNPROTECT(1);
+    aplica_tracos(m, tnome, ttra);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
     const br::Pedigree* pp = nullptr;
@@ -1368,15 +1392,15 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
         for (std::size_t tm : d.modelo.grupos[g].termos)
           for (const br::DesenhoTermo& a : d.aleatorios)
             if (a.termo == tm) {
-              for (std::size_t tau = 0; tau < d.t; tau++)
+              for (std::size_t pt = 0; pt < a.nt(d.t); pt++)
                 for (std::size_t ct = 0; ct < a.n_coef; ct++)
                   for (std::size_t l = 0; l < a.n_niveis; l++) {
-                    std::string nm = a.niveis[l] + "|" + d.alvos[tau];
+                    std::string nm = a.niveis[l] + "|" + d.alvos[a.traco(pt)];
                     if (a.n_coef > 1) nm += "[" + std::to_string(ct) + "]";
-                    SET_STRING_ELT(nv, (R_xlen_t) (c0 + (tau * a.n_coef + ct) * a.n_niveis + l),
+                    SET_STRING_ELT(nv, (R_xlen_t) (c0 + (pt * a.n_coef + ct) * a.n_niveis + l),
                                    Rf_mkChar(nm.c_str()));
                   }
-              c0 += a.z.ncol * d.t;
+              c0 += a.z.ncol * a.nt(d.t);
             }
         Rf_setAttrib(v, R_NamesSymbol, nv);
         Rf_setAttrib(pv, R_NamesSymbol, Rf_duplicate(nv));
@@ -3695,8 +3719,8 @@ static const R_CallMethodDef metodos[] = {
   {"R_avaliar",      (DL_FUNC) &R_avaliar,     28},
   {"R_ajustar",      (DL_FUNC) &R_ajustar,     32},
   {"R_a22_inversa",  (DL_FUNC) &R_a22_inversa,  4},
-  {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  22},
-  {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  30},
+  {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  23},
+  {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  31},
   {"R_avaliar_ar1",  (DL_FUNC) &R_avaliar_ar1, 24},
   {"R_ajustar_ar1",  (DL_FUNC) &R_ajustar_ar1, 32},
   {"R_residuos_prepara",     (DL_FUNC) &R_residuos_prepara,     32},

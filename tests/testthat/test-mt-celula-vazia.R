@@ -73,11 +73,13 @@ test_that("onde nada cai, NADA muda: o layout antigo e caso particular do novo",
 })
 
 test_that("theta inadmissivel de verdade continua sendo chamado de theta", {
-  # a outra causa do mesmo ok=false. R0 com covariancia 9 e variancias 0.5 nao e
-  # positiva-definida, e ai a mensagem antiga estava certa
+  # a outra causa do mesmo ok=false. O bloco genetico com covariancia 9 e variancias 0.5
+  # nao e positivo-definido, e ai a mensagem antiga estava certa. Era a covariancia de R0:
+  # neste desenho nenhuma linha tem y1 e y2, a covariancia residual fica fora da
+  # verossimilhanca e o ajuste a prende em 0, entao um start = so nela ja nao e inadmissivel
   z <- cel(rep(1:8, length.out = 400))
   f <- model_mt(fm, data = z$d, pedigree = z$ped,
-                start = c(0.5, 0, 0.5, 0.5, 9, 0.5), verbose = FALSE)
+                start = c(0.5, 9, 0.5, 0.5, 0, 0.5), verbose = FALSE)
   expect_false(f$converged)
   expect_true(grepl("theta", f$message, fixed = TRUE))
   expect_false(grepl("SINGULAR", f$message, fixed = TRUE))

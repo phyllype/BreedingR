@@ -25,7 +25,28 @@ model_mt(
 same effects apply to all traits; each covariance group gains the GENETIC
 covariances between traits, and the residual becomes the full R0 matrix.
 A missing trait (NA or the \code{missing_code} code) does not drop the record: it enters
-with the R0 submatrix of its observation pattern.}
+with the R0 submatrix of its observation pattern.
+
+\verb{traits =} puts a random term on some of the traits only. The usual case is a trait
+with repeated records and a trait with one record per animal:
+\code{cbind(y1, y2) ~ cg + animal(id) + pe(id, traits = "y1")}. On a trait with one record
+per animal, the data do not separate \code{pe()} from the residual. The information matrix
+is then singular, and every standard error is \code{NaN}. With \code{traits = "y1"} the term has no
+component and no solution on \code{y2}: the names are \code{var(pe@y1)} and \code{id|y1}. The terms
+of one covariance group (\verb{group =}) can name different traits. An example is a random
+regression on \code{y1} and a one-record trait \code{y2}:
+\code{rn(id, base = c("phi0", "phi1"), traits = "y1", group = "g") + animal(id, traits = "y2", group = "g")}. This G is over \code{rn[0]@y1}, \code{rn[1]@y1} and
+\code{animal@y2}, and gives the covariance of each coefficient with the breeding value for
+\code{y2}. Fixed effects apply to all the traits. The univariate fits of the default start leave the term out of the
+traits that it does not name.
+
+A \code{y2} record can be in the row of a \code{y1} record, or in a row of its own with \code{y1}
+missing. When no row has both traits, the data do not estimate the residual
+covariance between them. The fit then holds it at 0 and gives it no standard error,
+and \code{message} says so. The fit estimates the genetic covariance in both layouts,
+through the relationship. Gates: \code{tests/testthat/test-mt-traits.R} (the identity with
+the univariate fits, the dense V form, the score); recovery in
+\code{validation/mt_traits_recovery.R} (simulation).}
 
 \item{data}{data.frame}
 

@@ -2,6 +2,47 @@
 
 ## New
 
+* `model_mt()`: a random term can apply to some of the traits only, with `traits =`.
+  The usual case is a trait with repeated records and a trait with one record per animal:
+  `cbind(y1, y2) ~ cg + animal(id) + pe(id, traits = "y1")`. Before, `pe()` applied to
+  both traits. On the one-record trait the data do not separate it from the residual, so
+  the information matrix was singular and every standard error was `NaN`. Now the term has
+  no component and no solution on the traits that it does not name. The univariate fits
+  of the default start leave it out of those traits, and the other fitters stop on
+  `traits =`. The terms of one `group =` can name different traits:
+  `rn(id, base = c("phi0", "phi1"), traits = "y1", group = "g") + animal(id, traits =
+  "y2", group = "g")` estimates the genetic covariance between the coefficients of a
+  random regression on `y1` and the breeding value for a one-record trait `y2`.
+
+  When no row holds both traits (each record in a row of its own), the data do not
+  estimate the residual covariance between them. The fit now holds it at 0, gives it no
+  standard error and says so in `message`. Before, the zero row of that covariance made
+  the information matrix singular, and every standard error of the fit was `NaN`.
+
+  The gates are in `tests/testthat/test-mt-traits.R`: with the covariances between traits
+  at 0, the bivariate -2logL equals the sum of the two univariate -2logL to 1e-8, in the
+  sparse and in the dense V form; the sparse -2logL equals the dense V form with
+  covariances; and the score equals central finite differences in all parameters, with
+  the `y2` record in its own row and in the row of a `y1` record. A group of a random
+  regression on `y1` and `animal()` on `y2` passes the dense V form and the finite
+  differences too.
+
+  Recovery, simulation only (`validation/mt_traits_recovery.R`): five generations, 2000
+  animals with records, six `y1` records and one `y2` record per animal, 20 replicates.
+  All 40 fits converged, 0.8 s each (median).
+
+  | component | true | mean, own row | mean, shared row | empirical SD | mean SE |
+  |---|---|---|---|---|---|
+  | var(animal@y1) | 4 | 3.958 | 3.960 | 0.41 | 0.45 |
+  | cov(animal@y2,animal@y1) | 1.2 | 1.257 | 1.259 | 0.16 | 0.19 |
+  | var(animal@y2) | 2 | 2.109 | 2.110 | 0.28 | 0.30 |
+  | var(pe@y1) | 3 | 3.127 | 3.127 | 0.24 | 0.28 |
+  | var(res@y1) | 5 | 5.005 | 5.005 | 0.08 | 0.07 |
+  | var(res@y2) | 4 | 4.030 | 4.030 | 0.19 | 0.23 |
+
+  The coverage of estimate +/- 1.96 SE was 0.90 to 1.00. In the shared-row layout the
+  residual covariance (true 0) came out at -0.007, empirical SD 0.11.
+
 * `integer64` id columns (`data.table::fread()`) are read as their exact digits. The
   latin1 and UTF-8 spellings of the same text are one id: the engine compares bytes, and
   every label now goes to it in UTF-8.

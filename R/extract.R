@@ -594,7 +594,7 @@ estado_t2 <- function(fit, comps, ige, t) {
 # Os termos da formula do ajuste, ou lista vazia se ela nao estiver guardada
 termos_do_ajuste <- function(fit) {
   if (is.null(fit$formula)) return(list())
-  tryCatch(decompoe_formula(fit$formula[[3]], environment(fit$formula)),
+  tryCatch(decompoe_formula(fit$formula[[3]], environment(fit$formula), com_traits = TRUE),
            error = function(e) list())
 }
 

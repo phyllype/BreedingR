@@ -57,6 +57,11 @@ struct Termo {
   // `aninhado` (o R a manda com o prefixo "mgs:", que modelo_do_R tira); avo desconhecido
   // ("0", "", NA) deixa so a entrada do pai.
   bool mgs = false;
+  // So no multicaracter: os caracteres em que o termo existe (pe(id, traits = "y1")). Vazio
+  // = todos. Um registro de repeticao junto com um caracter de registro unico pede o pe so no
+  // primeiro: no segundo ele se confunde com o residuo e a matriz de informacao fica
+  // singular. Num grupo, cada termo pode ter o seu (expande_layout_mt).
+  std::vector<std::string> tracos;
   bool aleatorio() const { return estrutura != Estrutura::Fixo; }
   std::size_t n_coef() const { return base.empty() ? 1 : base.size(); }
 };
@@ -69,6 +74,16 @@ struct Grupo {
   std::size_t offset = 0;            // onde os parametros comecam em theta
   std::size_t nparam = 0;            // dim (dim + 1) / 2
   Estrutura estrutura = Estrutura::Diagonal;
+  // So no multicaracter: os indices (em ordem crescente) dos caracteres de cada termo,
+  // paralelo a `termos`; uma lista vazia (ou nenhuma) = todos os t, o caso de sempre. O
+  // bloco do termo q tem nt(q, t) caracteres, e a posicao pt e o caracter traco(q, pt).
+  std::vector<std::vector<std::size_t>> tracos;
+  std::size_t nt(std::size_t q, std::size_t t) const {
+    return q < tracos.size() && !tracos[q].empty() ? tracos[q].size() : t;
+  }
+  std::size_t traco(std::size_t q, std::size_t pt) const {
+    return q < tracos.size() && !tracos[q].empty() ? tracos[q][pt] : pt;
+  }
 
   // Indice em theta do elemento (i,j) da covariancia, guardada por colunas no triangulo
   // inferior. Exige i >= j; a chamada com i < j e trocada.
@@ -203,6 +218,11 @@ struct DesenhoTermo {
   Csc z;                        // nlin x (n_niveis * n_coef)
   // false na linha cujo nivel nao existe no conjunto de niveis do termo
   std::vector<char> casou;
+  // So no multicaracter: copia de Grupo::tracos do grupo do termo (monta_desenho_mt). O
+  // termo ocupa z.ncol * nt(t) colunas, e a coluna da posicao pt e do caracter traco(pt).
+  std::vector<std::size_t> tracos;
+  std::size_t nt(std::size_t t) const { return tracos.empty() ? t : tracos.size(); }
+  std::size_t traco(std::size_t pt) const { return tracos.empty() ? pt : tracos[pt]; }
 };
 
 // `niveis_fixos` e o conjunto de niveis que o termo indexa quando ele vem de fora da coluna:

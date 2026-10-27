@@ -22,6 +22,28 @@
 #'   covariances between traits, and the residual becomes the full R0 matrix.
 #'   A missing trait (NA or the `missing_code` code) does not drop the record: it enters
 #'   with the R0 submatrix of its observation pattern.
+#'
+#'   `traits =` puts a random term on some of the traits only. The usual case is a trait
+#'   with repeated records and a trait with one record per animal:
+#'   `cbind(y1, y2) ~ cg + animal(id) + pe(id, traits = "y1")`. On a trait with one record
+#'   per animal, the data do not separate `pe()` from the residual. The information matrix
+#'   is then singular, and every standard error is `NaN`. With `traits = "y1"` the term has no
+#'   component and no solution on `y2`: the names are `var(pe@y1)` and `id|y1`. The terms
+#'   of one covariance group (`group =`) can name different traits. An example is a random
+#'   regression on `y1` and a one-record trait `y2`:
+#'   `rn(id, base = c("phi0", "phi1"), traits = "y1", group = "g") +
+#'   animal(id, traits = "y2", group = "g")`. This G is over `rn[0]@y1`, `rn[1]@y1` and
+#'   `animal@y2`, and gives the covariance of each coefficient with the breeding value for
+#'   `y2`. Fixed effects apply to all the traits. The univariate fits of the default start leave the term out of the
+#'   traits that it does not name.
+#'
+#'   A `y2` record can be in the row of a `y1` record, or in a row of its own with `y1`
+#'   missing. When no row has both traits, the data do not estimate the residual
+#'   covariance between them. The fit then holds it at 0 and gives it no standard error,
+#'   and `message` says so. The fit estimates the genetic covariance in both layouts,
+#'   through the relationship. Gates: `tests/testthat/test-mt-traits.R` (the identity with
+#'   the univariate fits, the dense V form, the score); recovery in
+#'   `validation/mt_traits_recovery.R` (simulation).
 #' @param data data.frame
 #' @param pedigree data.frame animal, sire, dam. The ids are
 #'   matched to the data by the rule of [model()] (see `pedigree` there): an absent
@@ -188,7 +210,8 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   traits <- vapply(as.list(lhs)[-1], deparse, character(1))
   if (length(traits) < 2L) stop("cbind() with only one column; for one, use model()")
 
-  terms <- decompoe_formula(formula[[3]], environment(formula))
+  terms <- decompoe_formula(formula[[3]], environment(formula), com_traits = TRUE)
+  confere_traits_dos_termos(terms, traits)
   recusa_materno_mgs(terms, pedigree)
   recusa_kfixo(terms, "model_mt()")
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
@@ -235,7 +258,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
             genotypes = ja_conferidos(genotypes), blend = blend,
             apy_core = nucleo_resolvido(apy_core, nuc),
             metafounders = metafounders, gamma = gamma, verbose = FALSE)),
-      formula, traits, data, missing_code, verbose) else list()
+      formula, traits, data, missing_code, verbose, terms) else list()
   ajusta <- function(uni) .Call(R_ajustar_mt,
              lst, names(lst), traits,
              vapply(terms, function(t) t$nome, character(1)),
@@ -258,7 +281,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
 
              kern,
              if (is.null(start)) numeric(0) else as.double(start),
-             vapply(terms, function(t) t$dilution, numeric(1)), uni)
+             vapply(terms, function(t) t$dilution, numeric(1)), uni, traits_dos_termos(terms))
   r <- partida_de_reserva(ajusta(uni), ajusta, maxiter)
   r$seconds <- proc.time()[["elapsed"]] - t0
   r <- anota_nucleo(r, nuc)
@@ -309,9 +332,10 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
 # divisao e saia do ajuste sem aviso (medido num escore inteiro centrado com codigo -1 e
 # s = 4: os 30 valores -4 sairam, 713 registros em vez de 743, e a partida de
 # var(random@y2) / var(res@y2) foi de 1,19 / 1,88 para 0,81 / 1,66).
-otimos_univariados <- function(ajusta1, formula, traits, data, missing_code, verbose) {
+otimos_univariados <- function(ajusta1, formula, traits, data, missing_code, verbose,
+                               terms = NULL) {
   out <- lapply(traits, function(tr) {
-    f1 <- formula
+    f1 <- if (is.null(terms)) formula else formula_do_traco(formula, terms, tr)
     f1[[2]] <- as.name(tr)
     y <- as.double(data[[tr]])
     ok <- is.finite(y)
@@ -334,6 +358,45 @@ otimos_univariados <- function(ajusta1, formula, traits, data, missing_code, ver
     cat("start: univariate optima of ", paste(traits, collapse = ", "),
         ", covariances between traits at zero\n", sep = "")
   out
+}
+
+# traits = de cada termo para o motor: os nomes separados por virgula, vazio = todos
+traits_dos_termos <- function(terms)
+  vapply(terms, function(t) paste(t$traits, collapse = ","), character(1))
+
+# Os nomes de traits = contra os de cbind(), antes de qualquer conta
+confere_traits_dos_termos <- function(terms, traits) {
+  for (t in terms) {
+    fora <- setdiff(t$traits, traits)
+    if (length(fora))
+      stop(t$marcador, "(", t$column, ", traits =): ", paste(fora, collapse = ", "),
+           if (length(fora) > 1L) " are not traits" else " is not a trait", " of cbind(",
+           paste(traits, collapse = ", "), ")", call. = FALSE)
+  }
+  invisible(NULL)
+}
+
+# O lado direito do ajuste univariado de um caracter, para a partida: sem os termos cujo
+# traits = nao inclui o caracter, e sem o traits = dos outros (model() nao o aceita). Anda
+# na formula na MESMA ordem de decompoe_formula(), entao o k-esimo termo e terms[[k]].
+formula_do_traco <- function(formula, terms, tr) {
+  k <- 0L
+  partes <- list()
+  anda <- function(e) {
+    if (is.call(e) && identical(as.character(e[[1]]), "+")) {
+      anda(e[[2]]); anda(e[[3]])
+      return(invisible())
+    }
+    k <<- k + 1L
+    t <- terms[[k]]
+    if (length(t$traits) && !tr %in% t$traits) return(invisible())
+    if (is.call(e) && !is.null(e[["traits"]])) e[["traits"]] <- NULL
+    partes[[length(partes) + 1L]] <<- e
+    invisible()
+  }
+  anda(formula[[3]])
+  formula[[3]] <- Reduce(function(a, b) call("+", a, b), partes)
+  formula
 }
 
 # o nucleo da APY ja resolvido, para os ajustes univariados da partida
@@ -386,7 +449,8 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
                              metafounders = NULL, gamma = NULL) {
   lhs <- formula[[2]]
   traits <- vapply(as.list(lhs)[-1], deparse, character(1))
-  terms <- decompoe_formula(formula[[3]], environment(formula))
+  terms <- decompoe_formula(formula[[3]], environment(formula), com_traits = TRUE)
+  confere_traits_dos_termos(terms, traits)
   recusa_materno_mgs(terms, pedigree)
   used_columns <- unique(c(traits, vapply(terms, function(t) t$column, character(1)),
                              unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
@@ -424,7 +488,7 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
              if (is.null(gamma)) numeric(0) else as.double(gamma),
 
              kern,
-             vapply(terms, function(t) t$dilution, numeric(1)))
+             vapply(terms, function(t) t$dilution, numeric(1)), traits_dos_termos(terms))
 }
 
 #' Genetic correlation between two traits, from the multi-trait fit

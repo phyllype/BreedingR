@@ -117,7 +117,7 @@ MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
       for (std::size_t a = 0; a < d.aleatorios.size(); a++)
         if (d.aleatorios[a].termo == tm) {
           slots[g].push_back({a, col});
-          col += d.aleatorios[a].z.ncol * t;
+          col += d.aleatorios[a].z.ncol * d.aleatorios[a].nt(t);
         }
   }
 
@@ -158,10 +158,10 @@ MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
         for (const auto& [c, v] : zl[a][r]) {
           const std::size_t ct = c / dt.n_niveis;
           const std::size_t nv = c % dt.n_niveis;
-          for (std::size_t tau = 0; tau < t; tau++)
+          for (std::size_t pt = 0; pt < dt.nt(t); pt++)
             lin.push_back({static_cast<std::uint32_t>(
-                               col0 + (tau * dt.n_coef + ct) * dt.n_niveis + nv),
-                           static_cast<std::uint32_t>(tau), v});
+                               col0 + (pt * dt.n_coef + ct) * dt.n_niveis + nv),
+                           static_cast<std::uint32_t>(dt.traco(pt)), v});
         }
       }
 
@@ -301,16 +301,17 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
           if (a.termo == tm) {
             for (std::size_t c = 0; c < a.z.ncol; c++) {
               const std::size_t ct = c / a.n_niveis, nv = c % a.n_niveis;
-              for (std::size_t tau = 0; tau < t; tau++) {
+              for (std::size_t pt = 0; pt < a.nt(t); pt++) {
+                const std::size_t tau = a.traco(pt);
                 const double bc =
-                    A.solucao[col0 + (tau * a.n_coef + ct) * a.n_niveis + nv];
+                    A.solucao[col0 + (pt * a.n_coef + ct) * a.n_niveis + nv];
                 if (bc == 0.0) continue;
                 for (std::size_t p = a.z.colptr[c]; p < a.z.colptr[c + 1]; p++)
                   if (d.usa[a.z.linha[p]])
                     ehat.at(a.z.linha[p], tau) -= a.z.valor[p] * bc;
               }
             }
-            col0 += a.z.ncol * t;
+            col0 += a.z.ncol * a.nt(t);
           }
     }
   }
@@ -528,7 +529,7 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
         for (std::size_t a = 0; a < d.aleatorios.size(); a++)
           if (d.aleatorios[a].termo == tm) {
             slots[g].push_back({a, col});
-            col += d.aleatorios[a].z.ncol * t;
+            col += d.aleatorios[a].z.ncol * d.aleatorios[a].nt(t);
           }
     }
 
@@ -551,10 +552,10 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
           const DesenhoTermo& dt = d.aleatorios[a];
           for (const auto& [c, v] : zl3[a][r]) {
             const std::size_t ct = c / dt.n_niveis, nv = c % dt.n_niveis;
-            for (std::size_t tau = 0; tau < t; tau++)
+            for (std::size_t pt = 0; pt < dt.nt(t); pt++)
               lin.push_back({static_cast<std::uint32_t>(
-                                 col0 + (tau * dt.n_coef + ct) * dt.n_niveis + nv),
-                             static_cast<std::uint32_t>(tau), v});
+                                 col0 + (pt * dt.n_coef + ct) * dt.n_niveis + nv),
+                             static_cast<std::uint32_t>(dt.traco(pt)), v});
           }
         }
 
@@ -612,9 +613,10 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
           for (std::size_t tm : d.modelo.grupos[g].termos)
             for (const DesenhoTermo& a : d.aleatorios)
               if (a.termo == tm) {
-                for (std::size_t tau = 0; tau < t; tau++)
+                for (std::size_t pt = 0; pt < a.nt(t); pt++)
                   for (std::size_t ct = 0; ct < a.n_coef; ct++) {
-                    const std::size_t s2 = tau * a.n_coef + ct + slot;
+                    const std::size_t tau = a.traco(pt);
+                    const std::size_t s2 = pt * a.n_coef + ct + slot;
                     const std::vector<double>& ws = w[s2];
                     for (std::size_t nv = 0; nv < nl; nv++) {
                       const double x = ws[nv];
@@ -625,7 +627,7 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
                           f[k].at(a.z.linha[p], tau) += a.z.valor[p] * x;
                     }
                   }
-                slot += a.n_coef * t;
+                slot += a.n_coef * a.nt(t);
               }
         }
     }
@@ -671,7 +673,7 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
           for (std::size_t a = 0; a < d.aleatorios.size(); a++)
             if (d.aleatorios[a].termo == tm) {
               slots[g].push_back({a, col});
-              col += d.aleatorios[a].z.ncol * t;
+              col += d.aleatorios[a].z.ncol * d.aleatorios[a].nt(t);
             }
       }
       for (std::size_t r = 0; r < nlin; r++) {
@@ -693,10 +695,10 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
             const DesenhoTermo& dt = d.aleatorios[a];
             for (const auto& [c, v] : zl4[a][r]) {
               const std::size_t ct = c / dt.n_niveis, nv = c % dt.n_niveis;
-              for (std::size_t tau = 0; tau < t; tau++)
+              for (std::size_t pt = 0; pt < dt.nt(t); pt++)
                 lin.push_back({static_cast<std::uint32_t>(
-                                   col0 + (tau * dt.n_coef + ct) * dt.n_niveis + nv),
-                               static_cast<std::uint32_t>(tau), v});
+                                   col0 + (pt * dt.n_coef + ct) * dt.n_niveis + nv),
+                               static_cast<std::uint32_t>(dt.traco(pt)), v});
             }
           }
         const Densa& rir3 = M.rinv_mask[M.mask[r]];
@@ -797,10 +799,15 @@ double neg2logl_densa_V_mt(const DesenhoMT& d, const std::vector<double>& theta)
               const double v = zd.at(r, c);
               if (v == 0.0) continue;
               const std::size_t ct = c / a.n_niveis, nv = c % a.n_niveis;
-              Z.at(p, (slot + tau * a.n_coef + ct) * nl + nv) = v;
+              // a coordenada do caracter tau no bloco do grupo; sem ela o termo nao existe
+              // naquele caracter e a celula fica zero
+              std::size_t pt = 0;
+              while (pt < a.nt(t) && a.traco(pt) != tau) pt++;
+              if (pt == a.nt(t)) continue;
+              Z.at(p, (slot + pt * a.n_coef + ct) * nl + nv) = v;
             }
           }
-          slot += a.n_coef * t;
+          slot += a.n_coef * a.nt(t);
         }
 
     // V += Z (C (x) K) Z'
@@ -908,7 +915,7 @@ ResiduosMT residuos_mt(const DesenhoMT& d, const std::vector<double>& theta) {
       for (std::size_t a = 0; a < d.aleatorios.size(); a++)
         if (d.aleatorios[a].termo == tm) {
           slots[g].push_back({a, col});
-          col += d.aleatorios[a].z.ncol * t;
+          col += d.aleatorios[a].z.ncol * d.aleatorios[a].nt(t);
         }
   }
   std::vector<std::vector<std::vector<std::pair<std::uint32_t, double>>>> zl;
@@ -946,10 +953,10 @@ ResiduosMT residuos_mt(const DesenhoMT& d, const std::vector<double>& theta) {
         for (const auto& [c, v] : zl[a][r]) {
           const std::size_t ct = c / dt.n_niveis;
           const std::size_t nv = c % dt.n_niveis;
-          for (std::size_t tau = 0; tau < t; tau++)
+          for (std::size_t pt = 0; pt < dt.nt(t); pt++)
             lin.push_back({static_cast<std::uint32_t>(
-                               col0 + (tau * dt.n_coef + ct) * dt.n_niveis + nv),
-                           static_cast<std::uint32_t>(tau), v});
+                               col0 + (pt * dt.n_coef + ct) * dt.n_niveis + nv),
+                           static_cast<std::uint32_t>(dt.traco(pt)), v});
         }
       }
     for (std::size_t tau = 0; tau < t; tau++) {

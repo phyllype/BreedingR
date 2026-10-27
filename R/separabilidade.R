@@ -178,9 +178,12 @@ confere_estrutura <- function(terms, data, resp, missing_code, quem, estima,
   # as linhas de cada caracteristica, so no multicaracter (a uniao ja e conferida)
   por_traco <- if (length(resp) > 1L) lapply(obs_t, which) else list()
   if (intercepto) {
-    confere_aninhamento(terms, fixos, cod, li, "", quem, estima, avisa)
+    # um termo com traits = (model_mt()) so e conferido nas linhas dos caracteres dele
+    todos <- Filter(function(t) !length(t$traits), terms)
+    confere_aninhamento(todos, fixos, cod, li, "", quem, estima, avisa)
     for (tr in names(por_traco))
-      confere_aninhamento(terms, fixos, cod, por_traco[[tr]], tr, quem, estima, avisa)
+      confere_aninhamento(Filter(function(t) cobre_traco(t, tr), terms), fixos, cod,
+                          por_traco[[tr]], tr, quem, estima, avisa)
   } else if (estima) confere_aninhamento(terms, fixos, cod, li, "", quem, estima, avisa,
                                         referencia = TRUE)
   for (s in Filter(function(t) isTRUE(t$social), terms))
@@ -599,6 +602,9 @@ cauda_bernoullis <- function(q, s) {
 # Nao avisa quando pe(), random() ou kernel() le a mesma coluna, ou uma coluna que agrupa os
 # registros do mesmo jeito (pe(id2) com id2 uma copia de id), ou quando o AR(1) tem o animal
 # como sujeito.
+# o termo existe no caracter tr: sem traits = (todos), ou com tr entre eles
+cobre_traco <- function(t, tr) !length(t$traits) || tr %in% t$traits
+
 confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa, kern = NULL) {
   ani <- Filter(function(t) identical(t$marcador, "animal") && !nzchar(t$base), terms)
   # um kernel() de K diagonal e variancia estimada na coluna do animal (ou numa que agrupa
@@ -625,10 +631,13 @@ confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa, kern = NULL) {
     if (any(vapply(suj, mesma_particao, logical(1)))) next
     # a K so e lida quando algum animal repete: sem repeticao nao ha aviso a calar
     repete <- vapply(obs_t, function(o) any(tabulate(ka[o & ka > 0L]) > 1L), logical(1))
-    if (!any(repete) ||
-        any(vapply(cand, function(i) mesma_particao(terms[[i]]) && faz_pe(i), logical(1))))
-      next
+    if (!any(repete)) next
+    # o pe() conta por caracter: um pe(id, traits = "y1") nao cobre as repeticoes de y2
+    tem_pe <- function(tr)
+      any(vapply(cand, function(i) cobre_traco(terms[[i]], tr) &&
+                   mesma_particao(terms[[i]]) && faz_pe(i), logical(1)))
     for (tr in names(obs_t)) {
+      if (!cobre_traco(a, tr) || tem_pe(tr)) next
       reg <- tabulate(ka[obs_t[[tr]] & ka > 0L])
       reg <- reg[reg > 0L]
       if (!length(reg) || !any(reg > 1L)) next

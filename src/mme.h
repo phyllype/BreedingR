@@ -893,7 +893,7 @@ struct DesenhoMT {
     std::size_t s = 0;
     for (std::size_t tm : modelo.grupos[g].termos)
       for (const DesenhoTermo& d : aleatorios)
-        if (d.termo == tm) s += d.z.ncol * t;
+        if (d.termo == tm) s += d.z.ncol * d.nt(t);
     return s;
   }
   std::size_t total_colunas() const {

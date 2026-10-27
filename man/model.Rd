@@ -43,6 +43,8 @@ with none (sire and dam ids that never repeat between the sexes) it does not ent
 the likelihood, and every fitter that estimates components stops before fitting and
 names the two terms. At given components (\verb{start =} with \code{maxiter = 0} and
 \code{n_em = 0}, or \verb{theta_fixed =} in \code{\link[=gibbs]{gibbs()}}) the group is accepted.
+\code{traits = "y1"} on a random term is for \code{\link[=model_mt]{model_mt()}} only: see there. The other
+fitters fit one trait and stop on it.
 ONLY THE OBSERVATION MAY BE MISSING. A column that gives the level of a term (a
 fixed class, the id of a random term, the maternal grandsire of \code{sire(mgs =)}, the
 class of a nested covariate) may not hold a missing label on
