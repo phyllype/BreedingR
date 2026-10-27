@@ -1545,6 +1545,34 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     R.mensagem = "start= has the wrong number of components for this model";
     return R;
   }
+  // A PARTIDA DO RESIDUO ABAIXO DO PISO (aberto de 2026-10-10): um residuo de partida positivo
+  // abaixo de 1e-10 var(y), o piso da caminhada (escala_piso, abaixo), parte do residuo da
+  // partida automatica, e a mensagem diz. Medido (SIMULACAO, 300 animais): com var(animal) 0,3
+  // e var(residual) 1e-14 na partida, as MME nao fatoravam e o ajuste parava em "the starting
+  // theta is INADMISSIBLE", que era falso (o 1e-14 e positivo). Subir so ate o piso era pior:
+  // a caminhada parava no canto do piso com converged = TRUE, 91 unidades de -2logL acima do
+  // otimo
+  std::string nota_partida;
+  {
+    double soma = 0.0, soma2 = 0.0;
+    std::size_t n = 0;
+    for (std::size_t i = 0; i < d.nlin; i++)
+      if (d.usa[i]) { soma += d.y[i]; soma2 += d.y[i] * d.y[i]; n++; }
+    double v = n > 1 ? (soma2 - soma * soma / static_cast<double>(n)) / static_cast<double>(n - 1) : 0.0;
+    if (!(v > 0.0) || !std::isfinite(v)) v = 1.0;
+    const std::vector<double> auto_ = partida(d);
+    for (std::size_t k = 0; k < d.modelo.n_residuos(); k++) {
+      const std::size_t kr = d.modelo.offset_residual + k;
+      if (!d.modelo.preso(kr) && theta[kr] > 0.0 && theta[kr] < 1e-10 * v) {
+        char buf[200];
+        std::snprintf(buf, sizeof buf, "the starting residual variance %.3g was below its floor "
+                      "(1e-10 var(y)), and the fit started it from %.4g instead", theta[kr],
+                      auto_[kr]);
+        if (nota_partida.empty()) nota_partida = buf;
+        theta[kr] = auto_[kr];
+      }
+    }
+  }
 
   CacheSimbolica cs;
   Avaliacao cur = avalia(d, theta, &cs);
@@ -2214,6 +2242,8 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
           "information on ") + quase + ": read it as not estimated, as a component of the "
           "SINGULAR verdict";
   }
+  if (!nota_partida.empty())
+    R.mensagem = R.mensagem.empty() ? nota_partida : R.mensagem + "; " + nota_partida;
   return R;
 }
 

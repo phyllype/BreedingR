@@ -516,6 +516,9 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   }
   r <- motor(terms, start, n_em)
   if (maxiter > 0) r <- explora_reduzido(r, terms, motor, n_em, isTRUE(verbose))
+  if (maxiter > 0 && !is.null(start))
+    r <- explora_residuo_no_piso(r, function() motor(terms, NULL, n_em), data, trait,
+                                 missing_code)
   r$seconds <- proc.time()[["elapsed"]] - t0
   r <- anota_nucleo(r, nuc)
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
@@ -551,6 +554,36 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # sem start = o ponto e a partida padrao, e nao componentes que o usuario deu
   r$components_given <- maxiter == 0 && n_em == 0 && !is.null(start)
   structure(anota_separabilidade(anota_estrutura(r, pe), notas), class = "breeding_fit")
+}
+
+# O RESIDUO NO PISO A PARTIR DE UMA start= (aberto de 2026-10-10). Com um registro por
+# animal o canto var(residual) -> 0, com var(animal) levando toda a variacao, e um otimo local
+# de fronteira (um ponto KKT): medido (SIMULACAO, 300 animais), da partida (0,3; 1e-10 var(y))
+# o ajuste certificava ali a -2logL 405,16, condicional ao piso, e o otimo interior estava a
+# 314,45. A partida automatica nao vai la. Quando a start= dada termina com o residuo no piso,
+# o model() caminha tambem da partida automatica e fica com o melhor, dizendo qual
+explora_residuo_no_piso <- function(r, refaz, data, trait, missing_code) {
+  if (!is.finite(r$neg2logl) || !length(r$theta)) return(r)
+  k <- grep("^var[(]residual([|].*)?[)]$", names(r$theta))
+  y <- as.double(data[[trait]])
+  usa <- if (length(r$used) == length(y)) r$used %in% TRUE else !is.na(y)
+  vy <- stats::var(y[usa & is.finite(y)])
+  if (!length(k) || !is.finite(vy) || !(vy > 0) || all(r$theta[k] > 2e-10 * vy)) return(r)
+  r2 <- refaz()
+  junta <- function(m, n) if (nzchar(m)) paste0(m, "; ", n) else n
+  if (is.finite(r2$neg2logl) && r2$neg2logl < r$neg2logl - 1e-4) {
+    r2$iters <- r2$iters + r$iters
+    r2$message <- junta(r2$message, sprintf(paste0(
+      "the walk from start= ended with the residual variance at its floor, at -2logL %.6f; ",
+      "the walk from the automatic start reached this point, %.4g lower"),
+      r$neg2logl, r$neg2logl - r2$neg2logl))
+    return(r2)
+  }
+  r$iters <- r$iters + r2$iters
+  r$message <- junta(r$message, sprintf(paste0(
+    "the residual variance ended at its floor; a walk from the automatic start ended at ",
+    "-2logL %.6f, not lower"), r2$neg2logl))
+  r
 }
 
 # A COLUNA DO RESIDUO POR CLASSE (lista de correcoes, item 35): o codigo 1..K de cada linha com

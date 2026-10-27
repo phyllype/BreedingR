@@ -918,6 +918,20 @@
 
 ## Fixed
 
+* `model()`: a `start=` with the residual variance below its floor (1e-10 `var(y)`) stopped
+  with "the starting theta is INADMISSIBLE", which was false (the value is positive; the mixed
+  model equations did not factor there). It now starts the residual from the automatic start,
+  and `message` says so. A `start=` that ends with the residual at its floor also gets a walk
+  from the automatic start, and the better fit is kept: with one record per animal the corner
+  `var(residual) -> 0` is a local optimum of the boundary, and in simulation (300 animals) a
+  start at the floor certified it 91 units of -2logL above the interior optimum. Gate in
+  `tests/testthat/test-partida-piso.R`.
+* `model_mt()`: a scalar component held at the boundary (a variance at its floor in the
+  certificate) has no standard error, its row and column of `vcov` are 0, and the standard
+  errors of the other components come from the information conditional on it, as in
+  `model()`; `message` names it. Gate in `tests/testthat/test-ep-condicional-mt.R`: with
+  `pe(id, traits =)` at the boundary, the standard errors of the other components equal those
+  of the model without it at the same point.
 * The walk from the reduced model, when a covariance group ends near a correlation of +-1,
   looked for the groups near +-1 in a list that lost every group but the last: a new pair of
   components with no group in common emptied the list (`x[-integer(0)]` is empty in R). With

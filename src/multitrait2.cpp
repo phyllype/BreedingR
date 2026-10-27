@@ -1237,11 +1237,25 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
         "points out of the cone by construction, so its gradient never vanishes and the "
         "certificate is CONDITIONAL on the pinning; read those components with care: " +
         lista_na_parede(parede_final, nomes_theta_mt(d.modelo, d.alvos));
+  // O EP CONDICIONAL (lista de correcoes, item 17), a regra do model() (aireml.cpp): o
+  // componente de um bloco ESCALAR (1 x 1 no mapa do passo) parado na parede do certificado
+  // nao foi estimado, foi segurado la. Ele fica sem EP, a linha e a coluna dele na vcov sao 0
+  // (ali ele entra como constante), e os outros saem da informacao condicional a ele, a AI sem
+  // a linha e a coluna dele. Antes a AI inteira dava EP explodidos aos outros. O bloco de
+  // varias dimensoes na parede (uma correlacao +-1) segue com a AI inteira, como no model()
   R.se.assign(d.modelo.ntheta, std::nan(""));
-  std::vector<std::size_t> na_veross;   // as coordenadas que entram na verossimilhanca
-  for (std::size_t k = 0; k < d.modelo.ntheta; k++) if (!sem_par[k]) na_veross.push_back(k);
   const std::size_t ntv = d.modelo.ntheta;
+  std::vector<char> dado(ntv, 0);
+  if (parede_final.size() == ntv)
+    for (const auto& bl : mz.blocos)
+      if (bl.second == 1 && parede_final[bl.first]) dado[bl.first] = 1;
+  std::vector<std::size_t> na_veross;   // as coordenadas que entram na verossimilhanca, livres
+  for (std::size_t k = 0; k < d.modelo.ntheta; k++)
+    if (!sem_par[k] && !dado[k]) na_veross.push_back(k);
   R.vcov.assign(ntv * ntv, std::nan(""));
+  for (std::size_t k = 0; k < ntv; k++)
+    if (dado[k])
+      for (std::size_t j = 0; j < ntv; j++) R.vcov[k * ntv + j] = R.vcov[j * ntv + k] = 0.0;
   if (final_ok)
     try {
       Densa inv = inv_geral(sub_densa(cur.ai, na_veross));
@@ -1346,13 +1360,22 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
     for (std::size_t i = 0; i < na_veross.size(); i++) R.se[na_veross[i]] = se_v[i];
     if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
     // o componente sem erro-padrao (numa crista do veredito SINGULAR) fica sem linha na
-    // covariancia: o metodo delta de uma funcao que depende dele tambem nao existe
+    // covariancia: o metodo delta de uma funcao que depende dele tambem nao existe; o dado
+    // na parede fica com a linha 0
     for (std::size_t k = 0; k < ntv; k++)
-      if (!std::isfinite(R.se[k]))
+      if (!dado[k] && !std::isfinite(R.se[k]))
         for (std::size_t j = 0; j < ntv; j++) {
+          if (dado[j]) continue;
           R.vcov[k * ntv + j] = std::nan("");
           R.vcov[j * ntv + k] = std::nan("");
         }
+    std::string dados;
+    for (std::size_t k = 0; k < ntv; k++)
+      if (dado[k]) dados += (dados.empty() ? "" : ", ") + nm[k];
+    if (!dados.empty())
+      R.mensagem += (R.mensagem.empty() ? "" : "; ") + std::string("held at the boundary, ") +
+          dados + " has no standard error, and the standard errors of the other components "
+          "are conditional on it";
   } else {
     // nunca visto: o mesmo theta, so reescalado, deixou de ser avaliavel. O -2logL sai da
     // caminhada mais o jacobiano, e as solucoes ficam NA em vez de sair na unidade errada
