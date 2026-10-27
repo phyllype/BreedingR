@@ -12,6 +12,7 @@
 //     lugar errado.
 
 #include "mme.h"
+#include <unordered_set>
 #include <unordered_map>
 #include <queue>
 #include <cmath>
@@ -111,6 +112,26 @@ Pedigree constroi_pedigree(const std::vector<std::string>& id0,
                  dica_cientifica(s, id));
     return static_cast<std::int64_t>(it->second);
   };
+  // varios pais citados sem linha (um pedigree recortado por data): a mensagem conta todos e
+  // cita os primeiros, e nao so o primeiro, que fazia o usuario corrigir um por vez
+  {
+    std::vector<std::string> faltam;
+    std::unordered_set<std::string> vistos;
+    for (std::size_t i = 0; i < n; i++)
+      for (const std::string* s : {&pa[i], &ma[i]})
+        if (!(s->empty() || *s == "0" || *s == "NA") && pos.find(*s) == pos.end() &&
+            vistos.insert(*s).second)
+          faltam.push_back(*s);
+    if (faltam.size() > 1) {
+      std::string lista;
+      for (std::size_t k = 0; k < faltam.size() && k < 5; k++)
+        lista += (k ? ", '" : "'") + faltam[k] + "'";
+      if (faltam.size() > 5) lista += ", and " + std::to_string(faltam.size() - 5) + " more";
+      throw Erro(std::to_string(faltam.size()) + " parents are cited and have no line of their "
+                 "own in the pedigree (" + lista + "): give each one a line, with its own "
+                 "parents or 0 for unknown" + dica_cientifica(faltam[0], id));
+    }
+  }
   // o mapa guarda a COLUNA de Gamma, nao o valor: com Gamma cheia e a coluna que importa
   std::unordered_map<std::string, std::size_t> gmap;
   for (std::size_t k = 0; k < q; k++) gmap[mf[k]] = k;

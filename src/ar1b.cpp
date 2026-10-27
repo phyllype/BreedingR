@@ -68,6 +68,21 @@ static void eixo_tempo_ar1(DesenhoAR& d) {
   // entre libstdc++ e libc++), e com a folga de "inteiro" a busca abaixo podia depender dela
   std::sort(gaps.begin(), gaps.end());
   const double menor = gaps.front();
+  // DOIS REGISTROS QUASE NO MESMO TEMPO (catalogo de estrutura, prioridade media): um intervalo
+  // milhoes de vezes menor que o tipico (1e-9 dia entre registros diarios) virava uma grade de
+  // passo 1e-9, e rho a correlacao por 1e-9 dia. O empate exato tem a recusa propria; este e o
+  // empate com ruido
+  {
+    const double mediana = gaps[gaps.size() / 2];
+    if (menor > 0.0 && mediana > 0.0 && menor < 1e-6 * mediana &&
+        menor < 1e-6 * std::max(1.0, tmax)) {
+      char buf[200];
+      std::snprintf(buf, sizeof(buf), "two records of a subject are %.3g apart in the time, "
+                    "against a median gap of %.3g between consecutive records", menor, mediana);
+      throw Erro(std::string(buf) + ": a duplicated record, or a time with noise. Round the time "
+                 "to its unit, or merge the two records");
+    }
+  }
   const double eps = std::numeric_limits<double>::epsilon();
   const unsigned long long qmax = 1000;
   // g e um numero inteiro de passos h = menor / q? O erro de k = g / h vem do erro da subtracao

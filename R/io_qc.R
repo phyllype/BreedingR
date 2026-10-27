@@ -858,11 +858,19 @@ qc_phenotypes <- function(data, trait, missing_code = NULL, classes = NULL,
                           fence = 3, min_class_n = 2L, fence_by = NULL) {
   if (!trait %in% names(data)) stop("no column '", trait, "' in the data")
   y <- data[[trait]]
+  # texto ou fator paravam com o "non-numeric argument" do R
+  if (!is.numeric(y))
+    stop("'", trait, "' is a ", if (is.factor(y)) "factor" else class(y)[1], " column: the ",
+         "fences need a numeric trait; check its values and convert it with as.numeric()",
+         call. = FALSE)
   falta <- is.na(y)
   if (!is.null(missing_code)) falta <- falta | (y == missing_code)
   falta[is.na(falta)] <- TRUE
   obs <- y[!falta]
   if (!length(obs)) stop("no observed record in '", trait, "'")
+  # um registro so parava com o "missing value where TRUE/FALSE needed" do R (sd NA)
+  if (length(obs) < 2L)
+    stop("'", trait, "' has one observed record: the fences need at least two", call. = FALSE)
   if (stats::sd(obs) == 0)
     stop("'", trait, "' has zero variance among the observed records")
   q <- stats::quantile(obs, c(0.25, 0.75), names = FALSE)

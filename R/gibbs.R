@@ -540,12 +540,14 @@
 #'   analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
 #'   opposite directions. Admissibility is positive SEMI-definiteness, tested by a
 #'   spectral decomposition and not by a Cholesky, plus a diagonal below 2 so that a
-#'   metafounder's offspring keeps a positive Mendelian variance. A SINGULAR gamma is
-#'   accepted, through the Moore-Penrose pseudo-inverse: that covers `gamma = 0`, the
-#'   unknown-parent-group limit, where the pseudo-inverse reproduces the A-inverse of
-#'   unknown parent groups exactly, and two metafounders standing for one population,
-#'   whose rows are identical. What is still refused is an INDEFINITE gamma, a negative
-#'   eigenvalue, which does not generate a covariance matrix at all
+#'   metafounder's offspring keeps a positive Mendelian variance. A fit needs gamma
+#'   positive-definite: with a SINGULAR gamma (`gamma = 0`, or two metafounders whose rows
+#'   are identical) a metafounder, or a combination of them, has no prior variance and
+#'   leaves the mixed model equations, and the fit refuses it with the cause. For the limit
+#'   of unknown parent groups give a small diagonal (`gamma = 1e-6`); for two labels of one
+#'   population, use one label. [a_inverse()] takes a singular gamma, through the
+#'   Moore-Penrose pseudo-inverse. An INDEFINITE gamma, a negative eigenvalue, is refused
+#'   everywhere
 #' @references Geman, S. & Geman, D. (1984). Stochastic relaxation, Gibbs
 #'   distributions, and the Bayesian restoration of images. IEEE TPAMI 6:721-741.
 #'
@@ -810,6 +812,8 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   if (!is.null(pe$cp)) {
     ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
   }
+  recusa_gamma_singular(metafounders, gamma)
+  recusa_registro_metafundador(terms, data, metafounders)
   confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes), ped_id,
                   pe$info$founders)
   # os pares genotipados de pai e filho contra o pedigree (R/io_qc.R)

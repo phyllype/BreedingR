@@ -330,12 +330,14 @@ ARGS_MARCADOR <- local({
 #'   analysis turns on; it may be NEGATIVE, for bases pulled apart by selection in
 #'   opposite directions. Admissibility is positive SEMI-definiteness, tested by a
 #'   spectral decomposition and not by a Cholesky, plus a diagonal below 2 so that a
-#'   metafounder's offspring keeps a positive Mendelian variance. A SINGULAR gamma is
-#'   accepted, through the Moore-Penrose pseudo-inverse: that covers `gamma = 0`, the
-#'   unknown-parent-group limit, where the pseudo-inverse reproduces the A-inverse of
-#'   unknown parent groups exactly, and two metafounders standing for one population,
-#'   whose rows are identical. What is still refused is an INDEFINITE gamma, a negative
-#'   eigenvalue, which does not generate a covariance matrix at all
+#'   metafounder's offspring keeps a positive Mendelian variance. A fit needs gamma
+#'   positive-definite: with a SINGULAR gamma (`gamma = 0`, or two metafounders whose rows
+#'   are identical) a metafounder, or a combination of them, has no prior variance and
+#'   leaves the mixed model equations, and the fit refuses it with the cause. For the limit
+#'   of unknown parent groups give a small diagonal (`gamma = 1e-6`); for two labels of one
+#'   population, use one label. [a_inverse()] takes a singular gamma, through the
+#'   Moore-Penrose pseudo-inverse. An INDEFINITE gamma, a negative eigenvalue, is refused
+#'   everywhere
 #' @return an object of class `breeding_fit`. Besides the fields below it carries
 #'   `used`, one logical per row of `data` saying whether that record entered the
 #'   equations: `n_used` counts them and `used` says WHICH, which is what anything
@@ -479,6 +481,8 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   if (!is.null(pe$cp)) {
     ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
   }
+  recusa_gamma_singular(metafounders, gamma)
+  recusa_registro_metafundador(terms, data, metafounders)
   confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes), ped_id,
                   pe$info$founders)
   # os pares genotipados de pai e filho contra o pedigree (R/io_qc.R)
@@ -711,6 +715,39 @@ explora_reduzido <- function(r, terms, motor, n_em, verbose) {
     r$neg2logl, paste(rotulos, collapse = ", "), como,
     if (isTRUE(E$converged)) "certified" else "reached, also without a certificate,", gap))
   E
+}
+
+# GAMMA SINGULAR NOS AJUSTADORES (catalogo de estrutura, prioridade media). a_inverse() aceita
+# uma gamma singular pela pseudo-inversa, mas num ajuste o efeito de um metafundador (ou de uma
+# combinacao deles) sem variancia a priori sai das equacoes de modelo misto: gamma = 0 parava
+# com "the starting theta is INADMISSIBLE", e duas linhas iguais com "the pedigree A^-1 is not
+# positive-definite", nenhuma das duas dizendo a causa. A recusa diz a causa e a saida.
+# UM REGISTRO COM O ID DE UM METAFUNDADOR entrava na linha virtual da populacao base como se
+# fosse um animal (catalogo de estrutura, prioridade media)
+recusa_registro_metafundador <- function(terms, data, metafounders) {
+  if (is.null(metafounders) || !length(metafounders) || is.null(data)) return(invisible(NULL))
+  for (t in Filter(function(t) t$estrutura == 2L && t$column %in% names(data), terms)) {
+    em <- rotulo_motor(data[[t$column]]) %in% rotulo_motor(metafounders)
+    if (any(em))
+      stop(sum(em), " record(s) have a metafounder label in the column '", t$column, "' of ",
+           t$nome, "() (the first at row ", which(em)[1], ", '", data[[t$column]][which(em)[1]],
+           "'): a metafounder is a base population, not an animal with a record", call. = FALSE)
+  }
+  invisible(NULL)
+}
+
+recusa_gamma_singular <- function(metafounders, gamma) {
+  if (is.null(metafounders) || !length(metafounders) || is.null(gamma)) return(invisible(NULL))
+  q <- length(metafounders)
+  G <- if (length(gamma) == q) diag(as.double(gamma), q) else matrix(as.double(gamma), q, q)
+  ev <- eigen((G + t(G)) / 2, symmetric = TRUE, only.values = TRUE)$values
+  if (min(ev) <= 1e-12 * max(1, max(abs(ev))))
+    stop("gamma is singular (smallest eigenvalue ", format(min(ev), digits = 3), "): a ",
+         "metafounder, or a combination of them, then has no prior variance and leaves the ",
+         "mixed model equations. For the limit of unknown parent groups give a small ",
+         "diagonal (gamma = 1e-6); for two labels of one population, use one label. ",
+         "a_inverse() takes a singular gamma, through the pseudo-inverse", call. = FALSE)
+  invisible(NULL)
 }
 
 # Genotype validation, shared by the three fitters: 0/1/2/NA and nothing else. An unknown

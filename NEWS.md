@@ -925,6 +925,16 @@
 
 ## Fixed
 
+* A singular `gamma` (`gamma = 0`, or two metafounders with identical rows) is refused by
+  the fitters with the cause and the way out (a small diagonal for the limit of unknown
+  parent groups, one label for one population). The help said that the fitters took it;
+  they stopped with "the starting theta is INADMISSIBLE" or "the pedigree A^-1 is not
+  positive-definite". `a_inverse()` still takes it, through the pseudo-inverse. Also: a
+  record with a metafounder label is refused (it entered as an animal); several parents
+  cited without a line are counted and listed (the message named the first only);
+  `qc_phenotypes()` says why for a text trait or a single record (it stopped with generic R
+  errors). Gates in `tests/testthat/test-estrutura-media3.R`.
+
 * More cases of the structure of the data stop with the cause and what to do, in place of
   a generic error or a silent pass. The notation of other packages (`cg:sex`, `cg*sex`,
   `factor()`, `I()`, `poly()`, `(1 | g)`, a transformed trait such as `log(y)`) gets a

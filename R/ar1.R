@@ -49,6 +49,8 @@ ajusta_modelo_ar1 <- function(formula, data, pedigree, subject, time, genotypes,
   if (!is.null(pe$cp)) {
     ped_id <- pe$cp$id; ped_sire <- pe$cp$sire; ped_dam <- pe$cp$dam
   }
+  recusa_gamma_singular(metafounders, gamma)
+  recusa_registro_metafundador(terms, data, metafounders)
   confere_base_mf(ped_sire, ped_dam, metafounders, !is.null(genotypes), ped_id,
                   pe$info$founders)
   # os pares genotipados de pai e filho contra o pedigree (R/io_qc.R)
