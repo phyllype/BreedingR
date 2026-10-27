@@ -864,6 +864,93 @@
 
 ## Fixed
 
+* `h2_curve(bases =)`: the base at each point of the gradient of a scalar term declared with
+  `base =` (a `random()` on an indicator of a class of age, for example). The value of a data
+  column at a point is not known from the fit; before, the variance of such a term entered at
+  every point with base 1, without notice, and now that case warns.
+* The check of suspect values before a fit no longer flags legitimate
+  values of a concentrated variable. With more than half of the values at the median the
+  robust scale was 0, and its reserve marked as "more than 10 robust SDs from the median" the
+  real age of a weight at 60 days when almost every animal was weighed at 60, and the 1 of a
+  0/1 trait of low incidence. The scale now comes from the values away from the median, and a
+  variable of two values is an indicator, which the rule does not read.
+* `gibbs()`: when every chain stops early, the message says that the results come from the
+  longest chain and that it stopped too. Before, it named only the other chains, and the one
+  used read as complete.
+* `summary()` of a `gibbs()` fit gives the posterior of the ratio of each variance over the
+  phenotypic variance of `h2()`, not only the ratio of the genetic term (the maternal and
+  common-environment ratios had to be computed by hand from the samples). The location note
+  of `mcmc_diagnostics()` comes out one time for the terms that share its limit, and says that
+  more chains or a longer run lower the limit.
+* `mcmc_diagnostics()` of a probit `gibbs()` chain: the location note says that a level with
+  every record in one category has an improper posterior only for the fixed effects under a
+  flat prior. For a random term it says that the prior of the term keeps such a level finite
+  and that it mixes slowly.
+* `model()`: the boundary notes of `message` name the components at the zero boundary and
+  the groups at the singularity boundary, and say whether a group has a correlation at +-1 or
+  a combination of its effects with no variance and no extreme correlation (in a group of 3
+  or more). The note no longer says "the boundary is real", which the fit does not check.
+* `model()`: `var(residual)` has a floor, 1e-10 of the variance of the records, the floor of
+  the variances of the covariance groups, and the same rules: a residual that goes to zero
+  is held there, the others are optimized conditional on it, it has no standard error, and
+  `message` names it. Before, the residual walked in log toward minus infinity: with two
+  equal records per animal the fit stopped at a residual of 9e-14 with a Newton decrement
+  of 1e11, and the message did not say that the residual was at the boundary.
+* `model()`: a scalar component resting at the zero boundary (the fit already said "fixed
+  there while the others were optimized conditional on that") has no standard error, and the
+  standard errors of the others come from the information conditional on it,
+  `2 [AI_ll^-1]` on the free block. Its row and column of `vcov` are 0, so the delta method
+  of `h2()` and `se_function()` reads it as a constant. The SINGULAR verdict reads the same
+  free block. Before, all the standard errors came from the whole matrix.
+* `model()` and `model_mt()`: near a correlation of +1 or -1 in a covariance
+  group, the -2logL comes from a transformed system. With the group covariance C = F F', the
+  effects u = (F x I) u* have Var(u*) = I x K, and the equations of u* have no C^-1. Before,
+  log|G| + log|C| of the mixed model equations cancelled two large numbers, and the error
+  grew as 1/(1 - |r|) and with the number of levels. With 1 - |r| = 1e-12 the error against
+  the dense V form was 0.002 to 0.03 units in simulated data of 280 to 840 records, and the
+  fitter could accept a step because the wrong value was lower. Now the two agree to 3e-8.
+  The transformed system is used when the smallest eigenvalue of the correlation matrix of a
+  group is below 1e-6; the score and the information matrix still come from the usual
+  equations. Gate in `tests/testthat/test-lista-correcoes.R`.
+* `model()`: when a covariance group of two or more terms (`group =`) ends near a
+  correlation of +1 or -1 (the smallest eigenvalue of its correlation matrix below 1e-4),
+  certified or not, the fit also takes the route that the message gave before: it fits the
+  same terms without the group, then walks the full model from that optimum with the
+  covariance at 0. The better of the two walks is returned, by the rules of the second walk
+  of `model_mt()`, and `message` says which one. Near +-1 the score and the information
+  matrix of the walk lose digits, and the walk creeps to the boundary or stops in another
+  basin. In our own data set (direct-maternal, 3507 animals) the walk from the var(y) start
+  stopped without a certificate at 300 and at 600 iterations, with r = -0.999998, 0.19
+  -2logL units above the point of the reduced model; now the fit certifies that point. In
+  simulated direct-maternal data with no genetic variance (12 data sets of 300 records), 11
+  walks ended near +-1: one certified a point 0.0017 lower, and the other ten kept the first
+  walk at about twice the iterations. A group of one term (`rn()`) has no reduced model and
+  stays as before. Gate in `tests/testthat/test-lista-correcoes.R`.
+* `model_mt()`: at the limit of re-entries into the cone, the message no
+  longer advises the univariate fits with the covariances at zero when the fit already
+  started from them (the default start). It says that, and advises a start with that
+  covariance nearer to zero, or a likelihood-ratio test against the fit that holds it at
+  zero.
+* `model()`: the Newton decrement of the convergence certificate inverts the information
+  matrix by its eigenvalues, each floored at 1e-9 of the largest. On a flat ridge the matrix
+  is singular to the rounding, and the plain inverse gave 1e-6 at one point and 1.7e7 at a
+  point with the same -2logL to 1e-8. A large gradient along a direction of no curvature
+  still refuses the certificate.
+* `model()`, `model_mt()` and the other Gaussian fitters stop when the trait
+  has the same value in all records: there is no variance to partition. Before, the walk ran
+  to `maxiter` with the residual going to 1e-17.
+* The EM warm-up of `model()` puts the rank of X into the update of `var(residual)`:
+  `(e'e + s2e (p + q - tr)) / n`, the EM of REML with the fixed effects as missing data under
+  a flat prior. Before, the p was missing, and the fixed point of the EM was the residual of
+  ML, not the zero of the REML score. With 60 fixed levels for 240 records, 4000 EM rounds
+  went to a residual of 0.660 against 0.936 of REML; now they go to the REML optimum.
+* A fit that stops at `maxiter` with relDelta 0 says that the walk froze, so more
+  iterations give the same point, and no longer advises to raise `maxiter` (`model()` and
+  `model_mt()`). No gate reaches such a stop yet.
+* The help of `maxiter` says when a fit at the ceiling has `converged = TRUE`: the Newton
+  decrement at the last point certifies a flat direction of the likelihood, and `message`
+  says that the components were still moving. Before, the help said that a fit at the
+  ceiling always had `converged = FALSE`.
 * The formula reader takes an explicit intercept, `y ~ 1 + cg + animal(id)`, and a unary
   plus, `y ~ +cg + animal(id)`, as the same formula without them. Before, the first stopped
   with "did not understand the term: 1" and the second with "subscript out of bounds".

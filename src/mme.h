@@ -292,6 +292,48 @@ struct Desenho {
 };
 
 // ---- mme.cpp
+// O SISTEMA TRANSFORMADO de um grupo perto da singularidade (lista de correcoes, itens 3 e 41).
+// Perto de uma correlacao +-1 a soma log|C_g (x) K| + log|C| das MME cancela dois numeros
+// enormes: C carrega C_g^-1, e a eliminacao de Cholesky subtrai termos da ordem de
+// 1/lambda_min(C_g). O erro cresce como 1/(1 - |r|) e com o numero de niveis. Medido contra a
+// forma V densa com 1 - |r| = 1e-12: 0,002 a 0,03 unidades no model() (480 registros), 0,001
+// a 0,003 no model_mt() (280) e 0,0007 a 0,014 no model_ar1() (840). No dado real foram 1470
+// unidades num salto que a caminhada aceitou, porque o valor errado era o menor.
+// Com C_g = F F' (F pela decomposicao espectral), u = (F (x) I) u* e Var(u*) = I (x) K. As MME
+// de u* tem T' C_d T + I (x) K^-1 no bloco do grupo, com C_d a parte dos dados e
+// T = diag(I, F (x) I), sem C_g^-1; e log|C_g (x) K| + log|C| = -dim log|K^-1| + log|C*| pela
+// identidade de Sylvester. O valor e o mesmo -2logL, e fica certo ate com C_g singular. As
+// colunas do grupo seguem a convencao das tres montagens: coordenada a, nivel l na coluna
+// off + a * nl + l.
+struct BlocoT {
+  std::size_t off = 0, dim = 0, nl = 0;
+  Densa F;
+};
+// F de C = F F' pela decomposicao espectral, o autovalor negativo do arredondamento em zero
+Densa fator_espectral(const Densa& c);
+// F[g] do grupo cuja matriz de correlacao tem autovalor minimo abaixo de 1e-6, vazio nos
+// outros; `cgs` e a covariancia de cada grupo na escala da montagem. Devolve se algum entrou
+bool fatores_quase_singulares(const std::vector<Densa>& cgs, std::vector<Densa>& F);
+// T' C_d T nos triplos (triangulo superior; os duplicados a montagem soma) e T' rhs
+void transforma_triplos(const std::vector<BlocoT>& blocos, std::vector<std::uint32_t>& ti,
+                        std::vector<std::uint32_t>& tj, std::vector<double>& tv,
+                        std::vector<double>& rhs);
+// u'(C_g^-1 (x) K^-1)u de todos os grupos, em unidades absolutas (o que avalia_mt e avalia_ar1
+// chamam upen), com u*'(I (x) K^-1)u* nos grupos de `F` nao vazio: `sol` e a solucao do
+// sistema transformado, onde Var(u*) = escala_t (I (x) K) (s2e no model(), 1 nos outros).
+// False quando uma C_g nao se inverte
+bool upen_transformada(const Modelo& m, const std::vector<DesenhoTermo>& aleatorios,
+                       const std::vector<Csc>& kinv, const std::vector<double>& theta,
+                       const std::vector<std::size_t>& offset_grupo, const std::vector<Densa>& F,
+                       const std::vector<double>& sol, double escala_t, double& upen);
+// u = (F (x) I) u* no bloco de cada grupo transformado
+void destransforma_solucao(const std::vector<BlocoT>& blocos, std::vector<double>& sol);
+// u' K^-1 v de vetores de nl niveis: K^-1 no triangulo inferior, ou K = I com ncol 0
+double bilinear_kinv(const Csc& kinv, const double* u, const double* v, std::size_t nl);
+inline double forma_kinv(const Csc& kinv, const double* u, std::size_t nl) {
+  return bilinear_kinv(kinv, u, u, nl);
+}
+
 struct Montado {
   Csc c;
   std::vector<double> rhs;
@@ -300,6 +342,7 @@ struct Montado {
   std::size_t n_fixo = 0;
   std::size_t total = 0;
   std::vector<std::size_t> offset_grupo;
+  std::vector<BlocoT> blocos_t;   // os grupos do sistema transformado (fatores = nao nulo)
   bool ok = false;
 };
 // a K declarada de um grupo, compartilhada pelos tres ajustadores
@@ -329,7 +372,10 @@ void confere_covariancias_iid(const Modelo& m, const std::vector<DesenhoTermo>& 
                               const std::vector<char>& usa);
 void kinv_declarada(const Modelo&, const Grupo&, const std::vector<KernelDecl>*,
                     std::vector<Csc>&, std::vector<double>&, std::vector<double>&);
-Montado monta_mme(const Desenho&, const std::vector<double>&, CacheSimbolica* = nullptr);
+// `fatores`, por grupo (vazio = o grupo como esta), monta o sistema transformado; vale so
+// sem cache, porque o padrao muda
+Montado monta_mme(const Desenho&, const std::vector<double>&, CacheSimbolica* = nullptr,
+                  const std::vector<Densa>* fatores = nullptr);
 Densa cov_grupo(const Modelo&, const std::vector<double>&, std::size_t);
 
 // ---- aireml.cpp: Cholesky of a small dense covariance group; false when not PD.
@@ -944,9 +990,11 @@ struct MontadoMT {
   std::size_t n_fixo = 0;      // p * t
   std::size_t total = 0;
   std::vector<std::size_t> offset_grupo;
+  std::vector<BlocoT> blocos_t;
   bool ok = false;
 };
-MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta);
+MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta,
+                       const std::vector<Densa>* fatores = nullptr);
 AvaliacaoMT avalia_mt(const DesenhoMT&, const std::vector<double>&, CacheSimbolica* = nullptr);
 double neg2logl_densa_V_mt(const DesenhoMT&, const std::vector<double>&);
 DesenhoMT monta_desenho_mt(Modelo, const std::vector<std::string>&, const Tabela&,

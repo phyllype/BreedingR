@@ -61,10 +61,19 @@ recusa_nao_numerico <- function(x, coluna, o_que = "column") {
 # na normal). Com mais da metade dos valores iguais o mad e zero, e entra a media dos desvios
 # absolutos (vezes sqrt(pi / 2), tambem consistente na normal); zero dos dois e uma coluna
 # constante, sem escala.
+# A ESCALA DE UMA VARIAVEL CONCENTRADA (lista de correcoes, item 26): com mais da metade dos
+# valores na mediana o MAD e 0, e a reserva de antes, o desvio absoluto medio, saia pequena e
+# marcava como "a 10 escalas robustas" valores legitimos, a idade real de um peso a 60 dias
+# com quase todos os animais em 60. Aqui a escala vem do MAD dos valores FORA da mediana, e a
+# reserva so fica para quando eles tambem sao um valor so
 escala_robusta <- function(v) {
   med <- stats::median(v)
   s <- stats::mad(v, center = med)
-  if (!(s > 0)) s <- sqrt(pi / 2) * mean(abs(v - med))
+  if (!(s > 0)) {
+    fora <- v[v != med]
+    if (length(unique(fora)) >= 2L) s <- stats::mad(fora)
+    if (!(s > 0)) s <- sqrt(pi / 2) * mean(abs(v - med))
+  }
   list(med = med, s = s)
 }
 
@@ -98,7 +107,9 @@ valores_suspeitos <- function(v, linhas, longe = TRUE) {
     ja <- ja | em
   }
   resto <- v[!ja]
-  if (longe && length(unique(resto)) >= 2L) {
+  # uma variavel de dois valores e um indicador (o 0/1 de um caracter de baixa incidencia, de
+  # uma covariavel de classe): o valor raro nao esta "longe", e a regra nao vale para ela
+  if (longe && length(unique(resto)) >= 3L) {
     r <- escala_robusta(resto)
     if (r$s > 0) {
       z <- (v - r$med) / r$s
@@ -126,6 +137,19 @@ avisa_traco <- function(y, traco, missing_code = NULL, conselho = NULL, longe = 
   obs <- which(!observacao_ausente(y, missing_code))
   for (a in valores_suspeitos(as.double(y)[obs], obs, longe))
     warning(texto_traco(a, traco, conselho), call. = FALSE)
+  invisible()
+}
+
+# O CARACTER SEM VARIACAO: com o mesmo valor em todo registro nao ha variancia para repartir.
+# O model() corria ate o teto com o residuo indo a 1e-17, e o veredito SINGULAR saia ou nao
+# conforme o arredondamento do ponto final
+recusa_constante <- function(y, traco, missing_code = NULL) {
+  if (is.factor(y) || is.character(y) || is.logical(y)) return(invisible())
+  v <- as.double(y)[!observacao_ausente(y, missing_code)]
+  v <- v[is.finite(v)]
+  if (length(v) > 1L && all(v == v[1L]))
+    stop("trait '", traco, "' has the same value (", format(v[1L]), ") in all ", length(v),
+         " records: there is no variance to partition", call. = FALSE)
   invisible()
 }
 
@@ -259,6 +283,7 @@ confere_covariaveis <- function(data, terms, obs, missing_code = NULL) {
 confere_numeros <- function(data, tracos, terms, missing_code = NULL, conselho = NULL,
                             avisa = tracos, resposta = union(tracos, avisa), longe = TRUE) {
   for (tr in tracos) recusa_nao_numerico(data[[tr]], tr)
+  for (tr in tracos) recusa_constante(data[[tr]], tr, missing_code)
   for (tm in terms)
     if (isTRUE(tm$covariavel) && tm$column %in% names(data))
       recusa_nao_numerico(data[[tm$column]], tm$column)

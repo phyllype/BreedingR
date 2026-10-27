@@ -731,6 +731,21 @@ static SEXP sexp_vcov(const std::vector<double>& v, std::size_t n, SEXP nomes) {
   return m;
 }
 
+// O CONSELHO DO LIMITE DE REENTRADAS sugere os univariados com as covariancias em zero, que e a
+// partida padrao de model_mt() e de model_ar1(): quando o ajuste ja partiu deles, o conselho
+// repetia o que foi feito (lista de correcoes, item 14). Aqui ele diz isso e da o que sobra
+static void conselho_da_partida(std::string& m, const std::string& partida_de) {
+  if (partida_de != "univariate fits") return;
+  const std::string velho = "Try a start= inside the cone, for example the univariate fits "
+                            "with the covariances at zero";
+  const std::size_t i = m.find(velho);
+  if (i == std::string::npos) return;
+  m.replace(i, velho.size(), "This fit already started from the univariate fits with the "
+            "covariances at zero. Try a start= inside the cone with that covariance nearer to "
+            "zero than where the walk ended, or compare the -2logL with the fit that holds it "
+            "at zero (the terms without the group) by a likelihood-ratio test");
+}
+
 static br::Tabela tabela_do_R(SEXP dados, SEXP nomes) {
   br::Tabela t;
   const R_xlen_t nc = XLENGTH(dados);
@@ -1365,6 +1380,7 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
     br::AjusteMT r = br::ajusta_mt(d, th0.empty() ? nullptr : &th0,
                                    (std::size_t) Rf_asInteger(maxiter), Rf_asReal(tol),
                                   Rf_asLogical(verb) == TRUE);
+    conselho_da_partida(r.mensagem, partida_de);
     if (!nota.empty()) r.mensagem = r.mensagem.empty() ? nota : nota + "; " + r.mensagem;
 
     std::vector<std::string> nomes_th = br::nomes_theta_do_mt(d);
@@ -1676,6 +1692,7 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
     br::AjusteMT r = br::ajusta_ar1(d, th0.empty() ? nullptr : &th0,
                                     (std::size_t) Rf_asInteger(maxiter), Rf_asReal(tol),
                                    Rf_asLogical(verb) == TRUE);
+    conselho_da_partida(r.mensagem, partida_de);
     if (r.espelhado) partida_de = "sign-flipped rho";
     if (!nota.empty()) r.mensagem = r.mensagem.empty() ? nota : nota + "; " + r.mensagem;
     std::vector<std::string> nomes_th = br::nomes_theta_ar1(d);

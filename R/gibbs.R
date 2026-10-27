@@ -1144,6 +1144,12 @@ junta_cadeias <- function(rs, esperado) {
     msg <- c(msg, paste0("chain(s) ", paste(paradas, collapse = ", "), " stopped early (",
                          paste(nk[paradas], collapse = ", "), " of ", esperado, " kept samples)",
                          " and are left out of the pooled results"))
+  # sem cadeia completa o resultado e o da mais longa, que TAMBEM parou (lista de correcoes,
+  # item 39: a mensagem so falava das outras, e o leitor tomava a usada por completa)
+  if (!length(completas))
+    msg <- c(msg, paste0("every chain stopped early: the results come from chain ", usadas,
+                         ", the longest, which stopped too (", nk[usadas], " of ", esperado,
+                         " kept samples), so they are not those of the run asked for"))
   r$message <- paste(msg, collapse = "; ")
   r
 }

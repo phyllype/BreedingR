@@ -4,7 +4,7 @@
 \alias{h2_curve}
 \title{Heritability along the gradient, for a reaction-norm fit}
 \usage{
-h2_curve(fit, group = NULL, limits, points = 101L)
+h2_curve(fit, group = NULL, limits, points = 101L, bases = NULL)
 }
 \arguments{
 \item{fit}{result of \code{\link[=model]{model()}} with an rn() term}
@@ -15,6 +15,12 @@ genetic term, as in \code{\link[=h2]{h2()}}}
 \item{limits}{the same ones passed to \code{\link[=legendre]{legendre()}} when preparing the data}
 
 \item{points}{where to evaluate the curve}
+
+\item{bases}{a named list, term -> function(x), with the value at each point x of the
+base of a scalar term declared with \verb{base =} (for example \code{random(id, base = "young")},
+with \code{young} an indicator of a class of the gradient: \code{list(random = function(x) as.numeric(x < 30))}). The value of a data column at a point of the gradient is not
+known from the fit, so such a term without an entry here enters with base 1 at every
+point, and a warning says so}
 }
 \value{
 a data.frame with \code{x}, the point on the gradient, \code{va}, the additive variance there,

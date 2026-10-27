@@ -59,7 +59,8 @@ struct EntradaLinha {
   double val;
 };
 
-MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
+MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta,
+                       const std::vector<Densa>* fatores) {
   MontadoMT M;
   const std::size_t t = d.t;
   const std::size_t off_r0 = d.modelo.offset_residual;
@@ -185,6 +186,18 @@ MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
     }
   }
 
+  // o sistema transformado (BlocoT, mme.h): T' C_d T nos triplos dos dados, antes da penalidade
+  if (fatores) {
+    for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
+      if ((*fatores)[g].dados.empty()) continue;
+      std::size_t nl = 0;
+      for (const DesenhoTermo& a : d.aleatorios)
+        if (a.termo == d.modelo.grupos[g].termos[0]) { nl = a.n_niveis; break; }
+      M.blocos_t.push_back({M.offset_grupo[g], d.modelo.grupos[g].dim, nl, (*fatores)[g]});
+    }
+    transforma_triplos(M.blocos_t, ti, tj, tv, M.rhs);
+  }
+
   // penalidade por grupo, unidades absolutas: kron(C_g^-1, K^-1)
   for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
     const Grupo& gr = d.modelo.grupos[g];
@@ -196,12 +209,18 @@ MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
         cg.at(i, j) = v;
         cg.at(j, i) = v;
       }
-    {
+    // no sistema transformado a penalidade do grupo e I (x) K^-1, e log|I| = 0
+    const bool trans = fatores && !(*fatores)[g].dados.empty();
+    Densa cinv(dim, dim);
+    double ld = 0.0;
+    if (trans) {
+      for (std::size_t i = 0; i < dim; i++) cinv.at(i, i) = 1.0;
+    } else {
       Densa l = cg;
       if (!chol_densa(l)) return M;
+      cinv = inv_pd(cg);
+      ld = logdet_pd(cg);
     }
-    Densa cinv = inv_pd(cg);
-    const double ld = logdet_pd(cg);
 
     std::size_t nl = 0;
     for (const DesenhoTermo& a : d.aleatorios)
@@ -248,6 +267,75 @@ MontadoMT monta_mme_mt(const DesenhoMT& d, const std::vector<double>& theta) {
 // aqui porque a coluna carrega a caracteristica, mas a guarda fica) o par (p,q) representa
 // as duas ordens. Mantida por seguranca; o gate da forma V pega qualquer dupla contagem.
 
+// e^ = y - W b por registro e caracteristica
+static Densa residuo_mt(const DesenhoMT& d, const MontadoMT& M, const std::vector<double>& sol) {
+  const std::size_t t = d.t;
+  Densa ehat(d.nlin, t);
+  for (std::size_t r = 0; r < d.nlin; r++) {
+    if (!d.usa[r]) continue;
+    for (std::size_t tau = 0; tau < t; tau++) {
+      double wb = 0.0;
+      for (std::size_t ex = d.x.linptr[r]; ex < d.x.linptr[r + 1]; ex++) {
+        const int e = d.eq_fixa[d.x.coluna[ex] * t + tau];
+        if (e >= 0) wb += d.x.valor[ex] * sol[e];
+      }
+      ehat.at(r, tau) = d.y.at(r, tau) - wb;
+    }
+  }
+  for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
+    std::size_t col0 = M.offset_grupo[g];
+    for (std::size_t tm : d.modelo.grupos[g].termos)
+      for (const DesenhoTermo& a : d.aleatorios)
+        if (a.termo == tm) {
+          for (std::size_t c = 0; c < a.z.ncol; c++) {
+            const std::size_t ct = c / a.n_niveis, nv = c % a.n_niveis;
+            for (std::size_t pt = 0; pt < a.nt(t); pt++) {
+              const std::size_t tau = a.traco(pt);
+              const double bc = sol[col0 + (pt * a.n_coef + ct) * a.n_niveis + nv];
+              if (bc == 0.0) continue;
+              for (std::size_t p = a.z.colptr[c]; p < a.z.colptr[c + 1]; p++)
+                if (d.usa[a.z.linha[p]])
+                  ehat.at(a.z.linha[p], tau) -= a.z.valor[p] * bc;
+            }
+          }
+          col0 += a.z.ncol * a.nt(t);
+        }
+  }
+  return ehat;
+}
+
+// O -2logL do model_mt() pelo sistema transformado (o racional em BlocoT, src/mme.h), com a
+// forma quadratica pelos residuos, como em avalia_mt()
+static bool neg2logl_transformada_mt(const DesenhoMT& d, const std::vector<double>& theta,
+                                     const std::vector<Densa>& F, double& valor) {
+  MontadoMT M = monta_mme_mt(d, theta, &F);
+  if (!M.ok) return false;
+  const std::vector<std::size_t> perm = grau_minimo(M.c);
+  const Csc pc = permuta_sim(M.c, perm);
+  const Simbolica sb = simbolica(pc);
+  Csc L;
+  if (!cholesky(pc, sb, L)) return false;
+  std::vector<double> pb(M.total);
+  for (std::size_t k = 0; k < M.total; k++) pb[k] = M.rhs[perm[k]];
+  const std::vector<double> px = resolve(L, pb);
+  std::vector<double> sol(M.total, 0.0);
+  for (std::size_t k = 0; k < M.total; k++) sol[perm[k]] = px[k];
+  double upen = 0.0;
+  if (!upen_transformada(d.modelo, d.aleatorios, d.kinv, theta, M.offset_grupo, F, sol, 1.0, upen))
+    return false;
+  destransforma_solucao(M.blocos_t, sol);
+  const Densa ehat = residuo_mt(d, M, sol);
+  double ere = 0.0;
+  for (std::size_t r = 0; r < d.nlin; r++) {
+    if (!d.usa[r]) continue;
+    const Densa& rir = M.rinv_mask[M.mask[r]];
+    for (std::size_t a = 0; a < d.t; a++)
+      for (std::size_t b = 0; b < d.t; b++) ere += ehat.at(r, a) * rir.at(a, b) * ehat.at(r, b);
+  }
+  valor = M.logdet_r + M.logdet_g + logdet(L) + ere + upen + d.logdet_escala_x;
+  return std::isfinite(valor);
+}
+
 AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
                       CacheSimbolica* cache) {
   AvaliacaoMT A;
@@ -281,40 +369,7 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
   double upen = 0.0;   // soma_g soma_ab C_g^-1[a,b] Q[a,b] = u'G^-1 u
 
   // residuo por registro e caracteristica: e^ = y - W b
-  Densa ehat(d.nlin, t);
-  {
-    for (std::size_t r = 0; r < d.nlin; r++) {
-      if (!d.usa[r]) continue;
-      for (std::size_t tau = 0; tau < t; tau++) {
-        double wb = 0.0;
-        for (std::size_t ex = d.x.linptr[r]; ex < d.x.linptr[r + 1]; ex++) {
-          const int e = d.eq_fixa[d.x.coluna[ex] * t + tau];
-          if (e >= 0) wb += d.x.valor[ex] * A.solucao[e];
-        }
-        ehat.at(r, tau) = d.y.at(r, tau) - wb;
-      }
-    }
-    for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
-      std::size_t col0 = M.offset_grupo[g];
-      for (std::size_t tm : d.modelo.grupos[g].termos)
-        for (const DesenhoTermo& a : d.aleatorios)
-          if (a.termo == tm) {
-            for (std::size_t c = 0; c < a.z.ncol; c++) {
-              const std::size_t ct = c / a.n_niveis, nv = c % a.n_niveis;
-              for (std::size_t pt = 0; pt < a.nt(t); pt++) {
-                const std::size_t tau = a.traco(pt);
-                const double bc =
-                    A.solucao[col0 + (pt * a.n_coef + ct) * a.n_niveis + nv];
-                if (bc == 0.0) continue;
-                for (std::size_t p = a.z.colptr[c]; p < a.z.colptr[c + 1]; p++)
-                  if (d.usa[a.z.linha[p]])
-                    ehat.at(a.z.linha[p], tau) -= a.z.valor[p] * bc;
-              }
-            }
-            col0 += a.z.ncol * a.nt(t);
-          }
-    }
-  }
+  const Densa ehat = residuo_mt(d, M, A.solucao);
 
   // inversa seletiva na numeracao original
   SelInv z = inversa_seletiva(L, 0);
@@ -484,6 +539,15 @@ AvaliacaoMT avalia_mt(const DesenhoMT& d, const std::vector<double>& theta,
     }
     // + o termo da padronizacao das covariaveis (fixos.cpp)
     A.neg2logl = parte_fixa + ere + upen + d.logdet_escala_x;
+    // perto da singularidade de um grupo, o VALOR vem do sistema transformado (BlocoT,
+    // mme.h); o score e a AI seguem das MME, eles so dao a direcao
+    {
+      std::vector<Densa> cgs(d.modelo.grupos.size()), F;
+      for (std::size_t g = 0; g < cgs.size(); g++) cgs[g] = cov_grupo(d.modelo, theta, g);
+      double v = 0.0;
+      if (fatores_quase_singulares(cgs, F) && neg2logl_transformada_mt(d, theta, F, v))
+        A.neg2logl = v;
+    }
 
     // clique de cada registro (colunas e caracteristica), reconstruido como na montagem
     std::vector<std::vector<std::pair<std::uint32_t, double>>> zl2;

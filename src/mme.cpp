@@ -556,6 +556,163 @@ Densa cov_grupo(const Modelo& m, const std::vector<double>& theta, std::size_t g
   return c;
 }
 
+Densa fator_espectral(const Densa& c) {
+  const std::size_t dim = c.nlin;
+  std::vector<double> ev;
+  Densa u;
+  jacobi_sim(c, ev, u);
+  Densa F(dim, dim);
+  for (std::size_t k = 0; k < dim; k++) {
+    const double r = ev[k] > 0.0 ? std::sqrt(ev[k]) : 0.0;
+    for (std::size_t i = 0; i < dim; i++) F.at(i, k) = u.at(i, k) * r;
+  }
+  return F;
+}
+
+// O limiar 1e-6: abaixo dele o erro medido das MME ja passa de 1e-6 unidades de -2logL; acima,
+// as duas vias concordam ate o arredondamento, e o transformado so custaria uma fatoracao a mais
+bool fatores_quase_singulares(const std::vector<Densa>& cgs, std::vector<Densa>& F) {
+  F.assign(cgs.size(), Densa());
+  bool algum = false;
+  for (std::size_t g = 0; g < cgs.size(); g++) {
+    const Densa& c = cgs[g];
+    const std::size_t dim = c.nlin;
+    if (dim < 2) continue;
+    bool ok = true;
+    for (std::size_t i = 0; i < dim; i++)
+      ok = ok && c.at(i, i) > 0.0 && std::isfinite(c.at(i, i));
+    if (!ok) continue;
+    Densa r(dim, dim);
+    for (std::size_t i = 0; i < dim; i++)
+      for (std::size_t j = 0; j < dim; j++)
+        r.at(i, j) = c.at(i, j) / std::sqrt(c.at(i, i) * c.at(j, j));
+    std::vector<double> ev;
+    Densa u;
+    jacobi_sim(r, ev, u);
+    double mn = ev[0];
+    for (const double v : ev) mn = std::min(mn, v);
+    if (mn < 1e-6) {
+      F[g] = fator_espectral(c);
+      algum = true;
+    }
+  }
+  return algum;
+}
+
+void transforma_triplos(const std::vector<BlocoT>& blocos, std::vector<std::uint32_t>& ti,
+                        std::vector<std::uint32_t>& tj, std::vector<double>& tv,
+                        std::vector<double>& rhs) {
+  // a linha i de T': os (indice novo, coeficiente) em que a coluna i se espalha
+  auto expande = [&](std::size_t i, std::vector<std::pair<std::uint32_t, double>>& out) {
+    out.clear();
+    for (const BlocoT& b : blocos)
+      if (i >= b.off && i < b.off + b.dim * b.nl) {
+        const std::size_t a = (i - b.off) / b.nl, l = (i - b.off) % b.nl;
+        for (std::size_t a2 = 0; a2 < b.dim; a2++) {
+          const double f = b.F.at(a, a2);
+          if (f != 0.0) out.push_back({static_cast<std::uint32_t>(b.off + a2 * b.nl + l), f});
+        }
+        return;
+      }
+    out.push_back({static_cast<std::uint32_t>(i), 1.0});
+  };
+  std::vector<std::uint32_t> ni, nj;
+  std::vector<double> nv;
+  ni.reserve(ti.size());
+  nj.reserve(ti.size());
+  nv.reserve(ti.size());
+  std::vector<std::pair<std::uint32_t, double>> ei, ej;
+  for (std::size_t k = 0; k < ti.size(); k++) {
+    const std::uint32_t i = ti[k], j = tj[k];
+    const double v = tv[k];
+    expande(i, ei);
+    expande(j, ej);
+    // o triplo (i, j) com i < j vale pelas duas posicoes da simetrica; com i == j, por uma
+    for (const auto& [a0, ca] : ei)
+      for (const auto& [b0, cb] : ej) {
+        std::uint32_t a = a0, b = b0;
+        double w = ca * cb * v;
+        if (i == j) {
+          if (a > b) continue;
+        } else if (a == b) {
+          w *= 2.0;
+        } else if (a > b) {
+          std::swap(a, b);
+        }
+        ni.push_back(a);
+        nj.push_back(b);
+        nv.push_back(w);
+      }
+  }
+  ti.swap(ni);
+  tj.swap(nj);
+  tv.swap(nv);
+  for (const BlocoT& b : blocos) {
+    std::vector<double> r(b.dim * b.nl, 0.0);
+    for (std::size_t a = 0; a < b.dim; a++)
+      for (std::size_t a2 = 0; a2 < b.dim; a2++) {
+        const double f = b.F.at(a, a2);
+        if (f == 0.0) continue;
+        for (std::size_t l = 0; l < b.nl; l++) r[a2 * b.nl + l] += f * rhs[b.off + a * b.nl + l];
+      }
+    std::copy(r.begin(), r.end(), rhs.begin() + static_cast<std::ptrdiff_t>(b.off));
+  }
+}
+
+bool upen_transformada(const Modelo& m, const std::vector<DesenhoTermo>& aleatorios,
+                       const std::vector<Csc>& kinv, const std::vector<double>& theta,
+                       const std::vector<std::size_t>& offset_grupo, const std::vector<Densa>& F,
+                       const std::vector<double>& sol, double escala_t, double& upen) {
+  upen = 0.0;
+  for (std::size_t g = 0; g < m.grupos.size(); g++) {
+    const std::size_t dim = m.grupos[g].dim, off = offset_grupo[g];
+    std::size_t nl = 0;
+    for (const DesenhoTermo& a : aleatorios)
+      if (a.termo == m.grupos[g].termos[0]) { nl = a.n_niveis; break; }
+    if (!F[g].dados.empty()) {
+      for (std::size_t b = 0; b < dim; b++)
+        upen += forma_kinv(kinv[g], sol.data() + off + b * nl, nl) / escala_t;
+      continue;
+    }
+    Densa cinv;
+    try { cinv = inv_geral(cov_grupo(m, theta, g)); } catch (const Erro&) { return false; }
+    for (std::size_t a = 0; a < dim; a++)
+      for (std::size_t b = 0; b < dim; b++)
+        if (cinv.at(a, b) != 0.0)
+          upen += cinv.at(a, b) *
+                  bilinear_kinv(kinv[g], sol.data() + off + a * nl, sol.data() + off + b * nl, nl);
+  }
+  return true;
+}
+
+void destransforma_solucao(const std::vector<BlocoT>& blocos, std::vector<double>& sol) {
+  for (const BlocoT& b : blocos) {
+    std::vector<double> u(b.dim * b.nl, 0.0);
+    for (std::size_t a = 0; a < b.dim; a++)
+      for (std::size_t a2 = 0; a2 < b.dim; a2++) {
+        const double f = b.F.at(a, a2);
+        if (f == 0.0) continue;
+        for (std::size_t l = 0; l < b.nl; l++) u[a * b.nl + l] += f * sol[b.off + a2 * b.nl + l];
+      }
+    std::copy(u.begin(), u.end(), sol.begin() + static_cast<std::ptrdiff_t>(b.off));
+  }
+}
+
+double bilinear_kinv(const Csc& k, const double* u, const double* v, std::size_t nl) {
+  double s = 0.0;
+  if (k.ncol == 0) {
+    for (std::size_t l = 0; l < nl; l++) s += u[l] * v[l];
+    return s;
+  }
+  for (std::size_t c = 0; c < nl; c++)
+    for (std::size_t p = k.colptr[c]; p < k.colptr[c + 1]; p++) {
+      const std::size_t r = k.linha[p];
+      s += k.valor[p] * u[r] * v[c];
+      if (r != c) s += k.valor[p] * u[c] * v[r];
+    }
+  return s;
+}
+
 // Linhas de uma esparsa, para a montagem andar por registro.
 static std::vector<std::vector<std::pair<std::uint32_t, double>>> linhas_de(const Csc& m) {
   std::vector<std::vector<std::pair<std::uint32_t, double>>> out(m.nlin);
@@ -574,7 +731,8 @@ static std::vector<std::vector<std::pair<std::uint32_t, double>>> linhas_de(cons
 // portao do probit pegou). O resultado e bit a bit o da montagem por triplos: cada posicao
 // superior recebe UMA entrada de penalidade, (soma dos dados + 0) + penalidade e a mesma soma
 // na mesma ordem, e cada entrada de W'y soma os registros na mesma ordem crescente.
-Montado monta_mme(const Desenho& d, const std::vector<double>& theta, CacheSimbolica* cache) {
+Montado monta_mme(const Desenho& d, const std::vector<double>& theta, CacheSimbolica* cache,
+                  const std::vector<Densa>* fatores) {
   Montado M;
   M.s2e = theta[d.modelo.offset_residual];
   if (!(M.s2e > 0.0)) return M;          // inadmissivel: nao e resultado
@@ -669,9 +827,17 @@ Montado monta_mme(const Desenho& d, const std::vector<double>& theta, CacheSimbo
     // escala por s2e: C_s = W'W + kron(C_g^-1 s2e, K^-1) e o sistema em unidades de s2e
     Densa cgs = cg;
     for (double& v : cgs.dados) v /= M.s2e;
-    try { cinvs[g] = inv_pd(cgs); } catch (const Erro&) { return M; }
-    const double ld = logdet_pd(cgs);
-    if (std::isnan(ld)) return M;
+    // no sistema transformado (BlocoT, mme.h) a penalidade do grupo e I (x) K^-1, e
+    // log|I| = 0
+    double ld = 0.0;
+    if (fatores && !(*fatores)[g].dados.empty()) {
+      cinvs[g] = Densa(cg.nlin, cg.nlin);
+      for (std::size_t i = 0; i < cg.nlin; i++) cinvs[g].at(i, i) = 1.0;
+    } else {
+      try { cinvs[g] = inv_pd(cgs); } catch (const Erro&) { return M; }
+      ld = logdet_pd(cgs);
+      if (std::isnan(ld)) return M;
+    }
 
     const std::size_t nl = d.aleatorios.empty() ? 0 :
         [&]{ for (const auto& a : d.aleatorios)
@@ -720,6 +886,12 @@ Montado monta_mme(const Desenho& d, const std::vector<double>& theta, CacheSimbo
   };
 
   if (!cache) {
+    if (fatores) {
+      for (std::size_t g = 0; g < d.modelo.grupos.size(); g++)
+        if (!(*fatores)[g].dados.empty())
+          M.blocos_t.push_back({M.offset_grupo[g], d.modelo.grupos[g].dim, nls[g], (*fatores)[g]});
+      transforma_triplos(M.blocos_t, ti, tj, tv, M.rhs);
+    }
     emite([&](std::size_t i, std::size_t j, double v) {
       ti.push_back(static_cast<std::uint32_t>(i));
       tj.push_back(static_cast<std::uint32_t>(j));

@@ -224,7 +224,10 @@ warned about otherwise (see the missing-value rule under \code{formula})}
 raised from 100 after a measured case: a model warm-started from
 the reduced fit still had relDelta 1.6e-4 at iteration 100, no defect, a model
 that walks slowly along a covariance boundary. A fit that hits the ceiling says so
-in \code{message} and reports \code{converged = FALSE}. \code{maxiter = 0} evaluates the start
+in \code{message} and reports \code{converged = FALSE}, with one exception: when the Newton
+decrement at the last point is below its tolerance, the fit is certified on a flat
+direction of the likelihood. Then \code{converged = TRUE} at the ceiling, and \code{message}
+says that the components were still moving. \code{maxiter = 0} evaluates the start
 (after the \code{n_em} EM rounds) and always reports \code{converged = FALSE}: an evaluation
 is not a convergence, whatever the Newton decrement at that point, which \code{message}
 gives}

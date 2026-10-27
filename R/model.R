@@ -267,7 +267,10 @@ ARGS_MARCADOR <- local({
 #'   raised from 100 after a measured case: a model warm-started from
 #'   the reduced fit still had relDelta 1.6e-4 at iteration 100, no defect, a model
 #'   that walks slowly along a covariance boundary. A fit that hits the ceiling says so
-#'   in `message` and reports `converged = FALSE`. `maxiter = 0` evaluates the start
+#'   in `message` and reports `converged = FALSE`, with one exception: when the Newton
+#'   decrement at the last point is below its tolerance, the fit is certified on a flat
+#'   direction of the likelihood. Then `converged = TRUE` at the ceiling, and `message`
+#'   says that the components were still moving. `maxiter = 0` evaluates the start
 #'   (after the `n_em` EM rounds) and always reports `converged = FALSE`: an evaluation
 #'   is not a convergence, whatever the Newton decrement at that point, which `message`
 #'   gives
@@ -480,28 +483,32 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
                              maxiter > 0 || n_em > 0, kern = kern)
 
   t0 <- proc.time()[["elapsed"]]
-  r <- .Call(R_ajustar,
-             lst, names(lst), trait,
-             vapply(terms, function(t) t$nome, character(1)),
-             vapply(terms, function(t) t$column, character(1)),
-             vapply(terms, function(t) t$covariavel, logical(1)),
-             vapply(terms, function(t) t$estrutura, integer(1)),
-             vapply(terms, function(t) t$group, character(1)),
-             vapply(terms, function(t) t$nested, character(1)),
-             vapply(terms, function(t) t$base, character(1)),
-             vapply(terms, function(t) t$social, logical(1)),
-             ped_id, ped_sire, ped_dam,
-             if (is.null(missing_code)) 0.0 else as.double(missing_code), !is.null(missing_code),
-             as.integer(maxiter), as.double(tol), as.integer(n_em),
-             g$gid, g$gm, as.double(blend),
-             nuc,
-             0L,
-             isTRUE(verbose),
-             rotulo_motor(metafounders),
-             if (is.null(gamma)) numeric(0) else as.double(gamma), w,
-             if (is.null(start)) numeric(0) else as.double(start), kern,
-             vapply(terms, function(t) t$dilution, numeric(1)),
-             vapply(terms, function(t) t$kfixo, numeric(1)))
+  motor <- function(tt, st, nem) {
+    .Call(R_ajustar,
+          lst, names(lst), trait,
+          vapply(tt, function(t) t$nome, character(1)),
+          vapply(tt, function(t) t$column, character(1)),
+          vapply(tt, function(t) t$covariavel, logical(1)),
+          vapply(tt, function(t) t$estrutura, integer(1)),
+          vapply(tt, function(t) t$group, character(1)),
+          vapply(tt, function(t) t$nested, character(1)),
+          vapply(tt, function(t) t$base, character(1)),
+          vapply(tt, function(t) t$social, logical(1)),
+          ped_id, ped_sire, ped_dam,
+          if (is.null(missing_code)) 0.0 else as.double(missing_code), !is.null(missing_code),
+          as.integer(maxiter), as.double(tol), as.integer(nem),
+          g$gid, g$gm, as.double(blend),
+          nuc,
+          0L,
+          isTRUE(verbose),
+          rotulo_motor(metafounders),
+          if (is.null(gamma)) numeric(0) else as.double(gamma), w,
+          if (is.null(st)) numeric(0) else as.double(st), kern,
+          vapply(tt, function(t) t$dilution, numeric(1)),
+          vapply(tt, function(t) t$kfixo, numeric(1)))
+  }
+  r <- motor(terms, start, n_em)
+  if (maxiter > 0) r <- explora_reduzido(r, terms, motor, n_em, isTRUE(verbose))
   r$seconds <- proc.time()[["elapsed"]] - t0
   r <- anota_nucleo(r, nuc)
   # the fit REMEMBERS the base it was built on. accuracy() rebuilds the pedigree to read
@@ -531,6 +538,104 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # sem start = o ponto e a partida padrao, e nao componentes que o usuario deu
   r$components_given <- maxiter == 0 && n_em == 0 && !is.null(start)
   structure(anota_separabilidade(anota_estrutura(r, pe), notas), class = "breeding_fit")
+}
+
+# A CAMINHADA DO AJUSTE REDUZIDO (lista de correcoes, item 10). Perto de uma correlacao +-1 o
+# score e a AI do motor saem das MME com C_g^-1, e a caminhada anda devagar para a parede ou
+# para numa bacia que nao e a do otimo. Medido num conjunto de dados proprio (direto-materno,
+# depois do sistema transformado do item 3): da partida de var(y), 300 e 600
+# iteracoes sem certificado em r = -0,999998, 0,19 unidade de -2logL acima do ponto de
+# covariancia zero; uma segunda caminhada da diagonal com as variancias desse ponto voltava a
+# r = -0,9999985. A receita que a mensagem do motor ja dava, partir do modelo reduzido, chega
+# no otimo. Aqui ela e automatica: quando um grupo de varios termos (`group =`) termina com o
+# autovalor minimo da correlacao abaixo de 1e-4 (|r| acima de 0,9999 num par), certificado ou
+# nao, o model() ajusta os mesmos termos sem o grupo (covariancias 0) e caminha o modelo
+# completo a partir desse otimo, com a covariancia em 0. Volta o melhor pelas regras de
+# explora_fronteira (src/aireml.cpp): a segunda vence quando baixa o -2logL por mais que 1e-4;
+# quando certifica e fica abaixo da primeira por qualquer margem; quando certifica a menos de
+# 2e-4 de uma primeira que nao certificou; e, sem certificado nas duas, quando fica abaixo.
+# Cada ajuste tem o seu maxiter, e `iters` e o total. Um grupo de um termo so (o rn(), ou um
+# termo de varios coeficientes) nao tem reduzido pela formula e fica como esta.
+grupos_perto_de_um <- function(theta, limiar = 1e-4) {
+  nm <- names(theta)
+  cv <- grep("^cov[(]", nm, value = TRUE)
+  if (!length(cv)) return(list())
+  par <- strsplit(sub("^cov[(](.*)[)]$", "\\1", cv), ",", fixed = TRUE)
+  # os conjuntos ligados por alguma covariancia: um grupo de covariancia por conjunto
+  conj <- list()
+  for (pr in par) {
+    k <- which(vapply(conj, function(s) any(pr %in% s), logical(1)))
+    novo <- unique(c(pr, unlist(conj[k])))
+    conj <- c(conj[-k], list(novo))
+  }
+  out <- list()
+  for (s in conj) {
+    v <- theta[paste0("var(", s, ")")]
+    if (anyNA(v) || any(!(v > 0))) next
+    R <- diag(length(s))
+    for (a in seq_along(s)) for (b in seq_along(s)) {
+      if (a == b) next
+      x <- theta[c(paste0("cov(", s[a], ",", s[b], ")"), paste0("cov(", s[b], ",", s[a], ")"))]
+      x <- x[!is.na(x)]
+      if (length(x)) R[a, b] <- x[[1]] / sqrt(v[[a]] * v[[b]])
+    }
+    if (min(eigen(R, symmetric = TRUE, only.values = TRUE)$values) < limiar)
+      out[[length(out) + 1L]] <- s
+  }
+  out
+}
+
+explora_reduzido <- function(r, terms, motor, n_em, verbose) {
+  if (!is.finite(r$neg2logl) || !length(r$theta)) return(r)
+  perto <- grupos_perto_de_um(r$theta)
+  if (!length(perto)) return(r)
+  nomes <- vapply(terms, function(t) t$nome, character(1))
+  rotulos <- character(0)
+  tt <- terms
+  for (s in perto) {
+    i <- match(s, nomes)
+    # um nome com coeficiente (rn[0]) nao e um termo: o grupo de um termo so fica como esta
+    if (anyNA(i)) next
+    g <- unique(vapply(terms[i], function(t) t$group, character(1)))
+    if (length(g) != 1L || !nzchar(g)) next
+    for (k in i) tt[[k]]$group <- ""
+    rotulos <- c(rotulos, g)
+  }
+  if (!length(rotulos)) return(r)
+  como <- paste0("a walk from the fit with the covariances of group(s) ",
+                 paste(rotulos, collapse = ", "), " at 0 (the reduced model, then the full model ",
+                 "from its optimum)")
+  if (verbose) cat("boundary check: ", como, "
+", sep = "")
+  red <- motor(tt, NULL, n_em)
+  if (!is.finite(red$neg2logl) || !length(red$theta)) return(r)
+  # os grupos que nao foram reduzidos tem as suas covariancias no proprio ajuste reduzido; so
+  # as do grupo reduzido faltam, e partem de 0
+  st <- ifelse(names(r$theta) %in% names(red$theta), red$theta[names(r$theta)], 0)
+  E <- motor(terms, unname(st), 0L)
+  E$iters <- E$iters + red$iters
+  gap <- E$neg2logl - r$neg2logl
+  vence <- is.finite(gap) &&
+    (gap < -1e-4 || (isTRUE(E$converged) && (gap < 0 || (!isTRUE(r$converged) && gap < 2e-4))) ||
+       (!isTRUE(r$converged) && !isTRUE(E$converged) && gap < 0))
+  junta <- function(m, n) if (nzchar(m)) paste0(m, "; ", n) else n
+  if (!vence) {
+    r$iters <- r$iters + E$iters
+    r$message <- junta(r$message, paste0(
+      como, if (is.finite(gap)) sprintf(" ended %.3g -2logL unit(s) %s%s", abs(gap),
+                                        if (gap >= 0) "above this point" else
+                                          "below this point, inside the 1e-4 slack",
+                                        if (isTRUE(E$converged)) "" else " without a certificate")
+      else " could not be evaluated"))
+    return(r)
+  }
+  E$iters <- E$iters + r$iters
+  E$message <- junta(E$message, sprintf(
+    "a first walk %s at -2logL %.6f, with group(s) %s near a correlation of +-1: %s %s this point (%+.3g)",
+    if (isTRUE(r$converged)) "certified a point" else "stopped without a certificate",
+    r$neg2logl, paste(rotulos, collapse = ", "), como,
+    if (isTRUE(E$converged)) "certified" else "reached, also without a certificate,", gap))
+  E
 }
 
 # Genotype validation, shared by the three fitters: 0/1/2/NA and nothing else. An unknown

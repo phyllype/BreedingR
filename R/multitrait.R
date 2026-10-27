@@ -100,7 +100,8 @@
 #'   the second walk described under `tol`, 16 iterations instead of 8), medians 1.6 and
 #'   1.1 times. Which start was used is in `start_from`.
 #' @param maxiter maximum number of iterations; a fit that hits the ceiling says so in
-#'   `message` and how to raise it. The univariate fits of the default start are not
+#'   `message` and how to raise it (`converged = TRUE` at the ceiling only when the Newton
+#'   decrement certifies a flat direction, as in [model()]). The univariate fits of the default start are not
 #'   bound by it: the start is their optimum, so a small `maxiter` still pays for them;
 #'   the second, `var(y)` fit runs only when the first stops short of `maxiter`.
 #'   `maxiter = 0` evaluates the start and reports

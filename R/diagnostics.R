@@ -1041,19 +1041,36 @@ diagnostico_gibbs <- function(fit, derived, locations, probs, lim) {
           "family-wise alpha %g (worst %.4f): their chains disagree, or they mix slower than %s"),
           loc$term[marcados], loc$flagged[marcados], loc$limit[marcados], as.integer(Q),
           lim$alpha, loc$rhat_max[marcados],
-          if (probit) paste0("the typical level of the term (in the probit model there is no ",
-                             "ceiling from the components; a level whose records all fall in ",
-                             "one category has an improper posterior, which no run length fixes)")
+          # a posteriori impropria e so do nivel FIXO de priori plana; o nivel de um termo
+          # aleatorio tem a priori normal da sua variancia, e e proprio (lista de correcoes,
+          # item 22: a frase saia tambem para os termos aleatorios)
+          if (probit) ifelse(loc$term[marcados] == "(fixed effects)",
+                             paste0("the typical level of the term (in the probit model there ",
+                                    "is no ceiling from the components; a fixed level whose ",
+                                    "records all fall in one category has, under a flat ",
+                                    "prior, an improper posterior, which no run length fixes)"),
+                             paste0("the typical level of the term (in the probit model there ",
+                                    "is no ceiling from the components; a level whose records ",
+                                    "all fall in one category is kept finite by the prior of ",
+                                    "the term, but it mixes slowly)"))
           else "the slowest component allows"))
       }
       # com o limite acima de um nivel com UMA cadeia a 1 dp posterior das outras a checagem nao
       # acusa nem esse: o '0 flagged' nao e aprovacao, e a nota diz isso no print do ajuste
-      inativas <- !loc$active
-      if (any(inativas))
-        out$notes <- c(out$notes, sprintf(paste0(
-          "%s: the location check is inactive (limit %.4f): the autocorrelation time it ",
-          "allows, %.0f, puts the limit above a level with one chain a posterior sd apart"),
-          loc$term[inativas], loc$limit[inativas], loc$tau_reference[inativas]))
+      # uma nota por limite, com os termos que o dividem: no materno do item 25 da lista de
+      # correcoes a mesma linha saia identica para os cinco termos, e nao dizia o que fazer
+      inativas <- which(!loc$active)
+      if (length(inativas)) {
+        chave <- sprintf("%.4f|%.0f", loc$limit[inativas], loc$tau_reference[inativas])
+        for (ch in unique(chave)) {
+          k <- inativas[chave == ch]
+          out$notes <- c(out$notes, sprintf(paste0(
+            "%s: the location check is inactive (limit %.4f): the autocorrelation time it ",
+            "allows, %.0f, puts the limit above a level with one chain a posterior sd apart. ",
+            "More chains or a longer run lower the limit; until then read the components"),
+            paste(loc$term[k], collapse = ", "), loc$limit[k[1]], loc$tau_reference[k[1]]))
+        }
+      }
       lentos <- loc$ess_low
       if (any(lentos)) {
         sev <- max(sev, 1L)

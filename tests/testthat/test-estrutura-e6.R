@@ -170,15 +170,19 @@ test_that("extratores avisam num ajuste que nao convergiu e dao NA no que o SING
   s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 50,
                          h2 = 0.4, seed = 3)
   d <- s$data; ped <- s$pedigree
-  # traco constante: nao converge, e var(animal) nao e identificado
+  # traco constante: nao ha variancia para repartir, e o model() recusa antes de ajustar. Antes
+  # o ajuste ia ao teto com o residuo em 1e-17, e o veredito SINGULAR que este teste lia saia
+  # ou nao conforme o arredondamento do ponto final
   d1 <- d; d1$y <- 5
-  f3 <- model(y ~ cg + animal(id), d1, ped, verbose = FALSE)
+  expect_error(model(y ~ cg + animal(id), d1, ped, verbose = FALSE), "same value [(]5[)] in all")
+  # o ajuste que para no teto: os extratores avisam e leem o ponto
+  f3 <- model(y ~ cg + animal(id), d, ped, maxiter = 1L, verbose = FALSE)
   expect_false(f3$converged)
   h <- e6_avisos(h2(f3))
-  expect_true(is.na(h$valor))
+  expect_true(is.finite(h$valor))
   expect_true(any(grepl("h2\\(\\): this fit did not converge \\(see fit\\$message\\)", h$avisos)))
   a <- e6_avisos(accuracy(f3, ped))
-  expect_true(all(is.na(a$valor)))
+  expect_false(all(is.na(a$valor)))
   expect_true(any(grepl("accuracy\\(\\): this fit did not converge", a$avisos)))
   so <- e6_avisos(solutions(f3, ped))
   expect_true(any(grepl("solutions\\(\\): this fit did not converge", so$avisos)))
@@ -415,7 +419,8 @@ test_that("o h2 do summary() do gibbs() segue a regra de h2(): 4 var(sire) num m
   ds$lote <- rep(sprintf("L%02d", 1:10), length.out = nrow(ds))
   ga <- gibbs(y ~ cg + random(lote) + animal(id), ds, s$pedigree, n_iter = 200, burnin = 50,
               thin = 1, verbose = FALSE)
-  expect_identical(summary(ga)$h2$ratio, "var(animal) / phenotypic")
+  # a primeira linha e a do h2; as outras variancias seguem abaixo dela
+  expect_identical(summary(ga)$h2$ratio[1], "var(animal) / phenotypic")
 })
 
 test_that("G2: maxiter = 0 com n_em > 0 num desenho SINGULAR da NA com o veredito, e nao o ponto movido calado", {
@@ -460,8 +465,8 @@ test_that("o grupo padrao e o efeito direto em qualquer ordem da formula", {
   expect_equal(h2(fg), 0.3, tolerance = 1e-12)
   g <- gibbs(y ~ cg + maternal(dam) + animal(id), d, pd, theta_fixed = c(0.1, 0.3, 0.6),
              n_iter = 20, burnin = 2, thin = 1, verbose = FALSE)
-  expect_identical(summary(g)$h2$ratio, "var(animal) / phenotypic")
-  expect_equal(summary(g)$h2$mean, 0.3, tolerance = 1e-12)
+  expect_identical(summary(g)$h2$ratio[1], "var(animal) / phenotypic")
+  expect_equal(summary(g)$h2$mean[1], 0.3, tolerance = 1e-12)
 })
 
 test_that("accuracy() avisa a PEV acima da priori no passo unico, no animal nao genotipado", {

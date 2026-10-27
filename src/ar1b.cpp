@@ -1196,8 +1196,15 @@ static AjusteMT caminha_ar1(DesenhoAR& d, const std::vector<double>* theta0,
     char buf[128];
     std::snprintf(buf, sizeof(buf), " (relDelta %.3g, Newton decrement %.3g against the "
                   "2e-4 tolerance)", R.reldelta, R.decremento);
+    // relDelta 0: a caminhada CONGELOU (nenhum passo mudou os componentes), e o mesmo ponto
+    // volta com qualquer maxiter (lista de correcoes, item 8). O conselho de subir o maxiter
+    // so vale quando ela ainda anda
+    const std::string conselho = R.reldelta == 0.0
+        ? ": the walk froze, no step changed the components, so more iterations give the same "
+          "point. Fit from another start=, or read the components resting at a boundary"
+        : ": this model asks for more iterations. Raise maxiter=";
     R.mensagem = "stopped at " + std::to_string(maxiter) + " iteration(s) without a "
-        "certified optimum" + buf + ": this model asks for more iterations. Raise maxiter=" +
+        "certified optimum" + buf + conselho +
         (R.mensagem.empty() ? std::string() : "; " + R.mensagem);
   }
   if (cur.fora_do_padrao > 0)

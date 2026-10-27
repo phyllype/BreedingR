@@ -111,7 +111,8 @@ the second walk described under \code{tol}, 16 iterations instead of 8), medians
 1.1 times. Which start was used is in \code{start_from}.}
 
 \item{maxiter}{maximum number of iterations; a fit that hits the ceiling says so in
-\code{message} and how to raise it. The univariate fits of the default start are not
+\code{message} and how to raise it (\code{converged = TRUE} at the ceiling only when the Newton
+decrement certifies a flat direction, as in \code{\link[=model]{model()}}). The univariate fits of the default start are not
 bound by it: the start is their optimum, so a small \code{maxiter} still pays for them;
 the second, \code{var(y)} fit runs only when the first stops short of \code{maxiter}.
 \code{maxiter = 0} evaluates the start and reports

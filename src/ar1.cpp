@@ -162,10 +162,12 @@ struct MontadoAR {
   double rho = 0.0;
   std::size_t n_fixo = 0, total = 0;
   std::vector<std::size_t> offset_grupo;
+  std::vector<BlocoT> blocos_t;     // os grupos do sistema transformado (BlocoT, mme.h)
   bool ok = false;
 };
 
-MontadoAR monta_mme_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
+MontadoAR monta_mme_ar1(const DesenhoAR& d, const std::vector<double>& theta,
+                        const std::vector<Densa>* fatores = nullptr) {
   MontadoAR M;
   const std::size_t t = d.t;
   M.rho = theta[d.offset_rho];
@@ -269,6 +271,18 @@ MontadoAR monta_mme_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
     }
   }
 
+  // o sistema transformado (BlocoT, mme.h): T' C_d T nos triplos dos dados, antes da penalidade
+  if (fatores) {
+    for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
+      if ((*fatores)[g].dados.empty()) continue;
+      std::size_t nl = 0;
+      for (const DesenhoTermo& a : d.aleatorios)
+        if (a.termo == d.modelo.grupos[g].termos[0]) { nl = a.n_niveis; break; }
+      M.blocos_t.push_back({M.offset_grupo[g], d.modelo.grupos[g].dim, nl, (*fatores)[g]});
+    }
+    transforma_triplos(M.blocos_t, ti, tj, tv, M.rhs);
+  }
+
   // penalidade por grupo, unidades absolutas: kron(C_g^-1, K^-1); dim ja inclui t
   for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
     const Grupo& gr = d.modelo.grupos[g];
@@ -280,16 +294,22 @@ MontadoAR monta_mme_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
         cg.at(i, j) = v;
         cg.at(j, i) = v;
       }
-    {
+    // no sistema transformado a penalidade do grupo e I (x) K^-1, e log|I| = 0
+    const bool trans = fatores && !(*fatores)[g].dados.empty();
+    Densa cinv(dim, dim);
+    double ld = 0.0;
+    if (trans) {
+      for (std::size_t i = 0; i < dim; i++) cinv.at(i, i) = 1.0;
+    } else {
       Densa l = cg;
       if (!chol_densa(l)) return M;
+      cinv = inv_pd(cg);
+      ld = logdet_pd(cg);
     }
-    Densa cinv = inv_pd(cg);
     std::size_t nl = 0;
     for (const DesenhoTermo& a : d.aleatorios)
       if (a.termo == gr.termos[0]) { nl = a.n_niveis; break; }
-    M.logdet_g += static_cast<double>(nl) * logdet_pd(cg)
-                - static_cast<double>(dim) * d.kinv_logdet[g];
+    M.logdet_g += static_cast<double>(nl) * ld - static_cast<double>(dim) * d.kinv_logdet[g];
 
     const std::size_t off = M.offset_grupo[g];
     const bool com_k = d.kinv[g].ncol > 0;
@@ -320,6 +340,75 @@ MontadoAR monta_mme_ar1(const DesenhoAR& d, const std::vector<double>& theta) {
   M.c = de_triplos(M.total, M.total, ti, tj, tv);
   M.ok = true;
   return M;
+}
+
+// R^-1 e^ por registro e caracteristica: (Gamma^-1 (x) R0^-1) e
+static Densa rinv_e_ar1(const DesenhoAR& d, const MontadoAR& M, const Densa& ehat) {
+  const std::size_t t = d.t;
+  Densa re(d.nlin, t);
+  for (std::size_t si = 0; si < d.sujeitos.size(); si++) {
+    const std::vector<std::size_t>& regs = d.sujeitos[si];
+    std::vector<double> ts;
+    for (std::size_t r : regs) ts.push_back(d.tempo[r]);
+    GammaInv gi = gamma_inv(ts, M.rho);
+    const std::size_t m = regs.size();
+    for (std::size_t i = 0; i < m; i++) {
+      for (std::size_t a = 0; a < t; a++) {
+        double s = gi.diag[i] * ehat.at(regs[i], a);
+        if (i > 0) s += gi.sub[i - 1] * ehat.at(regs[i - 1], a);
+        if (i + 1 < m) s += gi.sub[i] * ehat.at(regs[i + 1], a);
+        re.at(regs[i], a) = s;
+      }
+    }
+  }
+  // multiplica por R0^-1 nas caracteristicas
+  for (std::size_t r = 0; r < d.nlin; r++) {
+    if (!d.usa[r]) continue;
+    double tmp[64];
+    for (std::size_t a = 0; a < t; a++) {
+      double s = 0.0;
+      for (std::size_t b = 0; b < t; b++) s += M.r0inv.at(a, b) * re.at(r, b);
+      tmp[a] = s;
+    }
+    for (std::size_t a = 0; a < t; a++) re.at(r, a) = tmp[a];
+  }
+  return re;
+}
+
+// O -2logL do model_ar1() pelo sistema transformado (o racional em BlocoT, src/mme.h), com a
+// forma quadratica pelos residuos, como em avalia_ar1()
+static bool neg2logl_transformada_ar1(const DesenhoAR& d, const std::vector<double>& theta,
+                                      const std::vector<Densa>& F, double& valor) {
+  MontadoAR M = monta_mme_ar1(d, theta, &F);
+  if (!M.ok) return false;
+  const std::vector<std::size_t> perm = grau_minimo(M.c);
+  const Csc pc = permuta_sim(M.c, perm);
+  const Simbolica sb = simbolica(pc);
+  Csc L;
+  if (!cholesky(pc, sb, L)) return false;
+  std::vector<double> pb(M.total);
+  for (std::size_t k = 0; k < M.total; k++) pb[k] = M.rhs[perm[k]];
+  const std::vector<double> px = resolve(L, pb);
+  std::vector<double> sol(M.total, 0.0);
+  for (std::size_t k = 0; k < M.total; k++) sol[perm[k]] = px[k];
+  double upen = 0.0;
+  if (!upen_transformada(d.modelo, d.aleatorios, d.kinv, theta, M.offset_grupo, F, sol, 1.0, upen))
+    return false;
+  destransforma_solucao(M.blocos_t, sol);
+  Densa ehat(d.nlin, d.t);
+  for (std::size_t r = 0; r < d.nlin; r++) {
+    if (!d.usa[r]) continue;
+    for (std::size_t tau = 0; tau < d.t; tau++) ehat.at(r, tau) = d.y.at(r, tau);
+    for (const auto& e : d.lw[r]) ehat.at(r, e.trait) -= e.val * sol[e.col];
+  }
+  const Densa re = rinv_e_ar1(d, M, ehat);
+  double ere = 0.0;
+  for (std::size_t r = 0; r < d.nlin; r++) {
+    if (!d.usa[r]) continue;
+    for (std::size_t a = 0; a < d.t; a++) ere += ehat.at(r, a) * re.at(r, a);
+  }
+  valor = M.logdet_r + M.logdet_g + logdet(L) + ere + upen + d.logdet_escala_x;
+  return std::isfinite(valor);
 }
 
 AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
@@ -491,33 +580,7 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
   }
 
   // R^-1 e^ por registro e caracteristica: (Gamma^-1 (x) R0^-1) e
-  Densa re(d.nlin, t);
-  for (std::size_t si = 0; si < d.sujeitos.size(); si++) {
-    const std::vector<std::size_t>& regs = d.sujeitos[si];
-    std::vector<double> ts;
-    for (std::size_t r : regs) ts.push_back(d.tempo[r]);
-    GammaInv gi = gamma_inv(ts, M.rho);
-    const std::size_t m = regs.size();
-    for (std::size_t i = 0; i < m; i++) {
-      for (std::size_t a = 0; a < t; a++) {
-        double s = gi.diag[i] * ehat.at(regs[i], a);
-        if (i > 0) s += gi.sub[i - 1] * ehat.at(regs[i - 1], a);
-        if (i + 1 < m) s += gi.sub[i] * ehat.at(regs[i + 1], a);
-        re.at(regs[i], a) = s;
-      }
-    }
-  }
-  // multiplica por R0^-1 nas caracteristicas
-  for (std::size_t r = 0; r < d.nlin; r++) {
-    if (!d.usa[r]) continue;
-    double tmp[64];
-    for (std::size_t a = 0; a < t; a++) {
-      double s = 0.0;
-      for (std::size_t b = 0; b < t; b++) s += M.r0inv.at(a, b) * re.at(r, b);
-      tmp[a] = s;
-    }
-    for (std::size_t a = 0; a < t; a++) re.at(r, a) = tmp[a];
-  }
+  const Densa re = rinv_e_ar1(d, M, ehat);
   {
     double ere = 0.0;
     for (std::size_t r = 0; r < d.nlin; r++) {
@@ -526,6 +589,15 @@ AvaliacaoAR avalia_ar1(const DesenhoAR& d, const std::vector<double>& theta,
     }
     // + o termo da padronizacao das covariaveis (fixos.cpp)
     A.neg2logl = parte_fixa + ere + upen + d.logdet_escala_x;
+    // perto da singularidade de um grupo, o VALOR vem do sistema transformado (BlocoT,
+    // mme.h); o score e a AI seguem das MME, eles so dao a direcao
+    {
+      std::vector<Densa> cgs(d.modelo.grupos.size()), F;
+      for (std::size_t g = 0; g < cgs.size(); g++) cgs[g] = cov_grupo(d.modelo, theta, g);
+      double v = 0.0;
+      if (fatores_quase_singulares(cgs, F) && neg2logl_transformada_ar1(d, theta, F, v))
+        A.neg2logl = v;
+    }
   }
 
   // ---- parametros residuais, unificados: dR = D (x) S

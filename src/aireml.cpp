@@ -142,6 +142,65 @@ static std::vector<double> kinv_vezes(const Csc& k, const double* u, std::size_t
   return out;
 }
 
+// O -2logL do model() pelo sistema transformado (o racional em BlocoT, src/mme.h). As
+// coordenadas do grupo transformado tem Var(u*) = s2e (I (x) K), e a forma quadratica sai como
+// em avalia(), pelos residuos: e'e + u*'(I (x) K^-1)u* nos grupos transformados, e
+// u'(C_g^-1 (x) K^-1)u nos outros, tudo sobre s2e
+static bool neg2logl_transformada(const Desenho& d, const std::vector<double>& theta,
+                                  const std::vector<Densa>& F, double& valor) {
+  Montado M = monta_mme(d, theta, nullptr, &F);
+  if (!M.ok) return false;
+  const std::vector<std::size_t> perm = grau_minimo(M.c);
+  const Csc pc = permuta_sim(M.c, perm);
+  const Simbolica sb = simbolica(pc);
+  Csc L;
+  if (!cholesky(pc, sb, L)) return false;
+  std::vector<double> pb(M.total);
+  for (std::size_t k = 0; k < M.total; k++) pb[k] = M.rhs[perm[k]];
+  const std::vector<double> px = resolve(L, pb);
+  std::vector<double> sol(M.total, 0.0);
+  for (std::size_t k = 0; k < M.total; k++) sol[perm[k]] = px[k];
+
+  // upen_transformada da u'(C_g^-1 (x) K^-1)u com a C_g absoluta, que ja e o b'Pen b / s2e de
+  // avalia(), e u*'(I (x) K^-1)u* / s2e nos grupos transformados
+  const double s2e = M.s2e;
+  double upen = 0.0;
+  if (!upen_transformada(d.modelo, d.aleatorios, d.kinv, theta, M.offset_grupo, F, sol, s2e, upen))
+    return false;
+  destransforma_solucao(M.blocos_t, sol);
+
+  std::vector<double> ehat(d.nlin, 0.0);
+  std::size_t nreg = 0;
+  for (std::size_t i = 0; i < d.nlin; i++) {
+    if (!d.usa[i]) continue;
+    nreg++;
+    double wb = 0.0;
+    for (std::size_t e = d.x.linptr[i]; e < d.x.linptr[i + 1]; e++)
+      wb += d.x.valor[e] * sol[d.x.coluna[e]];
+    ehat[i] = d.y[i] - wb;
+  }
+  for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
+    std::size_t col0 = M.offset_grupo[g];
+    for (std::size_t t : d.modelo.grupos[g].termos)
+      for (const DesenhoTermo& a : d.aleatorios)
+        if (a.termo == t) {
+          for (std::size_t cc = 0; cc < a.z.ncol; cc++) {
+            const double bc = sol[col0 + cc];
+            if (bc == 0.0) continue;
+            for (std::size_t q = a.z.colptr[cc]; q < a.z.colptr[cc + 1]; q++)
+              if (d.usa[a.z.linha[q]]) ehat[a.z.linha[q]] -= a.z.valor[q] * bc;
+          }
+          col0 += a.z.ncol;
+        }
+  }
+  double ete = 0.0;
+  for (std::size_t i = 0; i < d.nlin; i++)
+    if (d.usa[i]) ete += ehat[i] * ehat[i];
+  valor = (static_cast<double>(nreg) - static_cast<double>(M.n_fixo)) * std::log(s2e) +
+          M.logdet_g + logdet(L) + ete / s2e + upen + d.logdet_escala_x;
+  return std::isfinite(valor);
+}
+
 Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
                  CacheSimbolica* cache) {
   Avaliacao A;
@@ -365,9 +424,14 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
       (nreg_d - pfixo - static_cast<double>(q_ordem) + trpen_total) / s2e
       - ete / (s2e * s2e);
 
-  // EM do residual: s2e <- (e'e + s2e (q - trpen)) / n
+  // EM do residual: s2e <- (e'e + s2e (p + q - trpen)) / n. E[e'e | y] soma
+  // s2e tr(C^-1 W'W) = s2e (p + q - trpen), e os p fixos entram ali como dado faltante de
+  // priori plana (lista de correcoes, item 15). Sem o p, o ponto fixo do EM era
+  // e'e / (n - q + trpen), o do residuo de ML, e nao o zero do score acima,
+  // e'e / (n - p - q + trpen): com muitos niveis fixos por registro o aquecimento levava o
+  // residuo para baixo do otimo REML
   A.em_theta[d.modelo.offset_residual] =
-      (ete + s2e * (static_cast<double>(q_ordem) - trpen_total)) / nreg_d;
+      (ete + s2e * (pfixo + static_cast<double>(q_ordem) - trpen_total)) / nreg_d;
 
   // ---------------- AI: f_k = dV/dtheta_k . Py, e AI[i,j] = (f_i'f_j - (W'f_i)' Cs^-1 (W'f_j)) / s2e
   //
@@ -467,6 +531,18 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
       A.ai.at(b, a) = v;
     }
 
+  // perto da singularidade de um grupo, o VALOR vem do sistema transformado; o score e a AI
+  // continuam das MME, eles so dao a direcao, e quem aceita o passo e o valor
+  {
+    std::vector<Densa> cgs(d.modelo.grupos.size()), F;
+    for (std::size_t g = 0; g < cgs.size(); g++) {
+      cgs[g] = cov_grupo(d.modelo, theta, g);
+      for (double& v : cgs[g].dados) v /= s2e;
+    }
+    double v = 0.0;
+    if (fatores_quase_singulares(cgs, F) && neg2logl_transformada(d, theta, F, v))
+      A.neg2logl = v;
+  }
   A.ok = true;
   return A;
 }
@@ -1468,12 +1544,23 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
       if (v > 0.0 && std::isfinite(v)) escala_piso = v;
     }
   }
+  // O PISO DO RESIDUO (lista de correcoes, item 9). No univariado o residuo e um escalar em
+  // log, e o mapa tem so os grupos como blocos; sem piso, o residuo que ia a zero andava em
+  // log ate -infinito, nunca entrava no conjunto ativo, e o ajuste parava com o decremento em
+  // 1e11 e uma mensagem que nao dizia que era o residuo (medido com dois registros iguais por
+  // animal, var(residual) a 9e-14). Aqui ele tem o piso absoluto das variancias dos grupos,
+  // 1e-10 da escala, e as mesmas regras: grampo, conjunto ativo, relato e EP condicional
   auto pisos_z = [&](const std::vector<double>& zc, std::vector<double>& piso,
                      std::vector<char>& relativo) {
-    // no univariado o residuo e um escalar em log, entao o mapa tem so os grupos como
-    // blocos e o resultado e o mesmo de sempre
     br::pisos_z(mapa_z(d.modelo), zc, escala_piso, piso, relativo);
+    piso[d.modelo.offset_residual] = std::log(1e-10 * escala_piso);
+    relativo[d.modelo.offset_residual] = 0;
   };
+  // os indices de theta com piso em z: a diagonal de cada grupo e o residuo
+  std::vector<std::size_t> com_piso;
+  for (const Grupo& gr : d.modelo.grupos)
+    for (std::size_t i = 0; i < gr.dim; i++) com_piso.push_back(gr.theta_idx(i, i));
+  com_piso.push_back(d.modelo.offset_residual);
 
   // The pieces of the step at a point, shared by the walker and by the final certificate:
   // score and AI mapped to z by the chain rule, the floors, and two active sets over the
@@ -1511,9 +1598,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
       }
     P.congelado.assign(nt, 0);
     P.na_parede.assign(nt, 0);
-    for (const Grupo& gr : d.modelo.grupos)
-      for (std::size_t i = 0; i < gr.dim; i++) {
-        const std::size_t k = gr.theta_idx(i, i);
+    for (const std::size_t k : com_piso) {
         // preso pelo usuario ou grampeado na fronteira: nos dois casos a direcao sai
         // do sistema, o score dela e ignorado e o resto e otimizado CONDICIONALMENTE.
         P.congelado[k] = d.modelo.preso(k) ? 1 :
@@ -1550,8 +1635,14 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // GAP ON THE -2logL SCALE: the tolerance 2e-4 certifies the fit sits within ~1e-4 of
   // its optimum, four orders of magnitude below the ~4 units a likelihood-ratio test
   // calls a difference, while the measured defect (gap 6.9, dec ~14) fails it by five.
-  // An AI too singular to solve on the free block certifies nothing and counts as a
-  // refusal.
+  // The inverse of the free block is SPECTRAL, with each eigenvalue floored at 1e-9 of the
+  // largest. On a flat ridge the AI is singular to the rounding (measured on the direct +
+  // indirect gate of test-grupo-multitermo.R: eigenvalues 5.3e3, 5.4e2, 54 and +-1e-12, the
+  // gradient 1e-9 along the last), and the plain inverse gave a decrement of 1e-6 at one point
+  // and of 1.7e7 at a point 1e-3 away with the same -2logL to 1e-8: the number followed the
+  // rounding of the null eigenvalue. With the floor, a direction of numerically zero curvature
+  // counts g^2 / (1e-9 lambda_max): a gradient of 1e-9 there certifies, and a large one (the
+  // case above, scores of 5e5) still refuses.
   const double tol_dec = 2e-4;
   auto decremento_livre = [&](const PecasZ& P) -> double {
     Densa m = P.az;
@@ -1567,16 +1658,23 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
       }
     }
     if (!algum_livre) return 0.0;
-    Densa minv;
-    try { minv = inv_geral(m); } catch (const Erro&) {
-      return std::numeric_limits<double>::infinity();
-    }
+    for (const double v : m.dados)
+      if (!std::isfinite(v)) return std::numeric_limits<double>::infinity();
+    std::vector<double> ev;
+    Densa u;
+    jacobi_sim(m, ev, u);
+    double maior = 0.0;
+    for (const double e : ev) maior = std::max(maior, std::fabs(e));
+    if (!(maior > 0.0)) return std::numeric_limits<double>::infinity();
+    // the AI is PSD; a negative eigenvalue here is rounding, not curvature
+    const double piso = 1e-9 * maior;
     double dec = 0.0;
-    for (std::size_t i = 0; i < sc.size(); i++) {
-      if (sc[i] == 0.0) continue;
-      for (std::size_t j = 0; j < sc.size(); j++) dec += sc[i] * minv.at(i, j) * sc[j];
+    for (std::size_t k = 0; k < ev.size(); k++) {
+      double proj = 0.0;
+      for (std::size_t i = 0; i < sc.size(); i++) proj += u.at(i, k) * sc[i];
+      dec += proj * proj / std::max(std::fabs(ev[k]), piso);
     }
-    return std::fabs(dec);   // the AI is PSD; a negative here is rounding, not curvature
+    return dec;
   };
 
   // EM rescue: multiplicative, stays in the cone, and does not shrink at the boundary, so
@@ -1597,11 +1695,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
       if (!z_de_theta(d.modelo, cur.em_theta, ze)) break;
       std::vector<double> piso; std::vector<char> rel;
       pisos_z(ze, piso, rel);
-      for (const Grupo& gr : d.modelo.grupos)
-        for (std::size_t i = 0; i < gr.dim; i++) {
-          const std::size_t k = gr.theta_idx(i, i);
-          ze[k] = std::max(ze[k], piso[k]);
-        }
+      for (const std::size_t k : com_piso) ze[k] = std::max(ze[k], piso[k]);
       std::vector<double> cand = theta_de_z(d.modelo, ze);
       Avaliacao prox = avalia(d, cand, &cs);
       if (!prox.ok || prox.neg2logl >= cur.neg2logl - 1e-8) break;
@@ -1673,11 +1767,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
         zc = z;
         for (std::size_t i = 0; i < nt; i++)
           if (!congelado[i]) zc[i] -= alpha * passo[i];
-        for (const Grupo& gr : d.modelo.grupos)
-          for (std::size_t i = 0; i < gr.dim; i++) {
-            const std::size_t k = gr.theta_idx(i, i);
-            zc[k] = std::max(zc[k], piso[k]);
-          }
+        for (const std::size_t k : com_piso) zc[k] = std::max(zc[k], piso[k]);
         if (sem_passo) continue;
         std::vector<double> cand = theta_de_z(d.modelo, zc);
         Avaliacao prox = avalia(d, cand, &cs);
@@ -1793,17 +1883,51 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     Rprintf("%s at iter %d, -2logL %.6f\n",
             R.convergiu ? "converged" : "STOPPED", (int) R.iters, cur.neg2logl);
 
-  // erros padrao: 2 [AI^-1]_kk. A matriz inteira tambem sai: 2 AI^-1 e a covariancia
-  // amostral das componentes, e sem ela nao ha metodo delta para h2, r ou T.
-  R.se.assign(d.modelo.ntheta, std::nan(""));
-  R.vcov.assign(d.modelo.ntheta * d.modelo.ntheta, std::nan(""));
+  // erros padrao: 2 [AI_ll^-1]_kk no bloco LIVRE (lista de correcoes, itens 17 e 18). Um
+  // componente DADO nao foi estimado: o preso (kernel(fixed =)) e o componente escalar parado
+  // na fronteira zero (a menos de 2 vezes o piso, a regra do relatorio abaixo, "fixed there
+  // while the others were optimized conditional on that"). Ele fica sem EP, e os EP dos outros
+  // saem da informacao CONDICIONAL a ele. Antes o componente preso ganhava EP e os outros
+  // vinham da AI inteira: medido num kernel(pen, fixed = 0.36), var(kernel) com EP 0,108 e os
+  // EP de var(animal) e var(residual) iguais aos do ajuste com a baia livre. A matriz inteira
+  // tambem sai: 2 AI_ll^-1 e a covariancia amostral das componentes, sem ela nao ha metodo
+  // delta para h2, r ou T; a linha e a coluna do componente dado sao 0, porque ali ele entra
+  // como constante. O diagnostico SINGULAR (aviso_informacao, no fim) le o mesmo bloco livre.
+  const std::size_t nth = d.modelo.ntheta;
+  std::vector<char> dado(nth, 0);
+  for (std::size_t k = 0; k < nth; k++)
+    if (d.modelo.preso(k)) dado[k] = 1;
+  {
+    std::vector<double> zf;
+    if (z_de_theta(d.modelo, theta, zf)) {
+      std::vector<double> piso; std::vector<char> rel;
+      pisos_z(zf, piso, rel);
+      for (const Grupo& gr : d.modelo.grupos) {
+        if (gr.dim != 1) continue;
+        const std::size_t k = gr.theta_idx(0, 0);
+        if (!rel[k] && zf[k] <= piso[k] + std::log(2.0)) dado[k] = 1;
+      }
+      const std::size_t kr = d.modelo.offset_residual;
+      if (zf[kr] <= piso[kr] + std::log(2.0)) dado[kr] = 1;
+    }
+  }
+  std::vector<std::size_t> livre;
+  for (std::size_t k = 0; k < nth; k++)
+    if (!dado[k]) livre.push_back(k);
+  Densa ai_livre(livre.size(), livre.size());
+  for (std::size_t a = 0; a < livre.size(); a++)
+    for (std::size_t b = 0; b < livre.size(); b++) ai_livre.at(a, b) = cur.ai.at(livre[a], livre[b]);
+  R.se.assign(nth, std::nan(""));
+  R.vcov.assign(nth * nth, 0.0);
+  for (const std::size_t a : livre)
+    for (const std::size_t b : livre) R.vcov[a * nth + b] = std::nan("");
   try {
-    Densa inv = inv_geral(cur.ai);
-    for (std::size_t k = 0; k < d.modelo.ntheta; k++) {
-      const double v = 2.0 * inv.at(k, k);
-      if (v > 0.0) R.se[k] = std::sqrt(v);
-      for (std::size_t j = 0; j < d.modelo.ntheta; j++)
-        R.vcov[k * d.modelo.ntheta + j] = 2.0 * inv.at(k, j);
+    Densa inv = inv_geral(ai_livre);
+    for (std::size_t a = 0; a < livre.size(); a++) {
+      const double v = 2.0 * inv.at(a, a);
+      if (v > 0.0) R.se[livre[a]] = std::sqrt(v);
+      for (std::size_t b = 0; b < livre.size(); b++)
+        R.vcov[livre[a] * nth + livre[b]] = 2.0 * inv.at(a, b);
     }
   } catch (const Erro&) {}
 
@@ -1828,39 +1952,82 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     char buf[128];
     std::snprintf(buf, sizeof(buf), " (relDelta %.3g, Newton decrement of the free "
                   "components %.3g against the 2e-4 tolerance)", R.reldelta, R.decremento);
+    // relDelta 0: congelou, e mais iteracoes dao o mesmo ponto (lista de correcoes, item 8)
     R.mensagem = "stopped at " + std::to_string(maxiter) + " iteration(s) without a "
-        "certified optimum" + buf + ": this model asks for more iterations. Raise "
-        "maxiter=; a start= from a reduced model shortens the walk";
+        "certified optimum" + buf + (R.reldelta == 0.0
+        ? ": the walk froze, no step changed the components, so more iterations give the "
+          "same point. Fit from another start=, or read the components resting at a boundary"
+        : ": this model asks for more iterations. Raise maxiter=; a start= from a reduced "
+          "model shortens the walk");
   }
   {
     // The boundary report reads the FINAL point, not the freeze flags of the last
     // iteration: near a boundary optimum the walker can rest a hair above the floor
     // without ever being frozen there, and the user still needs to know the estimate
     // is on the edge (fit$score is NOT ~0 in the boundary direction, by design).
+    // Os componentes e os grupos sao NOMEADOS (lista de correcoes, item 21), e o grupo singular
+    // diz se ha uma correlacao de par em +-1: num grupo de 3 ou mais a singularidade pode vir
+    // de uma combinacao dos efeitos sem correlacao extrema nenhuma, e a mensagem dizia "a
+    // correlation at +/-1" mesmo assim
     std::size_t nzero = 0, nsing = 0;
+    std::string zeros, singulares;
+    const std::vector<std::string> nomes_f = d.modelo.nomes_theta();
     std::vector<double> zf;
     if (z_de_theta(d.modelo, theta, zf)) {
       std::vector<double> piso; std::vector<char> rel;
       pisos_z(zf, piso, rel);
-      for (const Grupo& gr : d.modelo.grupos)
+      for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
+        const Grupo& gr = d.modelo.grupos[g];
+        std::size_t sing = 0;
         for (std::size_t i = 0; i < gr.dim; i++) {
           const std::size_t k = gr.theta_idx(i, i);
           // within a factor of 2 of the floor counts as ON it: the walker rests where
           // the trench flattens, a hair above the clamp, and the reader still needs
           // to know the estimate is an edge case
-          if (zf[k] <= piso[k] + std::log(2.0)) (rel[k] ? nsing : nzero)++;
+          if (!(zf[k] <= piso[k] + std::log(2.0))) continue;
+          if (rel[k]) {
+            sing++;
+          } else {
+            nzero++;
+            zeros += (zeros.empty() ? "" : ", ") + nomes_f[k];
+          }
         }
+        if (!sing) continue;
+        nsing += sing;
+        const Densa c = cov_grupo(d.modelo, theta, g);
+        double rmax = 0.0;
+        for (std::size_t i = 0; i < gr.dim; i++)
+          for (std::size_t j = i + 1; j < gr.dim; j++)
+            if (c.at(i, i) > 0.0 && c.at(j, j) > 0.0)
+              rmax = std::max(rmax, std::fabs(c.at(i, j)) / std::sqrt(c.at(i, i) * c.at(j, j)));
+        char buf[200];
+        if (rmax >= 0.999)
+          std::snprintf(buf, sizeof(buf), "group %s: a correlation at +/-1", gr.nome.c_str());
+        else
+          std::snprintf(buf, sizeof(buf), "group %s: a combination of its effects with no "
+                        "variance, and no correlation at +/-1, the largest is %.3g",
+                        gr.nome.c_str(), rmax);
+        singulares += (singulares.empty() ? "" : "; ") + std::string(buf);
+      }
+      const std::size_t kr = d.modelo.offset_residual;
+      if (zf[kr] <= piso[kr] + std::log(2.0))
+        R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + "var(residual) at the zero "
+            "boundary (held at 1e-10 of the variance of the records while the others were "
+            "optimized conditional on that): the random effects take all the variation "
+            "between the records, so the model has more random effects than the data hold "
+            "apart from the residual";
     }
     if (nzero > 0)
       R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + std::to_string(nzero) +
-          " component(s) at the zero boundary, fixed there while the others were "
-          "optimized conditional on that";
+          " component(s) at the zero boundary (" + zeros + "), fixed there while the others "
+          "were optimized conditional on that";
+    // sem "the boundary is real": o item 41 da lista mediu um ponto do proprio modelo 3,08
+    // unidades abaixo de uma parede relatada assim
     if (nsing > 0)
       R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + std::to_string(nsing) +
-          " covariance group direction(s) at the singularity boundary (a correlation at "
-          "+/-1), held there while the others were optimized conditional on that; the "
-          "boundary is real, but a delta-method interval there is not, profile the "
-          "component instead";
+          " covariance group direction(s) at the singularity boundary (" + singulares +
+          "), held there while the others were optimized conditional on that; a "
+          "delta-method interval there is not valid, profile the component instead";
   }
   if (cur.fora_do_padrao > 0)
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +
@@ -1909,7 +2076,15 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     }
   }
   if (cur.ok) {
-    const std::string av = aviso_informacao(cur.ai, d.modelo.nomes_theta(), &R.se);
+    const std::vector<std::string> todos = d.modelo.nomes_theta();
+    std::vector<std::string> nomes_livres;
+    std::vector<double> se_livre;
+    for (const std::size_t k : livre) {
+      nomes_livres.push_back(todos[k]);
+      se_livre.push_back(R.se[k]);
+    }
+    const std::string av = aviso_informacao(ai_livre, nomes_livres, &se_livre);
+    for (std::size_t a = 0; a < livre.size(); a++) R.se[livre[a]] = se_livre[a];
     if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
   }
   return R;

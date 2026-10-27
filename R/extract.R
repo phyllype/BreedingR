@@ -745,6 +745,20 @@ summary.breeding_gibbs <- function(object, probs = c(0.025, 0.5, 0.975), ...) {
     cd <- colunas_diag(match(ah$nome, d$table$parameter),
                        t(mcse_q(function(m) razao_h2_gibbs(m, ah))))
     if (!is.null(cd)) h <- cbind(h, cd)
+    # a razao de cada outra variancia sobre o mesmo fenotipico (lista de correcoes, item 25: so
+    # o aditivo saia, e a da mae e a do ninho tinham de ser feitas a mao pelas amostras). Sem
+    # os diagnosticos de convergencia, que sao so da linha do h2
+    for (k in grep("^var[(]", nm)) {
+      if (k == ah$alvo || nm[k] == "var(residual)" || !(ah$peso[k] > 0)) next
+      rk <- ah$peso[k] * s[, k] / drop(s %*% ah$peso)
+      lin <- h[1L, , drop = FALSE]
+      lin[1L, ] <- NA
+      lin$ratio <- paste0(nm[k], " / phenotypic")
+      lin$mean <- mean(rk)
+      lin$sd <- stats::sd(rk)
+      lin[1L, colnames(q)] <- stats::quantile(rk, probs, names = FALSE)
+      h <- rbind(h, lin)
+    }
   }
   structure(list(titulo = paste0(if (isTRUE(object$chains > 1L))
                                    paste0(object$chains, " Gibbs chains") else "Gibbs chain",

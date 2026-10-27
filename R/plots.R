@@ -20,10 +20,16 @@
 #'   genetic term, as in [h2()]
 #' @param limits the same ones passed to [legendre()] when preparing the data
 #' @param points where to evaluate the curve
+#' @param bases a named list, term -> function(x), with the value at each point x of the
+#'   base of a scalar term declared with `base =` (for example `random(id, base = "young")`,
+#'   with `young` an indicator of a class of the gradient: `list(random = function(x)
+#'   as.numeric(x < 30))`). The value of a data column at a point of the gradient is not
+#'   known from the fit, so such a term without an entry here enters with base 1 at every
+#'   point, and a warning says so
 #' @return a data.frame with `x`, the point on the gradient, `va`, the additive variance there,
 #'   and `h2`, the heritability at that point.
 #' @export
-h2_curve <- function(fit, group = NULL, limits, points = 101L) {
+h2_curve <- function(fit, group = NULL, limits, points = 101L, bases = NULL) {
   if (!inherits(fit, "breeding_fit")) stop("expected the result of model()")
   if (missing(limits)) stop("provide the limits used in legendre(): the scale is part of the model")
   if (is.null(group)) group <- grupo_padrao(fit)
@@ -63,7 +69,35 @@ h2_curve <- function(fit, group = NULL, limits, points = 101L) {
   ordem_max <- max(dim_g - 1L, unlist(lapply(membros[e_comp], function(ms)
     vapply(ms, indice, integer(1)))), na.rm = TRUE)
   phi <- legendre(x, order = ordem_max, limits = limits)
-  base_de <- function(m) { k <- indice(m); if (is.na(k)) rep(1, length(x)) else phi[, k + 1L] }
+  # O TERMO ESCALAR COM base = (lista de correcoes, item 30): a base e uma coluna dos dados, e o
+  # valor dela num ponto do gradiente nao se conhece pelo ajuste. Antes a variancia dele
+  # entrava em todo ponto, como se a base fosse 1 (num random() de base indicadora de uma
+  # classe de idade, a variancia da classe entrava em toda idade). Com `bases` o usuario da
+  # a base no ponto; sem ela, o aviso diz que entra 1
+  com_base <- Filter(function(t) nzchar(t$base) && !grepl(",", t$base, fixed = TRUE),
+                     termos_do_ajuste(fit))
+  base_escalar <- list()
+  for (t in com_base) {
+    if (!any(grepl(paste0("(", t$nome, ")"), nomes, fixed = TRUE))) next
+    f <- bases[[t$nome]]
+    if (is.null(f)) {
+      warning("h2_curve(): term '", t$nome, "' has base = '", t$base, "', a data column whose ",
+              "value at a point of the gradient the fit does not know, so its variance enters ",
+              "at every point with base 1. Give its base at x with bases = list(", t$nome,
+              " = function(x) ...)", call. = FALSE)
+      next
+    }
+    b <- as.double(f(x))
+    if (length(b) != length(x) || anyNA(b))
+      stop("h2_curve(): bases$", t$nome, "(x) must give one number per point", call. = FALSE)
+    base_escalar[[t$nome]] <- b
+  }
+  base_de <- function(m) {
+    k <- indice(m)
+    if (!is.na(k)) return(phi[, k + 1L])
+    if (m %in% names(base_escalar)) return(base_escalar[[m]])
+    rep(1, length(x))
+  }
   termo_de <- function(m) sub("\\[\\d+\\]$", "", m)
   vp_x <- numeric(length(x))
   for (k in which(e_comp)) {
