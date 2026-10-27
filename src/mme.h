@@ -397,6 +397,13 @@ bool z_de_theta(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& 
 std::vector<double> theta_de_z(const MapaZ& mp, std::size_t ntheta,
                                const std::vector<double>& z);
 Densa jacobiano_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& z);
+// A covariancia das componentes CONDICIONAL a uma parede de bloco: V = 2 J_F (J_F' AI J_F)^-1
+// J_F', com J = d theta / d z e F as coordenadas de z livres; escreve vcov (ntheta x ntheta,
+// por linha) e se nas linhas `livre` e devolve false se J_F' AI J_F nao inverte. Os tres
+// ajustadores chamam quando um bloco de varias dimensoes para na parede (aireml.cpp)
+bool vcov_condicional(const Densa& ai, const Densa& J, const std::vector<std::size_t>& fz,
+                      const std::vector<std::size_t>& livre, std::vector<double>& vcov,
+                      std::vector<double>& se);
 // Todas as pecas do passo num ponto: z, score e AI levados para z, os pisos, e os DOIS
 // conjuntos ativos sobre os mesmos pisos e a mesma regra de score para fora, o do passo
 // (piso + 1e-9) e o do certificado, deliberadamente mais largo (piso + log 2). Ver o

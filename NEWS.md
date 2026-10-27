@@ -925,6 +925,17 @@
 
 ## Fixed
 
+* `model()` and `model_mt()`: when a covariance group stops at a wall (a correlation at
+  +/-1), the standard errors are conditional on that wall. The fit holds the group there and
+  optimizes the other components conditional on it. So `vcov` is now
+  `2 J_F (J_F' AI J_F)^-1 J_F'`, with `J` the derivative of `theta` in the coordinates of the
+  step and `F` the coordinates off the wall. It has one rank less. Before, it was the full
+  `2 AI^-1`. A fit without a wall keeps its numbers to the last bit. The simulation was a
+  random regression of rank 1, with r = 1 in the fit. There the standard error of the
+  permanent-environment variance was 0.0518. Now it is 0.0486, against 0.0489 from the
+  curvature of the profile -2logL (`profile_theta()`). Gates in
+  `tests/testthat/test-ep-parede-bloco.R`.
+
 * `model()` stops when the step makes no progress for 25 iterations, as `model_mt()` and
   `model_ar1()` already did. No progress means no gain above 1e-8 of the -2logL and no EM
   step that moves. Before, the walk went on to `maxiter` at the same point. The verdict

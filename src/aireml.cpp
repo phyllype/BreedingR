@@ -1430,6 +1430,45 @@ static std::vector<double> theta_de_z(const Modelo& mo, const std::vector<double
 // J = dtheta/dz, block diagonal by group. For z_m = L entry (a,b) with chain factor
 // s_m (= L_aa on the diagonal, 1 below), and theta_k = C_ij (i >= j):
 //   dC_ij/dz_m = s_m (delta_ia L_jb + delta_ja L_ib)
+bool vcov_condicional(const Densa& ai, const Densa& J, const std::vector<std::size_t>& fz,
+                      const std::vector<std::size_t>& livre, std::vector<double>& vcov,
+                      std::vector<double>& se) {
+  const std::size_t nth = J.nlin, nf = fz.size();
+  Densa aj(nth, nf);   // AI J_F
+  for (std::size_t i = 0; i < nth; i++)
+    for (std::size_t b = 0; b < nf; b++) {
+      double s = 0.0;
+      for (std::size_t j = 0; j < nth; j++) s += ai.at(i, j) * J.at(j, fz[b]);
+      aj.at(i, b) = s;
+    }
+  Densa A(nf, nf);     // J_F' AI J_F
+  for (std::size_t a = 0; a < nf; a++)
+    for (std::size_t b = 0; b < nf; b++) {
+      double s = 0.0;
+      for (std::size_t i = 0; i < nth; i++) s += J.at(i, fz[a]) * aj.at(i, b);
+      A.at(a, b) = s;
+    }
+  Densa inv;
+  try { inv = inv_geral(A); } catch (const Erro&) { return false; }
+  Densa ji(nth, nf);   // J_F (J_F' AI J_F)^-1
+  for (std::size_t i = 0; i < nth; i++)
+    for (std::size_t b = 0; b < nf; b++) {
+      double s = 0.0;
+      for (std::size_t c = 0; c < nf; c++) s += J.at(i, fz[c]) * inv.at(c, b);
+      ji.at(i, b) = s;
+    }
+  for (const std::size_t i : livre) {
+    for (const std::size_t k : livre) {
+      double s = 0.0;
+      for (std::size_t b = 0; b < nf; b++) s += ji.at(i, b) * J.at(k, fz[b]);
+      vcov[i * nth + k] = 2.0 * s;
+    }
+    const double v = vcov[i * nth + i];
+    if (v > 0.0) se[i] = std::sqrt(v);
+  }
+  return true;
+}
+
 Densa jacobiano_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& z) {
   Densa J(ntheta, ntheta);
   for (std::size_t bl = 0; bl < mp.blocos.size(); bl++) {
@@ -2045,20 +2084,29 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   std::vector<char> dado(nth, 0);
   for (std::size_t k = 0; k < nth; k++)
     if (d.modelo.preso(k)) dado[k] = 1;
-  {
-    std::vector<double> zf;
-    if (z_de_theta(d.modelo, theta, zf)) {
-      std::vector<double> piso; std::vector<char> rel;
-      pisos_z(zf, piso, rel);
-      for (const Grupo& gr : d.modelo.grupos) {
-        if (gr.dim != 1) continue;
+  // as coordenadas de z de um grupo de VARIAS dimensoes paradas no piso (a parede do bloco: uma
+  // correlacao +-1, ou uma combinacao dos efeitos sem variancia), pela mesma regra de 2 vezes
+  // o piso do relatorio abaixo
+  std::vector<double> zf;
+  std::vector<char> parede(nth, 0);
+  bool bloco_na_parede = false;
+  if (z_de_theta(d.modelo, theta, zf)) {
+    std::vector<double> piso; std::vector<char> rel;
+    pisos_z(zf, piso, rel);
+    for (const Grupo& gr : d.modelo.grupos) {
+      if (gr.dim == 1) {
         const std::size_t k = gr.theta_idx(0, 0);
         if (!rel[k] && zf[k] <= piso[k] + std::log(2.0)) dado[k] = 1;
+        continue;
       }
-      for (std::size_t k = 0; k < d.modelo.n_residuos(); k++) {
-        const std::size_t kr = d.modelo.offset_residual + k;
-        if (zf[kr] <= piso[kr] + std::log(2.0)) dado[kr] = 1;
+      for (std::size_t i = 0; i < gr.dim; i++) {
+        const std::size_t k = gr.theta_idx(i, i);
+        if (zf[k] <= piso[k] + std::log(2.0)) { parede[k] = 1; bloco_na_parede = true; }
       }
+    }
+    for (std::size_t k = 0; k < d.modelo.n_residuos(); k++) {
+      const std::size_t kr = d.modelo.offset_residual + k;
+      if (zf[kr] <= piso[kr] + std::log(2.0)) dado[kr] = 1;
     }
   }
   std::vector<std::size_t> livre;
@@ -2071,15 +2119,32 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   R.vcov.assign(nth * nth, 0.0);
   for (const std::size_t a : livre)
     for (const std::size_t b : livre) R.vcov[a * nth + b] = std::nan("");
-  try {
-    Densa inv = inv_geral(ai_livre);
-    for (std::size_t a = 0; a < livre.size(); a++) {
-      const double v = 2.0 * inv.at(a, a);
-      if (v > 0.0) R.se[livre[a]] = std::sqrt(v);
-      for (std::size_t b = 0; b < livre.size(); b++)
-        R.vcov[livre[a] * nth + livre[b]] = 2.0 * inv.at(a, b);
-    }
-  } catch (const Erro&) {}
+  if (!bloco_na_parede) {
+    try {
+      Densa inv = inv_geral(ai_livre);
+      for (std::size_t a = 0; a < livre.size(); a++) {
+        const double v = 2.0 * inv.at(a, a);
+        if (v > 0.0) R.se[livre[a]] = std::sqrt(v);
+        for (std::size_t b = 0; b < livre.size(); b++)
+          R.vcov[livre[a] * nth + livre[b]] = 2.0 * inv.at(a, b);
+      }
+    } catch (const Erro&) {}
+  } else {
+    // O BLOCO NA PAREDE (lista de correcoes, item 17, a metade dos grupos). O grupo foi
+    // segurado na parede enquanto os outros eram otimizados condicionais a ela, entao o EP e o
+    // da informacao CONDICIONAL a parede, no mapa do passo: V = 2 J_F (J_F' AI J_F)^-1 J_F', com
+    // J = d theta / d z e F as coordenadas de z livres (fora as do piso e as dadas). Sem parede
+    // J_F = J e V = 2 AI^-1, a regra de antes; por isso este caminho so roda com a parede, e um
+    // ajuste sem ela segue bit a bit. Medido num rn() 2 x 2 de posto 1 verdadeiro (simulacao,
+    // 480 animais, 4 registros cada, r = 1 no ajuste): o EP de var(pe) era 0,0518 pela AI
+    // inteira, 0,0486 assim, e 0,0489 pela curvatura do perfil de -2logL (profile_theta, so
+    // avaliacoes); var(residual) 0,0271, 0,02686 e 0,0268. Um componente cujo theta so depende
+    // de coordenadas seguradas (uma variancia em zero dentro do grupo) fica sem EP.
+    std::vector<std::size_t> fz;
+    for (std::size_t m = 0; m < nth; m++)
+      if (!parede[m] && !dado[m]) fz.push_back(m);
+    vcov_condicional(cur.ai, jacobiano_z(d.modelo, zf), fz, livre, R.vcov, R.se);
+  }
 
   if (!R.convergiu && maxiter == 0) {
     // uma avaliacao, nao um ajuste: dito como tal, com o decremento no ponto dado

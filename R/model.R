@@ -369,7 +369,13 @@ ARGS_MARCADOR <- local({
 #'   the fixed-effect solutions `b` (named `term=level`, in the order the columns of X
 #'   entered), `ebv` and `pev` per covariance group, `score`, `vcov`, the convergence
 #'   fields (`converged`, `iters`, `reldelta`, and `newton_dec`, the Newton decrement
-#'   of the free components at the final point) and `message`. PARAMETRIZATION OF `b`, and it matters when comparing against
+#'   of the free components at the final point) and `message`. `vcov` is `2 AI^-1`, the
+#'   sampling covariance of the components. A component held at a boundary (a variance at
+#'   zero, `kernel(fixed =)`) has no standard error, and the others come from the
+#'   information conditional on it. When a covariance group stops at a wall (a correlation
+#'   at +/-1), `vcov` is the covariance conditional on that wall: `2 J_F (J_F' AI J_F)^-1
+#'   J_F'`. Here `J` is the derivative of `theta` in the coordinates of the step. `F` is the
+#'   set of coordinates off the wall, so `vcov` has one rank less. PARAMETRIZATION OF `b`, and it matters when comparing against
 #'   a book or another program: the model carries an implicit intercept and drops
 #'   linearly dependent columns (listed in `dropped_x`; a dropped level has solution
 #'   zero). COVARIATES ARE STANDARDIZED INSIDE: a `cov()` column enters the equations as

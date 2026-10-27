@@ -206,8 +206,9 @@
 #'   in a two-term group with ten components at a covariance boundary, the -2logL equal
 #'   to 2.5e-5 after the Jacobian).
 #'   `vcov` is `2 AI^-1`, the sampling covariance of the components, with the names of
-#'   `theta`; a component with no standard error has its row and column `NA`. [se_function()]
-#'   reads it for r_g and h2.
+#'   `theta`; a component with no standard error has its row and column `NA`. A block of the
+#'   step can stop at a wall (a correlation at +/-1). Then `vcov` is conditional on that wall,
+#'   as in [model()], with one rank less. [se_function()] reads it for r_g and h2.
 #'   `residual`, `fitted`, `fitted_fixed` and `resid_var` (the variance of
 #'   each residual) are matrices with one row per row of `data` and one column per trait,
 #'   `NA` in a missing cell, read by [residuals.breeding_fit()]. They come from one more

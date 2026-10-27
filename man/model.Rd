@@ -337,7 +337,12 @@ the components \code{theta} with their \code{se},
 the fixed-effect solutions \code{b} (named \code{term=level}, in the order the columns of X
 entered), \code{ebv} and \code{pev} per covariance group, \code{score}, \code{vcov}, the convergence
 fields (\code{converged}, \code{iters}, \code{reldelta}, and \code{newton_dec}, the Newton decrement
-of the free components at the final point) and \code{message}. PARAMETRIZATION OF \code{b}, and it matters when comparing against
+of the free components at the final point) and \code{message}. \code{vcov} is \verb{2 AI^-1}, the
+sampling covariance of the components. A component held at a boundary (a variance at
+zero, \code{kernel(fixed =)}) has no standard error, and the others come from the
+information conditional on it. When a covariance group stops at a wall (a correlation
+at +/-1), \code{vcov} is the covariance conditional on that wall: \verb{2 J_F (J_F' AI J_F)^-1 J_F'}. Here \code{J} is the derivative of \code{theta} in the coordinates of the step. \code{F} is the
+set of coordinates off the wall, so \code{vcov} has one rank less. PARAMETRIZATION OF \code{b}, and it matters when comparing against
 a book or another program: the model carries an implicit intercept and drops
 linearly dependent columns (listed in \code{dropped_x}; a dropped level has solution
 zero). COVARIATES ARE STANDARDIZED INSIDE: a \code{cov()} column enters the equations as

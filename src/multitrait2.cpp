@@ -783,8 +783,21 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
   };
   // o conjunto excluido do ultimo certificado, para a mensagem e para a exploracao
   std::vector<char> parede_final;
+  // as DIAGONAIS de blocos de varias dimensoes no piso (a regra de 2 vezes o piso do model()),
+  // que o EP condicional segura; parede_final e o conjunto inteiro que o certificado excluiu, e
+  // o passo congela o bloco inteiro quando a curvatura colapsa
+  std::vector<char> piso_final;
   auto conta_parede = [&](const PassoZ& P) {
     parede_final = P.na_parede;
+    piso_final.assign(P.zc.size(), 0);
+    if (P.ok)
+      for (const auto& bl : mz.blocos) {
+        if (bl.second == 1) continue;
+        for (std::size_t i = 0; i < bl.second; i++) {
+          const std::size_t k = bl.first + (i * (2 * bl.second - i + 1)) / 2;
+          if (P.zc[k] <= P.piso[k] + std::log(2.0)) piso_final[k] = 1;
+        }
+      }
     std::size_t n = 0;
     for (char c : P.na_parede) n += c;
     return n;
@@ -1242,13 +1255,22 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
   // nao foi estimado, foi segurado la. Ele fica sem EP, a linha e a coluna dele na vcov sao 0
   // (ali ele entra como constante), e os outros saem da informacao condicional a ele, a AI sem
   // a linha e a coluna dele. Antes a AI inteira dava EP explodidos aos outros. O bloco de
-  // varias dimensoes na parede (uma correlacao +-1) segue com a AI inteira, como no model()
+  // varias dimensoes na parede (uma correlacao +-1) usa a informacao condicional a parede, no
+  // mapa do passo, como no model() (vcov_condicional, aireml.cpp). Com uma covariancia residual
+  // sem registro comum (sem_par, segurada em 0 no theta e nao no z) fica a AI inteira
   R.se.assign(d.modelo.ntheta, std::nan(""));
   const std::size_t ntv = d.modelo.ntheta;
   std::vector<char> dado(ntv, 0);
+  bool bloco_na_parede = false;
   if (parede_final.size() == ntv)
     for (const auto& bl : mz.blocos)
       if (bl.second == 1 && parede_final[bl.first]) dado[bl.first] = 1;
+  if (piso_final.size() == ntv)
+    for (std::size_t k = 0; k < ntv; k++)
+      if (piso_final[k]) bloco_na_parede = true;
+  bool algum_sem_par = false;
+  for (std::size_t k = 0; k < sem_par.size(); k++)
+    if (sem_par[k]) algum_sem_par = true;
   std::vector<std::size_t> na_veross;   // as coordenadas que entram na verossimilhanca, livres
   for (std::size_t k = 0; k < d.modelo.ntheta; k++)
     if (!sem_par[k] && !dado[k]) na_veross.push_back(k);
@@ -1256,7 +1278,13 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
   for (std::size_t k = 0; k < ntv; k++)
     if (dado[k])
       for (std::size_t j = 0; j < ntv; j++) R.vcov[k * ntv + j] = R.vcov[j * ntv + k] = 0.0;
-  if (final_ok)
+  std::vector<double> zf;
+  if (final_ok && bloco_na_parede && !algum_sem_par && z_de_theta(mz, ntv, theta, zf)) {
+    std::vector<std::size_t> fz;
+    for (std::size_t m = 0; m < ntv; m++)
+      if (!piso_final[m] && !dado[m]) fz.push_back(m);
+    vcov_condicional(cur.ai, jacobiano_z(mz, ntv, zf), fz, na_veross, R.vcov, R.se);
+  } else if (final_ok)
     try {
       Densa inv = inv_geral(sub_densa(cur.ai, na_veross));
       for (std::size_t i = 0; i < na_veross.size(); i++) {
