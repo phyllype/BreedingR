@@ -1006,6 +1006,17 @@ multiplicadores <- function(fit, weight = NULL, escala = FALSE, n = NULL, kernel
     m[is.na(m)] <- 1
     mult[i] <- if (length(m) == 2L) sqrt(m[1] * m[2]) else m[1]
   }
+  # o residuo por classe (model(residual_by =)): cada var(residual|k) entra pela fracao dos
+  # registros da classe, o que da o residuo medio dos registros (lista de correcoes, item 35)
+  if (length(fit$residual_class)) {
+    cl <- fit$residual_class
+    usa <- if (length(fit$used) == length(cl)) cl[fit$used %in% TRUE] else cl[!is.na(cl)]
+    lv <- attr(cl, "levels")
+    for (k in seq_along(lv)) {
+      nk <- paste0("var(residual|", lv[k], ")")
+      if (nk %in% nm) mult[[nk]] <- mean(usa == k)
+    }
+  }
   if ("var(residual)" %in% nm) {
     w <- fit$weights
     rp <- fit$residual_pen

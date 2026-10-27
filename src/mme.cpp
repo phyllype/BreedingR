@@ -979,9 +979,12 @@ double neg2logl_densa_V(const Desenho& d, const std::vector<double>& theta) {
     if (d.usa[i]) linhas.push_back(i);
   const std::size_t n = linhas.size();
 
-  // M = I + soma_g Z_g (C_g/s2e (x) K) Z_g'
+  // M = R/s2e + soma_g Z_g (C_g/s2e (x) K) Z_g', com R/s2e = I num residuo so e
+  // diag(s2_k(i) / s2e) no residuo por classe
   Densa M(n, n);
-  for (std::size_t i = 0; i < n; i++) M.at(i, i) = 1.0;
+  for (std::size_t i = 0; i < n; i++)
+    M.at(i, i) = d.classe_res.empty() ? 1.0
+        : theta[d.modelo.offset_residual + d.classe_res[linhas[i]]] / s2e;
 
   for (std::size_t g = 0; g < d.modelo.grupos.size(); g++) {
     Densa cg = cov_grupo(d.modelo, theta, g);

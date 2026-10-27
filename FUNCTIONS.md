@@ -12,7 +12,7 @@ model()  ── THE TRUNK: one engine, one formula
 │   options:  genotypes= blend= apy_core= metafounders=/gamma= missing_code=
 │             (the trait's code; a covariate cell at the code is refused or warned
 │             about; a missing label or covariate value stops every fitter on every row)
-│             weights= start= n_em=
+│             weights= start= n_em= residual_by= (a residual variance per class)
 │
 ├── sibling fitters (the mathematics changes)
 │     model_mt()    multi-trait: cbind(), full R0, missingness by record pattern

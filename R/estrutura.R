@@ -103,7 +103,25 @@ colunas_de_nivel <- function(terms, extra = character(0)) {
 # dos niveis, texto vai em UTF-8 (o motor compara bytes, e o mesmo texto em latin1 marcado e
 # em UTF-8 nao casava), integer64 vira o texto exato, o resto vira double. Uma coluna de
 # NIVEL com inteiros acima de 2^53 e recusada (recusa_grandes).
-colunas_para_motor <- function(data, cols, nivel = character(0)) {
+colunas_para_motor <- function(data, cols, nivel = character(0), terms = NULL) {
+  # O NA NUMA COLUNA DE NIVEL de um termo sem parentesco (lista de correcoes, item 41 A5): o
+  # motor parava com "NA in the text column 'pen' at row 3", sem o termo e sem a contagem que
+  # o texto em branco ja tinha. As colunas de um termo com parentesco ficam com
+  # prepara_estrutura(), que diz que o desconhecido e o 0
+  if (length(terms)) {
+    parentesco <- unlist(lapply(Filter(function(t) t$estrutura == 2L, terms), function(t)
+      c(t$column, sub("^mgs:", "", t$nested))))
+    for (t in Filter(function(t) t$estrutura %in% c(0L, 1L, 3L) && !isTRUE(t$covariavel), terms)) {
+      col <- data[[t$column]]
+      if (is.null(col) || t$column %in% parentesco || !(is.character(col) || is.factor(col)))
+        next
+      na <- which(is.na(col))
+      if (length(na))
+        stop("NA in the text column '", t$column, "' at row ", na[1L], ": drop those rows or ",
+             "fill them (term '", t$nome, "': ", length(na), " row(s) with NA; a record without a ",
+             "level has no known effect)", call. = FALSE)
+    }
+  }
   stats::setNames(lapply(cols, function(cn) {
     col <- data[[cn]]
     onde <- paste0("the column '", cn, "' of the data")

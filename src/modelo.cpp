@@ -223,7 +223,10 @@ std::vector<std::string> Modelo::nomes_theta() const {
         out[k] = (i == j) ? "var(" + rot[i] + ")" : "cov(" + rot[i] + "," + rot[j] + ")";
       }
   }
-  out[offset_residual] = "var(residual)";
+  if (classes_residuo.empty()) out[offset_residual] = "var(residual)";
+  else
+    for (std::size_t k = 0; k < classes_residuo.size(); k++)
+      out[offset_residual + k] = "var(residual|" + classes_residuo[k] + ")";
   return out;
 }
 

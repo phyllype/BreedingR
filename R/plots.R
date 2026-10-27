@@ -25,7 +25,10 @@
 #'   with `young` an indicator of a class of the gradient: `list(random = function(x)
 #'   as.numeric(x < 30))`). The value of a data column at a point of the gradient is not
 #'   known from the fit, so such a term without an entry here enters with base 1 at every
-#'   point, and a warning says so
+#'   point, and a warning says so. In a fit with `residual_by =`, the entry `residual` is a
+#'   function(x) that gives the residual class at each point (for example the band of days
+#'   that holds x); without it the residual enters at its mean over the records, the one of
+#'   [h2()], and a warning says so
 #' @return a data.frame with `x`, the point on the gradient, `va`, the additive variance there,
 #'   and `h2`, the heritability at that point.
 #' @export
@@ -97,6 +100,31 @@ h2_curve <- function(fit, group = NULL, limits, points = 101L, bases = NULL) {
     if (!is.na(k)) return(phi[, k + 1L])
     if (m %in% names(base_escalar)) return(base_escalar[[m]])
     rep(1, length(x))
+  }
+  # O RESIDUO POR CLASSE (model(residual_by =)): cada var(residual|k) entra no ponto x quando a
+  # classe de x e k, com bases$residual(x); sem ela, pela fracao da classe nos registros, a
+  # media de h2() (o multiplicador ja esta em th)
+  cl <- fit$residual_class
+  if (length(cl)) {
+    lv <- attr(cl, "levels")
+    f <- bases[["residual"]]
+    if (is.null(f)) {
+      warning("h2_curve(): the fit has residual_by = '", fit$residual_by, "', and the class of a ",
+              "point of the gradient is not known from the fit, so the residual enters at its ",
+              "mean over the records at every point. Give the class at x with bases = ",
+              "list(residual = function(x) ...)", call. = FALSE)
+    } else {
+      cx <- as.character(f(x))
+      if (length(cx) != length(x) || !all(cx %in% lv))
+        stop("h2_curve(): bases$residual(x) must give one class of '", fit$residual_by,
+             "' per point (", paste(lv, collapse = ", "), ")", call. = FALSE)
+      for (k in seq_along(lv)) {
+        nk <- paste0("var(residual|", lv[k], ")")
+        # a base entra ao quadrado em vp(x), e th ja traz a fracao da classe
+        base_escalar[[paste0("residual|", lv[k])]] <-
+          sqrt(as.double(cx == lv[k]) * fit$theta[[nk]] / th[[nk]])
+      }
+    }
   }
   termo_de <- function(m) sub("\\[\\d+\\]$", "", m)
   vp_x <- numeric(length(x))

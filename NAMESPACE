@@ -52,6 +52,7 @@ export(h2_liability)
 export(g_matrix)
 S3method(print, breeding_apy_core)
 S3method(print, br_gamma)
+S3method(print, br_qc)
 
 S3method(print, breeding_fit_mt)
 S3method(summary, breeding_fit_mt)

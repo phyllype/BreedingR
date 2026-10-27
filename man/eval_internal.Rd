@@ -16,7 +16,8 @@ eval_internal(
   weights = NULL,
   genotypes = NULL,
   blend = 0.05,
-  apy_core = NULL
+  apy_core = NULL,
+  residual_by = NULL
 )
 }
 \arguments{
@@ -45,6 +46,8 @@ likelihood loop written outside the package can walk the genomic model}
 \item{blend}{as in \code{\link[=model]{model()}}}
 
 \item{apy_core}{as in \code{\link[=model]{model()}}}
+
+\item{residual_by}{as in \code{\link[=model]{model()}}}
 }
 \description{
 This exists for the tests: the MME identity against the V form, and the score against

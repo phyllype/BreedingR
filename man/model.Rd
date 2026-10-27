@@ -19,7 +19,8 @@ model(
   gamma = NULL,
   verbose = interactive(),
   weights = NULL,
-  start = NULL
+  start = NULL,
+  residual_by = NULL
 )
 }
 \arguments{
@@ -294,6 +295,13 @@ records). Compare the -2logL of fits that have the same weights only}
 \item{start}{starting values for the components, in the order the fit reports them.
 Use it to warm-start from a submodel, or to check that the optimum does not depend
 on where the search began. Without it the start comes from \code{var(y)}}
+
+\item{residual_by}{name of a column of \code{data} whose classes (an age class, a period)
+get their own residual variance, \code{var(residual|class)} for each class, in the order
+of the sorted labels; every record with a response needs a class, and there must be 2
+classes or more. The variances are estimated with the others, and \code{h2()} reads the
+residual at the mean over the records of the class variances (the rule of the
+residual of a fit with \code{weights}, which this argument does not take)}
 }
 \value{
 an object of class \code{breeding_fit}. Besides the fields below it carries

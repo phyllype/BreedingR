@@ -2,6 +2,22 @@
 
 ## New
 
+* `model(residual_by =)`: a residual variance per class of a column (an age class, a band of
+  days), `var(residual|class)` for each class, estimated with the other components. The
+  engine fits the rows scaled by `sqrt(s2_1 / s2_k)`, where the model has one residual, and
+  adds the class block: the score of each class from the leverages of its records, its
+  vector in the average information, its EM step and the Jacobian of the scaling in the
+  -2logL. `h2()` reads the residual at the mean over the records of the class variances (the
+  rule of a fit with weights), `h2_curve(bases = list(residual =))` at the class of each
+  point, and `residuals()` divides by the variance of the class of the record. Gates in
+  `tests/testthat/test-residuo-classe.R`: the -2logL equals the dense V form, which builds R
+  directly, to 1e-9; the score equals central finite differences; classes of equal variance
+  give the -2logL of `model()` with one residual; a simulated design (planted 0.5, 1 and 2)
+  is recovered inside 3 SE, and the SE of the information matrix is within 20% of the one of
+  the numerical Hessian. In our own data set (a daily feeding trait, 177336 records of 2988
+  animals, a random regression of order 2) six bands of 11 days in the test lowered the
+  -2logL by 2638 with 5 more components; the residual variance went from 4584 in the first
+  band to 2653 in the fourth and 3365 in the last (SE 23 to 39).
 * `model_mt()`: a random term can apply to some of the traits only, with `traits =`.
   The usual case is a trait with repeated records and a trait with one record per animal:
   `cbind(y1, y2) ~ cg + animal(id) + pe(id, traits = "y1")`. Before, `pe()` applied to
@@ -864,6 +880,22 @@
 
 ## Fixed
 
+* `qc_phenotypes(fence_by =)`: Tukey fences within each class of a column (an age class), so
+  that a trait that grows with age is not cleaned by one fence over all ages. A class with
+  fewer than 8 observed records keeps the fences of all records; the fences of each class are
+  in `fences_by`.
+* The warning about covariate values more than 10 robust SDs from the median also says to
+  check them for a typing error, which is corrected in the data, and not only to treat them as
+  a missing-value code.
+* `model()`: an NA in the level column of a term without relationship (`random(pen)`, a
+  fixed class) also says the term and how many rows hold an NA, as blank text already did.
+* `print()` of `qc_phenotypes()` shows the summary: the result has the class `br_qc`, and
+  the cleaned records stay in `$data`. Before, typing the result printed every record before
+  the summary, into the console and any session log.
+* `print()` of `model_mt()` gives the Newton decrement next to relDelta, as `model()` does,
+  and says "record(s) with at least one trait" (it counted rows with any trait as
+  "complete"). The coefficient of a covariate prints as `cov(x)` and not as `x=x`; `fit$b`
+  keeps its names.
 * `h2_curve(bases =)`: the base at each point of the gradient of a scalar term declared with
   `base =` (a `random()` on an indicator of a class of age, for example). The value of a data
   column at a point is not known from the fit; before, the variance of such a term entered at

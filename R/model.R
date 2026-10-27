@@ -300,6 +300,12 @@ ARGS_MARCADOR <- local({
 #' @param start starting values for the components, in the order the fit reports them.
 #'   Use it to warm-start from a submodel, or to check that the optimum does not depend
 #'   on where the search began. Without it the start comes from `var(y)`
+#' @param residual_by name of a column of `data` whose classes (an age class, a period)
+#'   get their own residual variance, `var(residual|class)` for each class, in the order
+#'   of the sorted labels; every record with a response needs a class, and there must be 2
+#'   classes or more. The variances are estimated with the others, and `h2()` reads the
+#'   residual at the mean over the records of the class variances (the rule of the
+#'   residual of a fit with `weights`, which this argument does not take)
 #' @param weights a column of `data`, or a numeric vector: a record of weight w has
 #'   residual variance `s2e / w`. Weights enter as a row scaling by sqrt(w), so the
 #'   normal equations solved are the weighted ones. Use them when records are means of
@@ -436,7 +442,7 @@ ARGS_MARCADOR <- local({
 model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05,
                   apy_core = NULL, missing_code = NULL, maxiter = 300L, tol = 1e-8,
                   n_em = 4L, metafounders = NULL, gamma = NULL, verbose = interactive(),
-                  weights = NULL, start = NULL) {
+                  weights = NULL, start = NULL, residual_by = NULL) {
   if (!inherits(formula, "formula")) stop("expected a formula, like peso ~ cg + animal(id)")
   if (length(formula) != 3L) stop("the formula needs a left-hand side: peso ~ ...")
   trait <- deparse(formula[[2]])
@@ -457,9 +463,10 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # o que entra como numero: fator ou texto recusado, codigo de ausente e valor absurdo
   # no traco e na covariavel (R/valores.R)
   confere_numeros(data, trait, terms, missing_code)
+  cres <- classes_de_residuo(data, residual_by, trait, missing_code, weights)
 
   # only the used columns cross over; factor becomes text so no level identity is lost
-  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms))
+  lst <- colunas_para_motor(data, used_columns, colunas_de_nivel(terms), terms)
 
   g <- valida_genotipos(genotypes)
   nuc <- nucleo_apy(apy_core, genotypes)
@@ -505,7 +512,7 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
           if (is.null(gamma)) numeric(0) else as.double(gamma), w,
           if (is.null(st)) numeric(0) else as.double(st), kern,
           vapply(tt, function(t) t$dilution, numeric(1)),
-          vapply(tt, function(t) t$kfixo, numeric(1)))
+          vapply(tt, function(t) t$kfixo, numeric(1)), cres)
   }
   r <- motor(terms, start, n_em)
   if (maxiter > 0) r <- explora_reduzido(r, terms, motor, n_em, isTRUE(verbose))
@@ -521,6 +528,12 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # MESMO desenho para o bootstrap, e residuals() padroniza por sqrt(w)
   r$missing_code <- missing_code
   r$weights <- if (length(w)) w else NULL
+  # a classe de residuo de cada linha: h2() le o residuo pela fracao de cada classe nos
+  # registros, e residuals() pela variancia da classe do registro
+  if (length(cres)) {
+    r$residual_by <- residual_by
+    r$residual_class <- cres
+  }
   # o passo unico que o ajuste montou (a mistura; o nucleo APY ja esta em fit$apy):
   # snp_effects() le daqui para retro-calcular com a MESMA G*
   if (length(g$gid))
@@ -538,6 +551,31 @@ model <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # sem start = o ponto e a partida padrao, e nao componentes que o usuario deu
   r$components_given <- maxiter == 0 && n_em == 0 && !is.null(start)
   structure(anota_separabilidade(anota_estrutura(r, pe), notas), class = "breeding_fit")
+}
+
+# A COLUNA DO RESIDUO POR CLASSE (lista de correcoes, item 35): o codigo 1..K de cada linha com
+# o atributo levels (os rotulos ordenados), ou integer(0) sem residual_by. Os registros com
+# resposta precisam de classe; uma classe sem registro sairia sem informacao e e recusada
+classes_de_residuo <- function(data, residual_by, trait, missing_code, weights) {
+  if (is.null(residual_by)) return(integer(0))
+  if (!is.character(residual_by) || length(residual_by) != 1L || !residual_by %in% names(data))
+    stop("residual_by must name one column of the data", call. = FALSE)
+  if (!is.null(weights))
+    stop("residual_by does not take weights =: the classes already give each record its ",
+         "residual variance", call. = FALSE)
+  rot <- rotulo_motor(data[[residual_by]])
+  obs <- linhas_com_resposta(data, trait, missing_code)
+  sem <- obs & (is.na(rot) | !nzchar(rot) | rot == "NA")
+  if (any(sem))
+    stop("residual_by: ", sum(sem), " record(s) with a response have no class in '", residual_by,
+         "' (the first at row ", which(sem)[1], ")", call. = FALSE)
+  lv <- sort(unique(rot[obs]))
+  if (length(lv) < 2L)
+    stop("residual_by: '", residual_by, "' has one class in the records; a single residual ",
+         "variance is the default, without residual_by", call. = FALSE)
+  cod <- match(rot, lv)
+  cod[!obs] <- NA_integer_
+  structure(as.integer(cod), levels = lv)
 }
 
 # A CAMINHADA DO AJUSTE REDUZIDO (lista de correcoes, item 10). Perto de uma correlacao +-1 o
@@ -1381,11 +1419,12 @@ recusa_kfixo <- function(terms, quem) {
 #'   likelihood loop written outside the package can walk the genomic model
 #' @param blend as in [model()]
 #' @param apy_core as in [model()]
+#' @param residual_by as in [model()]
 #' @export
 eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = NULL,
                             with_dense = TRUE,
                           metafounders = NULL, gamma = NULL, weights = NULL,
-                          genotypes = NULL, blend = 0.05, apy_core = NULL) {
+                          genotypes = NULL, blend = 0.05, apy_core = NULL, residual_by = NULL) {
   trait <- deparse(formula[[2]])
   terms <- decompoe_formula(formula[[3]], environment(formula))
   recusa_materno_mgs(terms, pedigree)
@@ -1429,7 +1468,8 @@ eval_internal <- function(formula, data, pedigree = NULL, theta, missing_code = 
         nucleo_apy(recusa_auto(apy_core), genotypes),
         0L,
         kern,
-        vapply(terms, function(t) t$dilution, numeric(1)))
+        vapply(terms, function(t) t$dilution, numeric(1)),
+        classes_de_residuo(data, residual_by, trait, missing_code, weights))
 }
 
 # A TABELA DE COMPONENTES, a mesma em todo print e summary.
@@ -1601,6 +1641,9 @@ mostra_fixos <- function(b, dropped, nota = "implicit intercept") {
   cat("\nfixed effects (", nota,
       if (length(dropped)) "; dropped columns are zero" else "",
       "; compare by contrast):\n", sep = "")
+  # o coeficiente de uma covariavel sai do motor como "x=x" (termo=nivel), que de relance parece
+  # um nivel chamado x (lista de correcoes, item 41 A16): na impressao ele e cov(x); fit$b fica
+  names(b) <- sub("^([^=|]+)=\\1(\\|.*)?$", "cov(\\1)\\2", names(b))
   print(b, digits = 6)
   invisible()
 }

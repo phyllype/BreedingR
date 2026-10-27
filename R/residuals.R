@@ -103,7 +103,13 @@ residuals.breeding_fit <- function(object, type = c("conditional", "standardized
                                                     "marginal", "pearson"), ...) {
   type <- match.arg(type)
   confere_residuos(object)
-  s2e <- r0_diagonal(object)[[1]]
+  # com residual_by =, a variancia residual de cada registro e a da sua classe (lista de
+  # correcoes, item 35)
+  cl <- object$residual_class
+  s2e <- if (length(cl)) {
+    v <- unname(object$theta[paste0("var(residual|", attr(cl, "levels"), ")")])
+    v[cl]
+  } else r0_diagonal(object)[[1]]
   w <- if (is.null(object$weights)) 1 else object$weights
   e <- object$residual
   switch(type,

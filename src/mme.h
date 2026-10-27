@@ -266,6 +266,9 @@ struct Desenho {
   std::vector<double> y;
   std::vector<char> usa;
   std::size_t nlin = 0;
+  // a classe de residuo (0..K-1) de cada linha da tabela, com Modelo::classes_residuo; vazio
+  // com um residuo so
+  std::vector<std::uint32_t> classe_res;
   // Pesos: um registro de peso w tem residual s2e/w. Entram como ESCALA DE LINHA por
   // sqrt(w) em y, X e Z, as equacoes normais da tabela escalada SAO as equacoes
   // ponderadas, entao score, AI e inversa seletiva continuam valendo sem uma linha de

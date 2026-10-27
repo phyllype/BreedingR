@@ -206,7 +206,9 @@ texto_covariavel <- function(a, rotulo)
                                         a$linha, ")")
          else paste0("more than 10 robust SDs from the median (the first at row ", a$linha,
                      ", value ", format(a$valor, digits = 6), ", ", distancia_robusta(a$z),
-                     ")"),
+                     "): check them, a typing error is corrected in the data"),
+         # o valor longe pode ser erro de digitacao, e nao so codigo (lista de correcoes, item
+         # 41 A8: as 11 idades erradas do dado real eram digitacao)
          ": if it is a missing-value code, turn those cells into NA, which stops with the ",
          "row, or drop those records")
 

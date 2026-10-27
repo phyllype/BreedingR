@@ -746,6 +746,34 @@ static void conselho_da_partida(std::string& m, const std::string& partida_de) {
             "at zero (the terms without the group) by a likelihood-ratio test");
 }
 
+// O RESIDUO POR CLASSE (model(residual_by =), lista de correcoes, item 35): cres e o codigo
+// 1..K da classe de cada linha dos dados, com o atributo "levels". Vazio = um residuo so. A
+// classe entra no Modelo (os componentes var(residual|classe)) antes do desenho, e no Desenho
+// depois dele
+static void classes_no_modelo(br::Modelo& m, SEXP cres) {
+  if (XLENGTH(cres) == 0) return;
+  SEXP lv = Rf_getAttrib(cres, R_LevelsSymbol);
+  if (TYPEOF(lv) != STRSXP || XLENGTH(lv) < 2)
+    Rf_error("residual_by: expected the codes of 2 or more classes with their levels");
+  m.classes_residuo.clear();
+  for (R_xlen_t k = 0; k < XLENGTH(lv); k++) m.classes_residuo.push_back(CHAR(STRING_ELT(lv, k)));
+  m.ntheta = m.offset_residual + m.classes_residuo.size();
+}
+static void classes_no_desenho(br::Desenho& d, SEXP cres) {
+  if (XLENGTH(cres) == 0) return;
+  if ((std::size_t) XLENGTH(cres) != d.nlin) Rf_error("residual_by: one class per row of the data");
+  const std::size_t K = d.modelo.classes_residuo.size();
+  d.classe_res.assign(d.nlin, 0);
+  for (std::size_t i = 0; i < d.nlin; i++) {
+    const int c = INTEGER(cres)[i];
+    if (c == NA_INTEGER || c < 1 || (std::size_t) c > K) {
+      if (d.usa[i]) Rf_error("residual_by: row %d has no class", (int) i + 1);
+      continue;
+    }
+    d.classe_res[i] = (std::uint32_t) (c - 1);
+  }
+}
+
 static br::Tabela tabela_do_R(SEXP dados, SEXP nomes) {
   br::Tabela t;
   const R_xlen_t nc = XLENGTH(dados);
@@ -982,9 +1010,10 @@ std::string genomica_no_desenho(DES& d, const br::Pedigree* pp, br::Pedigree& pe
 // a identidade MME <-> forma V, e o score contra diferencas finitas centrais.
 SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
-               SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx, SEXP pesos, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP kern, SEXP tdil) {
+               SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP theta, SEXP com_densa, SEXP mfx, SEXP gmx, SEXP pesos, SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP kern, SEXP tdil, SEXP cres) {
   GUARDA(
     br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente, tdil);
+    classes_no_modelo(m, cres);
     br::Tabela t = tabela_do_R(dados, nomes);
     br::Pedigree ped;
     const br::Pedigree* pp = nullptr;
@@ -1000,6 +1029,7 @@ SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     std::vector<br::KernelDecl> ks = kernels_do_R(kern);
     br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw,
                                       ks.empty() ? nullptr : &ks);
+    classes_no_desenho(d, cres);
     // os kernels ja estao no desenho (a K^-1 de cada grupo vai em d.kinv): a copia de
     // entrada sai aqui, antes das MME e do fator, e nao fica no pico do ajuste
     std::vector<br::KernelDecl>().swap(ks);
@@ -1047,9 +1077,10 @@ SEXP R_avaliar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
 SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tcov,
                SEXP test, SEXP tgrp, SEXP tnest, SEXP tbase, SEXP tsoc, SEXP pid, SEXP ppai,
                SEXP pmae, SEXP ausente, SEXP usa_ausente, SEXP maxiter, SEXP tol, SEXP n_em,
-               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP pesos, SEXP inicio, SEXP kern, SEXP tdil, SEXP tfix) {
+               SEXP gid, SEXP gm, SEXP mistura, SEXP anucleo, SEXP vk, SEXP verb, SEXP mfx, SEXP gmx, SEXP pesos, SEXP inicio, SEXP kern, SEXP tdil, SEXP tfix, SEXP cres) {
   GUARDA(
     br::Modelo m = modelo_do_R(alvo, tnome, tcol, tcov, test, tgrp, tnest, tbase, tsoc, ausente, usa_ausente, tdil, tfix);
+    classes_no_modelo(m, cres);
     br::Tabela t = tabela_do_R(dados, nomes);
     // a priori dos genotipados sob passo unico, para accuracy(). Vazio sem genomica, e
     // nesse caso accuracy() segue com o 1 + F do pedigree.
@@ -1069,6 +1100,7 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     std::vector<br::KernelDecl> ks = kernels_do_R(kern);
     br::Desenho d = br::monta_desenho(m, t, pp, pw.empty() ? nullptr : &pw,
                                       ks.empty() ? nullptr : &ks);
+    classes_no_desenho(d, cres);
     // os kernels ja estao no desenho (a K^-1 de cada grupo vai em d.kinv): a copia de
     // entrada sai aqui, antes das MME e do fator, e nao fica no pico do ajuste
     std::vector<br::KernelDecl>().swap(ks);
@@ -1174,11 +1206,21 @@ SEXP R_ajustar(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEXP tc
     SEXP res_s[4];
     const std::vector<double>* res_v[4] = {&r.residuo, &r.ajustado, &r.ajustado_fixo,
                                            &r.alavanca};
+    // no residuo por classe as linhas tambem vieram escaladas por sqrt(s2_1 / s2_k), no ponto
+    // final
+    std::vector<double> w_classe;
+    if (!d.classe_res.empty() && r.theta.size() == d.modelo.ntheta) {
+      w_classe.assign(d.nlin, 1.0);
+      for (std::size_t i = 0; i < d.nlin; i++)
+        w_classe[i] = r.theta[d.modelo.offset_residual] /
+                      r.theta[d.modelo.offset_residual + d.classe_res[i]];
+    }
     for (int q = 0; q < 4; q++) {
       res_s[q] = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) d.nlin));
       for (std::size_t i = 0; i < d.nlin; i++) {
         double v = (res_v[q]->size() == d.nlin && d.usa[i]) ? (*res_v[q])[i] : NA_REAL;
         if (q < 3 && !pw.empty() && R_finite(v)) v /= std::sqrt(pw[i]);
+        if (q < 3 && !w_classe.empty() && R_finite(v)) v /= std::sqrt(w_classe[i]);
         REAL(res_s[q])[i] = std::isfinite(v) ? v : NA_REAL;
       }
     }
@@ -3750,8 +3792,8 @@ static const R_CallMethodDef metodos[] = {
   {"R_chol_esparsa", (DL_FUNC) &R_chol_esparsa, 5},
   {"R_inv_seletiva", (DL_FUNC) &R_inv_seletiva, 5},
   {"R_resolve",      (DL_FUNC) &R_resolve,      5},
-  {"R_avaliar",      (DL_FUNC) &R_avaliar,     28},
-  {"R_ajustar",      (DL_FUNC) &R_ajustar,     32},
+  {"R_avaliar",      (DL_FUNC) &R_avaliar,     29},
+  {"R_ajustar",      (DL_FUNC) &R_ajustar,     33},
   {"R_a22_inversa",  (DL_FUNC) &R_a22_inversa,  4},
   {"R_avaliar_mt",   (DL_FUNC) &R_avaliar_mt,  23},
   {"R_ajustar_mt",   (DL_FUNC) &R_ajustar_mt,  31},

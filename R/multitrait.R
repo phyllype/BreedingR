@@ -589,11 +589,16 @@ rg <- function(fit, term = "animal", t1 = NULL, t2 = NULL) {
 #' @export
 print.breeding_fit_mt <- function(x, ...) {
   cat("Multi-trait AI-REML fit: ", paste(x$traits, collapse = ", "), "\n", sep = "")
+  # o decremento de Newton e o certificado do converged (lista de correcoes, item 41 A10): o
+  # relDelta sozinho podia estar acima de tol num ajuste certificado na crista plana
   cat("  ", if (x$converged) "converged" else "DID NOT CONVERGE",
       " in ", x$iters, " iteration(s), relDelta ", format(x$reldelta, digits = 3),
+      if (!is.null(x$newton_dec))
+        paste0(", Newton decrement ", format(x$newton_dec, digits = 3)),
       ", ", format(x$seconds, digits = 3), " s\n", sep = "")
   cat("  -2logL ", format(x$neg2logl, digits = 10), "\n", sep = "")
-  cat("  ", x$n_used, " complete record(s), ", x$n_columns,
+  # n_used conta as linhas com ao menos um caracter, e nao as completas (item 41 A9)
+  cat("  ", x$n_used, " record(s) with at least one trait, ", x$n_columns,
       " column(s) in the equations\n", sep = "")
   if (nzchar(x$message)) cat("  note: ", x$message, "\n", sep = "")
   cat("\n")

@@ -841,15 +841,21 @@ simulate_breeding <- function(n_founders = 40, n_generations = 3,
 #'   (3 by default, the "far out" fence; 1.5 flags far more)
 #' @param min_class_n classes with FEWER observed records than this are reported
 #'   (default 2: singleton and empty levels)
+#' @param fence_by optional column whose classes get fences of their own (an age class, a
+#'   period): for a trait that grows with age one fence over all records flags nothing in
+#'   the young and only normal records in the old. A class with fewer than 8 observed
+#'   records keeps the fences of all records
 #' @return list with `data` (outliers turned into missing), `n_missing` (before the
 #'   outlier pass), `n_outliers`, `fences` (the two cutoffs), `small_classes`
 #'   (per class column, HOW MANY levels fall under `min_class_n`) and `missing_labels`
 #'   (per class column, how many rows hold a missing label: `NA`, `NaN`, `Inf`, `-Inf`,
 #'   blank text or the text "NaN", which every fitter refuses on any row; those rows are
-#'   not a level and do not enter `small_classes`)
+#'   not a level and do not enter `small_classes`). It has the class `br_qc`, whose print
+#'   shows the summary and not `data`: the records stay in `$data`, out of the console and
+#'   of any session log
 #' @export
 qc_phenotypes <- function(data, trait, missing_code = NULL, classes = NULL,
-                          fence = 3, min_class_n = 2L) {
+                          fence = 3, min_class_n = 2L, fence_by = NULL) {
   if (!trait %in% names(data)) stop("no column '", trait, "' in the data")
   y <- data[[trait]]
   falta <- is.na(y)
@@ -862,6 +868,26 @@ qc_phenotypes <- function(data, trait, missing_code = NULL, classes = NULL,
   q <- stats::quantile(obs, c(0.25, 0.75), names = FALSE)
   cerca <- c(q[1] - fence * (q[2] - q[1]), q[2] + fence * (q[2] - q[1]))
   fora <- !falta & (y < cerca[1] | y > cerca[2])
+  # AS CERCAS POR CLASSE (lista de correcoes, item 41 A7): num traco que cresce com a idade, a
+  # cerca unica e cega a ela; aqui cada classe de fence_by tem as suas, e a classe com menos de
+  # 8 registros observados fica com as de todos
+  cercas_classe <- NULL
+  if (!is.null(fence_by)) {
+    if (!fence_by %in% names(data)) stop("no column '", fence_by, "' in the data")
+    cl <- rotulo_motor(data[[fence_by]])
+    fora <- rep(FALSE, length(y))
+    cercas_classe <- list()
+    for (k in sort(unique(cl[!falta]))) {
+      em <- !falta & cl == k
+      ck <- cerca
+      if (sum(em) >= 8L) {
+        qk <- stats::quantile(y[em], c(0.25, 0.75), names = FALSE)
+        ck <- c(qk[1] - fence * (qk[2] - qk[1]), qk[2] + fence * (qk[2] - qk[1]))
+      }
+      cercas_classe[[k]] <- ck
+      fora <- fora | (em & (y < ck[1] | y > ck[2]))
+    }
+  }
   data[[trait]][fora] <- if (is.null(missing_code)) NA else missing_code
   pequenos <- list()
   sem <- list()
@@ -879,6 +905,29 @@ qc_phenotypes <- function(data, trait, missing_code = NULL, classes = NULL,
     tab <- table(factor(rot[!falta & !fora & !aus], levels = unique(rot[!aus])))
     pequenos[[cl]] <- sum(tab < min_class_n)
   }
-  list(data = data, n_missing = sum(falta), n_outliers = sum(fora),
-       fences = cerca, small_classes = pequenos, missing_labels = sem)
+  structure(list(data = data, n_missing = sum(falta), n_outliers = sum(fora),
+                 fences = cerca, small_classes = pequenos, missing_labels = sem, trait = trait,
+                 fences_by = cercas_classe),
+            class = "br_qc")
+}
+
+# O PRINT DO qc_phenotypes() (lista de correcoes, item 41 A4): o resumo, como describe(). Sem a
+# classe, digitar o resultado no console despejava $data inteiro, milhares de linhas antes do
+# resumo, e um conjunto privado ia junto para qualquer log da sessao
+#' @export
+print.br_qc <- function(x, ...) {
+  cat("qc_phenotypes() of '", x$trait, "': ", nrow(x$data), " row(s)\n", sep = "")
+  cat("  ", x$n_missing, " missing before the outlier pass; ", x$n_outliers,
+      " outlier(s) ", if (length(x$fences_by))
+        paste0("outside the fences of their class (", length(x$fences_by), " classes)")
+      else paste0("outside [", format(x$fences[1], digits = 4), ", ",
+                  format(x$fences[2], digits = 4), "]"),
+      " turned into missing\n", sep = "")
+  for (cl in names(x$small_classes))
+    cat("  class ", cl, ": ", x$small_classes[[cl]], " level(s) under the minimum count",
+        if (isTRUE(x$missing_labels[[cl]] > 0)) paste0(", ", x$missing_labels[[cl]],
+                                                       " row(s) with a missing label"),
+        "\n", sep = "")
+  cat("  the cleaned records are in $data\n")
+  invisible(x)
 }

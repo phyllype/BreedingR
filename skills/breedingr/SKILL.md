@@ -220,6 +220,11 @@ there. Its `r_g` is noisy when markers far outnumber animals.
 `s2e / w`. Use it for records that are means of k observations (weight k), or estimates
 carrying their own precision: a two-step analysis, a de-regressed proof.
 
+`residual_by = "class"` estimates one residual variance per class of a column (an age
+class, a band of days), `var(residual|class)`; `h2()` reads the residual at the mean over
+the records of the class variances, and `h2_curve(bases = list(residual = function(x) ...))`
+at the class of each point. It does not take `weights =`.
+
 **Never simulate weights by repeating rows.** Replication changes the degrees of freedom;
 with a random effect per record it drives the residual to zero and returns h2 = 1. That
 is a different model and a wrong answer.

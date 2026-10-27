@@ -111,6 +111,11 @@ struct Modelo {
   }
   std::size_t offset_residual = 0;
   std::size_t ntheta = 0;
+  // O RESIDUO POR CLASSE (lista de correcoes, item 35): os rotulos das classes, na ordem dos
+  // componentes var(residual|classe) a partir de offset_residual. Vazio = um residuo so, o
+  // caminho de sempre
+  std::vector<std::string> classes_residuo;
+  std::size_t n_residuos() const { return classes_residuo.empty() ? 1 : classes_residuo.size(); }
   bool tem_ausente = false;
   double codigo_ausente = 0.0;
 

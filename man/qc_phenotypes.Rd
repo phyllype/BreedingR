@@ -10,7 +10,8 @@ qc_phenotypes(
   missing_code = NULL,
   classes = NULL,
   fence = 3,
-  min_class_n = 2L
+  min_class_n = 2L,
+  fence_by = NULL
 )
 }
 \arguments{
@@ -28,6 +29,11 @@ with fewer than \code{min_class_n} observed records, and for missing labels}
 
 \item{min_class_n}{classes with FEWER observed records than this are reported
 (default 2: singleton and empty levels)}
+
+\item{fence_by}{optional column whose classes get fences of their own (an age class, a
+period): for a trait that grows with age one fence over all records flags nothing in
+the young and only normal records in the old. A class with fewer than 8 observed
+records keeps the fences of all records}
 }
 \value{
 list with \code{data} (outliers turned into missing), \code{n_missing} (before the
@@ -35,7 +41,9 @@ outlier pass), \code{n_outliers}, \code{fences} (the two cutoffs), \code{small_c
 (per class column, HOW MANY levels fall under \code{min_class_n}) and \code{missing_labels}
 (per class column, how many rows hold a missing label: \code{NA}, \code{NaN}, \code{Inf}, \code{-Inf},
 blank text or the text "NaN", which every fitter refuses on any row; those rows are
-not a level and do not enter \code{small_classes})
+not a level and do not enter \code{small_classes}). It has the class \code{br_qc}, whose print
+shows the summary and not \code{data}: the records stay in \verb{$data}, out of the console and
+of any session log
 }
 \description{
 The mirror of \code{\link[=qc_genotypes]{qc_genotypes()}} for the observation side: flags the missing code,

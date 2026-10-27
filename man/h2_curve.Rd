@@ -20,7 +20,10 @@ genetic term, as in \code{\link[=h2]{h2()}}}
 base of a scalar term declared with \verb{base =} (for example \code{random(id, base = "young")},
 with \code{young} an indicator of a class of the gradient: \code{list(random = function(x) as.numeric(x < 30))}). The value of a data column at a point of the gradient is not
 known from the fit, so such a term without an entry here enters with base 1 at every
-point, and a warning says so}
+point, and a warning says so. In a fit with \verb{residual_by =}, the entry \code{residual} is a
+function(x) that gives the residual class at each point (for example the band of days
+that holds x); without it the residual enters at its mean over the records, the one of
+\code{\link[=h2]{h2()}}, and a warning says so}
 }
 \value{
 a data.frame with \code{x}, the point on the gradient, \code{va}, the additive variance there,

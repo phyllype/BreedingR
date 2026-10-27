@@ -201,8 +201,45 @@ static bool neg2logl_transformada(const Desenho& d, const std::vector<double>& t
   return std::isfinite(valor);
 }
 
-Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
+// O RESIDUO POR CLASSE (lista de correcoes, item 35). Com R = diag(s2_k(i)), as linhas
+// escaladas por sqrt(w_i), w_i = s2_1 / s2_k(i), dao o modelo de Var(e~) = s2_1 I, e as MME,
+// a solucao, os escores dos grupos e a AI do motor valem nessas linhas como estao: a AI no
+// espaco original e (f~_a'f~_b - (W~'f~_a)' Cs^-1 (W~'f~_b)) / s2_1 com f~ = D^1/2 f, e o f~ de
+// um grupo e o de sempre nas colunas escaladas. O que muda e so o bloco do residuo: o f~ da
+// classe k e 1{i em k} e~_i / s2_k, o escore e (1/s2_k) soma_{i em k} [(1 - h_ii) - e~_i^2/s2_1]
+// com h_ii a alavanca do registro, o EM e s2_k <- (s2_k/n_k) soma_{i em k} (e~_i^2/s2_1 + h_ii),
+// e o -2logL ganha o jacobiano soma_k n_k log(s2_k / s2_1)
+static Desenho escala_por_classe(const Desenho& d, const std::vector<double>& theta,
+                                 std::vector<double>& w) {
+  Desenho e = d;
+  const std::size_t off = d.modelo.offset_residual;
+  w.assign(d.nlin, 1.0);
+  for (std::size_t i = 0; i < d.nlin; i++) w[i] = theta[off] / theta[off + d.classe_res[i]];
+  std::vector<double> r(d.nlin);
+  for (std::size_t i = 0; i < d.nlin; i++) r[i] = std::sqrt(w[i]);
+  for (std::size_t i = 0; i < d.nlin; i++) {
+    e.y[i] *= r[i];
+    for (std::size_t q = e.x.linptr[i]; q < e.x.linptr[i + 1]; q++) e.x.valor[q] *= r[i];
+  }
+  for (DesenhoTermo& a : e.aleatorios)
+    for (std::size_t q = 0; q < a.z.valor.size(); q++) a.z.valor[q] *= r[a.z.linha[q]];
+  return e;
+}
+
+Avaliacao avalia(const Desenho& d0, const std::vector<double>& theta,
                  CacheSimbolica* cache) {
+  // com residuo por classe, o resto de avalia() le as linhas escaladas; a parte dos dados das
+  // MME muda com theta, entao o cache dela nao vale (a simbolica, do padrao, vale)
+  const bool het = d0.modelo.n_residuos() > 1;
+  for (std::size_t k = 0; het && k < d0.modelo.n_residuos(); k++)
+    if (!(theta[d0.modelo.offset_residual + k] > 0.0)) return Avaliacao();
+  std::vector<double> w_het;
+  Desenho d_het;
+  if (het) {
+    d_het = escala_por_classe(d0, theta, w_het);
+    if (cache) cache->mont_dono = nullptr;
+  }
+  const Desenho& d = het ? d_het : d0;
   Avaliacao A;
   Montado M = monta_mme(d, theta, cache);
   if (!M.ok) return A;
@@ -423,6 +460,41 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
   A.score[d.modelo.offset_residual] =
       (nreg_d - pfixo - static_cast<double>(q_ordem) + trpen_total) / s2e
       - ete / (s2e * s2e);
+  // o residuo por classe: a alavanca h_ii de cada registro nas linhas escaladas, pela inversa
+  // seletiva (os pares de colunas de uma linha estao no padrao do fator, porque estao em C)
+  const std::size_t nres = d.modelo.n_residuos(), off_r = d.modelo.offset_residual;
+  std::vector<double> alav;
+  if (het) {
+    const LinhasW lw = linhas_w(d, M.offset_grupo);
+    alav.assign(d.nlin, 0.0);
+    for (std::size_t i = 0; i < d.nlin; i++) {
+      if (!d.usa[i]) continue;
+      double h = 0.0;
+      for (std::size_t a = lw.ptr[i]; a < lw.ptr[i + 1]; a++)
+        for (std::size_t b = lw.ptr[i]; b < lw.ptr[i + 1]; b++) {
+          double zv = 0.0;
+          if (z_orig(lw.col[a], lw.col[b], zv)) h += lw.val[a] * lw.val[b] * zv;
+          else A.fora_do_padrao++;
+        }
+      alav[i] = h;
+    }
+    std::vector<double> soma(nres, 0.0), soma_e(nres, 0.0), n_k(nres, 0.0);
+    double jac = 0.0;
+    for (std::size_t i = 0; i < d.nlin; i++) {
+      if (!d.usa[i]) continue;
+      const std::size_t k = d.classe_res[i];
+      soma[k] += (1.0 - alav[i]) - ehat[i] * ehat[i] / s2e;
+      soma_e[k] += ehat[i] * ehat[i] / s2e + alav[i];
+      n_k[k] += 1.0;
+      jac -= std::log(w_het[i]);
+    }
+    A.neg2logl += jac;
+    for (std::size_t k = 0; k < nres; k++) {
+      const double s2k = theta[off_r + k];
+      A.score[off_r + k] = soma[k] / s2k;
+      A.em_theta[off_r + k] = n_k[k] > 0.0 ? s2k * soma_e[k] / n_k[k] : s2k;
+    }
+  }
 
   // EM do residual: s2e <- (e'e + s2e (p + q - trpen)) / n. E[e'e | y] soma
   // s2e tr(C^-1 W'W) = s2e (p + q - trpen), e os p fixos entram ali como dado faltante de
@@ -430,8 +502,9 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
   // e'e / (n - q + trpen), o do residuo de ML, e nao o zero do score acima,
   // e'e / (n - p - q + trpen): com muitos niveis fixos por registro o aquecimento levava o
   // residuo para baixo do otimo REML
-  A.em_theta[d.modelo.offset_residual] =
-      (ete + s2e * (pfixo + static_cast<double>(q_ordem) - trpen_total)) / nreg_d;
+  if (!het)
+    A.em_theta[d.modelo.offset_residual] =
+        (ete + s2e * (pfixo + static_cast<double>(q_ordem) - trpen_total)) / nreg_d;
 
   // ---------------- AI: f_k = dV/dtheta_k . Py, e AI[i,j] = (f_i'f_j - (W'f_i)' Cs^-1 (W'f_j)) / s2e
   //
@@ -484,7 +557,14 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
   }
   // residual: f = Py = e^/s2e
   for (std::size_t i = 0; i < d.nlin; i++)
-    if (d.usa[i]) f[d.modelo.offset_residual][i] = ehat[i] / s2e;
+    if (d.usa[i]) {
+      if (het) {
+        const std::size_t k = d.classe_res[i];
+        f[off_r + k][i] = ehat[i] / theta[off_r + k];
+      } else {
+        f[d.modelo.offset_residual][i] = ehat[i] / s2e;
+      }
+    }
 
   // AI[i,j] = (f_i' f_j - (W' f_i)' Cs^-1 (W' f_j)) / s2e, com W'f resolvido pelas MME
   std::vector<std::vector<double>> wtf(ntheta, std::vector<double>(ntot, 0.0));
@@ -540,8 +620,13 @@ Avaliacao avalia(const Desenho& d, const std::vector<double>& theta,
       for (double& v : cgs[g].dados) v /= s2e;
     }
     double v = 0.0;
-    if (fatores_quase_singulares(cgs, F) && neg2logl_transformada(d, theta, F, v))
+    if (fatores_quase_singulares(cgs, F) && neg2logl_transformada(d, theta, F, v)) {
+      // o jacobiano do residuo por classe, que o valor transformado nao carrega
+      if (het)
+        for (std::size_t i = 0; i < d.nlin; i++)
+          if (d.usa[i]) v -= std::log(w_het[i]);
       A.neg2logl = v;
+    }
   }
   A.ok = true;
   return A;
@@ -1306,7 +1391,7 @@ static MapaZ mapa_z(const Modelo& mo) {
   MapaZ mp;
   for (const Grupo& gr : mo.grupos)
     mp.blocos.push_back(std::make_pair(gr.offset, gr.dim));
-  mp.escalares_log.push_back(mo.offset_residual);
+  for (std::size_t k = 0; k < mo.n_residuos(); k++) mp.escalares_log.push_back(mo.offset_residual + k);
   return mp;
 }
 
@@ -1443,7 +1528,8 @@ std::vector<double> partida(const Desenho& d) {
   const double frac = 0.5 / static_cast<double>(d.modelo.grupos.size());
   for (const Grupo& g : d.modelo.grupos)
     for (std::size_t i = 0; i < g.dim; i++) theta[g.theta_idx(i, i)] = frac * var;
-  theta[d.modelo.offset_residual] = 0.5 * var;
+  for (std::size_t k = 0; k < d.modelo.n_residuos(); k++)
+    theta[d.modelo.offset_residual + k] = 0.5 * var;
   return theta;
 }
 
@@ -1553,14 +1639,17 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   auto pisos_z = [&](const std::vector<double>& zc, std::vector<double>& piso,
                      std::vector<char>& relativo) {
     br::pisos_z(mapa_z(d.modelo), zc, escala_piso, piso, relativo);
-    piso[d.modelo.offset_residual] = std::log(1e-10 * escala_piso);
-    relativo[d.modelo.offset_residual] = 0;
+    for (std::size_t k = 0; k < d.modelo.n_residuos(); k++) {
+      piso[d.modelo.offset_residual + k] = std::log(1e-10 * escala_piso);
+      relativo[d.modelo.offset_residual + k] = 0;
+    }
   };
   // os indices de theta com piso em z: a diagonal de cada grupo e o residuo
   std::vector<std::size_t> com_piso;
   for (const Grupo& gr : d.modelo.grupos)
     for (std::size_t i = 0; i < gr.dim; i++) com_piso.push_back(gr.theta_idx(i, i));
-  com_piso.push_back(d.modelo.offset_residual);
+  for (std::size_t k = 0; k < d.modelo.n_residuos(); k++)
+    com_piso.push_back(d.modelo.offset_residual + k);
 
   // The pieces of the step at a point, shared by the walker and by the final certificate:
   // score and AI mapped to z by the chain rule, the floors, and two active sets over the
@@ -1907,8 +1996,10 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
         const std::size_t k = gr.theta_idx(0, 0);
         if (!rel[k] && zf[k] <= piso[k] + std::log(2.0)) dado[k] = 1;
       }
-      const std::size_t kr = d.modelo.offset_residual;
-      if (zf[kr] <= piso[kr] + std::log(2.0)) dado[kr] = 1;
+      for (std::size_t k = 0; k < d.modelo.n_residuos(); k++) {
+        const std::size_t kr = d.modelo.offset_residual + k;
+        if (zf[kr] <= piso[kr] + std::log(2.0)) dado[kr] = 1;
+      }
     }
   }
   std::vector<std::size_t> livre;
@@ -2009,13 +2100,16 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
                         gr.nome.c_str(), rmax);
         singulares += (singulares.empty() ? "" : "; ") + std::string(buf);
       }
-      const std::size_t kr = d.modelo.offset_residual;
-      if (zf[kr] <= piso[kr] + std::log(2.0))
-        R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + "var(residual) at the zero "
-            "boundary (held at 1e-10 of the variance of the records while the others were "
-            "optimized conditional on that): the random effects take all the variation "
-            "between the records, so the model has more random effects than the data hold "
-            "apart from the residual";
+      const std::vector<std::string> nomes_r = d.modelo.nomes_theta();
+      for (std::size_t k = 0; k < d.modelo.n_residuos(); k++) {
+        const std::size_t kr = d.modelo.offset_residual + k;
+        if (zf[kr] <= piso[kr] + std::log(2.0))
+          R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + nomes_r[kr] + " at the "
+              "zero boundary (held at 1e-10 of the variance of the records while the others "
+              "were optimized conditional on that): the random effects take all the variation "
+              "between the records, so the model has more random effects than the data hold "
+              "apart from the residual";
+      }
     }
     if (nzero > 0)
       R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") + std::to_string(nzero) +
@@ -2045,7 +2139,17 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // entao [C_s^-1]_ii ja e PEV_i / s2e, a multiplicacao devolve a escala absoluta. Sem
   // esse fator a acuracia sai sistematicamente errada e ainda parece plausivel.
   {
-    Montado M = monta_mme(d, theta, &cs);
+    // no residuo por classe a PEV e os residuos saem das linhas escaladas no ponto final (o
+    // R divide residuo e ajustado pelo sqrt(w) da linha, como com os pesos)
+    std::vector<double> w_fim;
+    Desenho d_fim;
+    const bool het_fim = d.modelo.n_residuos() > 1;
+    if (het_fim) {
+      d_fim = escala_por_classe(d, theta, w_fim);
+      cs.mont_dono = nullptr;
+    }
+    const Desenho& dd = het_fim ? d_fim : d;
+    Montado M = monta_mme(dd, theta, &cs);
     if (M.ok) {
       if (!cs.pronto) {
         cs.perm = grau_minimo(M.c);
@@ -2063,7 +2167,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
           R.pev[perm[k]] = diag[k] * M.s2e;
         // uma falha aqui (memoria) nao leva junto o ajuste: os residuos ficam NA
         try {
-          residuos_no_fator(d, M, L, z, perm, R);
+          residuos_no_fator(dd, M, L, z, perm, R);
         } catch (const Interrompido&) {
           throw;
         } catch (const std::exception& e) {
