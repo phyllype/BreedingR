@@ -815,6 +815,7 @@ valida_genotipos <- function(genotypes, taxa_chamada = TRUE) {
     if (!conferidos) {
       recusa_ids_repetidos(gid, gm)
       recusa_rownames_desencontrados(gid, genotypes$ids, gm)
+      avisa_genotipos_identicos(gid, gm)
       if (isTRUE(taxa_chamada)) recusa_taxa_chamada(gid, gm)
     }
     # as colunas do cromossomo sexual, que o aviso de parentesco deixa de fora (o
@@ -865,6 +866,28 @@ primeiros <- function(x, k = 5L, total = length(x))
 # ou dois chips concatenados; linhas diferentes, uma troca de amostra. Os dois casos pedem a
 # decisao de quem conhece as amostras, e nao uma escolha do pacote. Um id NA viraria o animal
 # chamado "NA" (g_matrix() rodava com ele).
+# DOIS ANIMAIS COM O MESMO GENOTIPO em todo marcador: amostra duplicada, gemeos monozigoticos
+# ou clones. A G da a eles parentesco 1 entre si, o que vale para gemeos e clones e e um erro
+# de laboratorio no resto: aviso, com os pares. O hash de cada linha vem do C++ (uma passada
+# pela matriz); os candidatos sao conferidos linha contra linha aqui.
+avisa_genotipos_identicos <- function(gid, gm) {
+  h <- .Call(R_hash_linhas_genotipos, gm)
+  cand <- which(duplicated(h) | duplicated(h, fromLast = TRUE))
+  if (!length(cand)) return(invisible(NULL))
+  pares <- character(0)
+  for (g in split(cand, h[cand])) {
+    ref <- as.integer(gm[g[1], ])
+    for (o in g[-1])
+      if (identical(as.integer(gm[o, ]), ref)) pares <- c(pares, paste0(gid[g[1]], " and ", gid[o]))
+  }
+  if (length(pares))
+    warning(length(pares), " pair(s) of genotyped animals have the same genotype at every ",
+            "marker (", primeiros(pares), "): a duplicated sample, identical twins or clones. ",
+            "G gives each pair a relationship of 1; if they are not twins or clones, check the ",
+            "samples", call. = FALSE)
+  invisible(NULL)
+}
+
 recusa_ids_repetidos <- function(gid, gm) {
   if (anyNA(gid))
     stop("genotypes$ids has ", sum(is.na(gid)), " missing identifier(s) (row(s) ",

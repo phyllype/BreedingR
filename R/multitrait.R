@@ -222,8 +222,9 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   lhs <- formula[[2]]
   if (!is.call(lhs) || !identical(as.character(lhs[[1]]), "cbind"))
     stop("multi-trait requires cbind() on the left-hand side; for one, use model()")
-  traits <- vapply(as.list(lhs)[-1], deparse, character(1))
+  traits <- vapply(as.list(lhs)[-1], function(e) gsub("`", "", deparse(e)), character(1))
   if (length(traits) < 2L) stop("cbind() with only one column; for one, use model()")
+  recusa_nome_traco(traits)
 
   terms <- decompoe_formula(formula[[3]], environment(formula), com_traits = TRUE)
   confere_traits_dos_termos(terms, traits)
@@ -382,6 +383,18 @@ otimos_univariados <- function(ajusta1, formula, traits, data, missing_code, ver
     cat("start: univariate optima of ", paste(traits, collapse = ", "),
         ", covariances between traits at zero\n", sep = "")
   out
+}
+
+# UM NOME DE CARACTERISTICA entra nos nomes dos componentes (var(animal@y1), cov(res@y2,res@y1),
+# var(res@y1|classe)) e e lido de volta deles por h2(), rg(), accuracy() e solutions(): um "@",
+# "|", ",", "(", ")" ou colchete no nome quebrava a leitura (h2 Inf, o caracter nao achado)
+recusa_nome_traco <- function(traits) {
+  ruim <- traits[grepl("[][@|,()]", traits)]
+  if (length(ruim))
+    stop("the trait name ", paste0("'", ruim, "'", collapse = ", "), " has a character that ",
+         "the names of the components use (@ | , ( ) [ ]): rename the column, for example ",
+         "with make.names()", call. = FALSE)
+  invisible(traits)
 }
 
 # traits = de cada termo para o motor: os nomes separados por virgula, vazio = todos

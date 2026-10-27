@@ -3116,6 +3116,36 @@ SEXP R_confere_genotipos(SEXP gm) {
   )
 }
 
+// Um hash de 64 bits do genotipo de cada animal (linha de gm), numa passada pela matriz
+// (coluna por coluna, a ordem da memoria), para achar animais com o MESMO genotipo em todo
+// marcador sem comparar linhas inteiras no R. Devolve os 52 bits de cima como double: os
+// candidatos com o mesmo valor sao conferidos de verdade no R.
+SEXP R_hash_linhas_genotipos(SEXP gm) {
+  GUARDA(
+    SEXP dim = Rf_getAttrib(gm, R_DimSymbol);
+    if (TYPEOF(dim) != INTSXP || XLENGTH(dim) != 2) Rf_error("the genotypes must be a matrix");
+    const std::size_t n = (std::size_t) INTEGER(dim)[0], m = (std::size_t) INTEGER(dim)[1];
+    std::vector<std::uint64_t> h(n, 1469598103934665603ULL);
+    const std::uint64_t primo = 1099511628211ULL;
+    for (std::size_t j = 0; j < m; j++)
+      for (std::size_t i = 0; i < n; i++) {
+        const std::size_t k = j * n + i;
+        unsigned v = 3;   // ausente
+        switch (TYPEOF(gm)) {
+          case REALSXP: { const double x = REAL(gm)[k]; if (!std::isnan(x)) v = (unsigned) x; break; }
+          case INTSXP: { const int x = INTEGER(gm)[k]; if (x != NA_INTEGER) v = (unsigned) x; break; }
+          case RAWSXP: { const Rbyte x = RAW(gm)[k]; if (x != 5) v = (unsigned) x; break; }
+          default: Rf_error("the genotype matrix must be double, integer or raw");
+        }
+        h[i] = (h[i] ^ (std::uint64_t) (v + 1)) * primo;
+      }
+    SEXP out = PROTECT(Rf_allocVector(REALSXP, (R_xlen_t) n));
+    for (std::size_t i = 0; i < n; i++) REAL(out)[i] = (double) (h[i] >> 12);
+    UNPROTECT(1);
+    return out;
+  )
+}
+
 // A media de cada marcador sobre os valores presentes (NaN sem nenhum), lida da vista.
 SEXP R_freq_genotipos(SEXP gm) {
   GUARDA(
@@ -3860,6 +3890,7 @@ static const R_CallMethodDef metodos[] = {
   {"R_snp_blup",   (DL_FUNC) &R_snp_blup,  26},
   {"R_lanczos_g",  (DL_FUNC) &R_lanczos_g,  3},
   {"R_confere_genotipos", (DL_FUNC) &R_confere_genotipos, 1},
+  {"R_hash_linhas_genotipos", (DL_FUNC) &R_hash_linhas_genotipos, 1},
   {"R_freq_genotipos", (DL_FUNC) &R_freq_genotipos, 1},
   {"R_g_matrix",   (DL_FUNC) &R_g_matrix,   1},
   {"R_g_dominancia", (DL_FUNC) &R_g_dominancia, 1},

@@ -133,6 +133,22 @@ confere_estrutura <- function(terms, data, resp, missing_code, quem, estima,
   data <- niveis_integer64(data, colunas_de_nivel(terms, sujeito))
   notas <- character(0)
   avisa <- function(txt) notas <<- c(notas, txt)
+  # A BASE de rn() e pe(base =) com colunas linearmente dependentes (uma coluna repetida, uma
+  # constante e o intercepto, phi2 = 3 phi1 + phi0): os coeficientes delas nao se separam, e o
+  # ajuste andava na crista sem dizer por que
+  for (t in Filter(function(t) nzchar(t$base), terms)) {
+    cols <- strsplit(t$base, ",")[[1]]
+    if (!all(cols %in% names(data))) next
+    b <- as.matrix(data[, cols, drop = FALSE])
+    b <- b[stats::complete.cases(b) & apply(is.finite(b), 1L, all), , drop = FALSE]
+    if (nrow(b) < length(cols)) next
+    r <- qr(b)$rank
+    if (r < length(cols) && estima)
+      stop(quem, ": the base of ", t$nome, "() (", paste(cols, collapse = ", "), ") has ",
+           "columns that are linearly dependent (rank ", r, " of ", length(cols), " among the ",
+           "records), so their coefficients are not separable: drop or replace a column, for ",
+           "example with legendre()", call. = FALSE)
+  }
   # uma coluna com rotulo ausente (NA, branco, "NaN", Inf) fica de fora daqui: o motor e os
   # ajustadores em R param nela com a coluna, a contagem e a linha, e uma conferencia de
   # estrutura sobre o nivel "NA" daria a razao errada

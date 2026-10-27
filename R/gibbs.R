@@ -820,6 +820,11 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # avisa
   notas <- confere_estrutura(terms, data, trait, missing_code, "gibbs()", is.null(theta_fixed),
                              kern = kern)
+  # burnin >= n_iter: a cadeia roda e nao guarda nenhum sorteio. O resultado vazio e tratado
+  # (summary() da a tabela com NA), entao e aviso e nao recusa; antes passava calado
+  if (burnin >= n_iter)
+    warning("burnin (", burnin, ") is not smaller than n_iter (", n_iter, "): the chain keeps ",
+            "no draw", call. = FALSE)
   t0 <- proc.time()[["elapsed"]]
   # uma cadeia: com semente propria quando ha varias (sorteada do gerador de quem chama,
   # entao set.seed() governa tudo e a ordem de execucao nao muda nada)

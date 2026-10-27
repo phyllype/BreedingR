@@ -31,6 +31,11 @@ Pedigree constroi_pedigree(const std::vector<std::string>& id0,
                            const std::vector<char>& mgs0) {
   if (!mgs0.empty() && mgs0.size() != id0.size())
     throw Erro("the maternal-grandsire flags must have one entry per pedigree row");
+  // gamma = sem metafounders = era ignorado calado, e o ajuste saia na A comum
+  if (mf.empty() && !gama.empty())
+    throw Erro("gamma = was given without metafounders =: Gamma is the relationship among the "
+               "metafounders, so it needs their labels (metafounders = c(...)), and without "
+               "them the fit would use the plain A and ignore gamma");
   if (!mf.empty() && !mgs0.empty())
     for (char c : mgs0)
       if (c) throw Erro("a sire / maternal-grandsire pedigree does not take metafounders: "

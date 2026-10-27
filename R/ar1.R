@@ -18,6 +18,7 @@ ajusta_modelo_ar1 <- function(formula, data, pedigree, subject, time, genotypes,
   lhs <- formula[[2]]
   trait <- if (is.call(lhs) && identical(as.character(lhs[[1]]), "cbind"))
     vapply(as.list(lhs)[-1], deparse, character(1)) else deparse(lhs)
+  if (length(trait) > 1L) recusa_nome_traco(gsub("`", "", trait))
   terms <- decompoe_formula(formula[[3]], environment(formula))
   recusa_materno_mgs(terms, pedigree)
   recusa_kfixo(terms, "model_ar1()")

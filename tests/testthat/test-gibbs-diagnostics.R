@@ -835,8 +835,9 @@ test_that("poucas amostras, thin que nao divide, thin = 0 e summary() sem amostr
   # 0 amostras guardadas: summary() da a tabela com NA, e nao erro (a linha do h2 nao esta
   # na tabela dos diagnosticos)
   set.seed(3)
-  g <- gibbs(y ~ cg + animal(id), s$data, s$pedigree, n_iter = 100L, burnin = 100L, thin = 1L,
-             chains = 2L, verbose = FALSE, prior = "jeffreys")
+  expect_warning(g <- gibbs(y ~ cg + animal(id), s$data, s$pedigree, n_iter = 100L,
+                            burnin = 100L, thin = 1L, chains = 2L, verbose = FALSE,
+                            prior = "jeffreys"), "keeps no draw")
   expect_identical(nrow(g$samples), 0L)
   expect_output(print(summary(g)), "0 kept sample")
   set.seed(4)

@@ -925,6 +925,17 @@
 
 ## Fixed
 
+* Six cases of the structure of the data that passed without a word now stop with the
+  cause, or warn where the data can be legitimate. A trait name with a character that the
+  component names use (`@ | , ( ) [ ]`) is refused in `model_mt()` (`h2()` gave `Inf` for
+  `p@2`). `gibbs()` warns when `burnin >= n_iter` (the chain keeps no draw). A base of `rn()` or
+  `pe(base =)` with linearly dependent columns is refused when the fit estimates. Two
+  genotyped animals with the same genotype at every marker get a warning with the pairs (a
+  duplicated sample, twins or clones). A marker with the same genotype in every animal (all
+  1, a failed call) leaves G like a monomorphic one, and a panel of only such markers is
+  refused. `gamma =` without `metafounders =` is refused (it was ignored). Gates in
+  `tests/testthat/test-estrutura-media.R`.
+
 * `model()` and `model_mt()`: a design whose fixed effects keep as many columns as the
   records of a trait (no residual degree of freedom for REML) is refused when the
   components are estimated, with the cause. Before, the fit stopped with "did NOT converge"

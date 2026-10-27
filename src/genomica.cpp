@@ -61,11 +61,22 @@ static FreqZ frequencias_z(const Genotipos& gt, RelatorioG& rel, bool meio) {
     for (long jj = 0; jj < static_cast<long>(nm); jj++) {
       const std::size_t j = static_cast<std::size_t>(jj);
       gt.coluna(j, col.data());
-      double soma = 0.0;
+      double soma = 0.0, mn = 0.0, mx = 0.0;
       std::size_t k = 0;
       for (std::size_t i = 0; i < n; i++)
-        if (std::isfinite(col[i])) { soma += col[i]; k++; }
+        if (std::isfinite(col[i])) {
+          if (k == 0) mn = mx = col[i];
+          mn = std::min(mn, col[i]);
+          mx = std::max(mx, col[i]);
+          soma += col[i];
+          k++;
+        }
       if (k == 0) { f.usa[j] = 0; continue; }
+      // o MESMO genotipo em todo animal (todos 1: uma falha de chamada, ou um painel imputado)
+      // nao informa parentesco nenhum, e com p = 0,5 nao e monomorfico pela frequencia: entrava
+      // so no denominador, e um painel inteiro assim dava G = 0. Fica fora, como o monomorfico
+      // (a G05 de meio, com todos os marcadores por construcao, segue como esta)
+      if (!meio && mn == mx) { f.usa[j] = 0; continue; }
       const double media = soma / static_cast<double>(k);
       f.media[j] = media;
       f.p[j] = meio ? 0.5 : media / 2.0;
@@ -79,7 +90,9 @@ static FreqZ frequencias_z(const Genotipos& gt, RelatorioG& rel, bool meio) {
   }
   for (std::size_t j = 0; j < nm; j++)
     if (f.usa[j]) f.denom += 2.0 * f.p[j] * (1.0 - f.p[j]);
-  if (!(f.denom > 0.0)) throw Erro("2 sum p(1-p) is not positive: the markers do not vary");
+  if (!(f.denom > 0.0))
+    throw Erro("no marker varies among the genotyped animals (each one is monomorphic, or has "
+               "the same genotype in every animal, as a panel of failed calls): there is no G");
   return f;
 }
 
