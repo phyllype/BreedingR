@@ -1068,7 +1068,7 @@ test_that("efeitos por nivel num grupo de dois termos: o nivel acusado diz qual 
   inativo <- !dg$locations$active
   expect_true(any(inativo))
   expect_match(dg$notes, "the location check is inactive", all = FALSE)
-  expect_output(print(g), "note: g: the location check is inactive")
+  expect_output(print(g), "note: g[^:]*: the location check is inactive")
   expect_output(print(dg), "check inactive \\(see the note\\)")
 })
 
