@@ -310,12 +310,13 @@ cg_de <- function(n, k = 6) sample(sprintf("cg%d", seq_len(k)), n, TRUE)
 
 # ---- 1. o quick start do README, linha a linha ----------------------------------------------
 if (quer("ebv")) {
+  # sem genotipos: os marcadores do simulate_breeding() caem pelo pedigree independentes do
+  # valor genetico (nenhum QTL entre eles), e no passo unico so acrescentam ruido ao G (medido:
+  # 1860 animais, cor 0,753 so com o pedigree contra 0,579 com 500 marcadores)
   s <- simulate_breeding(n_founders = 60, n_generations = 3,
-                         offspring_per_generation = 150, h2 = 0.4,
-                         n_markers = 500, seed = 1)
+                         offspring_per_generation = 600, h2 = 0.4, seed = 1)
   q <- qc_phenotypes(s$data, "y", classes = "cg")
-  g <- qc_genotypes(s$genotypes, min_maf = 0.01)
-  fit <- model(y ~ cg + animal(id), q$data, s$pedigree, genotypes = g, verbose = FALSE)
+  fit <- model(y ~ cg + animal(id), q$data, s$pedigree, verbose = FALSE)
   e <- ebv(fit)
   acc <- accuracy(fit, s$pedigree)[names(e)]
   tbv <- s$tbv[names(e)]
@@ -341,8 +342,9 @@ if (quer("ebv")) {
     abline(0, 1, col = t$suave, lty = 2, lwd = 1.2)
     abline(lm(tbv ~ e), col = t$fill, lwd = 2)
     points(e[ordem], tbv[ordem], pch = 21, cex = 0.95, bg = cores[k[ordem]], col = t$texto, lwd = 0.25)
-    title(main = sprintf("%d animals, r = %.2f, slope of true on estimated = %.2f",
-                         length(e), r, b), font.main = 1, cex.main = 1.0, adj = 0, line = 1)
+    title(main = sprintf("%s animals, r = %.2f, slope of true on estimated = %.2f",
+                         format(length(e), big.mark = ","), r, b), font.main = 1, cex.main = 1.0,
+          adj = 0, line = 1)
     legend("topleft", c("y = x", "regression of true on estimated"), lty = c(2, 1),
            lwd = c(1.2, 2), col = c(t$suave, t$fill), bty = "n", text.col = t$texto, cex = 0.85)
     # a barra de cores da acuracia
@@ -420,7 +422,7 @@ if (quer("sparse")) {
 
 # ---- 3. modelo animal: acuracia e o direto-materno -------------------------------------------
 if (quer("animal")) {
-  ped <- ped_familias(n_ger = 3, n_pais = 25, n_maes = 250, filhos = 2, seed = 31, desigual = TRUE)
+  ped <- ped_familias(n_ger = 3, n_pais = 80, n_maes = 2000, filhos = 2, seed = 31, desigual = TRUE)
   set.seed(32)
   a <- valores(ped, matrix(0.3))
   d <- ped[ped$ger > 0, c("id", "ger")]
@@ -436,7 +438,7 @@ if (quer("animal")) {
               nrow(d), h2a, max(nf)))
 
   # o direto-materno: mae com tres filhos, correlacao direta-materna negativa
-  pm <- ped_familias(n_ger = 3, n_pais = 30, n_maes = 300, filhos = 3, seed = 33)
+  pm <- ped_familias(n_ger = 3, n_pais = 100, n_maes = 2000, filhos = 3, seed = 33)
   set.seed(34)
   G0 <- matrix(c(0.30, -0.06, -0.06, 0.15), 2)
   am <- valores(pm, G0)
@@ -461,8 +463,10 @@ if (quer("animal")) {
            "accuracy", "Accuracy of each animal's breeding value")
     n <- seq(0, max(nf) + 1, length.out = 200)
     k <- (4 - 0.3) / 0.3
-    points(nf + runif(length(nf), -0.25, 0.25), ac, pch = 21, cex = 0.7, bg = t$rampa[2],
-           col = t$ponto, lwd = 0.3)
+    # todos com 5 filhos ou mais e 2000 dos outros: a SVG leva um elemento por ponto
+    mostra <- nf >= 5 | seq_along(nf) %in% sample(which(nf < 5), min(2000, sum(nf < 5)))
+    points(nf[mostra] + runif(sum(mostra), -0.25, 0.25), ac[mostra], pch = 21, cex = 0.7,
+           bg = t$rampa[2], col = t$ponto, lwd = 0.3)
     lines(n, sqrt(n / (n + k)), col = t$fill, lwd = 2)
     legenda(t, "bottomright", c("animal, from model()", "progeny test, sqrt(n / (n + k))"),
             pch = c(21, NA), pt.bg = c(t$rampa[2], NA), col = c(t$ponto, t$fill),
@@ -477,7 +481,8 @@ if (quer("animal")) {
     abline(v = axTicks(1), col = t$grade, lwd = 0.6)
     abline(v = 0, col = t$suave, lwd = 0.8)
     axis(2, at = yy, labels = nomes, tick = FALSE, cex.axis = 0.78, col.axis = t$texto)
-    title(main = "Direct-maternal model, 2,700 records", font.main = 1, cex.main = 1, adj = 0, line = 1)
+    title(main = sprintf("Direct-maternal model, %s records", format(nrow(dm), big.mark = ",")),
+          font.main = 1, cex.main = 1, adj = 0, line = 1)
     segments(lo, yy, hi, yy, col = t$ponto, lwd = 2)
     points(fm$theta, yy, pch = 21, bg = t$ponto, col = t$ponto, cex = 1.1)
     points(plantado, yy, pch = 23, bg = t$fill, col = t$texto, lwd = 0.4, cex = 1.1)
@@ -490,7 +495,7 @@ if (quer("animal")) {
 
 # ---- 4. regressao aleatoria e norma de reacao ------------------------------------------------
 if (quer("rn")) {
-  ped <- ped_familias(n_ger = 3, n_pais = 25, n_maes = 150, filhos = 3, seed = 41)
+  ped <- ped_familias(n_ger = 3, n_pais = 80, n_maes = 1000, filhos = 3, seed = 41)
   set.seed(42)
   G0 <- matrix(c(0.40, 0.12, 0.12, 0.20), 2)
   a <- valores(ped, G0)
@@ -547,7 +552,7 @@ if (quer("rn")) {
 
 # ---- 6. varios caracteres: o mapa das correlacoes geneticas ------------------------------------
 if (quer("mt")) {
-  ped <- ped_familias(n_ger = 3, n_pais = 30, n_maes = 300, filhos = 3, seed = 61)
+  ped <- ped_familias(n_ger = 3, n_pais = 100, n_maes = 2000, filhos = 3, seed = 61)
   set.seed(62)
   rg0 <- matrix(c(1, 0.5, -0.3, 0.1,  0.5, 1, 0, -0.3,  -0.3, 0, 1, 0.4,  0.1, -0.3, 0.4, 1), 4)
   stopifnot(min(eigen(rg0)$values) > 0)
@@ -604,7 +609,7 @@ if (quer("mt")) {
 
 # ---- 10. gibbs(): cadeias e posteriori ---------------------------------------------------------
 if (quer("gibbs") || quer("diagnostics")) {
-  s <- simulate_breeding(n_founders = 60, n_generations = 3, offspring_per_generation = 200,
+  s <- simulate_breeding(n_founders = 60, n_generations = 3, offspring_per_generation = 800,
                          h2 = 0.4, seed = 91)
   freml <- model(y ~ cg + animal(id), s$data, s$pedigree, verbose = FALSE)
   set.seed(92)
@@ -681,7 +686,7 @@ genotipos_ligados <- function(ped, n_chr, por_chr, seed) {
 }
 
 if (quer("genomics")) {
-  s <- simulate_breeding(n_founders = 20, n_generations = 6, offspring_per_generation = 300,
+  s <- simulate_breeding(n_founders = 20, n_generations = 6, offspring_per_generation = 600,
                          seed = 111)
   tipados <- grep("^G[3456]_", s$pedigree$id, value = TRUE)
   M <- genotipos_ligados(s$pedigree, n_chr = 2, por_chr = 1500, seed = 112)
@@ -835,7 +840,7 @@ if (quer("message")) {
 
 # ---- 11. decisoes de selecao: a deriva do ranking e o indice --------------------------------
 if (quer("selection")) {
-  ped <- ped_familias(n_ger = 4, n_pais = 30, n_maes = 300, filhos = 2, seed = 111)
+  ped <- ped_familias(n_ger = 4, n_pais = 100, n_maes = 2000, filhos = 2, seed = 111)
   set.seed(112)
   G0 <- matrix(c(0.30, 0.06, 0.06, 0.20), 2)
   a <- valores(ped, G0)
@@ -848,7 +853,7 @@ if (quer("selection")) {
   velho <- model(y1 ~ cg + animal(id), d[d$ger < 4, ], ped3(ped), verbose = FALSE)
   novo <- model(y1 ~ cg + animal(id), d, ped3(ped), verbose = FALSE)
   cand <- ped$id[ped$ger == 3]
-  topo <- 50
+  topo <- 100
   dr <- rank_drift(ebv(velho)[cand], ebv(novo)[cand], top = topo)
   r_velho <- rank(-ebv(velho)[cand]); r_novo <- rank(-ebv(novo)[cand])
   # o indice de dois caracteres sobre os valores geneticos do model_mt()
@@ -870,11 +875,13 @@ if (quer("selection")) {
     lim <- 3 * topo
     quadro(t, c(1, lim), c(1, lim), "rank before the progeny records", "rank after",
            sprintf("rank_drift(): the old top %d, a generation later", topo))
-    mtext(sprintf("%d of them stay in the new top %d; Spearman %.2f over %d candidates",
-                  dr$retention, topo, dr$spearman, n), side = 3, line = 0.1, adj = 0,
+    mtext(sprintf("%d of them stay in the new top %d; Spearman %.2f over %s candidates",
+                  dr$retention, topo, dr$spearman, format(n, big.mark = ",")), side = 3,
+          line = 0.1, adj = 0,
           cex = 0.75, col = t$suave)
     no_topo <- r_velho <= topo
-    points(r_velho[!no_topo], r_novo[!no_topo], pch = 21, cex = 0.6, bg = t$leve, col = t$leve,
+    dentro <- !no_topo & r_velho <= lim & r_novo <= lim
+    points(r_velho[dentro], r_novo[dentro], pch = 21, cex = 0.6, bg = t$leve, col = t$leve,
            lwd = 0.3)
     points(r_velho[no_topo], r_novo[no_topo], pch = 21, cex = 0.8, bg = t$fill, col = t$texto,
            lwd = 0.3)
@@ -883,7 +890,10 @@ if (quer("selection")) {
     eh <- rownames(m) %in% sel
     quadro(t, range(m[, 1]), range(m[, 2]), "breeding value, trait 1", "breeding value, trait 2",
            "selection_index(): equal weights, top 10%")
-    points(m[!eh, 1], m[!eh, 2], pch = 21, cex = 0.6, bg = t$leve, col = t$leve, lwd = 0.3)
+    set.seed(1)
+    fora <- which(!eh)
+    fora <- fora[sort(sample(length(fora), min(1500, length(fora))))]
+    points(m[fora, 1], m[fora, 2], pch = 21, cex = 0.6, bg = t$leve, col = t$leve, lwd = 0.3)
     points(m[eh, 1], m[eh, 2], pch = 21, cex = 0.8, bg = t$ponto, col = t$texto, lwd = 0.3)
     # a linha do corte: z1 + z2 = o menor indice selecionado
     corte <- min((z1 + z2)[eh])
@@ -900,7 +910,7 @@ if (quer("selection")) {
 
 # ---- 14. genotipos: o controle de qualidade e a paternidade -------------------------------------
 if (quer("qc")) {
-  s <- simulate_breeding(n_founders = 40, n_generations = 3, offspring_per_generation = 150,
+  s <- simulate_breeding(n_founders = 40, n_generations = 3, offspring_per_generation = 600,
                          h2 = 0.4, n_markers = 2000, seed = 141)
   g <- s$genotypes
   set.seed(142)
@@ -913,7 +923,7 @@ if (quer("qc")) {
   pa <- s$pedigree
   # 15 pais trocados por um macho genotipado de outra familia
   filhos <- which(pa$sire != "0" & pa$id %in% g$ids & pa$sire %in% g$ids)
-  troca <- sample(filhos, 15)
+  troca <- sample(filhos, 40)
   machos <- unique(pa$sire[pa$sire != "0" & pa$sire %in% g$ids])
   for (i in troca) pa$sire[i] <- sample(setdiff(machos, pa$sire[i]), 1)
   ck <- parentage_check(pa, g)
@@ -982,7 +992,7 @@ if (quer("gamma")) {
                     dam = c(rep("MA", nf), rep("MB", nf)), stringsAsFactors = FALSE)
   pais <- ids
   for (ger in 1:3) {
-    n <- 120
+    n <- 500
     s <- sample(pais, n, TRUE); m <- sample(pais, n, TRUE)
     is <- match(s, ped$id); im <- match(m, ped$id)
     gam <- function(i) { u <- matrix(runif(n * nm) < 0.5, n); ifelse(u, h1[i, ], h2[i, ]) }
@@ -1016,7 +1026,8 @@ if (quer("gamma")) {
            border = NA)
     axis(1, at = 1:3, labels = c("within base A", "between A and B", "within base B"),
          tick = FALSE, cex.axis = 0.85, col.axis = t$texto)
-    title(main = "estimate_gamma(): two metafounders from 240 genotyped descendants",
+    title(main = sprintf("estimate_gamma(): two metafounders from %s genotyped descendants",
+                         format(length(geno$ids), big.mark = ",")),
           font.main = 1, cex.main = 1, adj = 0, line = 1)
     legenda(t, "topleft", c("simulated, from the base allele frequencies", "pseudo-EM (default)",
                             "GLS"), pch = 15, col = cores, pt.cex = 1.4, caixa = TRUE)
@@ -1027,8 +1038,8 @@ if (quer("gamma")) {
 
 # ---- 12. pegs(): um caracter em varios ambientes ---------------------------------------------------
 if (quer("pegs")) {
-  s <- simulate_breeding(n_founders = 60, n_generations = 3, offspring_per_generation = 800,
-                         h2 = 0.4, n_markers = 1500, seed = 121)
+  s <- simulate_breeding(n_founders = 60, n_generations = 3, offspring_per_generation = 2500,
+                         h2 = 0.4, n_markers = 3000, seed = 121)
   g <- s$genotypes
   set.seed(122)
   k <- 4

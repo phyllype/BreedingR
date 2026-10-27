@@ -4,25 +4,24 @@
 <defs>
 <clipPath id="c1"><rect x="57.6" y="37.44" width="468" height="149.76"/></clipPath>
 </defs>
-<path fill="none" stroke="#59636e" stroke-width="0.75" d="M57.6 181.65l0 -143.18M57.6 181.65l-4.32 0M57.6 145.86l-4.32 0M57.6 110.06l-4.32 0M57.6 74.26l-4.32 0M57.6 38.47l-4.32 0"/>
+<path fill="none" stroke="#59636e" stroke-width="0.75" d="M57.6 181.65l0 -110.18M57.6 181.65l-4.32 0M57.6 144.92l-4.32 0M57.6 108.2l-4.32 0M57.6 71.47l-4.32 0"/>
 <g fill="#59636e" font-size="12">
 <text x="48.96" y="185.96" text-anchor="end">0.0</text>
-<text x="48.96" y="150.16" text-anchor="end">0.2</text>
-<text x="48.96" y="114.37" text-anchor="end">0.4</text>
-<text x="48.96" y="78.57" text-anchor="end">0.6</text>
-<text x="48.96" y="42.77" text-anchor="end">0.8</text>
+<text x="48.96" y="149.23" text-anchor="end">0.2</text>
+<text x="48.96" y="112.5" text-anchor="end">0.4</text>
+<text x="48.96" y="75.78" text-anchor="end">0.6</text>
 </g>
 <text fill="#1f2328" font-size="12" x="18.72" y="112.32" text-anchor="middle" transform="rotate(-90 18.72 112.32)">relationship</text>
 <g clip-path="url(#c1)">
-<path fill="none" stroke="#d1d9e0" stroke-width="0.45" d="M57.6 181.65l468 0M57.6 145.86l468 0M57.6 110.06l468 0M57.6 74.26l468 0M57.6 38.47l468 0"/>
-<path fill="#c3ccd4" d="M95.16 110.49h31.78v71.16h-31.78Z"/>
-<path fill="#0f5a55" d="M129.82 110.17h31.78v71.48h-31.78Z"/>
-<path fill="#d9822b" d="M164.49 98h31.78v83.65h-31.78Z"/>
-<path fill="#c3ccd4" d="M239.6 116.41h31.78v65.24h-31.78Z"/>
-<path fill="#0f5a55" d="M274.27 115.67h31.78v65.98h-31.78Z"/>
-<path fill="#d9822b" d="M308.93 119.23h31.78v62.42h-31.78Z"/>
-<path fill="#c3ccd4" d="M384.04 73.25h31.78v108.4h-31.78Z"/>
-<path fill="#0f5a55" d="M418.71 73.88h31.78v107.77h-31.78Z"/>
+<path fill="none" stroke="#d1d9e0" stroke-width="0.45" d="M57.6 181.65l468 0M57.6 144.92l468 0M57.6 108.2l468 0M57.6 71.47l468 0"/>
+<path fill="#c3ccd4" d="M95.16 108.64h31.78v73.01h-31.78Z"/>
+<path fill="#0f5a55" d="M129.82 108.59h31.78v73.06h-31.78Z"/>
+<path fill="#d9822b" d="M164.49 103.27h31.78v78.38h-31.78Z"/>
+<path fill="#c3ccd4" d="M239.6 114.71h31.78v66.94h-31.78Z"/>
+<path fill="#0f5a55" d="M274.27 114.57h31.78v67.08h-31.78Z"/>
+<path fill="#d9822b" d="M308.93 115.5h31.78v66.15h-31.78Z"/>
+<path fill="#c3ccd4" d="M384.04 70.43h31.78v111.22h-31.78Z"/>
+<path fill="#0f5a55" d="M418.71 70.51h31.78v111.14h-31.78Z"/>
 <path fill="#d9822b" d="M453.38 66.09h31.78v115.56h-31.78Z"/>
 </g>
 <g fill="#1f2328" font-size="10">
@@ -30,7 +29,7 @@
 <text x="291.6" y="207.36" text-anchor="middle">between A and B</text>
 <text x="436.04" y="207.36" text-anchor="middle">within base B</text>
 </g>
-<text fill="#1f2328" font-size="12" x="57.6" y="23.04">estimate_gamma(): two metafounders from 240 genotyped descendants</text>
+<text fill="#1f2328" font-size="12" x="57.6" y="23.04">estimate_gamma(): two metafounders from 1,000 genotyped descendants</text>
 <g clip-path="url(#c1)">
 <path fill="#ffffff" stroke="#ffffff" stroke-width="0.75" d="M57.6 37.44h212.22v47.23h-212.22Z"/>
 <path fill="#c3ccd4" d="M62.68 53.03l7.56 0l0 -7.56l-7.56 0Z"/>

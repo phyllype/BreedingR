@@ -22,7 +22,9 @@ simulate_breeding(
 
 \item{h2}{narrow-sense heritability of the phenotype}
 
-\item{n_markers}{if positive, gene-drop this many biallelic markers}
+\item{n_markers}{if positive, gene-drop this many biallelic markers. They follow the
+pedigree but are independent of \code{tbv}: no QTL is among them. Use them to test the
+genotype tools; in a single-step fit they only add noise to G}
 
 \item{seed}{RNG seed}
 }

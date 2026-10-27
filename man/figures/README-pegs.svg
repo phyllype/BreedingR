@@ -29,24 +29,24 @@
 <g clip-path="url(#c1)">
 <path fill="none" stroke="#d1d9e0" stroke-width="0.45" d="M57.6 195.52l360 0M57.6 165.12l360 0M57.6 134.72l360 0M57.6 104.32l360 0M57.6 73.92l360 0M57.6 43.52l360 0M70.93 201.6l0 -164.16M137.6 201.6l0 -164.16M204.27 201.6l0 -164.16M270.93 201.6l0 -164.16M337.6 201.6l0 -164.16M404.27 201.6l0 -164.16"/>
 </g>
-<text fill="#1f2328" font-size="12" x="57.6" y="23.04">pegs(): 4 environments, 2,460 animals with one record each</text>
+<text fill="#1f2328" font-size="12" x="57.6" y="23.04">pegs(): 4 environments, 7,560 animals with one record each</text>
 <g clip-path="url(#c1)">
 <path fill="none" stroke="#59636e" stroke-width="0.6" stroke-dasharray="1.8 3" d="M57.6 201.6l360 -164.16"/>
 <g fill="#0f5a55" stroke="#1f2328" stroke-width="0.3">
-<circle cx="337.6" cy="68.5" r="3.5"/>
-<circle cx="237.6" cy="96.3" r="3.5"/>
-<circle cx="270.9" cy="70.3" r="3.5"/>
-<circle cx="137.6" cy="179.7" r="3.5"/>
-<circle cx="170.9" cy="158.8" r="3.5"/>
-<circle cx="304.3" cy="81.8" r="3.5"/>
+<circle cx="337.6" cy="71.7" r="3.5"/>
+<circle cx="237.6" cy="114.2" r="3.5"/>
+<circle cx="270.9" cy="107.5" r="3.5"/>
+<circle cx="137.6" cy="149.4" r="3.5"/>
+<circle cx="170.9" cy="152" r="3.5"/>
+<circle cx="304.3" cy="78.3" r="3.5"/>
 </g>
 <g fill="#59636e" font-size="9">
-<text x="344.8" y="70.62">1-2</text>
-<text x="244.8" y="98.5">1-3</text>
-<text x="278.13" y="72.47">2-3</text>
-<text x="144.8" y="181.88">1-4</text>
-<text x="178.13" y="160.95">2-4</text>
-<text x="311.47" y="84">3-4</text>
+<text x="344.8" y="73.86">1-2</text>
+<text x="244.8" y="116.34">1-3</text>
+<text x="278.13" y="109.64">2-3</text>
+<text x="144.8" y="151.59">1-4</text>
+<text x="178.13" y="154.11">2-4</text>
+<text x="311.47" y="80.45">3-4</text>
 </g>
 </g>
 </svg>

@@ -85,13 +85,12 @@ A complete run on data the package simulates itself, paste and go:
 ```r
 library(BreedingR)
 s <- simulate_breeding(n_founders = 60, n_generations = 3,
-                       offspring_per_generation = 150, h2 = 0.4,
-                       n_markers = 500, seed = 1)      # pedigree + phenotypes + genotypes
+                       offspring_per_generation = 600, h2 = 0.4,
+                       seed = 1)                        # pedigree + phenotypes, 1,860 animals
 
 q  <- qc_phenotypes(s$data, "y", classes = "cg")        # flag, count, never drop silently
-g  <- qc_genotypes(s$genotypes, min_maf = 0.01)         # animals and markers, call rate, MAF
 
-fit <- model(y ~ cg + animal(id), q$data, s$pedigree, genotypes = g)
+fit <- model(y ~ cg + animal(id), q$data, s$pedigree)
 fit                                # components, SEs, share of the phenotypic variance
 h2(fit)                            # the var(animal) share; 4 var(sire) / Vp in a sire model
 head(solutions(fit, s$pedigree))   # id, ebv, se, acc, sorted by breeding value
@@ -101,7 +100,7 @@ cor(ebv(fit)[names(s$tbv)], s$tbv) # against the simulator's own truth
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="man/figures/README-ebv-dark.svg">
-  <img src="man/figures/README-ebv.svg" width="100%" alt="Estimated against true breeding values of the 510 animals of the quick start, each point colored by its accuracy">
+  <img src="man/figures/README-ebv.svg" width="100%" alt="Estimated against true breeding values of the 1,860 animals of the quick start, each point colored by its accuracy">
 </picture>
 
 *The fit above against the simulator's truth: each point is an animal, colored by the
@@ -182,7 +181,7 @@ simulated.*
   <img src="man/figures/README-pegs.svg" width="60%" alt="Genetic correlations among four environments estimated by pegs against the simulated ones">
 </picture>
 
-*`pegs()` on one trait in four environments, with one record for each of 2,460 genotyped
+*`pegs()` on one trait in four environments, with one record for each of 7,560 genotyped
 animals: estimated against simulated genetic correlations.*
 [More details](https://phyllype.github.io/BreedingR/articles/models.html#several-traits)
 
@@ -234,7 +233,7 @@ simulated.*
   <img src="man/figures/README-gamma.svg" width="80%" alt="Relationship within and between two metafounders estimated by estimate_gamma, pseudo-EM and GLS, against the values from the simulated base allele frequencies">
 </picture>
 
-*`estimate_gamma()` on 240 genotyped descendants of two simulated base populations. The
+*`estimate_gamma()` on 1,000 genotyped descendants of two simulated base populations. The
 relationship within and between the metafounders, against the value from the base allele
 frequencies.*
 [More details](https://phyllype.github.io/BreedingR/articles/models.html#single-step-metafounders-and-markers),
@@ -247,7 +246,7 @@ frequencies.*
 
 ```r
 idx <- selection_index(cbind(y1 = ebv1, y2 = ebv2), weights = c(y1 = 1, y2 = 1))
-rank_drift(ebv(old_fit), ebv(new_fit), top = 50)
+rank_drift(ebv(old_fit), ebv(new_fit), top = 100)
 ```
 
 <picture>
@@ -255,8 +254,8 @@ rank_drift(ebv(old_fit), ebv(new_fit), top = 50)
   <img src="man/figures/README-selection.svg" width="100%" alt="Ranks of the candidates before and after the records of their progeny, and the animals that a two-trait selection index selects">
 </picture>
 
-*Left: the old top 50 of 600 candidates after the records of their progeny; 40 of them stay
-in the new top 50. Right: the top 10% by an index of two traits with equal weights.*
+*Left: the old top 100 of 4,000 candidates after the records of their progeny; 80 of them
+stay in the new top 100. Right: the top 10% by an index of two traits with equal weights.*
 
 ### Diagnostics and data checks
 
@@ -290,7 +289,7 @@ console shows it.*
   <img src="man/figures/README-qc.svg" width="100%" alt="The share of markers in opposite homozygosity for each sire and its offspring, true and swapped sires, and the markers removed by each filter of qc_genotypes">
 </picture>
 
-*Left: `parentage_check()` with 15 sires swapped by hand; the 15 are the only pairs above
+*Left: `parentage_check()` with 40 sires swapped by hand; the 40 are the only pairs above
 the threshold. Right: what each filter of `qc_genotypes()` removed from 2,000 markers.*
 [More details](https://phyllype.github.io/BreedingR/articles/data-checks.html)
 

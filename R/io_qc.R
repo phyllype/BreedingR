@@ -764,7 +764,9 @@ avisa_parentesco <- function(cp, g, limiar = 0.01) {
 #' @param n_generations generations bred after the founders
 #' @param offspring_per_generation animals born per generation
 #' @param h2 narrow-sense heritability of the phenotype
-#' @param n_markers if positive, gene-drop this many biallelic markers
+#' @param n_markers if positive, gene-drop this many biallelic markers. They follow the
+#'   pedigree but are independent of `tbv`: no QTL is among them. Use them to test the
+#'   genotype tools; in a single-step fit they only add noise to G
 #' @param seed RNG seed
 #' @return list with `pedigree` (id/sire/dam), `data` (id, cg, y), `tbv` (true breeding
 #'   values, named), and `genotypes` (NULL, or the `list(ids, m)` shape)
