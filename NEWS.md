@@ -2,6 +2,26 @@
 
 ## New
 
+* `gibbs()`: the draw of `var(residual)` is truncated at `1e-10 var(y)`, the floor of the
+  residual in `model()`, and `message` says how many draws reached it. On a residual that the
+  data hardly separate from the other variances (only their sum identified) the chain could
+  go down to about 1e-13 of the scale, where the mixed model equations lose their Cholesky
+  factor, and stop: in a synthetic case of 100 animals of 12 dams one chain stopped at 12063
+  of 19000 kept draws, and it now runs to the end with the same posterior mean. A draw below
+  the floor is replaced by a draw of the truncated conditional by its inverse distribution
+  function, which gives the truncated conditional exactly and leaves a chain that never
+  reaches the floor unchanged. Gates in `tests/testthat/test-gibbs-piso.R`. When a chain
+  still stops on the Cholesky factor, the message gives the state at the failure (the
+  residual and, by group, the smallest variance and the smallest eigenvalue over the
+  largest, on the scale of `var(y)`), and when a group passed 10 `var(y)` it says that a term
+  whose levels each sit in one class of a fixed effect is identified between classes only by
+  the prior.
+* `model()`: a variance whose standard error is 10 times the phenotypic variance or more is
+  named in `message` as holding almost no information, beside the SINGULAR verdict, which
+  reads the eigenvalues of the information matrix and left it out (in a maternal model,
+  var(maternal) of 0.020 with a standard error of 12647). The rule reads the phenotypic scale
+  and not the estimate: a small variance with a standard error above it covers zero, and that
+  standard error is the information the data hold.
 * `model(residual_by =)`: a residual variance per class of a column (an age class, a band of
   days), `var(residual|class)` for each class, estimated with the other components. The
   engine fits the rows scaled by `sqrt(s2_1 / s2_k)`, where the model has one residual, and
@@ -879,6 +899,11 @@
   refused. A fit made before this version has no `fit$genomic` and must be refitted.
 
 ## Fixed
+
+* The walk from the reduced model, when a covariance group ends near a correlation of +-1,
+  looked for the groups near +-1 in a list that lost every group but the last: a new pair of
+  components with no group in common emptied the list (`x[-integer(0)]` is empty in R). With
+  two disjoint groups near +-1 only one was seen. Gate in `tests/testthat/test-lista-correcoes.R`.
 
 * `qc_phenotypes(fence_by =)`: Tukey fences within each class of a column (an age class), so
   that a trait that grows with age is not cleaned by one fence over all ages. A class with

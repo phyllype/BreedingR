@@ -319,7 +319,14 @@ term, under which the rule passed; read as the residual's too, it fails by that 
 set, and \code{prior_residual = "uniform_sd"} is the prior it would have kept. With one
 record per animal the likelihood stays positive at
 \code{var(residual) = 0}, so \code{1/s2e} leaves mass there that the chain does not cover. Refused
-with \code{family = "probit"}, whose residual is fixed at 1}
+with \code{family = "probit"}, whose residual is fixed at 1. Under every prior the draw of
+\code{var(residual)} is truncated at \verb{1e-10 var(y)}, the floor of the residual in \code{\link[=model]{model()}}:
+a draw below it is replaced by a draw of the truncated conditional, so a chain that never
+reaches the floor is unchanged, and \code{message} says how many draws reached it. Below that
+floor the mixed model equations lose their Cholesky factor on a residual that the data
+hardly separate from the other variances, and the chain stopped there (a synthetic case
+of 100 animals of 12 dams stopped at 12063 of 19000 kept draws and runs to the end with
+the floor)}
 
 \item{prior_fixed}{the prior of the fixed effects. \code{Inf} is flat; a positive number puts
 a normal prior with mean 0 and that standard deviation, on the liability scale, on every

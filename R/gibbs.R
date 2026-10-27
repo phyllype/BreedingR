@@ -235,7 +235,14 @@
 #'   set, and `prior_residual = "uniform_sd"` is the prior it would have kept. With one
 #'   record per animal the likelihood stays positive at
 #'   `var(residual) = 0`, so `1/s2e` leaves mass there that the chain does not cover. Refused
-#'   with `family = "probit"`, whose residual is fixed at 1
+#'   with `family = "probit"`, whose residual is fixed at 1. Under every prior the draw of
+#'   `var(residual)` is truncated at `1e-10 var(y)`, the floor of the residual in [model()]:
+#'   a draw below it is replaced by a draw of the truncated conditional, so a chain that never
+#'   reaches the floor is unchanged, and `message` says how many draws reached it. Below that
+#'   floor the mixed model equations lose their Cholesky factor on a residual that the data
+#'   hardly separate from the other variances, and the chain stopped there (a synthetic case
+#'   of 100 animals of 12 dams stopped at 12063 of 19000 kept draws and runs to the end with
+#'   the floor)
 #' @param prior_fixed the prior of the fixed effects. `Inf` is flat; a positive number puts
 #'   a normal prior with mean 0 and that standard deviation, on the liability scale, on every
 #'   fixed-effect coefficient as the engine codes it: the intercept (the liability of the

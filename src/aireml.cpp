@@ -2190,6 +2190,29 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
     const std::string av = aviso_informacao(ai_livre, nomes_livres, &se_livre);
     for (std::size_t a = 0; a < livre.size(); a++) R.se[livre[a]] = se_livre[a];
     if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
+    // O COMPONENTE QUASE SEM INFORMACAO fora do conjunto SINGULAR (lista de correcoes, item 20):
+    // uma variancia com EP 10 vezes a variancia fenotipica (a soma das var() no ponto) ou mais e
+    // falta de informacao do mesmo jeito (medido num materno: var(maternal) 0,020 com EP
+    // 12647), e o veredito, que le os autovalores da AI, deixava ela de fora. A regua e a escala
+    // fenotipica, e nao a estimativa: uma variancia pequena com EP acima dela cobre o zero, e
+    // o EP ali e a informacao que os dados tem
+    double vp = 0.0;
+    for (std::size_t k = 0; k < nth; k++)
+      if (todos[k].compare(0, 4, "var(") == 0 && theta[k] > 0.0) vp += theta[k];
+    std::string quase;
+    for (std::size_t a = 0; vp > 0.0 && a < livre.size(); a++) {
+      const std::size_t k = livre[a];
+      if (!(R.se[k] > 0.0) || !std::isfinite(R.se[k])) continue;
+      if (todos[k].compare(0, 4, "var(") != 0 || R.se[k] < 10.0 * vp) continue;
+      char buf[200];
+      std::snprintf(buf, sizeof(buf), "%s (SE %.3g times the phenotypic variance)",
+                    todos[k].c_str(), R.se[k] / vp);
+      quase += (quase.empty() ? "" : ", ") + std::string(buf);
+    }
+    if (!quase.empty())
+      R.mensagem += (R.mensagem.empty() ? "" : "; ") + std::string("the data hold almost no "
+          "information on ") + quase + ": read it as not estimated, as a component of the "
+          "SINGULAR verdict";
   }
   return R;
 }

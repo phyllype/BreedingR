@@ -604,7 +604,9 @@ grupos_perto_de_um <- function(theta, limiar = 1e-4) {
   for (pr in par) {
     k <- which(vapply(conj, function(s) any(pr %in% s), logical(1)))
     novo <- unique(c(pr, unlist(conj[k])))
-    conj <- c(conj[-k], list(novo))
+    # sem conjunto que encoste no par, ele so entra: conj[-integer(0)] e a lista VAZIA, e cada
+    # par novo apagava os conjuntos de antes (dois grupos disjuntos, so o ultimo era visto)
+    conj <- c(if (length(k)) conj[-k] else conj, list(novo))
   }
   out <- list()
   for (s in conj) {

@@ -331,3 +331,17 @@ test_that("when every chain stops early, the message says the chain used stopped
   expect_identical(j$chains_used, 2L)
   expect_match(j$message, "every chain stopped early: the results come from chain 2, the longest, which stopped too [(]35 of 50")
 })
+
+test_that("two disjoint groups near a correlation of +-1 are both found (item 10)", {
+  # conj[-integer(0)] e a lista vazia: o par de um grupo novo apagava os conjuntos de antes, e
+  # so o ultimo grupo era visto
+  th <- c("var(a)" = 1, "cov(b,a)" = -0.99999999, "var(b)" = 1,
+          "var(c)" = 1, "cov(d,c)" = 0.99999999, "var(d)" = 1)
+  perto <- BreedingR:::grupos_perto_de_um(th)
+  expect_length(perto, 2L)
+  expect_true(any(vapply(perto, function(s) setequal(s, c("a", "b")), logical(1))))
+  expect_true(any(vapply(perto, function(s) setequal(s, c("c", "d")), logical(1))))
+  # longe de +-1, nenhum
+  th[c("cov(b,a)", "cov(d,c)")] <- c(-0.5, 0.5)
+  expect_length(BreedingR:::grupos_perto_de_um(th), 0L)
+})

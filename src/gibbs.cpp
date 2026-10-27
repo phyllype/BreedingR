@@ -658,6 +658,37 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
                    "of dimension > 1 needs \"jeffreys\", \"flat\", \"half_t\" or "
                    "c(df = , scale = )");
 
+  // O PISO DO RESIDUO (lista de correcoes, item 39). Num residuo quase nao identificado (so a
+  // soma P0 + s2e separa, a correlacao dentro do animal perto de 1) a cadeia pode andar ate
+  // var(residual) ~1e-13 da escala, onde as MME W'W + s2e G^-1 perdem a Cholesky e a cadeia
+  // para (uma reproducao sintetica de 100 animais de 12 maes parava em 12063 de 19000
+  // amostras). O piso nao cobre toda parada: no dado real a cadeia parou com o residuo em
+  // 1e-7 var(y), acima dele, na crista de um termo aninhado num efeito fixo (a mensagem da
+  // parada, abaixo, diz o estado). O sorteio do residuo fica TRUNCADO em
+  // piso_res = 1e-10 var(y), que e o piso do residuo no REML (pisos_z, aireml.cpp): uma
+  // priori truncada la, longe da massa a posteriori. O sorteio que cai abaixo do piso e
+  // trocado por um da condicional truncada, pela inversa da acumulada; o par (sorteio comum,
+  // troca so abaixo) da EXATAMENTE a truncada, e a cadeia que nunca toca o piso fica a mesma
+  // bit a bit
+  double piso_res = 0.0;
+  std::size_t n_piso_res = 0;
+  if (!probit) {
+    double s = 0.0, s2 = 0.0, n = 0.0;
+    for (std::size_t r = 0; r < d.nlin; r++)
+      if (d.usa[r]) { s += d.y[r]; s2 += d.y[r] * d.y[r]; n += 1.0; }
+    const double v = n > 1.0 ? (s2 - s * s / n) / (n - 1.0) : 0.0;
+    piso_res = 1e-10 * (v > 0.0 && std::isfinite(v) ? v : 1.0);
+  }
+  // s2 = num / chisq(gl) truncado em s2 >= piso_res, isto e chisq <= num / piso_res
+  auto trunca_res = [&](double s2, double num, double gl) {
+    if (!(s2 < piso_res) || !(num > 0.0)) return s2;
+    n_piso_res++;
+    const double lim = num / piso_res;
+    const double u = unif_rand() * Rf_pchisq(lim, gl, 1, 0);
+    const double q = Rf_qchisq(u, gl, 1, 0);
+    return q > 0.0 && std::isfinite(q) ? num / q : piso_res;
+  };
+
   GetRNGstate();
   CacheSimbolica cs;
 
@@ -779,8 +810,46 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
     // quando uma variancia sorteada cai a ~1e-13 da escala, como o residuo sob Jeffreys com um
     // registro por animal (validation/indirect_gibbs_recovery.R, modo half_t)
     if (!cholesky(pc, cs.sb, L)) {
+      // o ESTADO no ponto da falha (item 39 da lista de correcoes): o residuo sobre var(y) e,
+      // por grupo, a menor variancia sobre var(y) e o menor autovalor sobre o maior, para que a
+      // mensagem diga o que foi ao limite
+      std::string estado, grande;
+      char buf[160];
+      if (!probit) {
+        std::snprintf(buf, sizeof buf, "var(residual) %.3g var(y)",
+                      theta[d.modelo.offset_residual] / (piso_res / 1e-10));
+        estado = buf;
+      }
+      for (std::size_t g = 0; g < n_grupos; g++) {
+        const Densa cg = cov_grupo(d.modelo, theta, g);
+        std::vector<double> ev;
+        Densa u;
+        jacobi_sim(cg, ev, u);
+        double mn = ev.empty() ? 0.0 : ev[0], mx = mn, dmin = cg.at(0, 0);
+        for (double e : ev) { mn = std::min(mn, e); mx = std::max(mx, e); }
+        for (std::size_t a = 0; a < cg.nlin; a++) dmin = std::min(dmin, cg.at(a, a));
+        if (!probit && mx > 10.0 * (piso_res / 1e-10))
+          grande += (grande.empty() ? "'" : ", '") + d.modelo.grupos[g].nome + "'";
+        if (cg.nlin > 1)
+          std::snprintf(buf, sizeof buf, "group '%s': smallest variance %.3g var(y), smallest "
+                        "eigenvalue %.3g of the largest", d.modelo.grupos[g].nome.c_str(),
+                        dmin / (probit ? 1.0 : piso_res / 1e-10), mx > 0.0 ? mn / mx : 0.0);
+        else
+          std::snprintf(buf, sizeof buf, "var(%s) %.3g var(y)", d.modelo.grupos[g].nome.c_str(),
+                        dmin / (probit ? 1.0 : piso_res / 1e-10));
+        estado += (estado.empty() ? "" : ", ") + std::string(buf);
+      }
       S.mensagem = "the coefficient matrix of the mixed-model equations is not "
-                   "positive-definite inside the chain (a variance drawn near zero)";
+                   "positive-definite inside the chain (a variance drawn near zero; at the "
+                   "failure: " + estado + ")";
+      // medido no dado real (item 39): o residuo em 1e-7 var(y) e a familia em 20 var(y) com a
+      // correlacao no limite, a familia aninhada na caixa fixa. A parte entre caixas desse termo
+      // so a priori identifica, e a cadeia anda por la ate o fator nao sair
+      if (!grande.empty())
+        S.mensagem += "; the variance of group(s) " + grande + " passed 10 var(y) there: a "
+                      "term whose levels each sit in one class of a fixed effect (a dam in one "
+                      "box) has its part between classes identified only by the prior, and the "
+                      "chain wanders there; fit that class as random() or merge the classes";
       break;
     }
 
@@ -864,15 +933,16 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
     if (!loc_fixa && !probit && meia_t_res) {
       // meia-t no residuo: s2e | e, a ~ (e'e + 2 nu / a) / chisq(n + nu), depois
       // a | s2e ~ 2 (nu / s2e + 1/A^2) / chisq(nu + 1)
-      const double s2 = (ee + 2.0 * nu_res / a_res) /
-                        Rf_rchisq(static_cast<double>(nreg) + nu_res);
+      const double num = ee + 2.0 * nu_res / a_res;
+      const double gl = static_cast<double>(nreg) + nu_res;
+      const double s2 = trunca_res(num / Rf_rchisq(gl), num, gl);
       theta[d.modelo.offset_residual] = s2;
       a_res = 2.0 * (nu_res / s2 + 1.0 / (A_res * A_res)) / Rf_rchisq(nu_res + 1.0);
     } else if (!loc_fixa && !probit) {
       const double gl = gl_priori(pres, nreg, 1);
       if (!(gl > 0.0)) throw Erro("too few records for this prior on the residual");
-      theta[d.modelo.offset_residual] =
-          (ee + (pres.tipo == 3 ? pres.gl0 * pres.escala : 0.0)) / Rf_rchisq(gl);
+      const double num = ee + (pres.tipo == 3 ? pres.gl0 * pres.escala : 0.0);
+      theta[d.modelo.offset_residual] = trunca_res(num / Rf_rchisq(gl), num, gl);
     }
 
     // ---- 3. grupos: C_g ~ InvWishart(nl, U' K^-1 U) com Jeffreys (as outras prioris mudam os
@@ -1030,6 +1100,15 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
   }
 
   PutRNGstate();
+  if (n_piso_res > 0) {
+    char buf[96];
+    std::snprintf(buf, sizeof buf, "%.3g", piso_res);
+    const std::string nota = "var(residual) was drawn below its floor " + std::string(buf) +
+        " (1e-10 var(y), where the prior is truncated) " + std::to_string(n_piso_res) +
+        " time(s) and was drawn again above it: the data hold almost no information to "
+        "separate the residual from the other variances";
+    S.mensagem = S.mensagem.empty() ? nota : S.mensagem + "; " + nota;
+  }
   S.n_amostras = n_amostras;
   S.ntheta = ntheta;
   S.media_loc = media_u;
