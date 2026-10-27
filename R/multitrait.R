@@ -251,6 +251,22 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   # vazias tem a recusa propria, mais adiante (prepara_estrutura)
   vazias <- traits[vapply(traits, function(tr) all(observacao_ausente(data[[tr]], missing_code)),
                           logical(1))]
+  # duas caracteristicas exatamente colineares (y2 = a + b y1, uma copia) davam so mensagens de
+  # fronteira, sem a causa (catalogo de estrutura, prioridade media)
+  obs_tr <- lapply(traits, function(tr) {
+    v <- suppressWarnings(as.double(data[[tr]]))
+    v[observacao_ausente(data[[tr]], missing_code)] <- NA_real_
+    v
+  })
+  for (i in seq_along(traits)) for (j in seq_len(i - 1L)) {
+    ok <- !is.na(obs_tr[[i]]) & !is.na(obs_tr[[j]])
+    if (sum(ok) < 3L) next
+    a <- obs_tr[[i]][ok]; b <- obs_tr[[j]][ok]
+    if (stats::sd(a) > 0 && stats::sd(b) > 0 && abs(stats::cor(a, b)) > 1 - 1e-10)
+      stop("the traits '", traits[j], "' and '", traits[i], "' are exactly collinear on their ",
+           sum(ok), " common record(s) (correlation ", round(stats::cor(a, b), 6), "): one is a ",
+           "linear function of the other, so R0 is singular. Drop one of them", call. = FALSE)
+  }
   if (length(vazias) && length(vazias) < length(traits))
     stop(if (length(vazias) == 1L) "the trait " else "the traits ",
          paste0("'", vazias, "'", collapse = ", "),

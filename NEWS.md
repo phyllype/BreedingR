@@ -925,6 +925,9 @@
 
 ## Fixed
 
+* `model_mt()` refuses two traits that are exactly collinear on their common records (the
+  fit gave only boundary messages). Gate in `tests/testthat/test-estrutura-media5.R`.
+
 * A base of `rn()` or `pe(base =)` whose columns differ in scale by more than 100 times (t
   and t^2 without scaling) gets a warning with the cause and the way out (`legendre()`, or
   scaled columns): the fit stopped at `maxiter` with "Raise maxiter=". Gate in
