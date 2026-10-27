@@ -549,7 +549,7 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
 #' point only. Its standard error by the delta method comes from [se_function()], which reads
 #' the covariance of the components in `fit$vcov`:
 #' `se_function(fit, function(th) th[["cov(animal@y2,animal@y1)"]] / sqrt(th[["var(animal@y1)"]] * th[["var(animal@y2)"]]))`.
-#' Near r_g = +/-1 that standard error has no meaning: use [profile_theta()] there.
+#' Near r_g = +/-1 that standard error has no meaning: the likelihood there is not a parabola.
 #'
 #' A fit that did not converge is read at its last iterate, with a warning; when the fit
 #' reports the information matrix SINGULAR along a set of components that includes one of

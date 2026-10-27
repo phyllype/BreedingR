@@ -24,7 +24,7 @@ r_g = cov(a@t1, a@t2) / sqrt(var(a@t1) var(a@t2)), read by parameter NAME. rg() 
 point only. Its standard error by the delta method comes from \code{\link[=se_function]{se_function()}}, which reads
 the covariance of the components in \code{fit$vcov}:
 \code{se_function(fit, function(th) th[["cov(animal@y2,animal@y1)"]] / sqrt(th[["var(animal@y1)"]] * th[["var(animal@y2)"]]))}.
-Near r_g = +/-1 that standard error has no meaning: use \code{\link[=profile_theta]{profile_theta()}} there.
+Near r_g = +/-1 that standard error has no meaning: the likelihood there is not a parabola.
 }
 \details{
 A fit that did not converge is read at its last iterate, with a warning; when the fit

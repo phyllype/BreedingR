@@ -112,3 +112,23 @@ test_that("the boundary message names the components that it counts (item 21)", 
   expect_equal(length(nomes), as.integer(m[2]))
   expect_true(all(nomes %in% names(r$theta)))
 })
+
+test_that("profile_theta() passes eval_internal() only its own arguments, and a penalty is no optimum (item 6)", {
+  z <- lista_dados()
+  z$d <- rbind(z$d, transform(z$d, y = y + stats::rnorm(40, 0, 0.5)))
+  fo <- y ~ cg + animal(id) + pe(id)
+  f <- suppressWarnings(model(fo, z$d, z$ped, verbose = FALSE))
+  # verbose = FALSE goes to model() and not to eval_internal()
+  p1 <- suppressWarnings(profile_theta(fo, z$d, z$ped, k = "var(animal)", grid = c(0.2, 0.5),
+                                       verbose = FALSE))
+  expect_true(all(p1$neg2logl < 1e10))
+  p2 <- suppressWarnings(profile_theta(fo, z$d, z$ped, k = "var(animal)", grid = c(0.2, 0.5),
+                                       fit = f))
+  expect_equal(p1$neg2logl, p2$neg2logl, tolerance = 1e-6)
+  # a variance of 0 on the grid is outside the admissible space: NA, not converged
+  p3 <- suppressWarnings(profile_theta(fo, z$d, z$ped, k = "var(animal)", grid = c(0, 0.5),
+                                       fit = f))
+  expect_true(is.na(p3$neg2logl[1]))
+  expect_false(p3$converged[1])
+  expect_true(is.finite(p3$neg2logl[2]))
+})

@@ -882,6 +882,12 @@
 * The help of `weights =` in `model()` says that the -2logL leaves out `-sum(log(w))`.
 * `model_mt()`: the message about components resting at a covariance
   boundary now names them (up to 8, and how many more). Before it gave only their number.
+* `profile_theta()` gives `eval_internal()` only the arguments that it takes: a
+  `verbose = FALSE` for `model()` made every evaluation fail, and every point came back
+  with the penalty 1e12 and `converged = TRUE`. A grid point outside the admissible space
+  (a variance of 0, a group outside the cone) is now `NA` with `converged = FALSE`, and a
+  Nelder-Mead stop at `maxit` is restarted once from its point before it counts as not
+  converged.
 * `model_mt()` keeps `vcov`, `2 AI^-1` with the names of `theta`, so `se_function()`
   gives the delta-method standard error of r_g and h2. Before, `se_function()` refused with
   a reason that did not hold. A component with no standard error has its row and column

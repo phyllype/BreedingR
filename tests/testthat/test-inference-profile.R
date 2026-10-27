@@ -103,5 +103,10 @@ test_that("the profile matches a brute-force profile by an INDEPENDENT optimizer
        control = list(factr = 1e4))
     o$value
   }, numeric(1))
-  expect_equal(pr$neg2logl, bruto, tolerance = 1e-4)
+  # a point outside the admissible space (here a negative variance) has the penalty in the
+  # reference and NA in the profile, which does not report a penalty as an optimum
+  fora <- bruto >= 1e12
+  expect_true(all(is.na(pr$neg2logl[fora])))
+  expect_false(any(pr$converged[fora]))
+  expect_equal(pr$neg2logl[!fora], bruto[!fora], tolerance = 1e-4)
 })
