@@ -1141,12 +1141,15 @@ static AjusteMT caminha_ar1(DesenhoAR& d, const std::vector<double>* theta0,
         "certificate is CONDITIONAL on the pinning; read those components with care: " +
         lista_na_parede(parede_final, nomes_theta_ar1(d));
   R.se.assign(d.modelo.ntheta, std::nan(""));
+  const std::size_t ntv = d.modelo.ntheta;
+  R.vcov.assign(ntv * ntv, std::nan(""));
   if (final_ok)
     try {
       Densa inv = inv_geral(cur.ai);
-      for (std::size_t k = 0; k < d.modelo.ntheta; k++) {
+      for (std::size_t k = 0; k < ntv; k++) {
         const double v = 2.0 * inv.at(k, k);
         if (v > 0.0) R.se[k] = std::sqrt(v);
+        for (std::size_t j = 0; j < ntv; j++) R.vcov[k * ntv + j] = 2.0 * inv.at(k, j);
       }
     } catch (const Erro&) {}
 
@@ -1214,6 +1217,13 @@ static AjusteMT caminha_ar1(DesenhoAR& d, const std::vector<double>* theta0,
     R.pev = cur.pev;
     const std::string av = aviso_informacao(cur.ai, nomes_theta_ar1(d), &R.se, &fator_corte);
     if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
+    // como no multicaracter: sem erro-padrao, sem linha na covariancia
+    for (std::size_t k = 0; k < ntv; k++)
+      if (!std::isfinite(R.se[k]))
+        for (std::size_t j = 0; j < ntv; j++) {
+          R.vcov[k * ntv + j] = std::nan("");
+          R.vcov[j * ntv + k] = std::nan("");
+        }
   } else {
     R.neg2logl = cur.neg2logl + jac;
     R.mensagem += std::string(R.mensagem.empty() ? "" : "; ") +

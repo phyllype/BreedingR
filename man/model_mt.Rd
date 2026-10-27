@@ -219,6 +219,9 @@ agrees to about 1e-6, but components resting at a boundary sit on a flat face of
 likelihood and can move along it (measured: 0.4\% and 0.6\% for y2 times 0.01 and 1000
 in a two-term group with ten components at a covariance boundary, the -2logL equal
 to 2.5e-5 after the Jacobian).
+\code{vcov} is \verb{2 AI^-1}, the sampling covariance of the components, with the names of
+\code{theta}; a component with no standard error has its row and column \code{NA}. \code{\link[=se_function]{se_function()}}
+reads it for r_g and h2.
 \code{residual}, \code{fitted}, \code{fitted_fixed} and \code{resid_var} (the variance of
 each residual) are matrices with one row per row of \code{data} and one column per trait,
 \code{NA} in a missing cell, read by \code{\link[=residuals.breeding_fit]{residuals.breeding_fit()}}. They come from one more

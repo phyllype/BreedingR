@@ -247,3 +247,20 @@ test_that("a column of a term may be missing on the rows where the term does not
   ruim$cg[which(!is.na(ruim$y1))[3]] <- NA
   expect_error(eval_internal_mt(f2, ruim, s$ped, theta = th, with_dense = FALSE), "cg")
 })
+
+test_that("model_mt() keeps the covariance of the components: se_function() reads it", {
+  s <- simula_geracoes()
+  f <- suppressMessages(model_mt(f_tr, s$data, s$ped, verbose = FALSE))
+  expect_equal(dim(f$vcov), rep(length(f$theta), 2))
+  expect_equal(rownames(f$vcov), names(f$theta))
+  ok <- is.finite(f$se)
+  expect_equal(sqrt(diag(f$vcov))[ok], f$se[ok], tolerance = 1e-10)
+  # the residual covariance held at 0 has no row
+  expect_true(all(is.na(f$vcov["cov(res@y2,res@y1)", ])))
+  r <- se_function(f, function(th) th[["cov(animal@y2,animal@y1)"]] /
+                     sqrt(th[["var(animal@y1)"]] * th[["var(animal@y2)"]]))
+  expect_equal(r$estimate, rg(f), tolerance = 1e-12)
+  expect_true(is.finite(r$se) && r$se > 0 && r$se < 0.5)
+  v <- se_function(f, function(th) th[["var(pe@y1)"]])
+  expect_equal(v$se, f$se[["var(pe@y1)"]], tolerance = 1e-6)
+})

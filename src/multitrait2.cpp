@@ -1240,12 +1240,16 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
   R.se.assign(d.modelo.ntheta, std::nan(""));
   std::vector<std::size_t> na_veross;   // as coordenadas que entram na verossimilhanca
   for (std::size_t k = 0; k < d.modelo.ntheta; k++) if (!sem_par[k]) na_veross.push_back(k);
+  const std::size_t ntv = d.modelo.ntheta;
+  R.vcov.assign(ntv * ntv, std::nan(""));
   if (final_ok)
     try {
       Densa inv = inv_geral(sub_densa(cur.ai, na_veross));
       for (std::size_t i = 0; i < na_veross.size(); i++) {
         const double v = 2.0 * inv.at(i, i);
         if (v > 0.0) R.se[na_veross[i]] = std::sqrt(v);
+        for (std::size_t j = 0; j < na_veross.size(); j++)
+          R.vcov[na_veross[i] * ntv + na_veross[j]] = 2.0 * inv.at(i, j);
       }
     } catch (const Erro&) {}
   {
@@ -1334,6 +1338,14 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
     const std::string av = aviso_informacao(sub_densa(cur.ai, na_veross), nm_v, &se_v, &fc_v);
     for (std::size_t i = 0; i < na_veross.size(); i++) R.se[na_veross[i]] = se_v[i];
     if (!av.empty()) R.mensagem += (R.mensagem.empty() ? "" : "; ") + av;
+    // o componente sem erro-padrao (numa crista do veredito SINGULAR) fica sem linha na
+    // covariancia: o metodo delta de uma funcao que depende dele tambem nao existe
+    for (std::size_t k = 0; k < ntv; k++)
+      if (!std::isfinite(R.se[k]))
+        for (std::size_t j = 0; j < ntv; j++) {
+          R.vcov[k * ntv + j] = std::nan("");
+          R.vcov[j * ntv + k] = std::nan("");
+        }
   } else {
     // nunca visto: o mesmo theta, so reescalado, deixou de ser avaliavel. O -2logL sai da
     // caminhada mais o jacobiano, e as solucoes ficam NA em vez de sair na unidade errada

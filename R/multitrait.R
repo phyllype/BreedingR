@@ -202,6 +202,9 @@
 #'   likelihood and can move along it (measured: 0.4% and 0.6% for y2 times 0.01 and 1000
 #'   in a two-term group with ten components at a covariance boundary, the -2logL equal
 #'   to 2.5e-5 after the Jacobian).
+#'   `vcov` is `2 AI^-1`, the sampling covariance of the components, with the names of
+#'   `theta`; a component with no standard error has its row and column `NA`. [se_function()]
+#'   reads it for r_g and h2.
 #'   `residual`, `fitted`, `fitted_fixed` and `resid_var` (the variance of
 #'   each residual) are matrices with one row per row of `data` and one column per trait,
 #'   `NA` in a missing cell, read by [residuals.breeding_fit()]. They come from one more
@@ -542,10 +545,11 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
 
 #' Genetic correlation between two traits, from the multi-trait fit
 #'
-#' r_g = cov(a@t1, a@t2) / sqrt(var(a@t1) var(a@t2)), read by parameter NAME. The standard
-#' error is NOT given: it needs the delta method with the covariance between components, and
-#' the honesty here is the same as summary's, making the number up would be worse than not
-#' giving it.
+#' r_g = cov(a@t1, a@t2) / sqrt(var(a@t1) var(a@t2)), read by parameter NAME. rg() gives the
+#' point only. Its standard error by the delta method comes from [se_function()], which reads
+#' the covariance of the components in `fit$vcov`:
+#' `se_function(fit, function(th) th[["cov(animal@y2,animal@y1)"]] / sqrt(th[["var(animal@y1)"]] * th[["var(animal@y2)"]]))`.
+#' Near r_g = +/-1 that standard error has no meaning: use [profile_theta()] there.
 #'
 #' A fit that did not converge is read at its last iterate, with a warning; when the fit
 #' reports the information matrix SINGULAR along a set of components that includes one of
@@ -555,8 +559,8 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
 #' @param term name of the term (for example "animal")
 #' @param t1 name of the first trait
 #' @param t2 name of the second
-#' @return a single number, the genetic correlation. No standard error travels with it, for the
-#'   reason given above.
+#' @return a single number, the genetic correlation. Its standard error comes from
+#'   [se_function()], as above.
 #' @export
 rg <- function(fit, term = "animal", t1 = NULL, t2 = NULL) {
   if (!inherits(fit, "breeding_fit_mt")) stop("expected the result of model_mt()")

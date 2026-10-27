@@ -16,14 +16,15 @@ rg(fit, term = "animal", t1 = NULL, t2 = NULL)
 \item{t2}{name of the second}
 }
 \value{
-a single number, the genetic correlation. No standard error travels with it, for the
-reason given above.
+a single number, the genetic correlation. Its standard error comes from
+\code{\link[=se_function]{se_function()}}, as above.
 }
 \description{
-r_g = cov(a@t1, a@t2) / sqrt(var(a@t1) var(a@t2)), read by parameter NAME. The standard
-error is NOT given: it needs the delta method with the covariance between components, and
-the honesty here is the same as summary's, making the number up would be worse than not
-giving it.
+r_g = cov(a@t1, a@t2) / sqrt(var(a@t1) var(a@t2)), read by parameter NAME. rg() gives the
+point only. Its standard error by the delta method comes from \code{\link[=se_function]{se_function()}}, which reads
+the covariance of the components in \code{fit$vcov}:
+\code{se_function(fit, function(th) th[["cov(animal@y2,animal@y1)"]] / sqrt(th[["var(animal@y1)"]] * th[["var(animal@y2)"]]))}.
+Near r_g = +/-1 that standard error has no meaning: use \code{\link[=profile_theta]{profile_theta()}} there.
 }
 \details{
 A fit that did not converge is read at its last iterate, with a warning; when the fit

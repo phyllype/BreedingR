@@ -966,6 +966,10 @@ struct AjusteMT {
   double decremento = std::numeric_limits<double>::quiet_NaN();
   double neg2logl = 0.0;
   std::vector<double> theta, se, solucao;
+  // 2 AI^-1, a covariancia amostral das componentes (ntheta x ntheta, por linha), NaN na
+  // linha e na coluna de um componente sem erro-padrao (lista de correcoes, item 16: sem ela
+  // nao ha metodo delta para rg, h2 ou h2(x) do model_mt() e do model_ar1())
+  std::vector<double> vcov;
   std::vector<double> pev;   // diagonal de C^-1 no otimo, ja em unidades absolutas
   // a partida de onde a caminhada saiu, em unidades originais: o start= do usuario, a dos
   // univariados ou a automatica (para conferir, e para repetir o ajuste)

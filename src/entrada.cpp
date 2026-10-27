@@ -717,6 +717,20 @@ static void aplica_tracos(br::Modelo& m, SEXP tnome, SEXP ttra) {
   }
 }
 
+// 2 AI^-1 (por linha) como matriz do R com os nomes de theta nas duas dimensoes
+static SEXP sexp_vcov(const std::vector<double>& v, std::size_t n, SEXP nomes) {
+  SEXP m = PROTECT(Rf_allocMatrix(REALSXP, (int) n, (int) n));
+  for (std::size_t k = 0; k < n; k++)
+    for (std::size_t j = 0; j < n; j++)
+      REAL(m)[j * n + k] = v.size() == n * n ? v[k * n + j] : NA_REAL;
+  SEXP dn = PROTECT(Rf_allocVector(VECSXP, 2));
+  SET_VECTOR_ELT(dn, 0, Rf_duplicate(nomes));
+  SET_VECTOR_ELT(dn, 1, Rf_duplicate(nomes));
+  Rf_setAttrib(m, R_DimNamesSymbol, dn);
+  UNPROTECT(2);
+  return m;
+}
+
 static br::Tabela tabela_do_R(SEXP dados, SEXP nomes) {
   br::Tabela t;
   const R_xlen_t nc = XLENGTH(dados);
@@ -1461,10 +1475,12 @@ SEXP R_ajustar_mt(SEXP dados, SEXP nomes, SEXP alvos, SEXP tnome, SEXP tcol, SEX
                             "message", "n_used", "n_columns", "ebv", "pev", "b",
                             "dropped_x", "newton_dec", "dense_block", "h_prior",
                             "h_prior_row", "residual", "fitted", "fitted_fixed",
-                            "resid_var", "used", "start_from", "dropped_x_reason", "start"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 25));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 25));
-    for (int q = 0; q < 25; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "resid_var", "used", "start_from", "dropped_x_reason", "start",
+                            "vcov"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 26));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 26));
+    for (int q = 0; q < 26; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    SET_VECTOR_ELT(out, 25, sexp_vcov(r.vcov, nt2, nms_t));
     poe_residuos(out, 17, res, d.usa, d.alvos);
     SET_VECTOR_ELT(out, 22, Rf_mkString(partida_de.c_str()));
     SET_VECTOR_ELT(out, 24, sexp_partida(r.partida, nms_t));
@@ -1769,10 +1785,11 @@ SEXP R_ajustar_ar1(SEXP dados, SEXP nomes, SEXP alvo, SEXP tnome, SEXP tcol, SEX
                             "b", "dropped_x", "newton_dec", "dense_block", "h_prior",
                             "h_prior_row", "residual", "fitted", "fitted_fixed",
                             "resid_var", "used", "subject_index", "time", "start_from",
-                            "start", "dropped_x_reason", "time_step"};
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 29));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 29));
-    for (int q = 0; q < 29; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+                            "start", "dropped_x_reason", "time_step", "vcov"};
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 30));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 30));
+    for (int q = 0; q < 30; q++) SET_STRING_ELT(nms, q, Rf_mkChar(campos[q]));
+    SET_VECTOR_ELT(out, 29, sexp_vcov(r.vcov, nt2, nms_t));
     poe_residuos(out, 18, res, d.usa, d.alvos);
     {
       SEXP sj = PROTECT(Rf_allocVector(INTSXP, (R_xlen_t) d.nlin));

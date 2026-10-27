@@ -882,6 +882,11 @@
 * The help of `weights =` in `model()` says that the -2logL leaves out `-sum(log(w))`.
 * `model_mt()`: the message about components resting at a covariance
   boundary now names them (up to 8, and how many more). Before it gave only their number.
+* `model_mt()` keeps `vcov`, `2 AI^-1` with the names of `theta`, so `se_function()`
+  gives the delta-method standard error of r_g and h2. Before, `se_function()` refused with
+  a reason that did not hold. A component with no standard error has its row and column
+  `NA`. Gate in `tests/testthat/test-mt-traits.R`: the square root of the diagonal equals
+  `se`.
 * The SINGULAR verdict gives the advice of the components that it names: dams and
   granddams with records for `maternal()`. Before, a maternal model got the advice about
   pens.
