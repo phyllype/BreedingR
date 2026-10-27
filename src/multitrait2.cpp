@@ -661,10 +661,32 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
   AvaliacaoMT cur = avalia_mt(d, theta, &cs);
   if (cs.pronto) { R.bloco_denso = bloco_denso_simbolico(cs.sb); R.colunas_fator = cs.sb.n; }
   if (!cur.ok) {
+    // QUAL bloco (lista de correcoes, item 13): a recusa nao dizia, e o ajuste voltava com
+    // -2logL 0, que parece um numero
+    std::string quais;
+    if (cur.motivo != 2) {
+      const std::vector<double> th = bruto(theta);
+      auto pd = [&](std::size_t off, std::size_t dim) {
+        Densa c(dim, dim);
+        for (std::size_t j = 0; j < dim; j++)
+          for (std::size_t i = j; i < dim; i++) {
+            const double v = th[off + (j * (2 * dim - j + 1)) / 2 + (i - j)];
+            c.at(i, j) = v;
+            c.at(j, i) = v;
+          }
+        return chol_densa(c);
+      };
+      for (const Grupo& g : d.modelo.grupos)
+        if (!pd(g.offset, g.dim)) quais += (quais.empty() ? "" : ", ") + std::string("'") + g.nome + "'";
+      if (!pd(d.modelo.offset_residual, t))
+        quais += (quais.empty() ? "" : ", ") + std::string("the residual R0");
+    }
     R.mensagem = cur.motivo == 2
       ? "the coefficient matrix is SINGULAR at the starting theta: the design does not identify "
         "some effect, and changing start= does not help"
-      : "the starting theta is INADMISSIBLE: some covariance matrix is not positive-definite";
+      : "the starting theta is INADMISSIBLE: the covariance matrix of " +
+        (quais.empty() ? std::string("some group") : quais) + " is not positive-definite";
+    R.neg2logl = std::nan("");
     return R;
   }
 
@@ -1213,7 +1235,8 @@ static AjusteMT caminha_mt(DesenhoMT& d, const std::vector<double>* theta0,
         std::to_string(na_fronteira) + " component(s) resting at a covariance boundary "
         "excluded from the convergence certificate: a component pinned at a boundary "
         "points out of the cone by construction, so its gradient never vanishes and the "
-        "certificate is CONDITIONAL on the pinning; read those components with care";
+        "certificate is CONDITIONAL on the pinning; read those components with care: " +
+        lista_na_parede(parede_final, nomes_theta_mt(d.modelo, d.alvos));
   R.se.assign(d.modelo.ntheta, std::nan(""));
   std::vector<std::size_t> na_veross;   // as coordenadas que entram na verossimilhanca
   for (std::size_t k = 0; k < d.modelo.ntheta; k++) if (!sem_par[k]) na_veross.push_back(k);

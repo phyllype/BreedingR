@@ -283,7 +283,10 @@ session, quiet in scripts and checks. Every fitter also honors Ctrl+C now}
 residual variance \code{s2e / w}. Weights enter as a row scaling by sqrt(w), so the
 normal equations solved are the weighted ones. Use them when records are means of
 different sizes, or estimates that carry their own precision, a two-step analysis,
-a de-regressed proof}
+a de-regressed proof. The -2logL leaves out the term \code{-sum(log(w))} of \verb{log|R|}. So the
+same model written with weights \code{c * w} and residual variance \code{c * s2e} gives a -2logL
+larger by \code{n * log(c)}, with \code{n} the records (measured: 27.73 for c = 2 and 40
+records). Compare the -2logL of fits that have the same weights only}
 
 \item{start}{starting values for the components, in the order the fit reports them.
 Use it to warm-start from a submodel, or to check that the optimum does not depend

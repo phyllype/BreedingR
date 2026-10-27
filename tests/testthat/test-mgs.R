@@ -82,7 +82,7 @@ test_that("o ajuste com sire_mgs() e o do pedigree expandido, e accuracy() confe
   expect_equal(f1$neg2logl, f2$neg2logl, tolerance = 1e-8)
   expect_true(f1$ped_mgs)
   expect_length(accuracy(f1, sire_mgs(ped)), nrow(ped))
-  expect_error(accuracy(f1, stats::setNames(ped, c("id", "sire", "dam"))), "pass the same")
+  expect_error(accuracy(f1, stats::setNames(ped, c("id", "sire", "dam"))), "Give the pedigree that the fit used")
 })
 
 test_that("recusas declaradas, e o subconjunto guarda a declaracao", {

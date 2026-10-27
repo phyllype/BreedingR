@@ -301,7 +301,10 @@ ARGS_MARCADOR <- local({
 #'   residual variance `s2e / w`. Weights enter as a row scaling by sqrt(w), so the
 #'   normal equations solved are the weighted ones. Use them when records are means of
 #'   different sizes, or estimates that carry their own precision, a two-step analysis,
-#'   a de-regressed proof
+#'   a de-regressed proof. The -2logL leaves out the term `-sum(log(w))` of `log|R|`. So the
+#'   same model written with weights `c * w` and residual variance `c * s2e` gives a -2logL
+#'   larger by `n * log(c)`, with `n` the records (measured: 27.73 for c = 2 and 40
+#'   records). Compare the -2logL of fits that have the same weights only
 #' @param verbose print the fit as it walks: one line per AI iteration with the
 #'   -2logL and the relative step, so a long fit is a progress report instead of
 #'   silence. The relative step is half of the convergence criterion; the Newton
@@ -969,7 +972,34 @@ linhas_com_resposta <- function(data, resp, missing_code) {
 # indirect() sozinho no lado direito respondia o quadro do proprio ajustador (dilution = tol
 # pegava o tol = 1e-8 do model(), calado). Sem valor padrao de proposito: quem esquecer o
 # ambiente para numa formula que precise dele, em vez de avaliar noutro lugar.
+# O LADO DIREITO CANONICO, lido por todo caminhante da formula (decompoe_formula(),
+# formula_resolvida(), formula_do_traco()): o intercepto explicito (1 +) sai, porque o ajuste
+# sempre tem intercepto, e o + unario some. Sem isto o leitor dizia "did not understand the
+# term: 1", e o + unario o derrubava com "subscript out of bounds" (lista de correcoes, item 24).
+# O 0 + e o - 1 (sem intercepto) param com o motivo.
+rhs_canonica <- function(e) {
+  if (is.call(e) && identical(as.character(e[[1]]), "+")) {
+    if (length(e) == 2L) return(rhs_canonica(e[[2]]))
+    a <- rhs_canonica(e[[2]])
+    b <- rhs_canonica(e[[3]])
+    if (is.null(a)) return(b)
+    if (is.null(b)) return(a)
+    return(call("+", a, b))
+  }
+  if (is.numeric(e) && length(e) == 1L && identical(as.numeric(e), 1)) return(NULL)
+  if ((is.numeric(e) && length(e) == 1L && identical(as.numeric(e), 0)) ||
+      (is.call(e) && identical(as.character(e[[1]]), "-")))
+    stop("the formula removes a term or the intercept ('0 +' or '-'). The fitters always fit ",
+         "an intercept, and they compare the fixed effects by contrasts. Remove the '0 +' or ",
+         "the '- ...' from the formula", call. = FALSE)
+  e
+}
+
 decompoe_formula <- function(expr, envir, com_traits = FALSE) {
+  expr <- rhs_canonica(expr)
+  if (is.null(expr))
+    stop("the formula has no term besides the intercept: add the effects to the right-hand ",
+         "side", call. = FALSE)
   partes <- list()
   anda <- function(e) {
     if (is.call(e) && identical(as.character(e[[1]]), "+")) {
@@ -997,9 +1027,13 @@ decompoe_formula <- function(expr, envir, com_traits = FALSE) {
   # was added. Code indexing components by name then broke without a word. Two terms of
   # the same marker now require an explicit name, which keeps every name stable and turns
   # the collision into a message instead of a rename.
-  if (anyDuplicated(paste(nomes, cols)))
-    stop("term declared twice: ",
-         paste(unique(nomes[duplicated(paste(nomes, cols))]), collapse = ", "))
+  if (anyDuplicated(paste(nomes, cols))) {
+    dup <- duplicated(paste(nomes, cols))
+    rot <- unique(paste0(nomes[dup], "(", cols[dup], ")"))
+    stop("term declared twice: ", paste(rot, collapse = ", "), ". Two terms on the same column ",
+         "need different names, for example ", nomes[dup][1], "(", cols[dup][1],
+         ", nome = \"", nomes[dup][1], "_2\") for the second one", call. = FALSE)
+  }
   if (anyDuplicated(nomes)) {
     rep_nome <- unique(nomes[duplicated(nomes)])
     quais <- cols[nomes %in% rep_nome]
@@ -1208,7 +1242,7 @@ formula_resolvida <- function(formula, terms) {
     }
     e
   }
-  formula[[3]] <- troca(formula[[3]])
+  formula[[3]] <- troca(rhs_canonica(formula[[3]]))
   formula
 }
 

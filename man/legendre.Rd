@@ -9,7 +9,7 @@ legendre(x, order = 1L, limits = NULL)
 \arguments{
 \item{x}{the observed gradient}
 
-\item{order}{polynomial order, 0 to 6}
+\item{order}{polynomial order, a whole number of 0 or more}
 
 \item{limits}{minimum and maximum for scaling; if omitted, the observed ones are used}
 }

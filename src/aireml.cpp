@@ -103,14 +103,24 @@ std::string aviso_informacao(const Densa& ai_bruta, const std::vector<std::strin
     if (!lista.empty()) grupos += (grupos.empty() ? "" : "; and ") + lista;
   }
   if (grupos.empty()) return "";
+  // O CONSELHO segue os componentes do veredito (lista de correcoes, item 20): o texto do
+  // efeito indireto (baias de tamanhos diferentes) saia tambem num modelo materno, onde baia
+  // nao existe
+  const bool indireto = grupos.find("indirect") != std::string::npos;
+  const bool materno = grupos.find("maternal") != std::string::npos;
+  std::string mais;
+  if (indireto) mais += "relatives sharing the pen, pens of DIFFERENT sizes";
+  if (materno)
+    mais += std::string(mais.empty() ? "" : "; ") +
+        "dams with records of their own and several offspring, and granddams with records";
+  if (mais.empty()) mais = "relatives sharing a level, more records per level";
   return "the information matrix is SINGULAR: the data do not separate " + grupos +
       ". Along that direction every combination of those components fits the data "
       "equally well, so their standard errors are NaN and the point estimate is one "
       "arbitrary point of a flat ridge, not an estimate: refitting from another start= "
       "lands elsewhere on the ridge with the same -2logL. Only combinations of them are "
-      "estimable. This is the design, not a failed fit: it needs more information "
-      "(relatives sharing the pen or group, more records per level; for indirect effects, "
-      "pens of DIFFERENT sizes), a simpler model, or some of those components held fixed";
+      "estimable. This is the design, not a failed fit: it needs more information (" + mais +
+      "), a simpler model, or some of those components held fixed";
 }
 
 
@@ -746,6 +756,22 @@ PassoZ passo_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& t
 // para fora do cone por construcao e o gradiente dele nunca zera; cobra-lo impediria
 // qualquer ponto de fronteira de se certificar. O que se certifica e o otimo CONDICIONAL
 // ao que esta preso.
+std::string lista_na_parede(const std::vector<char>& parede,
+                            const std::vector<std::string>& nomes) {
+  std::string s;
+  std::size_t n = 0, mostra = 0;
+  for (std::size_t k = 0; k < parede.size() && k < nomes.size(); k++) {
+    if (!parede[k]) continue;
+    n++;
+    if (mostra < 8) {
+      s += (mostra ? ", " : "") + nomes[k];
+      mostra++;
+    }
+  }
+  if (n > mostra) s += " and " + std::to_string(n - mostra) + " more";
+  return s;
+}
+
 double decremento_z(const PassoZ& P) {
   if (!P.ok) return std::numeric_limits<double>::infinity();
   Densa m = P.az;

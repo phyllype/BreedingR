@@ -7,7 +7,8 @@
 selected_inverse(a, block = 0L)
 }
 \arguments{
-\item{a}{list i, j, x, n with the triplets}
+\item{a}{list i, j, x, n with the triplets of ONE triangle of the symmetric matrix (the
+lower, i >= j, as \code{\link[=a_inverse]{a_inverse()}} returns, or the upper); both triangles stop the call}
 
 \item{block}{0 detects the dense tail and uses the closed form; 1 forces the pure
 recurrence, which exists so the tests can compare the two paths.}

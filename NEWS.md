@@ -864,6 +864,27 @@
 
 ## Fixed
 
+* The formula reader takes an explicit intercept, `y ~ 1 + cg + animal(id)`, and a unary
+  plus, `y ~ +cg + animal(id)`, as the same formula without them. Before, the first stopped
+  with "did not understand the term: 1" and the second with "subscript out of bounds".
+  `0 +` and `- 1` stop with the reason: the fitters always fit an intercept.
+* `legendre()` takes any order. Before it stopped above order 6.
+* A term declared twice (two `rn(id, ...)` on the same column) says how to name the second
+  one, with `nome =`.
+* A term without relationship whose column holds "0" among animal ids of the pedigree
+  (`pe(dam)` without `maternal(dam)`) now warns: the term reads "0" as one level, so all the
+  records with an unknown dam share one effect. A column of pens or lots has no warning.
+* An inadmissible start of `model_mt()` names the group whose covariance matrix is not
+  positive-definite, and the fit returns `neg2logl = NA` instead of 0.
+* `sparse_chol()`, `selected_inverse()` and `sparse_solve()` stop on triplets of both
+  triangles of the matrix. Before, each triplet off the diagonal counted for both of its
+  positions, so those entries counted twice, and the result came from another matrix.
+* The help of `weights =` in `model()` says that the -2logL leaves out `-sum(log(w))`.
+* `model_mt()`: the message about components resting at a covariance
+  boundary now names them (up to 8, and how many more). Before it gave only their number.
+* The SINGULAR verdict gives the advice of the components that it names: dams and
+  granddams with records for `maternal()`. Before, a maternal model got the advice about
+  pens.
 * `gibbs(prior = "jeffreys")`: a chain whose scalar variance had fallen toward zero could
   stop the whole fit with "the matrix is not positive-definite", every chain lost
   (`validation/gibbs_scalar_prior.R`: `animal(id)` on 5 levels with 0.05 planted, 2 chains

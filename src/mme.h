@@ -361,6 +361,8 @@ struct PassoZ {
 PassoZ passo_z(const MapaZ& mp, std::size_t ntheta, const std::vector<double>& theta,
                const std::vector<double>& score, const Densa& ai, double escala_residual);
 double decremento_z(const PassoZ& P);
+// os nomes dos componentes na parede (lista de correcoes, item 21): ate 8, e quantos sobram
+std::string lista_na_parede(const std::vector<char>& parede, const std::vector<std::string>& nomes);
 
 void pisos_z(const MapaZ& mp, const std::vector<double>& z, double escala_residual,
              std::vector<double>& piso, std::vector<char>& relativo);

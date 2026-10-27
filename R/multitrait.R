@@ -228,7 +228,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
   recusa_kfixo(terms, "model_mt()")
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
   if (precisa_ped && is.null(pedigree))
-    stop("there is a term with a relationship structure and no pedigree was given")
+    stop("a term has a relationship structure, and there is no pedigree: give pedigree =")
 
   used_columns <- unique(c(traits, vapply(terms, function(t) t$column, character(1)),
                              unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),
@@ -361,7 +361,7 @@ otimos_univariados <- function(ajusta1, formula, traits, data, missing_code, ver
     fit <- tryCatch(sem_conferencia(ajusta1(f1, d1)), error = function(e) NULL)
     if (is.null(fit) || !all(is.finite(fit$theta))) return(NULL)
     th <- as.double(unname(fit$theta))
-    variancia <- !grepl("^rho[(]", names(fit$theta))
+    variancia <- !grepl("^(rho|pacf[12]|ar|ma)[(]", names(fit$theta))
     th[variancia] <- th[variancia] * s^2
     th
   })
@@ -442,7 +442,7 @@ formula_do_traco <- function(formula, terms, tr) {
     partes[[length(partes) + 1L]] <<- e
     invisible()
   }
-  anda(formula[[3]])
+  anda(rhs_canonica(formula[[3]]))
   formula[[3]] <- Reduce(function(a, b) call("+", a, b), partes)
   formula
 }

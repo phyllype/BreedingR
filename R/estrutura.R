@@ -719,6 +719,25 @@ prepara_estrutura <- function(terms, data, lst, pedigree, traits, missing_code =
          obs_fora, if (length(ker)) paste0("; ", paste(ker, collapse = "; ")),
          ". Check that the ids are written the same way in the data and in the K",
          call. = FALSE)
+  # O "0" NUM TERMO SEM PARENTESCO (lista de correcoes, item 4). Em pe(dam) sem maternal(dam), o
+  # "0" e um rotulo como outro qualquer: todo registro de mae desconhecida divide UM efeito, sem
+  # aviso. Quando os outros rotulos da coluna sao, na maioria, animais do pedigree, o "0" e o
+  # desconhecido do pedigree, e o aviso diz isso. Uma coluna de baias ou lotes, que nao sao
+  # animais, fica fora. Uma coluna que algum termo de parentesco tambem usa (maternal(dam) com
+  # pe(dam)) fica fora: ali o "0" ja e o desconhecido em todo termo, e o aviso proprio dela
+  # (um so nivel conhecido) e outro
+  if (com_ped)
+    for (t in Filter(function(t) t$estrutura == 1L && t$column %in% names(data) &&
+                       !t$column %in% colunas_do_desconhecido(terms), terms)) {
+      v <- rotulo_motor(data[[t$column]])[obs]
+      zero <- v == "0"
+      if (!any(zero) || mean(v[!zero] %in% out$cp$id) < 0.5) next
+      out$avisos <- c(out$avisos, paste0(
+        t$nome, "(", t$column, "): ", sum(zero), " record(s) have ", t$column, " = \"0\". ",
+        "This term has no relationship, so it reads \"0\" as one level: all those records ",
+        "share one effect. If \"0\" means unknown, give each such record a label of its own, ",
+        "or fit the term only on the records with a known ", t$column))
+    }
   # OS BLOCOS sem parentesco entre si
   if (length(ents) && com_ped) {
     out$blocos <- blocos_geneticos(ents, out$cp, mf, gid, entram, terms, lst)

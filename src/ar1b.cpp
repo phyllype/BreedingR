@@ -1138,7 +1138,8 @@ static AjusteMT caminha_ar1(DesenhoAR& d, const std::vector<double>* theta0,
         std::to_string(na_fronteira) + " component(s) resting at a covariance boundary "
         "excluded from the convergence certificate: a component pinned at a boundary "
         "points out of the cone by construction, so its gradient never vanishes and the "
-        "certificate is CONDITIONAL on the pinning; read those components with care";
+        "certificate is CONDITIONAL on the pinning; read those components with care: " +
+        lista_na_parede(parede_final, nomes_theta_ar1(d));
   R.se.assign(d.modelo.ntheta, std::nan(""));
   if (final_ok)
     try {

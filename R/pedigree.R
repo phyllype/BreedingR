@@ -79,9 +79,9 @@ recusa_cientifico <- function(fora, niveis, lado_fora, lado_niveis) {
   }
   recusa <- function(em_fora, em_niveis, cientifico)
     stop(lado_fora, " has the id '", em_fora, "' and ", lado_niveis, " has '", em_niveis,
-         "', the same number written two ways ('", cientifico, "' is how as.character() ",
-         "and factor() write a round number): write the ids the same way on both sides, ",
-         "as numbers or with format(x, scientific = FALSE, trim = TRUE)", call. = FALSE)
+         "', the same number written two ways. '", cientifico, "' is how as.character() ",
+         "and factor() write a round number. Write the ids the same way on both sides: as ",
+         "numbers, or with format(x, scientific = FALSE, trim = TRUE)", call. = FALSE)
   sf <- fora[eh_cientifico(fora)]
   pf <- inteiro(sf)
   k <- which(!is.na(pf) & pf %in% niveis)
@@ -137,9 +137,9 @@ colunas_pedigree <- function(ped, id = 1L, sire = 2L, dam = 3L, mf = NULL) {
   if (!mgs) {
     nome <- if (is.character(dam)) dam else names(ped)[dam]
     if (eh_coluna_mgs(nome))
-      stop("the third pedigree column is named '", nome, "', which reads as a MATERNAL ",
-           "GRANDSIRE: declare it with sire_mgs(ped) or pedigree(type = \"sire_mgs\"), or ",
-           "rename the column if it really holds the dam", call. = FALSE)
+      stop("the name of the third pedigree column, '", nome, "', reads as a MATERNAL ",
+           "GRANDSIRE. Declare it with sire_mgs(ped) or pedigree(type = \"sire_mgs\"), or ",
+           "rename the column if it holds the dam", call. = FALSE)
   }
   # na ordem das colunas, para a recusa de uma coluna (inteiros acima de 2^53) nomear a
   # primeira que tem o problema
@@ -217,8 +217,8 @@ pedigree_misto <- function(out, dam) {
   pai_mae <- out$sire[linha_mae]
   briga <- ambos & !is.na(linha_mae) & !desconhecido(pai_mae) & pai_mae != out$mgs
   if (any(briga))
-    stop(sum(briga), " row(s) with a maternal grandsire that is not the sire of their dam, ",
-         "e.g. ", paste(sprintf("%s (dam %s, her sire %s, mgs %s)", out$id[briga],
+    stop(sum(briga), " row(s) with a maternal grandsire that is not the sire of their dam. ",
+         "For example: ", paste(sprintf("%s (dam %s, her sire %s, mgs %s)", out$id[briga],
                                 dam[briga], pai_mae[briga], out$mgs[briga])[1:min(3, sum(briga))],
                         collapse = "; "), call. = FALSE)
   enche <- ambos & !is.na(linha_mae) & desconhecido(pai_mae)
@@ -226,7 +226,7 @@ pedigree_misto <- function(out, dam) {
     por_mae <- tapply(out$mgs[enche], dam[enche], function(v) unique(v))
     varios <- names(por_mae)[lengths(por_mae) > 1]
     if (length(varios))
-      stop("dam(s) with daughters naming different maternal grandsires, e.g. ",
+      stop("dam(s) with daughters that name different maternal grandsires, for example ",
            paste(utils::head(varios, 3), collapse = ", "), call. = FALSE)
     out$sire[match(names(por_mae), out$id)] <- unlist(por_mae)
     message(length(por_mae), " dam(s) with an unknown sire received it from the ",
@@ -250,9 +250,9 @@ pedigree_misto <- function(out, dam) {
 confere_tipo_pedigree <- function(fit, ped) {
   era <- isTRUE(fit$ped_mgs)
   if (era != inherits(ped, "br_ped_mgs"))
-    stop("the fit was built on a ", if (era) "sire / maternal-grandsire" else "sire / dam",
-         " pedigree and this one is ", if (era) "sire / dam" else "sire / maternal-grandsire",
-         ": pass the same pedigree the fit used", call. = FALSE)
+    stop("the fit used a ", if (era) "sire / maternal-grandsire" else "sire / dam",
+         " pedigree, and this one is ", if (era) "sire / dam" else "sire / maternal-grandsire",
+         ". Give the pedigree that the fit used", call. = FALSE)
 }
 
 recusa_mgs <- function(ped, oque) {
@@ -434,8 +434,22 @@ br_version <- function() .Call(R_versao)
 #'   `logdet`, the log-determinant, and `dense_block`, the size of the final dense block.
 #' @export
 sparse_chol <- function(a, reorder = TRUE) {
+  um_triangulo(a, "sparse_chol()")
   .Call(R_chol_esparsa, as.integer(a$i), as.integer(a$j), as.double(a$x),
         as.integer(a$n), isTRUE(reorder))
+}
+
+# OS TRIPLOS DE UM TRIANGULO SO (lista de correcoes, item 32). O motor dobra cada triplo para o
+# triangulo inferior e SOMA os repetidos, entao a matriz dada com os dois triangulos chegava com
+# a parte fora da diagonal em dobro: a fatoracao e a inversa saiam de outra matriz, sem aviso
+um_triangulo <- function(a, quem) {
+  i <- as.integer(a$i); j <- as.integer(a$j)
+  if (any(i > j) && any(i < j))
+    stop(quem, ": the triplets hold both triangles of the matrix. Give one triangle: the ",
+         "lower one (i >= j, as a_inverse() returns them) or the upper one. Each triplet off ",
+         "the diagonal stands for both of its positions, so with both triangles those entries ",
+         "count twice", call. = FALSE)
+  invisible(NULL)
 }
 
 #' Takahashi selective inverse
@@ -449,7 +463,8 @@ sparse_chol <- function(a, reorder = TRUE) {
 #'
 #' @param block 0 detects the dense tail and uses the closed form; 1 forces the pure
 #'   recurrence, which exists so the tests can compare the two paths.
-#' @param a list i, j, x, n with the triplets
+#' @param a list i, j, x, n with the triplets of ONE triangle of the symmetric matrix (the
+#'   lower, i >= j, as [a_inverse()] returns, or the upper); both triangles stop the call
 #' @return a list `i`, `j`, `x`, `n` with the computed elements of the inverse in triplets, on
 #'   the pattern of the factor. A position outside that pattern is absent, which is not
 #'   the same as being zero.
@@ -458,16 +473,18 @@ sparse_chol <- function(a, reorder = TRUE) {
 #'   the 8th PICA Conference, 63-69.
 #' @export
 selected_inverse <- function(a, block = 0L) {
+  um_triangulo(a, "selected_inverse()")
   .Call(R_inv_seletiva, as.integer(a$i), as.integer(a$j), as.double(a$x),
         as.integer(a$n), as.integer(block))
 }
 
 #' Solve A x = b with A sparse symmetric positive-definite
-#' @param a list i, j, x, n with the triplets
+#' @param a list i, j, x, n with the triplets of one triangle of A, as in [selected_inverse()]
 #' @param b right-hand side
 #' @return the solution, a numeric vector as long as `b`.
 #' @export
 sparse_solve <- function(a, b) {
+  um_triangulo(a, "sparse_solve()")
   .Call(R_resolve, as.integer(a$i), as.integer(a$j), as.double(a$x),
         as.integer(a$n), as.double(b))
 }
@@ -504,7 +521,7 @@ a22_inverse <- function(ped, geno, id = 1L, sire = 2L, dam = 3L) {
 #' Scaling by the observed range is part of the MODEL: two data sets with different ranges
 #' give different bases. To compare fits, fix `limits`.
 #' @param x the observed gradient
-#' @param order polynomial order, 0 to 6
+#' @param order polynomial order, a whole number of 0 or more
 #' @param limits minimum and maximum for scaling; if omitted, the observed ones are used
 #' @return a numeric matrix with one row per element of `x` and `order + 1` columns, named
 #'   `phi0` to `phiN`, ready to be bound to the data.
@@ -514,7 +531,10 @@ a22_inverse <- function(ped, geno, id = 1L, sire = 2L, dam = 3L) {
 #' @export
 legendre <- function(x, order = 1L, limits = NULL) {
   if (!is.numeric(x)) stop("x must be numeric")
-  if (order < 0L || order > 6L) stop("order outside 0..6")
+  if (!is.numeric(order) || length(order) != 1L || !is.finite(order) || order < 0 ||
+      order != round(order))
+    stop("order must be a whole number of 0 or more")
+  order <- as.integer(order)
   r <- if (is.null(limits)) range(x, finite = TRUE) else limits
   if (!(r[2] > r[1])) stop("the gradient does not vary; there is nothing to scale")
   z <- 2 * (x - r[1]) / (r[2] - r[1]) - 1

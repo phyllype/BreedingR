@@ -7,7 +7,7 @@
 sparse_solve(a, b)
 }
 \arguments{
-\item{a}{list i, j, x, n with the triplets}
+\item{a}{list i, j, x, n with the triplets of one triangle of A, as in \code{\link[=selected_inverse]{selected_inverse()}}}
 
 \item{b}{right-hand side}
 }
