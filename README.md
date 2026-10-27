@@ -74,13 +74,9 @@ packageVersion("BreedingR")   # the examples here need 0.4.0.9000
 ```
 
 The CI installs the package both ways from GitHub on every push and runs the quick start
-below with the installed copy.
-
-To replace an older version, first close every R session that has loaded BreedingR
-(RStudio included: quit it, or restart R and do not call `library(BreedingR)`), then run
-the install before anything else. Windows keeps the DLL of a loaded package locked, and
-the install stops with "cannot remove earlier installation, is it in use?" or "Permission
-denied", leaving the old version in place.
+with the installed copy. To update on Windows, first close every R session that loaded
+BreedingR, RStudio included. Windows locks the DLL of a loaded package, and the install
+stops with "cannot remove earlier installation".
 
 ## Quick start
 
@@ -179,7 +175,16 @@ rg(fit, "animal", "y1", "y2")
 </picture>
 
 *The genetic correlations of four traits estimated by `model_mt()`, beside the ones
-simulated.* [More details](https://phyllype.github.io/BreedingR/articles/models.html#several-traits)
+simulated.*
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="man/figures/README-pegs-dark.svg">
+  <img src="man/figures/README-pegs.svg" width="60%" alt="Genetic correlations among four environments estimated by pegs against the simulated ones">
+</picture>
+
+*`pegs()` on one trait in four environments, with one record for each of 2,460 genotyped
+animals: estimated against simulated genetic correlations.*
+[More details](https://phyllype.github.io/BreedingR/articles/models.html#several-traits)
 
 ### Bayesian: `gibbs()`
 
@@ -222,12 +227,41 @@ snp_effects(fit, ped, genotypes = list(ids = gids, m = M))
 *Left: the share of the trace of G explained by its largest eigenvalues; 98% sets the APY
 core (Pocrnic et al., 2016). Middle: accuracy of genotyped candidates without records, by
 route. Right: marker effects backsolved from the single-step fit, three large QTL
-simulated.* [More details](https://phyllype.github.io/BreedingR/articles/models.html#single-step-metafounders-and-markers),
+simulated.*
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="man/figures/README-gamma-dark.svg">
+  <img src="man/figures/README-gamma.svg" width="80%" alt="Relationship within and between two metafounders estimated by estimate_gamma, pseudo-EM and GLS, against the values from the simulated base allele frequencies">
+</picture>
+
+*`estimate_gamma()` on 240 genotyped descendants of two simulated base populations. The
+relationship within and between the metafounders, against the value from the base allele
+frequencies.*
+[More details](https://phyllype.github.io/BreedingR/articles/models.html#single-step-metafounders-and-markers),
 [APY](APY.md)
+
+### Selection decisions
+
+`selection_index()` combines the breeding values of several traits with weights, and
+`rank_drift()` tells how much a new evaluation reorders the candidates.
+
+```r
+idx <- selection_index(cbind(y1 = ebv1, y2 = ebv2), weights = c(y1 = 1, y2 = 1))
+rank_drift(ebv(old_fit), ebv(new_fit), top = 50)
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="man/figures/README-selection-dark.svg">
+  <img src="man/figures/README-selection.svg" width="100%" alt="Ranks of the candidates before and after the records of their progeny, and the animals that a two-trait selection index selects">
+</picture>
+
+*Left: the old top 50 of 600 candidates after the records of their progeny; 40 of them stay
+in the new top 50. Right: the top 10% by an index of two traits with equal weights.*
 
 ### Diagnostics and data checks
 
-Before a fit, `qc_phenotypes()` and `qc_genotypes()` flag problems and delete nothing. Every
+Before a fit, `qc_phenotypes()` and `qc_genotypes()` flag problems and delete nothing, and
+`parentage_check()` tests each parent against its offspring. Every
 fitter reads the structure of the design and stops, or warns, with what to do. After the
 fit, `residuals()` gives the conditional, standardized, marginal and Pearson residuals,
 and `mcmc_diagnostics()` checks the chains.
@@ -250,6 +284,14 @@ mcmc_diagnostics(gb)
 
 *Above: `mcmc_diagnostics()` on the chains of `gibbs()`. Below: a structure check, as the
 console shows it.*
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="man/figures/README-qc-dark.svg">
+  <img src="man/figures/README-qc.svg" width="100%" alt="The share of markers in opposite homozygosity for each sire and its offspring, true and swapped sires, and the markers removed by each filter of qc_genotypes">
+</picture>
+
+*Left: `parentage_check()` with 15 sires swapped by hand; the 15 are the only pairs above
+the threshold. Right: what each filter of `qc_genotypes()` removed from 2,000 markers.*
 [More details](https://phyllype.github.io/BreedingR/articles/data-checks.html)
 
 ## In progress
@@ -290,19 +332,15 @@ these comparisons on every build.
 
 ## Documentation
 
-**Where to read next.** Start with
-[*Your first evaluation*](https://phyllype.github.io/BreedingR/articles/getting-started.html),
-which goes from two files on disk to breeding values you can act on, and assumes nothing
-about this package. After that:
-[*Theory and practice*](https://phyllype.github.io/BreedingR/articles/theory.html) walks a
-full evaluation in order, explaining each matrix, each algorithm and each iteration
-alongside the code that runs it;
-[*Hands-on*](https://phyllype.github.io/BreedingR/articles/hands-on.html) works through 39
-of the 49 exported functions, step by step. [FUNCTIONS.md](FUNCTIONS.md) maps the whole
-surface, and
-[REFERENCES.md](REFERENCES.md) lists the works the package implements. If a work that
-should be cited is missing, please open an issue or write to the maintainer address in
-DESCRIPTION.
+- [*Your first evaluation*](https://phyllype.github.io/BreedingR/articles/getting-started.html):
+  from two files on disk to breeding values you can act on. Start here.
+- [*Theory and practice*](https://phyllype.github.io/BreedingR/articles/theory.html): a
+  full evaluation in order, each matrix and algorithm beside the code that runs it.
+- [*Hands-on*](https://phyllype.github.io/BreedingR/articles/hands-on.html): 39 of the 49
+  exported functions, step by step.
+- [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface, and [REFERENCES.md](REFERENCES.md)
+  lists the works the package implements. If a work that should be cited is missing,
+  please open an issue or write to the maintainer address in DESCRIPTION.
 
 ## Questions and problems
 

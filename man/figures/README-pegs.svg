@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="432pt" height="259.2pt" viewBox="0 0 432 259.2" font-family='Roboto, "Helvetica Neue", Arial, sans-serif'>
+<style>text { white-space: pre; }</style>
+<defs>
+<clipPath id="c1"><rect x="57.6" y="37.44" width="360" height="164.16"/></clipPath>
+</defs>
+<path fill="none" stroke="#59636e" stroke-width="0.75" d="M70.93 201.6l333.34 0M70.93 201.6l0 4.32M137.6 201.6l0 4.32M204.27 201.6l0 4.32M270.93 201.6l0 4.32M337.6 201.6l0 4.32M404.27 201.6l0 4.32"/>
+<g fill="#59636e" font-size="12">
+<text x="70.93" y="221.76" text-anchor="middle">0.0</text>
+<text x="137.6" y="221.76" text-anchor="middle">0.2</text>
+<text x="204.27" y="221.76" text-anchor="middle">0.4</text>
+<text x="270.93" y="221.76" text-anchor="middle">0.6</text>
+<text x="337.6" y="221.76" text-anchor="middle">0.8</text>
+<text x="404.27" y="221.76" text-anchor="middle">1.0</text>
+</g>
+<path fill="none" stroke="#59636e" stroke-width="0.75" d="M57.6 195.52l0 -152M57.6 195.52l-4.32 0M57.6 165.12l-4.32 0M57.6 134.72l-4.32 0M57.6 104.32l-4.32 0M57.6 73.92l-4.32 0M57.6 43.52l-4.32 0"/>
+<g fill="#59636e" font-size="12">
+<text x="48.96" y="199.83" text-anchor="end">0.0</text>
+<text x="48.96" y="169.43" text-anchor="end">0.2</text>
+<text x="48.96" y="139.03" text-anchor="end">0.4</text>
+<text x="48.96" y="108.63" text-anchor="end">0.6</text>
+<text x="48.96" y="78.23" text-anchor="end">0.8</text>
+<text x="48.96" y="47.83" text-anchor="end">1.0</text>
+</g>
+<g fill="#1f2328" font-size="12">
+<text x="237.6" y="249.12" text-anchor="middle">genetic correlation simulated</text>
+<text x="18.72" y="119.52" text-anchor="middle" transform="rotate(-90 18.72 119.52)">estimated by pegs()</text>
+</g>
+<g clip-path="url(#c1)">
+<path fill="none" stroke="#d1d9e0" stroke-width="0.45" d="M57.6 195.52l360 0M57.6 165.12l360 0M57.6 134.72l360 0M57.6 104.32l360 0M57.6 73.92l360 0M57.6 43.52l360 0M70.93 201.6l0 -164.16M137.6 201.6l0 -164.16M204.27 201.6l0 -164.16M270.93 201.6l0 -164.16M337.6 201.6l0 -164.16M404.27 201.6l0 -164.16"/>
+</g>
+<text fill="#1f2328" font-size="12" x="57.6" y="23.04">pegs(): 4 environments, 2,460 animals with one record each</text>
+<g clip-path="url(#c1)">
+<path fill="none" stroke="#59636e" stroke-width="0.6" stroke-dasharray="1.8 3" d="M57.6 201.6l360 -164.16"/>
+<g fill="#0f5a55" stroke="#1f2328" stroke-width="0.3">
+<circle cx="337.6" cy="68.5" r="3.5"/>
+<circle cx="237.6" cy="96.3" r="3.5"/>
+<circle cx="270.9" cy="70.3" r="3.5"/>
+<circle cx="137.6" cy="179.7" r="3.5"/>
+<circle cx="170.9" cy="158.8" r="3.5"/>
+<circle cx="304.3" cy="81.8" r="3.5"/>
+</g>
+<g fill="#59636e" font-size="9">
+<text x="344.8" y="70.62">1-2</text>
+<text x="244.8" y="98.5">1-3</text>
+<text x="278.13" y="72.47">2-3</text>
+<text x="144.8" y="181.88">1-4</text>
+<text x="178.13" y="160.95">2-4</text>
+<text x="311.47" y="84">3-4</text>
+</g>
+</g>
+</svg>

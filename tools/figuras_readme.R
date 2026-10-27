@@ -22,6 +22,10 @@
 #                    efeitos de marcador com QTL plantados.
 # README-diagnostics: ESS e R-hat da cadeia.
 # README-message:    um aviso de verificacao de estrutura, como o console o mostra.
+# README-selection:  rank_drift() do topo antes e depois da progenie; o indice de dois caracteres.
+# README-qc:         parentage_check() com pais trocados a mao; o que cada filtro do qc_genotypes() tira.
+# README-gamma:      estimate_gamma() de dois metafundadores contra a Gamma das frequencias da base.
+# README-pegs:       pegs() em quatro ambientes, as correlacoes geneticas contra as simuladas.
 args <- commandArgs(TRUE)
 repo <- if (length(args) >= 1L) args[1] else "."
 if (length(args) >= 2L && nzchar(args[2])) .libPaths(c(args[2], .libPaths()))
@@ -827,6 +831,239 @@ if (quer("message")) {
     fecha(f)
   }
   for (tema in names(temas)) figura_message(tema)
+}
+
+# ---- 11. decisoes de selecao: a deriva do ranking e o indice --------------------------------
+if (quer("selection")) {
+  ped <- ped_familias(n_ger = 4, n_pais = 30, n_maes = 300, filhos = 2, seed = 111)
+  set.seed(112)
+  G0 <- matrix(c(0.30, 0.06, 0.06, 0.20), 2)
+  a <- valores(ped, G0)
+  d <- ped[ped$ger > 0, c("id", "ger")]
+  d$cg <- cg_de(nrow(d))
+  e <- matrix(rnorm(2 * nrow(d)), ncol = 2) %*% chol(matrix(c(0.70, 0.10, 0.10, 0.80), 2))
+  d$y1 <- 10 + a[d$id, 1] + e[, 1]
+  d$y2 <- 5 + a[d$id, 2] + e[, 2]
+  # a mesma avaliacao antes e depois dos registros da geracao 4, a progenie dos candidatos
+  velho <- model(y1 ~ cg + animal(id), d[d$ger < 4, ], ped3(ped), verbose = FALSE)
+  novo <- model(y1 ~ cg + animal(id), d, ped3(ped), verbose = FALSE)
+  cand <- ped$id[ped$ger == 3]
+  topo <- 50
+  dr <- rank_drift(ebv(velho)[cand], ebv(novo)[cand], top = topo)
+  r_velho <- rank(-ebv(velho)[cand]); r_novo <- rank(-ebv(novo)[cand])
+  # o indice de dois caracteres sobre os valores geneticos do model_mt()
+  fmt <- model_mt(cbind(y1, y2) ~ cg + animal(id), d, ped3(ped), verbose = FALSE)
+  m <- cbind(y1 = ebv(fmt, "animal", trait = "y1")[cand], y2 = ebv(fmt, "animal", trait = "y2")[cand])
+  w <- c(y1 = 1, y2 = 1)
+  idx <- selection_index(m, weights = w)
+  sel <- names(idx)[seq_len(round(0.1 * length(idx)))]
+  cat(sprintf("README-selection: %d candidatos, retencao do topo %d %d, Spearman %.3f\n",
+              length(cand), topo, dr$retention, dr$spearman))
+
+  figura_selection <- function(tema) {
+    t <- temas[[tema]]
+    f <- arquivo("selection", tema)
+    abre(f, 9, 3.8)
+    layout(matrix(1:2, 1))
+    estilo(t, mar = c(4, 4, 2.6, 1))
+    n <- length(cand)
+    lim <- 3 * topo
+    quadro(t, c(1, lim), c(1, lim), "rank before the progeny records", "rank after",
+           sprintf("rank_drift(): the old top %d, a generation later", topo))
+    mtext(sprintf("%d of them stay in the new top %d; Spearman %.2f over %d candidates",
+                  dr$retention, topo, dr$spearman, n), side = 3, line = 0.1, adj = 0,
+          cex = 0.75, col = t$suave)
+    no_topo <- r_velho <= topo
+    points(r_velho[!no_topo], r_novo[!no_topo], pch = 21, cex = 0.6, bg = t$leve, col = t$leve,
+           lwd = 0.3)
+    points(r_velho[no_topo], r_novo[no_topo], pch = 21, cex = 0.8, bg = t$fill, col = t$texto,
+           lwd = 0.3)
+    abline(h = topo, v = topo, col = t$suave, lty = 2, lwd = 0.8)
+    z1 <- (m[, 1] - mean(m[, 1])) / sd(m[, 1]); z2 <- (m[, 2] - mean(m[, 2])) / sd(m[, 2])
+    eh <- rownames(m) %in% sel
+    quadro(t, range(m[, 1]), range(m[, 2]), "breeding value, trait 1", "breeding value, trait 2",
+           "selection_index(): equal weights, top 10%")
+    points(m[!eh, 1], m[!eh, 2], pch = 21, cex = 0.6, bg = t$leve, col = t$leve, lwd = 0.3)
+    points(m[eh, 1], m[eh, 2], pch = 21, cex = 0.8, bg = t$ponto, col = t$texto, lwd = 0.3)
+    # a linha do corte: z1 + z2 = o menor indice selecionado
+    corte <- min((z1 + z2)[eh])
+    xs <- seq(min(m[, 1]), max(m[, 1]), length.out = 50)
+    ys <- mean(m[, 2]) + sd(m[, 2]) * (corte - (xs - mean(m[, 1])) / sd(m[, 1]))
+    lines(xs, ys, col = t$fill, lwd = 1.6)
+    legenda(t, "bottomleft", c("selected by the index", "the cut of the index"), pch = c(21, NA),
+            pt.bg = c(t$ponto, NA), col = c(t$texto, t$fill), lty = c(NA, 1), lwd = c(NA, 1.6),
+            caixa = TRUE)
+    fecha(f)
+  }
+  for (tema in names(temas)) figura_selection(tema)
+}
+
+# ---- 14. genotipos: o controle de qualidade e a paternidade -------------------------------------
+if (quer("qc")) {
+  s <- simulate_breeding(n_founders = 40, n_generations = 3, offspring_per_generation = 150,
+                         h2 = 0.4, n_markers = 2000, seed = 141)
+  g <- s$genotypes
+  set.seed(142)
+  # 0,5% de erro de genotipagem, um marcador com 30% de ausentes a cada 40 e um animal com 20%
+  erro <- matrix(runif(length(g$m)) < 0.005, nrow(g$m))
+  g$m[erro] <- sample(0:2, sum(erro), TRUE)
+  ruins <- seq(1, ncol(g$m), by = 40)
+  for (j in ruins) g$m[runif(nrow(g$m)) < 0.3, j] <- NA
+  for (i in sample(nrow(g$m), 3)) g$m[i, runif(ncol(g$m)) < 0.2] <- NA
+  pa <- s$pedigree
+  # 15 pais trocados por um macho genotipado de outra familia
+  filhos <- which(pa$sire != "0" & pa$id %in% g$ids & pa$sire %in% g$ids)
+  troca <- sample(filhos, 15)
+  machos <- unique(pa$sire[pa$sire != "0" & pa$sire %in% g$ids])
+  for (i in troca) pa$sire[i] <- sample(setdiff(machos, pa$sire[i]), 1)
+  ck <- parentage_check(pa, g)
+  ck_sire <- ck[ck$type == "sire", ]
+  errado <- ck_sire$id %in% pa$id[troca]
+  q <- qc_genotypes(g, min_call_rate = 0.9, min_maf = 0.05)
+  cat(sprintf("README-qc: %d pares, %d conflitos (%d plantados); qc: %d marcadores mantidos, %d por chamada, %d por MAF, %d animais fora\n",
+              nrow(ck), sum(ck$conflict), length(troca), ncol(q$m), q$n_call, q$n_maf,
+              length(g$ids) - length(q$ids)))
+
+  figura_qc <- function(tema) {
+    t <- temas[[tema]]
+    f <- arquivo("qc", tema)
+    abre(f, 9, 3.6)
+    layout(matrix(1:2, 1), widths = c(1.25, 1))
+    estilo(t, mar = c(4, 4, 2.6, 1))
+    set.seed(1)
+    yy <- ifelse(errado, 2, 1) + runif(length(errado), -0.25, 0.25)
+    estilo(t, mar = c(4, 8, 2.6, 1))
+    plot(0, type = "n", xlim = c(0, max(ck_sire$rate) * 1.05), ylim = c(0.5, 2.5), yaxt = "n",
+         bty = "n", xlab = "share of markers in opposite homozygosity", ylab = "")
+    abline(v = axTicks(1), col = t$grade, lwd = 0.6)
+    points(ck_sire$rate[!errado], yy[!errado], pch = 21, cex = 0.6, bg = t$ponto, col = t$ponto,
+           lwd = 0.3)
+    points(ck_sire$rate[errado], yy[errado], pch = 21, cex = 0.9, bg = t$fill, col = t$texto,
+           lwd = 0.3)
+    abline(v = 0.01, col = t$texto, lty = 2, lwd = 0.9)
+    axis(2, at = 1:2, labels = c("sire in the
+pedigree", "sire swapped
+by hand"), tick = FALSE,
+         cex.axis = 0.82, col.axis = t$texto)
+    title(main = "parentage_check(): sire against offspring", font.main = 1, cex.main = 1,
+          adj = 0, line = 1)
+    text(0.01, 2.45, "threshold 0.01", pos = 4, cex = 0.75, col = t$suave)
+    estilo(t, mar = c(4, 7.5, 2.6, 1))
+    v <- c(kept = ncol(q$m), `call rate < 0.9` = q$n_call, `MAF < 0.05` = q$n_maf)
+    y <- rev(seq_along(v))
+    plot(0, type = "n", xlim = c(0, max(v) * 1.3), ylim = c(0.4, length(v) + 0.6), yaxt = "n",
+         bty = "n", xlab = "markers", ylab = "")
+    abline(v = axTicks(1), col = t$grade, lwd = 0.6)
+    rect(0, y - 0.32, v, y + 0.32, col = c(t$ponto, t$fill, t$fill), border = NA)
+    text(v, y, format(v, big.mark = ","), pos = 4, cex = 0.8, col = t$texto)
+    axis(2, at = y, labels = names(v), tick = FALSE, cex.axis = 0.82, col.axis = t$texto)
+    title(main = "qc_genotypes(): markers by filter", font.main = 1, cex.main = 1, adj = 0,
+          line = 1)
+    fecha(f)
+  }
+  for (tema in names(temas)) figura_qc(tema)
+}
+
+# ---- 15. metafundadores: a Gamma estimada dos genotipos -----------------------------------------
+if (quer("gamma")) {
+  set.seed(151)
+  nm <- 3000
+  pA <- rbeta(nm, 2, 2)
+  pB <- pmin(pmax(pA + rnorm(nm, 0, 0.2), 0.02), 0.98)
+  # a definicao do pacote: Gamma = (2P - 1)'(2P - 1) / (m / 2)
+  P <- cbind(pA, pB)
+  gamma0 <- crossprod(2 * P - 1) / (nm / 2)
+  # queda de genes sem ligacao: 40 fundadores de cada base, tres geracoes de acasalamento ao acaso
+  nf <- 40
+  hap <- function(p, n) matrix(rbinom(n * nm, 1, rep(p, each = n)), n)
+  h1 <- rbind(hap(pA, nf), hap(pB, nf)); h2 <- rbind(hap(pA, nf), hap(pB, nf))
+  ids <- c(sprintf("A%03d", seq_len(nf)), sprintf("B%03d", seq_len(nf)))
+  ped <- data.frame(id = ids, sire = c(rep("MA", nf), rep("MB", nf)),
+                    dam = c(rep("MA", nf), rep("MB", nf)), stringsAsFactors = FALSE)
+  pais <- ids
+  for (ger in 1:3) {
+    n <- 120
+    s <- sample(pais, n, TRUE); m <- sample(pais, n, TRUE)
+    is <- match(s, ped$id); im <- match(m, ped$id)
+    gam <- function(i) { u <- matrix(runif(n * nm) < 0.5, n); ifelse(u, h1[i, ], h2[i, ]) }
+    novos <- sprintf("G%d_%03d", ger, seq_len(n))
+    h1 <- rbind(h1, gam(is)); h2 <- rbind(h2, gam(im))
+    ped <- rbind(ped, data.frame(id = novos, sire = s, dam = m, stringsAsFactors = FALSE))
+    pais <- novos
+  }
+  gen <- which(grepl("^G[23]_", ped$id))
+  geno <- list(ids = ped$id[gen], m = h1[gen, ] + h2[gen, ])
+  e_em <- estimate_gamma(ped, geno, c("MA", "MB"), verbose = FALSE)$gamma
+  e_gls <- estimate_gamma(ped, geno, c("MA", "MB"), method = "gls", verbose = FALSE)$gamma
+  cat("README-gamma: simulada", round(c(gamma0[1, 1], gamma0[2, 1], gamma0[2, 2]), 3),
+      "pseudo_em", round(c(e_em[1, 1], e_em[2, 1], e_em[2, 2]), 3),
+      "gls", round(c(e_gls[1, 1], e_gls[2, 1], e_gls[2, 2]), 3), "\n")
+
+  figura_gamma <- function(tema) {
+    t <- temas[[tema]]
+    f <- arquivo("gamma", tema)
+    abre(f, 7.5, 3.4)
+    estilo(t, mar = c(4, 4, 2.6, 1))
+    v <- rbind(simulated = c(gamma0[1, 1], gamma0[2, 1], gamma0[2, 2]),
+               pseudo_em = c(e_em[1, 1], e_em[2, 1], e_em[2, 2]),
+               gls = c(e_gls[1, 1], e_gls[2, 1], e_gls[2, 2]))
+    cores <- c(t$leve, t$ponto, t$fill)
+    plot(0, type = "n", xlim = c(0.5, 3.5), ylim = c(0, max(v) * 1.2), xaxt = "n", bty = "n",
+         xlab = "", ylab = "relationship")
+    abline(h = axTicks(2), col = t$grade, lwd = 0.6)
+    for (k in 1:3) for (r in 1:3)
+      rect(k - 0.36 + (r - 1) * 0.24, 0, k - 0.14 + (r - 1) * 0.24, v[r, k], col = cores[r],
+           border = NA)
+    axis(1, at = 1:3, labels = c("within base A", "between A and B", "within base B"),
+         tick = FALSE, cex.axis = 0.85, col.axis = t$texto)
+    title(main = "estimate_gamma(): two metafounders from 240 genotyped descendants",
+          font.main = 1, cex.main = 1, adj = 0, line = 1)
+    legenda(t, "topleft", c("simulated, from the base allele frequencies", "pseudo-EM (default)",
+                            "GLS"), pch = 15, col = cores, pt.cex = 1.4, caixa = TRUE)
+    fecha(f)
+  }
+  for (tema in names(temas)) figura_gamma(tema)
+}
+
+# ---- 12. pegs(): um caracter em varios ambientes ---------------------------------------------------
+if (quer("pegs")) {
+  s <- simulate_breeding(n_founders = 60, n_generations = 3, offspring_per_generation = 800,
+                         h2 = 0.4, n_markers = 1500, seed = 121)
+  g <- s$genotypes
+  set.seed(122)
+  k <- 4
+  rg0 <- matrix(c(1, 0.8, 0.5, 0.2,  0.8, 1, 0.6, 0.3,  0.5, 0.6, 1, 0.7,  0.2, 0.3, 0.7, 1), k)
+  z <- scale(g$m, scale = FALSE)
+  nmk <- ncol(z)
+  b <- matrix(rnorm(nmk * k), nmk) %*% chol(rg0) / sqrt(nmk * 2 * mean(colMeans(g$m) / 2 * (1 - colMeans(g$m) / 2)))
+  u <- z %*% b * sqrt(0.4)
+  rownames(u) <- g$ids
+  # cada animal medido num ambiente so, em formato longo
+  amb <- sample(seq_len(k), length(g$ids), TRUE)
+  d <- data.frame(id = g$ids, env = paste0("e", amb), stringsAsFactors = FALSE)
+  d$y <- 10 + u[cbind(seq_len(nrow(d)), amb)] + rnorm(nrow(d), 0, sqrt(0.6))
+  fp <- pegs(d, "y", "id", g, environment = "env")
+  rg_est <- fp$Gcor
+  par_i <- which(upper.tri(rg0), arr.ind = TRUE)
+  cat(sprintf("README-pegs: %d animais em %d ambientes, maior erro de r_g %.3f, convergiu %s\n",
+              nrow(d), k, max(abs(rg_est[par_i] - rg0[par_i])), fp$converged))
+
+  figura_pegs <- function(tema) {
+    t <- temas[[tema]]
+    f <- arquivo("pegs", tema)
+    abre(f, 6, 3.6)
+    estilo(t, mar = c(4, 4, 2.6, 1))
+    lim <- range(c(0, 1, rg_est[par_i]))
+    quadro(t, lim, lim, "genetic correlation simulated", "estimated by pegs()",
+           sprintf("pegs(): %d environments, %s animals with one record each", k,
+                   format(nrow(d), big.mark = ",")))
+    abline(0, 1, col = t$suave, lty = 2, lwd = 0.8)
+    points(rg0[par_i], rg_est[par_i], pch = 21, cex = 1.3, bg = t$ponto, col = t$texto, lwd = 0.4)
+    text(rg0[par_i], rg_est[par_i], sprintf("%d-%d", par_i[, 1], par_i[, 2]), pos = 4, cex = 0.75,
+         col = t$suave)
+    fecha(f)
+  }
+  for (tema in names(temas)) figura_pegs(tema)
 }
 
 if (is.null(so)) {
