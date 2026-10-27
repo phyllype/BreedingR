@@ -270,7 +270,9 @@ ARGS_MARCADOR <- local({
 #'   in `message` and reports `converged = FALSE`, with one exception: when the Newton
 #'   decrement at the last point is below its tolerance, the fit is certified on a flat
 #'   direction of the likelihood. Then `converged = TRUE` at the ceiling, and `message`
-#'   says that the components were still moving. `maxiter = 0` evaluates the start
+#'   says that the components were still moving. The walk also stops before the ceiling
+#'   when 25 iterations in a row give no gain above 1e-8 of the -2logL and no EM step
+#'   moves, with the same verdict as at the ceiling. `maxiter = 0` evaluates the start
 #'   (after the `n_em` EM rounds) and always reports `converged = FALSE`: an evaluation
 #'   is not a convergence, whatever the Newton decrement at that point, which `message`
 #'   gives

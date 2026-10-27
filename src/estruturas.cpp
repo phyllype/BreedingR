@@ -100,16 +100,9 @@ void inversa_empacotada(const double* l, std::size_t n, double* z, int nth) {
   const std::size_t LB = 64;
   const std::size_t nbl = (n + LB - 1) / LB;
   std::vector<double> li(off[n], 0.0);
-#ifdef _OPENMP
-#pragma omp parallel num_threads(nth)
-#endif
-  {
-    std::vector<double> x;
-#ifdef _OPENMP
-#pragma omp for schedule(dynamic, 1)
-#endif
-    for (long bb = 0; bb < static_cast<long>(nbl); bb++) {
-      const std::size_t j0 = static_cast<std::size_t>(bb) * LB, j1 = std::min(n, j0 + LB);
+  // fase 1: o bloco bb de colunas de L^-1
+  auto fase1 = [&](std::size_t bb, std::vector<double>& x) {
+      const std::size_t j0 = bb * LB, j1 = std::min(n, j0 + LB);
       const std::size_t w = j1 - j0;
       // X (linhas j0..n-1, w colunas, linha-major): L X = as colunas j0..j1-1 da identidade
       x.assign((n - j0) * w, 0.0);
@@ -131,14 +124,9 @@ void inversa_empacotada(const double* l, std::size_t n, double* z, int nth) {
         double* dst = &li[off[j]];
         for (std::size_t r = j; r < n; r++) dst[r - j] = x[(r - j0) * w + c];
       }
-    }
-  }
-  // entre as duas fases, fora das regioes paralelas
-  checa_interrupcao();
-#ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic, 1) num_threads(nth)
-#endif
-  for (long t = 0; t < static_cast<long>(nbl * (nbl + 1) / 2); t++) {
+  };
+  // fase 2: o ladrilho t de Z = L^-T L^-1
+  auto fase2 = [&](std::size_t t) {
     std::size_t it = static_cast<std::size_t>((std::sqrt(8.0 * static_cast<double>(t) + 1.0) - 1.0) / 2.0);
     while (it * (it + 1) / 2 > static_cast<std::size_t>(t)) it--;
     while ((it + 1) * (it + 2) / 2 <= static_cast<std::size_t>(t)) it++;
@@ -165,7 +153,36 @@ void inversa_empacotada(const double* l, std::size_t n, double* z, int nth) {
         z[off[j] + (i - j)] = (a0 + a1) + (a2 + a3);
       }
     }
+  };
+  const std::size_t n2 = nbl * (nbl + 1) / 2;
+  // Abaixo de 4 ladrilhos (n <= 192) o laco e serial e sem regiao: com 1 a 3 ladrilhos quase
+  // nao ha o que dividir, e o bloco denso final da inversa seletiva de um modelo pequeno vem
+  // aqui a cada avaliacao. A consulta de interrupcao entre as fases (R_ToplevelExec) tambem
+  // fica so no caminho grande. Os ladrilhos tem dono fixo, entao o numero e o mesmo nos dois
+  // caminhos.
+  if (nth <= 1 || nbl < 4) {
+    std::vector<double> x;
+    for (std::size_t bb = 0; bb < nbl; bb++) fase1(bb, x);
+    if (nbl >= 4) checa_interrupcao();
+    for (std::size_t t = 0; t < n2; t++) fase2(t);
+    return;
   }
+#ifdef _OPENMP
+#pragma omp parallel num_threads(nth)
+#endif
+  {
+    std::vector<double> x;
+#ifdef _OPENMP
+#pragma omp for schedule(dynamic, 1)
+#endif
+    for (long bb = 0; bb < static_cast<long>(nbl); bb++) fase1(static_cast<std::size_t>(bb), x);
+  }
+  // entre as duas fases, fora das regioes paralelas
+  checa_interrupcao();
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 1) num_threads(nth)
+#endif
+  for (long t = 0; t < static_cast<long>(n2); t++) fase2(static_cast<std::size_t>(t));
 }
 
 // Inversa densa SPD em ladrilhos, em paralelo e determinista, para as matrizes grandes (a

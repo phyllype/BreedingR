@@ -925,6 +925,18 @@
 
 ## Fixed
 
+* `model()` stops when the step makes no progress for 25 iterations, as `model_mt()` and
+  `model_ar1()` already did. No progress means no gain above 1e-8 of the -2logL and no EM
+  step that moves. Before, the walk went on to `maxiter` at the same point. The verdict
+  follows the Newton decrement, as at `maxiter`. Inside the tolerance, it is the
+  convergence of a flat ridge. Above it, the message says that the point is a stall.
+
+* With `br_threads()` above 1, a small fit no longer opens a parallel region at each
+  evaluation. The trace tr(K^-1 Z) of a block now opens one from 1024 levels. The dense
+  block at the end of the selected inversion now opens one from 193 columns. The fit is the
+  same to the last bit with any number of threads, on both sides of these thresholds. Gate in
+  `tests/testthat/test-threads-limiar.R`.
+
 * `model_mt()` refuses two traits that are exactly collinear on their common records (the
   fit gave only boundary messages). Gate in `tests/testthat/test-estrutura-media5.R`.
 

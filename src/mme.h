@@ -650,13 +650,17 @@ struct Genotipos {
 // uma com a sua soma parcial, e as parciais sao somadas na ordem das colunas: o mesmo
 // resultado com qualquer numero de threads. Um pedido fora do padrao do fator e CONTADO em
 // `fora`, nunca pulado em silencio (uma soma que pula termos nao e um traco).
+// A regiao so abre com 1024 colunas ou mais: uma coluna de K^-1 tem poucas entradas, e abaixo
+// disso abrir o time custa mais que a soma. O traco sai a cada avaliacao para cada bloco de
+// cada grupo, e num ajuste de 10 animais em 331 iteracoes 4 threads levavam 0,24 s contra
+// 0,05 s com 1 (simulacao, tres rodadas). O resultado e o mesmo nos dois caminhos.
 template <class Z>
 double traco_kinv(const Csc& k, std::size_t nl, std::size_t off_a, std::size_t off_b,
                   const Z& z, std::size_t& fora) {
   std::vector<double> parc(nl, 0.0);
   std::vector<std::size_t> nf(nl, 0);
 #ifdef _OPENMP
-#pragma omp parallel for schedule(dynamic, 64) num_threads(threads())
+#pragma omp parallel for schedule(dynamic, 64) num_threads(threads()) if (nl >= 1024)
 #endif
   for (long cc = 0; cc < static_cast<long>(nl); cc++) {
     const std::size_t c = static_cast<std::size_t>(cc);

@@ -1842,6 +1842,10 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // 1e-10, e em r = +/-(1 - 1.5e-6) e +/-(1 - 1e-8) num grupo direto + indireto, chegaram
   // ao otimo ou pararam com converged = FALSE, nunca um TRUE falso.
 
+  // iteracoes seguidas aceitas sem ganho relevante, e se o laco parou por elas (o corte de
+  // estagnacao, no fim do laco)
+  int parado = 0;
+  bool estagnou = false;
   for (std::size_t it = 1; it <= maxiter; it++) {
     R.iters = it;
     R_CheckUserInterrupt();
@@ -1896,6 +1900,8 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
             den += cand[i] * cand[i];
           }
           R.reldelta = std::sqrt(num / std::max(den, 1e-300));
+          const double ganho = cur.neg2logl - prox.neg2logl;
+          parado = ganho > 1e-8 * std::max(1.0, std::fabs(cur.neg2logl)) ? 0 : parado + 1;
           theta = cand;
           z = zc;
           cur = std::move(prox);
@@ -1913,6 +1919,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
       // the failed attempts and stay parked forever ("amortecimento preso")
       if (resgate_em()) {
         lambda = 1e-3;
+        parado = 0;
         if (verboso)
           Rprintf("      EM rescue: -2logL %.6f (no damped step improved)\n", cur.neg2logl);
         continue;
@@ -1953,6 +1960,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
       // ainda melhora, nao havia convergencia nenhuma, e o amortecimento reinicia.
       if (resgate_em()) {
         lambda = 1e-3;
+        parado = 0;
         if (verboso)
           Rprintf("      EM rescue: -2logL %.6f (the AI step had stalled)\n", cur.neg2logl);
         continue;
@@ -1966,6 +1974,18 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
         R.convergiu = true;
         break;
       }
+    }
+    // ESTAGNACAO, como nos espelhos (ajusta_mt, ajusta_ar1): 25 iteracoes seguidas aceitas
+    // sem ganho acima de 1e-8 do -2logL e sem EM que ande. A recusa do certificado acima nao
+    // encerra o laco, porque o passo pode voltar a andar; mas um caminhante que nao anda mais
+    // seguia ate maxiter repetindo o mesmo ponto. Medido num direto + indireto com o social
+    // aliasado (simulacao, 192 registros): 200 iteracoes com relDelta 0 e o mesmo -2logL, e
+    // num modelo grande cada uma e uma avaliacao inteira. O veredito segue o certificado,
+    // como no fim do orcamento (a crista plana, abaixo).
+    if (parado >= 25) {
+      R.decremento = decremento_livre(pecas_z(z, cur));
+      estagnou = true;
+      break;
     }
   }
   // the decrement at the final point, whatever the exit: the certificate the user can
@@ -1984,7 +2004,18 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // So quando o laco andou: com maxiter = 0 nao ha caminhada nenhuma, e uma AVALIACAO no
   // start= nao e convergencia, mesmo com o decremento pequeno (o ponto pode ser um otimo
   // dado de fora, mas quem o certifica e o ajuste que chega nele).
-  if (!R.convergiu && maxiter > 0 && R.iters >= maxiter && R.decremento < tol_dec) {
+  if (estagnou && !R.convergiu && R.decremento >= tol_dec) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.3g", R.decremento);
+    R.mensagem = std::string("did NOT converge: at iteration ") + std::to_string(R.iters) +
+        " the step had made no progress for 25 iterations (no gain above 1e-8 of the -2logL, "
+        "and no EM step that moved), and the Newton decrement of the free components is " +
+        buf + " (tolerance 2e-4 on the -2logL scale), so the point is a stall, not a "
+        "certified optimum. More iterations give the same point: fit from another start=, "
+        "and profile any component the message reports at a boundary";
+  }
+  if (!R.convergiu && maxiter > 0 && (R.iters >= maxiter || estagnou) &&
+      R.decremento < tol_dec) {
     R.convergiu = true;
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%.3g", R.reldelta);
