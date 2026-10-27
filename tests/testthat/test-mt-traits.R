@@ -157,9 +157,6 @@ test_that("traits = is refused where it has no meaning", {
                         s$ped), "y3 is not a trait of cbind(y1, y2)", fixed = TRUE)
   expect_error(model_mt(cbind(y1, y2) ~ cg + animal(id) + pe(id, traits = character(0)),
                         s$data, s$ped), "one or more traits")
-  s$data$x <- seq_len(nrow(s$data)) / 10
-  expect_error(model_mt(cbind(y1, y2) ~ cg + cov(x, traits = "y1") + animal(id), s$data,
-                        s$ped), "is for random terms")
 })
 
 # A group whose terms name different traits: a random regression of order 1 on y1 and the
@@ -199,4 +196,54 @@ test_that("a group with terms on different traits: dense V, the score and the na
   expect_equal(names(r$theta)[1:6],
                c("var(rn[0]@y1)", "cov(rn[1]@y1,rn[0]@y1)", "cov(animal@y2,rn[0]@y1)",
                  "var(rn[1]@y1)", "cov(animal@y2,rn[1]@y1)", "var(animal@y2)"))
+})
+
+test_that("fixed effects on some traits: fixed(cg, traits =) and cov(x, traits =)", {
+  for (lay in c("A", "B")) {
+    s <- simula_traits(layout = lay)
+    s$data$x <- seq_len(nrow(s$data)) %% 7 + 0.5
+    f2 <- cbind(y1, y2) ~ fixed(cg, traits = "y1") + cov(x, traits = "y2") + animal(id) +
+      pe(id, traits = "y1")
+    u <- eval_internal(y1 ~ cg + animal(id) + pe(id), s$data, s$ped,
+                       theta = c(0.9, 0.5, 1.1), with_dense = FALSE)$neg2logl +
+         eval_internal(y2 ~ cov(x) + animal(id), s$data, s$ped,
+                       theta = c(0.7, 1.2), with_dense = FALSE)$neg2logl
+    b <- eval_internal_mt(f2, s$data, s$ped, theta = c(0.9, 0, 0.7, 0.5, 1.1, 0, 1.2))
+    expect_equal(b$neg2logl, u, tolerance = 1e-8, label = paste("sparse, layout", lay))
+    expect_equal(b$neg2logl_V, u, tolerance = 1e-8, label = paste("dense V, layout", lay))
+  }
+  r <- suppressMessages(model_mt(f2, s$data, s$ped, maxiter = 0L, verbose = FALSE))
+  # the effect has no equation on the trait that it does not name, and dropped_x does not
+  # list it: no record is missing and no column is aliased
+  expect_false(any(grepl("^cg=.*[|]y2$", names(r$b))))
+  expect_false("x=x|y1" %in% names(r$b))
+  expect_true("x=x|y2" %in% names(r$b))
+  expect_false(any(grepl("[|]y2$", r$dropped_x[startsWith(r$dropped_x, "cg=")])))
+  expect_false(any(startsWith(r$dropped_x, "x=")))
+  # fixed(cg) with no traits = is the class cg
+  expect_equal(eval_internal(y1 ~ fixed(cg) + animal(id), s$data, s$ped, theta = c(0.9, 1.1),
+                             with_dense = FALSE)$neg2logl,
+               eval_internal(y1 ~ cg + animal(id), s$data, s$ped, theta = c(0.9, 1.1),
+                             with_dense = FALSE)$neg2logl, tolerance = 1e-12)
+  expect_error(model(y1 ~ fixed(cg, traits = "y1") + animal(id), s$data, s$ped),
+               "multi-trait fit")
+})
+
+test_that("a column of a term may be missing on the rows where the term does not enter", {
+  s <- simula_traits(layout = "A")
+  s$data$x <- seq_len(nrow(s$data)) %% 7 + 0.5
+  f2 <- cbind(y1, y2) ~ fixed(cg, traits = "y1") + cov(x, traits = "y2") + animal(id) +
+    pe(id, traits = "y1")
+  th <- c(0.9, 0.2, 0.7, 0.5, 1.1, 0, 1.2)
+  cheio <- eval_internal_mt(f2, s$data, s$ped, theta = th, with_dense = FALSE)$neg2logl
+  # cg missing on the y2 rows, x missing on the y1 rows: neither term enters there
+  buraco <- s$data
+  buraco$cg[!is.na(buraco$y2)] <- NA
+  buraco$x[!is.na(buraco$y1)] <- NA
+  expect_equal(eval_internal_mt(f2, buraco, s$ped, theta = th, with_dense = FALSE)$neg2logl,
+               cheio, tolerance = 1e-8)
+  # on a row where the term enters, a missing label still stops the fit
+  ruim <- s$data
+  ruim$cg[which(!is.na(ruim$y1))[3]] <- NA
+  expect_error(eval_internal_mt(f2, ruim, s$ped, theta = th, with_dense = FALSE), "cg")
 })

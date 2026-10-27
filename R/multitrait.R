@@ -17,24 +17,35 @@
 #' first trait that has them. The univariate fits of the start run with those warnings
 #' silenced, so each is given once.
 #'
-#' @param formula with `cbind()` on the left-hand side: `cbind(p1, p2) ~ cg + animal(id)`. The
-#'   same effects apply to all traits; each covariance group gains the GENETIC
-#'   covariances between traits, and the residual becomes the full R0 matrix.
-#'   A missing trait (NA or the `missing_code` code) does not drop the record: it enters
-#'   with the R0 submatrix of its observation pattern.
+#' @param formula with `cbind()` on the left-hand side: `cbind(p1, p2) ~ cg + animal(id)`.
+#'   Each effect applies to all the traits unless it has `traits =` (below). Each covariance
+#'   group gains the GENETIC covariances between traits, and the residual becomes the full
+#'   R0 matrix. A missing trait (NA or the `missing_code` code) does not drop the record: it
+#'   enters with the R0 submatrix of the traits that it has.
 #'
 #'   `traits =` puts a random term on some of the traits only. The usual case is a trait
 #'   with repeated records and a trait with one record per animal:
 #'   `cbind(y1, y2) ~ cg + animal(id) + pe(id, traits = "y1")`. On a trait with one record
 #'   per animal, the data do not separate `pe()` from the residual. The information matrix
 #'   is then singular, and every standard error is `NaN`. With `traits = "y1"` the term has no
-#'   component and no solution on `y2`: the names are `var(pe@y1)` and `id|y1`. The terms
+#'   component and no solution on `y2`: the names are `var(pe@y1)` and `id|y1`. This model
+#'   has no non-genetic covariance between `y2` and the permanent effect of `y1`: it is 0 by
+#'   construction. To estimate that covariance, put `pe()` on both traits. The data then
+#'   separate `cov(pe@y2,pe@y1)`, but not `var(pe@y2)` from `var(res@y2)`, and the fit
+#'   says that the information matrix is singular along that pair. The terms
 #'   of one covariance group (`group =`) can name different traits. An example is a random
 #'   regression on `y1` and a one-record trait `y2`:
 #'   `rn(id, base = c("phi0", "phi1"), traits = "y1", group = "g") +
 #'   animal(id, traits = "y2", group = "g")`. This G is over `rn[0]@y1`, `rn[1]@y1` and
 #'   `animal@y2`, and gives the covariance of each coefficient with the breeding value for
-#'   `y2`. Fixed effects apply to all the traits. The univariate fits of the default start leave the term out of the
+#'   `y2`. A fixed effect can be on some traits only too: `fixed(cg, traits = "y1")` for a
+#'   class and `cov(x, traits = "y1")` for a covariate. On the other traits the effect has
+#'   no equation. `dropped_x` does not list it, because no record is missing and no column
+#'   is collinear with others. A column of a term may be missing (`NA`, blank) on a row that
+#'   has none of the traits of the term. That cell does not enter the likelihood. The fit
+#'   puts a value there that changes nothing: the first label of the column, or the mean of
+#'   a covariate. On the other rows the rule of [model()] stands. The univariate fits of
+#'   the default start leave the term out of the
 #'   traits that it does not name.
 #'
 #'   A `y2` record can be in the row of a `y1` record, or in a row of its own with `y1`
@@ -212,6 +223,7 @@ model_mt <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0
 
   terms <- decompoe_formula(formula[[3]], environment(formula), com_traits = TRUE)
   confere_traits_dos_termos(terms, traits)
+  data <- preenche_fora_dos_tracos(data, terms, traits, missing_code)
   recusa_materno_mgs(terms, pedigree)
   recusa_kfixo(terms, "model_mt()")
   precisa_ped <- any(vapply(terms, function(t) t$estrutura == 2L, logical(1)))
@@ -376,6 +388,42 @@ confere_traits_dos_termos <- function(terms, traits) {
   invisible(NULL)
 }
 
+# AS COLUNAS DE UM TERMO NAS LINHAS EM QUE ELE NAO ENTRA. Com traits = um termo so existe em
+# alguns caracteres, e numa linha sem nenhum deles observado a coluna do termo nao tem efeito: o
+# termo nao tem equacao no caracter observado ali, e o caracter dele nao foi observado. A regra
+# "so a observacao pode faltar" recusaria o NA dessas celulas, e quem empilha um caracter
+# diario com um de registro unico teria de inventar um valor (o CG do dia na linha do peso
+# final). Aqui a celula ausente de uma coluna que nenhum termo usa na linha ganha um valor que
+# nao muda nada: o primeiro rotulo da coluna num termo de nivel, a media das linhas que a usam
+# numa covariavel (a padronizacao das covariaveis le todas as linhas, e a media nao a desloca).
+# Uma coluna que algum termo usa na linha segue sob a regra de sempre.
+preenche_fora_dos_tracos <- function(data, terms, traits, missing_code) {
+  if (!any(vapply(terms, function(t) length(t$traits) > 0L, logical(1)))) return(data)
+  obs <- vapply(traits, function(v) !observacao_ausente(data[[v]], missing_code),
+                logical(nrow(data)))
+  if (!is.matrix(obs)) obs <- matrix(obs, nrow = nrow(data), dimnames = list(NULL, traits))
+  cols_de <- function(t) {
+    v <- c(t$column, sub("^mgs:", "", t$nested), strsplit(t$base, ",")[[1]])
+    unique(v[nzchar(v)])
+  }
+  for (cn in intersect(unique(unlist(lapply(terms, cols_de))), names(data))) {
+    usam <- Filter(function(t) cn %in% cols_de(t), terms)
+    precisa <- Reduce(`|`, lapply(usam, function(t)
+      rowSums(obs[, if (length(t$traits)) t$traits else traits, drop = FALSE]) > 0))
+    if (all(precisa)) next
+    numero <- any(vapply(usam, function(t) isTRUE(t$covariavel) ||
+                           cn %in% strsplit(t$base, ",")[[1]], logical(1)))
+    v <- data[[cn]]
+    falta <- if (numero) !is.finite(suppressWarnings(as.double(v)))
+             else Reduce(`|`, tipos_rotulo_ausente(v))
+    troca <- falta & !precisa
+    if (!any(troca) || all(falta)) next
+    v[troca] <- if (numero) mean(as.double(v[!falta])) else v[!falta][1]
+    data[[cn]] <- v
+  }
+  data
+}
+
 # O lado direito do ajuste univariado de um caracter, para a partida: sem os termos cujo
 # traits = nao inclui o caracter, e sem o traits = dos outros (model() nao o aceita). Anda
 # na formula na MESMA ordem de decompoe_formula(), entao o k-esimo termo e terms[[k]].
@@ -451,6 +499,7 @@ eval_internal_mt <- function(formula, data, pedigree = NULL, theta, missing_code
   traits <- vapply(as.list(lhs)[-1], deparse, character(1))
   terms <- decompoe_formula(formula[[3]], environment(formula), com_traits = TRUE)
   confere_traits_dos_termos(terms, traits)
+  data <- preenche_fora_dos_tracos(data, terms, traits, missing_code)
   recusa_materno_mgs(terms, pedigree)
   used_columns <- unique(c(traits, vapply(terms, function(t) t$column, character(1)),
                              unlist(lapply(terms, function(t) sub("^mgs:", "", t$nested))),

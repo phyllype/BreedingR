@@ -217,6 +217,23 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
   // b por caracter. Uma aninhada cujo centro nao volta pela classe em algum caracter (a classe
   // confundida com outro efeito fixo, aninhadas_sem_volta) e refeita so escalada, com os dois
   // postos de novo.
+  // UM EFEITO FIXO SO EM ALGUNS CARACTERES (fixed(cg, traits = "y1"), cov(x, traits = "y1")):
+  // por termo, os caracteres em que ele entra. Nos outros as colunas dele saem do posto daquele
+  // caracter antes da conta e nao vao para dropped_x, porque nao faltou registro nem houve
+  // dependencia: o modelo declarado nao as tem. E a coluna 0 do efeito no caracter, no BLUPF90.
+  std::vector<std::vector<char>> fixo_em(m.termos.size(), std::vector<char>(d.t, 1));
+  for (std::size_t k = 0; k < m.termos.size(); k++) {
+    const Termo& te = m.termos[k];
+    if (te.aleatorio() || te.tracos.empty()) continue;
+    std::fill(fixo_em[k].begin(), fixo_em[k].end(), 0);
+    for (const std::string& nm : te.tracos) {
+      const auto it = std::find(alvos.begin(), alvos.end(), nm);
+      if (it == alvos.end())
+        throw Erro("term '" + te.nome + "': traits = names '" + nm +
+                   "', which is not a trait of cbind()");
+      fixo_em[k][static_cast<std::size_t>(it - alvos.begin())] = 1;
+    }
+  }
   std::vector<std::size_t> fica, sai, sem_centro;
   for (;;) {
     padroniza_covariaveis(fx, d.usa, sem_centro);
@@ -257,14 +274,29 @@ DesenhoMT monta_desenho_mt(Modelo m, const std::vector<std::string>& alvos,
     d.eq_fixa.assign(d.nomes_x.size() * d.t, -1);
     {
       const Csc xc = fixas_por_coluna(d.x);
+      // a coluna j de d.x e fora do caracter tau quando o termo dela nao o tem (traits =)
+      auto fora = [&](std::size_t j, std::size_t tau) {
+        const std::size_t k = fx.termo[fica[j]];
+        return k < fixo_em.size() && !fixo_em[k][tau];
+      };
       for (std::size_t tau = 0; tau < d.t; tau++) {
         std::vector<char> lin_tau(d.nlin, 0);
         for (std::size_t i = 0; i < d.nlin; i++)
           lin_tau[i] = d.usa[i] && d.obs[i * d.t + tau];
+        // as colunas fora do caracter entram zeradas: o posto as poe em sai_t, e elas ficam
+        // sem equacao e fora do relato
+        Csc xt = xc;
+        bool tira = false;
+        for (std::size_t j = 0; j < xt.ncol; j++)
+          if (fora(j, tau)) {
+            tira = true;
+            for (std::size_t q = xt.colptr[j]; q < xt.colptr[j + 1]; q++) xt.valor[q] = 0.0;
+          }
         std::vector<std::size_t> fica_t, sai_t;
-        posto_esparso(xc, lin_tau, 1e-9, fica_t, sai_t, false, nullptr, &d.nomes_x);
+        posto_esparso(tira ? xt : xc, lin_tau, 1e-9, fica_t, sai_t, false, nullptr, &d.nomes_x);
         for (std::size_t j : fica_t) d.eq_fixa[j * d.t + tau] = -2;
         for (std::size_t j : sai_t) {
+          if (fora(j, tau)) continue;
           d.saiu_x.push_back(d.nomes_x[j] + "|" + d.alvos[tau]);
           bool vazia = true;
           for (std::size_t k = xc.colptr[j]; k < xc.colptr[j + 1]; k++)

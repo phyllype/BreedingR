@@ -9,7 +9,7 @@
 #
 #   peso ~ cg + animal(id, group = "g") + maternal(dam, group = "g")
 
-MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn")
+MARCADORES <- c("animal", "maternal", "sire", "pe", "random", "cov", "rn", "fixed")
 
 # Markers this version does not offer: the formula stops on them with a plain message
 # instead of the "unknown marker" one.
@@ -23,7 +23,7 @@ MARCADORES_FORA <- c("indirect", "social", "kernel")
 ARGS_MARCADOR <- local({
   comum <- c("nome", "group", "nested", "base", "traits")
   list(animal = comum, maternal = comum, sire = c(comum, "mgs"), pe = comum, random = comum,
-       cov = comum, rn = comum)
+       cov = comum, rn = comum, fixed = c("nome", "traits"))
 })
 
 #' Fit a mixed model by AI-REML
@@ -76,7 +76,8 @@ ARGS_MARCADOR <- local({
 #' These checks read the rows with an observed response that enter the analysis.
 #'
 #' @param formula for example `peso ~ cg + sexo + animal(id)`. An unmarked term is a fixed
-#'   class effect; `cov(x)` is a fixed covariate; `animal(id)`, `maternal(dam)` and
+#'   class effect, and `fixed(cg)` is the same term (it takes `traits =` in [model_mt()]);
+#'   `cov(x)` is a fixed covariate; `animal(id)`, `maternal(dam)` and
 #'   `sire(sire)` are random with relationship, and `sire(sire, mgs = "mgs")` is the sire
 #'   and maternal-grandsire model, 1 on the sire and 1/2 on the maternal grandsire of the
 #'   record in the same effect (an unknown grandsire, "0", leaves the sire only, and an
@@ -1072,7 +1073,7 @@ interpreta_termo <- function(e, envir) {
     if (is.null(v)) padrao else as.character(v)
   }
   group <- pega("group"); nested <- pega("nested")
-  nome <- pega("nome", padrao = if (marc == "cov") column else marc)
+  nome <- pega("nome", padrao = if (marc %in% c("cov", "fixed")) column else marc)
   # base: a vector of columns already present in the data (for example the ones from
   # legendre()). A term with a base of m columns has m coefficients and an m x m
   # covariance. Reaction norm and random regression are THIS, not a fitter of their own.
@@ -1100,9 +1101,6 @@ interpreta_termo <- function(e, envir) {
         !all(nzchar(traits)) || anyDuplicated(traits))
       stop(marc, "(", column, ", traits =): give the names of one or more traits of ",
            "cbind(), each one time", call. = FALSE)
-    if (marc == "cov")
-      stop("cov(", column, ", traits =): traits = is for random terms. A fixed covariate ",
-           "applies to all the traits of model_mt()", call. = FALSE)
   }
   # indirect(id, pen = "baia"): the INDIRECT genetic effect (associative model; Griffing,
   # 1967; Muir and Schinckel, 2002; Bijma et al., 2007). The incidence of row i marks the
@@ -1174,7 +1172,7 @@ interpreta_termo <- function(e, envir) {
     }
   }
   estrutura <- switch(marc, animal = , maternal = , sire = , rn = , indirect = 2L,
-                      pe = , random = 1L, kernel = 3L, cov = 0L)
+                      pe = , random = 1L, kernel = 3L, cov = , fixed = 0L)
   list(nome = nome, column = column, estrutura = estrutura,
        covariavel = marc == "cov", group = group, nested = nested, base = base,
        social = marc == "indirect", dilution = dilution, kexpr = kexpr, kfixo = kfixo,

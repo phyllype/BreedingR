@@ -56,6 +56,7 @@ model_mt(cbind(t1, t2) ~ cg + animal(id), d, ped)                         # mult
 model_mt(cbind(y1, y2) ~ cg + animal(id) + pe(id, traits = "y1"), d, ped) # y1 repeated, y2 one record
 model_mt(cbind(y1, y2) ~ cg + rn(id, base = c("phi0","phi1"), traits = "y1", group = "g") +
            animal(id, traits = "y2", group = "g") + pe(id, traits = "y1"), d, ped) # RR on y1 with y2
+model_mt(cbind(y1, y2) ~ fixed(cg, traits = "y1") + cov(age, traits = "y2") + animal(id), d, ped) # fixed per trait
 gibbs(y ~ cg + animal(id), d, ped, n_iter = 20000)                        # Bayesian
 gibbs(y01 ~ cg + sire(sire), d, ped, family = "probit")   # binary, liability sampled
 ```

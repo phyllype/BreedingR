@@ -24,7 +24,8 @@ model(
 }
 \arguments{
 \item{formula}{for example \code{peso ~ cg + sexo + animal(id)}. An unmarked term is a fixed
-class effect; \code{cov(x)} is a fixed covariate; \code{animal(id)}, \code{maternal(dam)} and
+class effect, and \code{fixed(cg)} is the same term (it takes \verb{traits =} in \code{\link[=model_mt]{model_mt()}});
+\code{cov(x)} is a fixed covariate; \code{animal(id)}, \code{maternal(dam)} and
 \code{sire(sire)} are random with relationship, and \code{sire(sire, mgs = "mgs")} is the sire
 and maternal-grandsire model, 1 on the sire and 1/2 on the maternal grandsire of the
 record in the same effect (an unknown grandsire, "0", leaves the sire only, and an

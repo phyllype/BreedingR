@@ -12,7 +12,14 @@
   `traits =`. The terms of one `group =` can name different traits:
   `rn(id, base = c("phi0", "phi1"), traits = "y1", group = "g") + animal(id, traits =
   "y2", group = "g")` estimates the genetic covariance between the coefficients of a
-  random regression on `y1` and the breeding value for a one-record trait `y2`.
+  random regression on `y1` and the breeding value for a one-record trait `y2`. A fixed
+  effect can be on some traits only: `fixed(cg, traits = "y1")` for a class (the new
+  marker `fixed(cg)` is the unmarked class `cg`) and `cov(x, traits = "y1")` for a
+  covariate. On the other traits the effect has no equation, and `dropped_x` does not
+  list it. A column of a term may be missing on a row where none of the traits of the
+  term is observed (the contemporary group of a daily trait on the row of a final
+  weight): that cell does not enter the likelihood, and the fit puts a value there that
+  changes nothing.
 
   When no row holds both traits (each record in a row of its own), the data do not
   estimate the residual covariance between them. The fit now holds it at 0, gives it no
@@ -25,7 +32,8 @@
   covariances; and the score equals central finite differences in all parameters, with
   the `y2` record in its own row and in the row of a `y1` record. A group of a random
   regression on `y1` and `animal()` on `y2` passes the dense V form and the finite
-  differences too.
+  differences too, and so does the identity with a fixed class on `y1` only and a
+  covariate on `y2` only.
 
   Recovery, simulation only (`validation/mt_traits_recovery.R`): five generations, 2000
   animals with records, six `y1` records and one `y2` record per animal, 20 replicates.
@@ -42,6 +50,29 @@
 
   The coverage of estimate +/- 1.96 SE was 0.90 to 1.00. In the shared-row layout the
   residual covariance (true 0) came out at -0.007, empirical SD 0.11.
+
+  Recovery of a random regression on `y1` with a one-record `y2`, simulation only
+  (`validation/mt_traits_rr_recovery.R`): the same five generations, a Legendre regression
+  of order 1 on six `y1` records for the genetic and the permanent effect, `rn()` on `y1`
+  and `animal()` on `y2` in one group, a fixed slope on `y1` only, 20 replicates. All 20
+  fits converged, 2.5 s each (median).
+
+  | component | true | mean | empirical SD | mean SE | coverage |
+  |---|---|---|---|---|---|
+  | var(rn[0]@y1) | 4 | 4.060 | 0.52 | 0.48 | 0.95 |
+  | cov(rn[1]@y1,rn[0]@y1) | 0.5 | 0.516 | 0.23 | 0.18 | 0.95 |
+  | cov(animal@y2,rn[0]@y1) | 1.2 | 1.197 | 0.16 | 0.20 | 1.00 |
+  | var(rn[1]@y1) | 1 | 0.987 | 0.13 | 0.14 | 0.95 |
+  | cov(animal@y2,rn[1]@y1) | -0.4 | -0.438 | 0.10 | 0.11 | 0.90 |
+  | var(animal@y2) | 2 | 1.987 | 0.30 | 0.28 | 0.90 |
+  | var(pe[0]@y1) | 3 | 3.017 | 0.32 | 0.31 | 0.95 |
+  | cov(pe[1]@y1,pe[0]@y1) | 0 | 0.002 | 0.18 | 0.13 | 0.80 |
+  | var(pe[1]@y1) | 0.5 | 0.518 | 0.08 | 0.10 | 0.95 |
+  | var(res@y1) | 5 | 5.031 | 0.08 | 0.08 | 0.95 |
+  | var(res@y2) | 4 | 4.028 | 0.22 | 0.22 | 0.95 |
+
+  For `cov(pe[1]@y1,pe[0]@y1)` the mean standard error is below the empirical SD, and the
+  coverage is 0.80 in 20 replicates.
 
 * `integer64` id columns (`data.table::fread()`) are read as their exact digits. The
   latin1 and UTF-8 spellings of the same text are one id: the engine compares bytes, and

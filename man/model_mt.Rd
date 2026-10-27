@@ -21,23 +21,34 @@ model_mt(
 )
 }
 \arguments{
-\item{formula}{with \code{cbind()} on the left-hand side: \code{cbind(p1, p2) ~ cg + animal(id)}. The
-same effects apply to all traits; each covariance group gains the GENETIC
-covariances between traits, and the residual becomes the full R0 matrix.
-A missing trait (NA or the \code{missing_code} code) does not drop the record: it enters
-with the R0 submatrix of its observation pattern.
+\item{formula}{with \code{cbind()} on the left-hand side: \code{cbind(p1, p2) ~ cg + animal(id)}.
+Each effect applies to all the traits unless it has \verb{traits =} (below). Each covariance
+group gains the GENETIC covariances between traits, and the residual becomes the full
+R0 matrix. A missing trait (NA or the \code{missing_code} code) does not drop the record: it
+enters with the R0 submatrix of the traits that it has.
 
 \verb{traits =} puts a random term on some of the traits only. The usual case is a trait
 with repeated records and a trait with one record per animal:
 \code{cbind(y1, y2) ~ cg + animal(id) + pe(id, traits = "y1")}. On a trait with one record
 per animal, the data do not separate \code{pe()} from the residual. The information matrix
 is then singular, and every standard error is \code{NaN}. With \code{traits = "y1"} the term has no
-component and no solution on \code{y2}: the names are \code{var(pe@y1)} and \code{id|y1}. The terms
+component and no solution on \code{y2}: the names are \code{var(pe@y1)} and \code{id|y1}. This model
+has no non-genetic covariance between \code{y2} and the permanent effect of \code{y1}: it is 0 by
+construction. To estimate that covariance, put \code{pe()} on both traits. The data then
+separate \code{cov(pe@y2,pe@y1)}, but not \code{var(pe@y2)} from \code{var(res@y2)}, and the fit
+says that the information matrix is singular along that pair. The terms
 of one covariance group (\verb{group =}) can name different traits. An example is a random
 regression on \code{y1} and a one-record trait \code{y2}:
 \code{rn(id, base = c("phi0", "phi1"), traits = "y1", group = "g") + animal(id, traits = "y2", group = "g")}. This G is over \code{rn[0]@y1}, \code{rn[1]@y1} and
 \code{animal@y2}, and gives the covariance of each coefficient with the breeding value for
-\code{y2}. Fixed effects apply to all the traits. The univariate fits of the default start leave the term out of the
+\code{y2}. A fixed effect can be on some traits only too: \code{fixed(cg, traits = "y1")} for a
+class and \code{cov(x, traits = "y1")} for a covariate. On the other traits the effect has
+no equation. \code{dropped_x} does not list it, because no record is missing and no column
+is collinear with others. A column of a term may be missing (\code{NA}, blank) on a row that
+has none of the traits of the term. That cell does not enter the likelihood. The fit
+puts a value there that changes nothing: the first label of the column, or the mean of
+a covariate. On the other rows the rule of \code{\link[=model]{model()}} stands. The univariate fits of
+the default start leave the term out of the
 traits that it does not name.
 
 A \code{y2} record can be in the row of a \code{y1} record, or in a row of its own with \code{y1}
