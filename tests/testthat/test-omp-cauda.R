@@ -18,7 +18,7 @@
 # pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
 # fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
 # test-estrutura-e2.R confere o aviso.
-op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+op_parentesco <- options(uaitrem.verify_parentage = FALSE)
 
 matriz_com_cauda <- function(n_esp, T, seed = 7, pd = TRUE) {
   set.seed(seed)
@@ -121,8 +121,8 @@ test_that("a inversa seletiva da cauda densa: exata e a mesma com 1 e 4 threads"
 test_that("o pedido de threads respeita o OMP_THREAD_LIMIT do ambiente", {
   skip_on_cran()
   skip_if_not(br_threads()$openmp)
-  lib <- dirname(find.package("BreedingR"))
-  cmd <- sprintf("suppressMessages(library(BreedingR, lib.loc = '%s')); cat(br_threads(8)$threads)",
+  lib <- dirname(find.package("uaitrem"))
+  cmd <- sprintf("suppressMessages(library(uaitrem, lib.loc = '%s')); cat(br_threads(8)$threads)",
                  gsub("\\\\", "/", lib))
   rs <- file.path(R.home("bin"), "Rscript")
   # o filho herda o ambiente do pai (o env= do system2 nao funciona no Windows); o runtime

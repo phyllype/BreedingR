@@ -44,13 +44,15 @@
 <text x="113.96" y="140.88">in the APY core</text>
 </g>
 </g>
-<path fill="none" stroke="#9198a1" stroke-width="0.75" d="M318.78 216l78.61 0M318.78 216l0 4.32M344.98 216l0 4.32M371.19 216l0 4.32M397.39 216l0 4.32"/>
-<g fill="#9198a1" font-size="12">
-<text x="318.78" y="236.16" text-anchor="middle">0.5</text>
-<text x="371.19" y="236.16" text-anchor="middle">0.7</text>
-</g>
 <g clip-path="url(#c4)">
 <text fill="#e6edf3" font-size="12" x="363.44" y="263.52" text-anchor="middle">cor(EBV, true value)</text>
+</g>
+<path fill="none" stroke="#9198a1" stroke-width="0.75" d="M318.78 216l78.61 0M318.78 216l0 4.32M344.98 216l0 4.32M371.19 216l0 4.32M397.39 216l0 4.32"/>
+<g fill="#9198a1" font-size="9">
+<text x="318.78" y="236.16" text-anchor="middle">0.5</text>
+<text x="344.98" y="236.16" text-anchor="middle">0.6</text>
+<text x="371.19" y="236.16" text-anchor="middle">0.7</text>
+<text x="397.39" y="236.16" text-anchor="middle">0.8</text>
 </g>
 <g clip-path="url(#c3)">
 <path fill="none" stroke="#3d444d" stroke-width="0.45" d="M318.78 216l0 -178.56M344.98 216l0 -178.56M371.19 216l0 -178.56M397.39 216l0 -178.56"/>

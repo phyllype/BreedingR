@@ -10,7 +10,7 @@
 # pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
 # fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
 # test-estrutura-e2.R confere o aviso.
-op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+op_parentesco <- options(uaitrem.verify_parentage = FALSE)
 
 caso_h <- function(seed = 31) {
   set.seed(seed)

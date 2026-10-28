@@ -1,8 +1,8 @@
 ---
-title: "BreedingR: from data to breeding value"
+title: "UAI-TREM: from data to breeding value"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{BreedingR: from data to breeding value}
+  %\VignetteIndexEntry{UAI-TREM: from data to breeding value}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -23,7 +23,7 @@ recursion `a = 0.5(a_sire + a_dam) + mendelian`, never by a Cholesky of A, which
 share code with the very thing we are testing.
 
 ```{r}
-library(BreedingR)
+library(uaitrem)
 
 n <- 800
 id <- sprintf("a%04d", 1:n)

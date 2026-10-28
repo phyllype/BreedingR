@@ -17,7 +17,7 @@
 # Use: Rscript validation/mt_traits_rr_recovery.R [replicates] [threads]
 args <- commandArgs(TRUE)
 nrep <- if (length(args) >= 1) as.integer(args[1]) else 20L
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 br_threads(if (length(args) >= 2) as.integer(args[2]) else 1L)
 G <- matrix(c(4, 0.5, 1.2, 0.5, 1, -0.4, 1.2, -0.4, 2), 3)
 verdade <- c("var(rn[0]@y1)" = 4, "cov(rn[1]@y1,rn[0]@y1)" = 0.5,

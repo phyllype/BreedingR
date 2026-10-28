@@ -32,7 +32,7 @@ test_that("summary() e print() usam o MESMO denominador", {
   # entao um ajuste com covariancia dava duas razoes diferentes conforme por onde se olhasse
   z <- fix()
   fm <- model_mt(cbind(y, y2) ~ cg + animal(id), z$d, z$ped, maxiter = 8L, verbose = FALSE)
-  expect_equal(summary(fm)$components, BreedingR:::tabela_componentes(fm$theta, fm$se))
+  expect_equal(summary(fm)$components, uaitrem:::tabela_componentes(fm$theta, fm$se))
 })
 
 test_that("solutions() e ebv() e accuracy() casados, sem o usuario casar", {

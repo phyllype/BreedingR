@@ -38,7 +38,7 @@ test_that("a chain that never reaches the floor is the same chain", {
 })
 
 test_that("the Metropolis-Hastings rescue of a lost Cholesky factor keeps the conditional", {
-  # o gancho BREEDINGR_TESTE_RESGATE forca o resgate em toda iteracao: a proposta das MME com
+  # o gancho UAITREM_TESTE_RESGATE forca o resgate em toda iteracao: a proposta das MME com
   # delta diag(C) somado e o passo de MH contra a condicional verdadeira. Com os componentes
   # dados, a condicional das localizacoes e N(BLUP, PEV): a cadeia tem de cair nela
   set.seed(3)
@@ -48,12 +48,12 @@ test_that("the Metropolis-Hastings rescue of a lost Cholesky factor keeps the co
   th <- c(1, 2)
   f <- suppressWarnings(model(y ~ cg + random(g), d, start = th, maxiter = 0L, n_em = 0L,
                               verbose = FALSE))
-  Sys.setenv(BREEDINGR_TESTE_RESGATE = "0.01")
-  on.exit(Sys.unsetenv("BREEDINGR_TESTE_RESGATE"), add = TRUE)
+  Sys.setenv(UAITREM_TESTE_RESGATE = "0.01")
+  on.exit(Sys.unsetenv("UAITREM_TESTE_RESGATE"), add = TRUE)
   set.seed(1)
   g <- suppressWarnings(gibbs(y ~ cg + random(g), d, theta_fixed = th, n_iter = 20000L,
                               burnin = 1000L, thin = 1L, verbose = FALSE))
-  Sys.unsetenv("BREEDINGR_TESTE_RESGATE")
+  Sys.unsetenv("UAITREM_TESTE_RESGATE")
   nv <- names(f$ebv[[1]])
   z <- (g$ebv[[1]][nv] - f$ebv[[1]]) / sqrt(f$pev[[1]])
   expect_lt(max(abs(z)), 0.1)
@@ -72,8 +72,8 @@ test_that("the rescue in a probit chain: the PX-DA move left out there, the same
     stats::rnorm(300)
   d$y <- as.integer(l > 0.3)
   corre <- function(forca) {
-    if (forca > 0) Sys.setenv(BREEDINGR_TESTE_RESGATE = forca)
-    on.exit(Sys.unsetenv("BREEDINGR_TESTE_RESGATE"), add = TRUE)
+    if (forca > 0) Sys.setenv(UAITREM_TESTE_RESGATE = forca)
+    on.exit(Sys.unsetenv("UAITREM_TESTE_RESGATE"), add = TRUE)
     set.seed(1)
     suppressWarnings(gibbs(y ~ cg + random(s), d, family = "probit", theta_fixed = c(0.25, 1),
                            n_iter = 20000L, burnin = 1000L, thin = 1L, verbose = FALSE))

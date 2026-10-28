@@ -128,7 +128,7 @@
 # da DESCRIPTION). O resultado de cada replica depende so das suas sementes.
 # Simulado; nenhum dado real.
 args <- commandArgs(TRUE)
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 options(width = 200)
 desenho <- if (length(args) >= 1) args[1] else "todos"
 R <- if (length(args) >= 2) as.integer(args[2]) else 30L
@@ -142,7 +142,7 @@ br_threads(threads)
 padrao <- desenho %in% c("padrao", "padrao_materno", "padrao_rn")
 bracos <- if (padrao) c("padrao", "sem_asis") else c("half_t", "flat", "jeffreys")
 # a instalacao do pacote: o cache de uma replica vale so para a mesma
-build <- utils::packageDescription("BreedingR")[["Built"]]
+build <- utils::packageDescription("uaitrem")[["Built"]]
 
 # os filhos de n_d maes por geracao, cada um de um pai sorteado entre n_s; os pais da
 # geracao seguinte sorteados entre os filhos. Devolve o pedigree e a geracao de cada animal
@@ -290,7 +290,7 @@ replica <- function(k, r) {
                 })
                 list(media = colMeans(s), dp = apply(s, 2, stats::sd),
                      lo = apply(s, 2, stats::quantile, 0.025), hi = apply(s, 2, stats::quantile, 0.975),
-                     ess = g$v$ess, rhat = g$v$rhat, acusadas = NROW(BreedingR:::fronteira_gibbs(g$v)),
+                     ess = g$v$ess, rhat = g$v$rhat, acusadas = NROW(uaitrem:::fronteira_gibbs(g$v)),
                      regra = vapply(cad, function(m) mean(autov(m) < 1e-6), numeric(1)),
                      autov_min = min(vapply(cad, function(m) min(autov(m)), numeric(1))),
                      r99 = max(vapply(cad, function(m) mean(apply(abs(cors(m)) > 0.99, 1, any)),
@@ -320,7 +320,7 @@ if (cores > 1L) {
   cl <- parallel::makeCluster(cores)
   parallel::clusterExport(cl, setdiff(ls(), "cl"))
   invisible(parallel::clusterEvalQ(cl, {
-    suppressMessages(library(BreedingR))
+    suppressMessages(library(uaitrem))
     br_threads(threads)
     NULL
   }))

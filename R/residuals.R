@@ -29,7 +29,7 @@ LIMIAR_ALAVANCA <- 1e-8
 
 confere_residuos <- function(fit) {
   if (is.null(fit$residual))
-    stop("this fit carries no residuals: it was made by a version of BreedingR before ",
+    stop("this fit carries no residuals: it was made by a version of UAI-TREM before ",
          "residuals were stored. Refit it", call. = FALSE)
   invisible(fit)
 }
@@ -190,7 +190,7 @@ fitted.breeding_gibbs <- function(object, level = c("conditional", "marginal"), 
 confere_cadeia <- function(fit) {
   if (is.null(fit$residual) || is.null(fit$fitted))
     stop("this chain carries no residuals or fitted values: it was run by a version of ",
-         "BreedingR before they were stored. Run it again", call. = FALSE)
+         "UAI-TREM before they were stored. Run it again", call. = FALSE)
   invisible(fit)
 }
 
@@ -418,10 +418,10 @@ lote_nulos <- function(prep, k, familia = 0, com_u = FALSE) {
 # duas matrizes do lote, residual e fixed, somam ~200 MB), reduzidos na hora por
 # `estat(rp, b)`: so a matriz das estatisticas, nomes x nsim, sobrevive aos lotes. O
 # resultado nao depende do tamanho do lote, porque as replicas saem em sequencia no RNG; a
-# opcao BreedingR.residual_batch troca o tamanho (os testes a usam para conferir isso).
+# opcao uaitrem.residual_batch troca o tamanho (os testes a usam para conferir isso).
 nulos_estatisticas <- function(prep, nsim, familia, estat, nomes) {
   nu <- length(prep$residual)
-  lote <- getOption("BreedingR.residual_batch",
+  lote <- getOption("uaitrem.residual_batch",
                     max(1L, as.integer(floor(1.25e7 / max(nu, 1L)))))
   out <- matrix(NA_real_, length(nomes), nsim, dimnames = list(nomes, NULL))
   feitas <- 0L

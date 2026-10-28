@@ -1,4 +1,4 @@
-useDynLib(BreedingR, .registration = TRUE)
+useDynLib(uaitrem, .registration = TRUE)
 
 export(pedigree)
 export(pegs)

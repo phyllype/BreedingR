@@ -6,7 +6,7 @@
 # namespace do pacote, para que o a22inv_vezes e o a22_inversa_de daqui (os de R) sejam os
 # que elas chamam, e nao os do pacote.
 
-legado <- new.env(parent = asNamespace("BreedingR"))
+legado <- new.env(parent = asNamespace("uaitrem"))
 evalq({
   numericos <- function(gm) {
     if (!is.raw(gm)) return(gm)

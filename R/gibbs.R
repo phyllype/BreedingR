@@ -676,11 +676,11 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   # movimento para o polo e quase nao sai (medido em validation/gibbs_asis.R, modo jeffreys).
   # A plana, a uniforme no desvio, c(df, scale) e a meia-t integram. Recusado em todo grupo
   # estimado sob Jeffreys (o padrao nunca a poe: a plana ou a meia-t nos grupos, a meia-t nos
-  # escalares); a opcao interna BreedingR.asis_jeffreys roda assim mesmo, so para o braco de
+  # escalares); a opcao interna uaitrem.asis_jeffreys roda assim mesmo, so para o braco de
   # controle daquele modo
   if (asis) {
     jef <- names(dims)[ifelse(dims == 1L & pesc$tipo >= 0L, pesc$tipo, pr$tipo) == 0L]
-    if (length(jef) && !isTRUE(getOption("BreedingR.asis_jeffreys")))
+    if (length(jef) && !isTRUE(getOption("uaitrem.asis_jeffreys")))
       stop("asis = TRUE redraws chol(C) of each group given the non-centred effects, and under ",
            "\"jeffreys\" that conditional cannot be integrated: its density grows like ",
            "prod_i L_ii^-i as a diagonal entry of L = chol(C) goes to zero, where the ",
@@ -690,9 +690,9 @@ gibbs <- function(formula, data, pedigree = NULL, genotypes = NULL, blend = 0.05
   }
   # a variante do passo, lida aqui e nao dentro da cadeia: com cores > 1 a cadeia roda num
   # trabalhador PSOCK, onde as opcoes do processo de quem chama nao existem. 1 e o passo; a
-  # opcao interna BreedingR.asis_variante da os bracos errados do portao (2 sem o jacobiano, 3
+  # opcao interna uaitrem.asis_variante da os bracos errados do portao (2 sem o jacobiano, 3
   # sem Metropolis-Hastings), so para validation/gibbs_asis.R
-  asis_codigo <- if (asis) as.integer(getOption("BreedingR.asis_variante", 1L)) else 0L
+  asis_codigo <- if (asis) as.integer(getOption("uaitrem.asis_variante", 1L)) else 0L
   # a partida pedida: um vetor para todas as cadeias ou uma lista com um por cadeia
   partidas <- if (is.null(start)) list(NULL) else if (is.list(start)) start else list(start)
   if (!is.null(start)) {
@@ -1074,7 +1074,7 @@ roda_cadeias <- function(cadeia, tarefas, cores) {
     stop("cores > 1 needs the parallel package, which ships with R")
   cl <- parallel::makeCluster(cores)
   on.exit(parallel::stopCluster(cl), add = TRUE)
-  parallel::clusterCall(cl, ".libPaths", unique(c(dirname(find.package("BreedingR")),
+  parallel::clusterCall(cl, ".libPaths", unique(c(dirname(find.package("uaitrem")),
                                                    .libPaths())))
   parallel::parLapply(cl, tarefas, cadeia)
 }

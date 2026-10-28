@@ -31,7 +31,7 @@ test_that("the reduced-model walk maps component names to terms in every fitter"
   th <- c("var(animal@t1)" = 1, "cov(maternal@t1,animal@t1)" = -0.99999999,
           "var(maternal@t1)" = 1, "var(rn[0])" = 1, "cov(rn[1],rn[0])" = 0.99999999,
           "var(rn[1])" = 1)
-  perto <- BreedingR:::grupos_perto_de_um(th)
+  perto <- uaitrem:::grupos_perto_de_um(th)
   termos <- lapply(perto, function(s) unique(sub("[[].*$", "", sub("@.*$", "", s))))
   expect_true(any(vapply(termos, function(x) setequal(x, c("animal", "maternal")), logical(1))))
   # os coeficientes de um rn() sao um termo so: sem modelo reduzido para eles

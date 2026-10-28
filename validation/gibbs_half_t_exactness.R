@@ -22,7 +22,7 @@
 # Uso: Rscript validation/gibbs_half_t_exactness.R v1 [n_sementes] [semente0] | v2 [semente]
 # [n_iter] (os numeros do portao: v1 20 0, v2 7 200 e v2 11 1000). Simulado; nenhum dado real.
 
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 args <- commandArgs(TRUE)
 modo <- if (length(args)) args[1] else "v1"
 
@@ -43,7 +43,7 @@ ks_meia_t <- function(x, d, nu) {
              lag1 = vapply(u, function(v) stats::cor(v[-1], v[-length(v)]), numeric(1)))
 }
 priori <- function(d, nu, n, thin, burnin, variante)
-  .Call(BreedingR:::R_gibbs_priori_ht, as.integer(d), as.double(nu), c(1, 2.5, 0.4)[seq_len(d)],
+  .Call(uaitrem:::R_gibbs_priori_ht, as.integer(d), as.double(nu), c(1, 2.5, 0.4)[seq_len(d)],
         as.integer(n), as.integer(thin), as.integer(burnin), as.integer(variante))
 
 if (modo == "v1") {

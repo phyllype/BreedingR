@@ -72,12 +72,12 @@ funcao_de <- function(r, f) {
   !anyDuplicated(f[u])
 }
 
-# Emite um aviso da classe breedingr_estrutura: o model_mt() e o model_ar1() o calam nos
+# Emite um aviso da classe uaitrem_estrutura: o model_mt() e o model_ar1() o calam nos
 # ajustes univariados da partida, e o indirect_residual() nos ajustes da grade depois do
 # primeiro (calado_estrutura(), R/estrutura.R), para o mesmo aviso nao sair uma vez por
 # ajuste interno
 avisa_estrutura <- function(txt)
-  warning(structure(class = c("breedingr_estrutura", "warning", "condition"),
+  warning(structure(class = c("uaitrem_estrutura", "warning", "condition"),
                     list(message = txt, call = NULL)))
 
 # AS CONFERENCIAS DE ESTRUTURA, antes do ajuste. `terms` e a formula decomposta, `resp` as
@@ -376,7 +376,7 @@ confere_baias <- function(s, terms, fixos, cod, nlin, li, por_traco, quem, estim
                  " pen sum(s) and are barely estimated; Bijma (2010, Genetics 186:1013) ",
                  "puts the detection of indirect effects at about 250 to 500 groups even ",
                  "with an optimum design"))
-  if (isTRUE(getOption("BreedingR.warn_pen_labels", TRUE)))
+  if (isTRUE(getOption("uaitrem.warn_pen_labels", TRUE)))
     for (f in fixos) {
       # o teste do acaso sai cedo (S < 0.9 M) no dado comum; so num acerto se pergunta se o
       # efeito e de lote, que custa uma passada pelos pares de niveis das baias
@@ -397,7 +397,7 @@ confere_baias <- function(s, terms, fixos, cod, nlin, li, por_traco, quem, estim
         "level of ", f$column, ", pens that never met are merged into one and every record ",
         "gets mates it never had: give each pen a unique label, such as paste(", f$column,
         ", ", s$nested, "). If those pens do hold several levels of ", f$column, ", the ",
-        "data are as intended; options(BreedingR.warn_pen_labels = FALSE) silences this ",
+        "data are as intended; options(uaitrem.warn_pen_labels = FALSE) silences this ",
         "check"))
     }
   invisible(NULL)
@@ -874,10 +874,10 @@ avisa_convergencia <- function(fit, quem) {
                "the last iterate, not at an optimum")
 }
 
-# Um aviso do estado do ajuste, da classe breedingr_estado: solutions() cala os de
+# Um aviso do estado do ajuste, da classe uaitrem_estado: solutions() cala os de
 # accuracy(), que ja deu os seus uma vez
 aviso_estado <- function(...)
-  warning(structure(class = c("breedingr_estado", "warning", "condition"),
+  warning(structure(class = c("uaitrem_estado", "warning", "condition"),
                     list(message = paste0(...), call = NULL)))
 
 # ------------------------------------------------------------------ a escala de h2()

@@ -585,7 +585,7 @@ recusa_controles_sem_uso <- function(grupos, deu_max_evals, deu_profile) {
 # classe propria para o estimador contar essas falhas a parte, e o erro final apontar
 # maxiter= (e nao start=) quando todas as falhas forem dessas
 erro_nao_convergiu <- function(msg)
-  stop(structure(class = c("breedingr_nao_convergiu", "error", "condition"),
+  stop(structure(class = c("uaitrem_nao_convergiu", "error", "condition"),
                  list(message = msg, call = NULL)))
 
 # Um indirect() sem incidencia nenhuma (toda baia com um animal so) deixa o -2logL plano na
@@ -668,7 +668,7 @@ estima_por_laplace <- function(avalia, grupos, G0s, nomes_theta, max_evals = 500
     # contagem e a ultima mensagem vao para o aviso
     v <- tryCatch(avalia(Gs), error = function(e) {
       falhas <<- falhas + 1L
-      if (inherits(e, "breedingr_nao_convergiu")) falhas_conv <<- falhas_conv + 1L
+      if (inherits(e, "uaitrem_nao_convergiu")) falhas_conv <<- falhas_conv + 1L
       ultimo_erro <<- conditionMessage(e)
       NA_real_
     })

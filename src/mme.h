@@ -5,8 +5,8 @@
 // violacao de ODR, os dois corpos tem de ser identicos token a token, e qualquer edicao
 // futura num deles quebraria o outro em silencio, no vinculo ou pior, em tempo de execucao.
 
-#ifndef BREEDINGR_MME_H
-#define BREEDINGR_MME_H
+#ifndef UAITREM_MME_H
+#define UAITREM_MME_H
 
 #include <unordered_set>
 #include "modelo.h"

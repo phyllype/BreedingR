@@ -69,8 +69,8 @@ test_that("a lista branca cobre todos os marcadores, sem esquecer nenhum", {
   # se um marcador novo entrar em MARCADORES e ninguem lhe der uma linha em ARGS_MARCADOR,
   # ARGS_MARCADOR[[marc]] devolve NULL e TODO argumento nomeado dele passa a ser recusado.
   # Este portao pega isso na hora.
-  marcadores <- get("MARCADORES", envir = asNamespace("BreedingR"))
-  args_marc <- get("ARGS_MARCADOR", envir = asNamespace("BreedingR"))
+  marcadores <- get("MARCADORES", envir = asNamespace("uaitrem"))
+  args_marc <- get("ARGS_MARCADOR", envir = asNamespace("uaitrem"))
   expect_setequal(names(args_marc), marcadores)
   expect_true(all(vapply(args_marc, function(a) length(a) > 0L, logical(1))))
 })
@@ -80,7 +80,7 @@ test_that("indirect(), social() and kernel() are refused by name in every fitter
   z$d$y2 <- z$d$y + rnorm(nrow(z$d))
   K <- diag(nrow(z$ped)); dimnames(K) <- list(z$ped$id, z$ped$id)
   for (m in c("indirect(id, pen = \"cg\")", "social(id, pen = \"cg\")", "kernel(id, K = K)")) {
-    msg <- paste0(sub("[(].*", "", m), "() is not available in this version of BreedingR")
+    msg <- paste0(sub("[(].*", "", m), "() is not available in this version of UAI-TREM")
     f1 <- stats::as.formula(paste("y ~ cg + animal(id) +", m))
     f2 <- stats::as.formula(paste("cbind(y, y2) ~ cg + animal(id) +", m))
     expect_error(model(f1, z$d, z$ped, verbose = FALSE), msg, fixed = TRUE)

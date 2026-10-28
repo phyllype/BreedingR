@@ -572,12 +572,12 @@ std::vector<double> partida_univariados_mt(const DesenhoMT& d,
 // (a guarda PadronizaY esta em mme.h, compartilhada com o AR(1))
 
 // GANCHO DE TESTE, so para o portao do D2 (test-unidade-partida-fronteira.R): com a variavel
-// de ambiente BREEDINGR_TESTE_SEM_PASSO definida, todo candidato do passo AI amortecido e todo
+// de ambiente UAITREM_TESTE_SEM_PASSO definida, todo candidato do passo AI amortecido e todo
 // passo EM sao recusados, e a saida "nenhum passo melhora" e exercitada de proposito. Nenhum
 // dado conhecido chega nela sozinho desde que a partida alem dos pisos vai a eles (abaixo), e
 // sem o gancho a mensagem dela ficava sem portao. Fora do teste a variavel nao existe e nada
 // muda.
-static bool teste_sem_passo() { return std::getenv("BREEDINGR_TESTE_SEM_PASSO") != nullptr; }
+static bool teste_sem_passo() { return std::getenv("UAITREM_TESTE_SEM_PASSO") != nullptr; }
 
 // A COVARIANCIA RESIDUAL DE DOIS CARACTERES QUE NENHUM REGISTRO OBSERVA JUNTOS nao entra na
 // verossimilhanca: cada padrao de observacao usa so a submatriz de R0 dos seus caracteres.

@@ -14,8 +14,8 @@
 //  - triangulo inferior nas simetricas. A^-1 e a matriz de coeficientes sao simetricas;
 //    guardar metade poupa memoria e trafego.
 
-#ifndef BREEDINGR_ESTRUTURAS_H
-#define BREEDINGR_ESTRUTURAS_H
+#ifndef UAITREM_ESTRUTURAS_H
+#define UAITREM_ESTRUTURAS_H
 
 #include <cstdint>
 #include <cstddef>

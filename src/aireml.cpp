@@ -1839,7 +1839,7 @@ Ajuste ajusta(const Desenho& d, const std::vector<double>* theta0,
   // -2logL loses its meaning when det(C_g) underflows). Up to 50 steps, while each pays
   // more than 1e-8.
   // o gancho de teste do D2 (o racional esta em multitrait2.cpp): recusa todo passo AI e EM
-  const bool sem_passo = std::getenv("BREEDINGR_TESTE_SEM_PASSO") != nullptr;
+  const bool sem_passo = std::getenv("UAITREM_TESTE_SEM_PASSO") != nullptr;
   auto resgate_em = [&]() -> bool {
     bool ganhou = false;
     if (sem_passo) return false;

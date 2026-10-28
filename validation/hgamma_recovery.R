@@ -8,7 +8,7 @@
 # (20 replicas) no NEWS.md. Nenhum dado real: tudo simulado aqui.
 args <- commandArgs(TRUE)
 nrep <- if (length(args) >= 1) as.integer(args[1]) else 20L
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 br_threads(if (length(args) >= 2) as.integer(args[2]) else 1L)
 
 simula <- function(seed, m = 3000, nq = 300, nf = 100, gen = 4, por_gen = 300, h2 = 0.3) {

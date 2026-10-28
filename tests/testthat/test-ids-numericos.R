@@ -23,7 +23,7 @@
 # pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
 # fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
 # test-estrutura-e2.R confere o aviso.
-op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+op_parentesco <- options(uaitrem.verify_parentage = FALSE)
 
 ped_num <- function(n = 150, nf = 30, seed = 11) {
   set.seed(seed)
@@ -46,7 +46,7 @@ texto <- function(v) ifelse(v == 0, "0", sprintf("%.0f", v))
 # (o aviso de test-estrutura-e6.R), e o portao daqui confere que ele sai e segue para os ids
 ajusta <- function(d, ped, ...)
   com_aviso(model(y ~ cg + animal(id), d, ped, start = c(0.6, 1), verbose = FALSE, ...),
-                 "have more than one record", class = "breedingr_estrutura")
+                 "have more than one record", class = "uaitrem_estrutura")
 
 test_that("ids double, integer, texto e colunas de tipos diferentes dao o mesmo ajuste", {
   z <- ped_num()
@@ -78,14 +78,14 @@ test_that("ids double, integer, texto e colunas de tipos diferentes dao o mesmo 
 })
 
 test_that("o rotulo do R e o da coluna numerica dos dados no motor", {
-  expect_identical(BreedingR:::rotulo_motor(c(100000, 1e6, -0, NA, 1.5, 3)),
+  expect_identical(uaitrem:::rotulo_motor(c(100000, 1e6, -0, NA, 1.5, 3)),
                    c("100000", "1000000", "0", NA, "1.5", "3"))
-  expect_identical(BreedingR:::rotulo_motor(100000L), "100000")
-  expect_identical(BreedingR:::rotulo_motor(c(TRUE, FALSE)), c("1", "0"))
-  expect_identical(BreedingR:::rotulo_motor(factor(c("b", "a"))), c("b", "a"))
+  expect_identical(uaitrem:::rotulo_motor(100000L), "100000")
+  expect_identical(uaitrem:::rotulo_motor(c(TRUE, FALSE)), c("1", "0"))
+  expect_identical(uaitrem:::rotulo_motor(factor(c("b", "a"))), c("b", "a"))
   # texto fica como esta, mesmo quando parece numero
-  expect_identical(BreedingR:::rotulo_motor(c("1e+05", "007")), c("1e+05", "007"))
-  expect_identical(BreedingR:::rotulo_motor(NULL), character(0))
+  expect_identical(uaitrem:::rotulo_motor(c("1e+05", "007")), c("1e+05", "007"))
+  expect_identical(uaitrem:::rotulo_motor(NULL), character(0))
   # a referencia independente: os nomes do EBV de um termo iid SAO os rotulos que o motor da
   # a coluna de dados, inclusive para ids nao inteiros (o %g) e acima de 2^31
   set.seed(2)
@@ -93,11 +93,11 @@ test_that("o rotulo do R e o da coluna numerica dos dados no motor", {
   d <- data.frame(g = rep(lev, each = 4), y = stats::rnorm(4 * length(lev)))
   f <- model(y ~ random(g), d, start = c(0.3, 1), maxiter = 0L, n_em = 0L,
              verbose = FALSE)
-  expect_setequal(names(ebv(f)), BreedingR:::rotulo_motor(lev))
+  expect_setequal(names(ebv(f)), uaitrem:::rotulo_motor(lev))
 })
 
 test_that("ids grandes: 16 digitos abaixo de 2^53 e redondos de 14 digitos", {
-  expect_identical(BreedingR:::rotulo_motor(c(8400031234567891, 1.2e13)),
+  expect_identical(uaitrem:::rotulo_motor(c(8400031234567891, 1.2e13)),
                    c("8400031234567891", "12000000000000"))
   expect_identical(as.character(1.2e13), "1.2e+13")
   z <- ped_num(n = 60, nf = 12, seed = 3)
@@ -177,19 +177,19 @@ test_that("numeros distintos tem rotulos distintos, e nao animais fundidos", {
   # 1.1234567 e o pai 1.1234568 (outra coluna) eram o mesmo animal "1.12346", sem erro, porque
   # a conferencia de colisao rodava coluna a coluna; e dentro de uma coluna a colisao era um
   # erro que pedia ids em texto. Agora o rotulo e a menor escrita que volta ao mesmo double.
-  expect_identical(BreedingR:::rotulo_motor(c(1234567.5, 123456.7, 123457, 1.1234567,
+  expect_identical(uaitrem:::rotulo_motor(c(1234567.5, 123456.7, 123457, 1.1234567,
                                               1.1234568, 0.1, 1 / 3, 1e20, -2.5)),
                    c("1234567.5", "123456.7", "123457", "1.1234567", "1.1234568", "0.1",
                      "0.3333333333333333", "1e+20", "-2.5"))
   v <- c(0.1 + 0.2, 0.3, 1 / 7, 2 / 3, 1e-300, 123456789.123, pi * 1e10)
-  r <- BreedingR:::rotulo_motor(v)
+  r <- uaitrem:::rotulo_motor(v)
   # O motor confere a volta com o strtod do C, que e exato. O as.numeric() do R usa o leitor
   # proprio do R, que nao arredonda certo 16-17 digitos onde o long double tem 64 bits (arm64
   # do macOS): la a volta pelo R erra 1 ulp, entao aqui a tolerancia e de poucos ulps.
   expect_equal(as.numeric(r), v, tolerance = 4 * .Machine$double.eps)
   expect_false(anyDuplicated(r) > 0)
   # iguais de verdade dao o mesmo rotulo
-  expect_identical(BreedingR:::rotulo_motor(c(1.5, 1.5, -0, 0)), c("1.5", "1.5", "0", "0"))
+  expect_identical(uaitrem:::rotulo_motor(c(1.5, 1.5, -0, 0)), c("1.5", "1.5", "0", "0"))
   # na coluna de dados do motor: dois niveis
   set.seed(3)
   d <- data.frame(g = rep(c(123456.7, 123457, 5), each = 4), y = stats::rnorm(12))
@@ -214,18 +214,18 @@ test_that("um texto cientifico que nao e o as.character() de um inteiro e so um 
                                     dam = "0", stringsAsFactors = FALSE)),
                 error = conditionMessage)
   expect_match(e, "parent '1234570' is cited and has no line of its own in the pedigree$")
-  expect_silent(BreedingR:::recusa_cientifico("1.23457e+06", "1234570", "a", "b"))
-  expect_silent(BreedingR:::recusa_cientifico("1234570", "1.23457e+06", "a", "b"))
+  expect_silent(uaitrem:::recusa_cientifico("1.23457e+06", "1234570", "a", "b"))
+  expect_silent(uaitrem:::recusa_cientifico("1234570", "1.23457e+06", "a", "b"))
   # o numero redondo escrito pelo R continua com o diagnostico, nos dois lados
   expect_error(pedigree(data.frame(id = c("1.2e+07", "7"), sire = c("0", "12000000"),
                                    dam = "0", stringsAsFactors = FALSE)),
                "same number written two ways")
-  expect_error(BreedingR:::recusa_cientifico("1.2e+07", "12000000", "a", "b"),
+  expect_error(uaitrem:::recusa_cientifico("1.2e+07", "12000000", "a", "b"),
                "same number written two ways")
   # "1200000" e o que o R escreve para 1.2e6 (empate de largura fica na fixa), entao o texto
   # "1.2e+06" nao vem do as.character(): sem diagnostico, como no motor
   expect_identical(as.character(1.2e6), "1200000")
-  expect_silent(BreedingR:::recusa_cientifico("1.2e+06", "1200000", "a", "b"))
+  expect_silent(uaitrem:::recusa_cientifico("1.2e+06", "1200000", "a", "b"))
   e <- tryCatch(pedigree(data.frame(id = c("1.2e+06", "7"), sire = c("0", "1200000"),
                                     dam = "0", stringsAsFactors = FALSE)),
                 error = conditionMessage)

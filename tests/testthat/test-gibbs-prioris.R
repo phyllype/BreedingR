@@ -30,7 +30,7 @@ test_that("gibbs(): prior= muda o que diz mudar, e recusa o que nao cabe", {
     set.seed(4)
     com_aviso(gibbs(y ~ cg + animal(id), z$d, z$ped, n_iter = 1500L, burnin = 200L,
                          thin = 1L, prior = pr, verbose = FALSE),
-                   "have more than one record", class = "breedingr_estrutura")
+                   "have more than one record", class = "uaitrem_estrutura")
   }
   gj <- corre("jeffreys"); gf <- corre("flat")
   # a plana na variancia tem cauda direita mais pesada: media a posteriori maior

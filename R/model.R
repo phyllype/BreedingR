@@ -248,7 +248,7 @@ ARGS_MARCADOR <- local({
 #'   0.90 is the `callrateAnim` default of preGSf90, but the rate is counted over the
 #'   markers that vary (the ones that enter G), where preGSf90 counts every SNP: on a
 #'   monomorphic marker the mean imputes the genotype every animal carries. The output of
-#'   [qc_genotypes()] always passes this check; `options(BreedingR.min_call_rate_animal =)`
+#'   [qc_genotypes()] always passes this check; `options(uaitrem.min_call_rate_animal =)`
 #'   moves the line, and 0 turns it off. With a pedigree, a genotyped parent and offspring
 #'   with opposite homozygotes on more than 1% of the markers called in both (the
 #'   exclusion test of preGSf90, `exclusion_threshold 1`) are a warning naming the pairs,
@@ -889,12 +889,12 @@ ja_conferidos_por_fora <- function(genotypes)
 # --mind). Abaixo dele a maior parte da linha e a media de cada marcador: o animal fica com
 # a diagonal de G encolhida (medido: 0.10 contra 0.99 num painel de 10% dos marcadores) e
 # parece medio e mais acurado do que e (PEV 0.021 contra 0.139 com o genotipo verdadeiro).
-# options(BreedingR.min_call_rate_animal) muda a linha (0 desliga), e o padrao de
+# options(uaitrem.min_call_rate_animal) muda a linha (0 desliga), e o padrao de
 # qc_genotypes() segue a mesma opcao: a saida do controle passa sempre nos ajustadores.
 limiar_chamada_animal <- function() {
-  v <- getOption("BreedingR.min_call_rate_animal", 0.90)
+  v <- getOption("uaitrem.min_call_rate_animal", 0.90)
   if (!is.numeric(v) || length(v) != 1L || is.na(v) || v < 0 || v > 1)
-    stop("options(BreedingR.min_call_rate_animal) must be a single number between 0 and 1 ",
+    stop("options(uaitrem.min_call_rate_animal) must be a single number between 0 and 1 ",
          "(0 turns the check off), not ", deparse1(v), call. = FALSE)
   v
 }
@@ -1027,7 +1027,7 @@ recusa_taxa_chamada <- function(gid, gm) {
        "more accurate than it is (preGSf90 drops animals below 0.90 by default). Drop them ",
        "from genotypes, they stay in the pedigree, with qc_genotypes(genotypes); impute the ",
        "low-density panel first; or, for two panels, keep only the markers both have. ",
-       "options(BreedingR.min_call_rate_animal) moves this line, and 0 turns it off",
+       "options(uaitrem.min_call_rate_animal) moves this line, and 0 turns it off",
        call. = FALSE)
 }
 
@@ -1353,7 +1353,7 @@ interpreta_termo <- function(e, envir) {
   if (!is.call(e)) stop("did not understand the term: ", deparse(e))
   marc <- as.character(e[[1]])
   if (length(marc) == 1L && marc %in% MARCADORES_FORA)
-    stop(marc, "() is not available in this version of BreedingR. Remove the term from ",
+    stop(marc, "() is not available in this version of UAI-TREM. Remove the term from ",
          "the formula", call. = FALSE)
   if (!marc %in% MARCADORES)
     stop("unknown marker: '", marc, "'. Available: ", paste(MARCADORES, collapse = ", "),

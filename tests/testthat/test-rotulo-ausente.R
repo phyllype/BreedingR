@@ -140,7 +140,7 @@ test_that("a missing covariate value stops every fitter instead of dropping the 
   d$x[9] <- NA
   expect_error(ev_neg2(y ~ cov(x) + random(lote), d), "NA in the covariate column 'x'")
   # random(lote) de 4 lotes: o aviso de poucos niveis sai, e o portao segue
-  expect_warning(com <- model(y ~ cov(x) + random(lote), z$d, verbose = FALSE), "has 4 level", class = "breedingr_estrutura")
+  expect_warning(com <- model(y ~ cov(x) + random(lote), z$d, verbose = FALSE), "has 4 level", class = "uaitrem_estrutura")
   expect_length(com$dropped_x, 0L)
   expect_true("x=x" %in% names(com$b))
   expect_equal(com$n_used, 48L)
@@ -165,7 +165,7 @@ test_that("a missing value in base= or in a nested covariate stops the engine fi
   # braco: com o valor no lugar, as tres classes de cg ficam com a sua inclinacao
   d2$x[14] <- 0.5
   expect_warning(f <- model(y ~ cov(x, nested = "cg") + random(lote), d2, verbose = FALSE),
-                      "has 4 level", class = "breedingr_estrutura")
+                      "has 4 level", class = "uaitrem_estrutura")
   expect_length(f$dropped_x, 0L)
   expect_setequal(names(f$b), c("intercept", "x=c1", "x=c2", "x=c3"))
 })
@@ -244,7 +244,7 @@ test_that("one battery of values is read alike by every implementation of the ru
   d$gt[2:9] <- c("", "  ", "\t\r\n", " NaN ", "NA", "Inf", "-Inf", "nan")
   set.seed(9)
   # a funcao de R, direto: as linhas
-  ruim <- function(x) which(Reduce(`|`, BreedingR:::tipos_rotulo_ausente(x)))
+  ruim <- function(x) which(Reduce(`|`, uaitrem:::tipos_rotulo_ausente(x)))
   expect_identical(ruim(d$gn), 3:6)
   expect_identical(ruim(d$gt), 2:5)
   expect_identical(ruim(factor(d$gt)), 2:5)

@@ -1,6 +1,6 @@
 {
-  "title": "BreedingR: genetic parameters, breeding values and genomic prediction in R",
-  "description": "<p>A self-contained R engine for quantitative genetic evaluation. It grew out of doctoral research. The numerics are written in the package itself, in C++ compiled by R CMD INSTALL, with no run-time dependency on any other package.</p><p><strong>Variance components and breeding values.</strong> AI-REML with an analytic score, average information, EM warm-up and an EM rescue, walking in log-Cholesky coordinates so a covariance boundary is a limit rather than a wall; convergence certified by the Newton decrement of the off-boundary components, not by step size alone. Breeding values and their accuracy come from the same sparse factorisation through the selected inverse. A block Gibbs sampler fits the same designs, with a probit mode for binary traits.</p><p><strong>Model families, written as formula terms.</strong> Animal model and repeatability; direct-maternal with the correlation between the two estimated; sire and maternal-grandsire models; reaction norms on a Legendre basis; multi-trait with a full residual matrix and missingness by pattern. The layout unit is the covariance group, which is what lets these share one engine.</p><p><strong>Relationships.</strong> Pedigree A-inverse by Henderson's rules with Meuwissen-Luo inbreeding; metafounders with a full base relationship matrix, singular cases handled by the pseudo-inverse.</p><p><strong>Genomics.</strong> Single-step with the exact G-inverse or APY; markers as equations by conjugate gradients (ssSNPBLUP), which never forms G; marker effects backsolved from the single-step fit; PLINK and BLUPF90 input.</p><p><strong>Around the fit.</strong> Genotype and phenotype quality control that reports what it removed, heritability curves, genetic correlations, selection indices, rank drift, likelihood profiles, standard errors of arbitrary functions of the components, thermal indices for heat-stress work, MCMC diagnostics and a gene-dropping simulator.</p>",
+  "title": "UAI-TREM: Unravelling Additive and Indirect genetic effects with Time-dependent Random Effect Models",
+  "description": "<p>UAI-TREM (Unravelling Additive and Indirect genetic effects with Time-dependent Random Effect Models) is an R engine for genetic evaluation. This record holds its established models: the animal model and repeatability, direct-maternal, sire and maternal-grandsire, reaction norms on an environmental gradient, several traits, single-step genomics with the exact or the APY inverse of G, ssSNPBLUP, metafounders and a block Gibbs sampler for Gaussian and binary traits, with quality control of phenotypes and genotypes and tools for selection decisions. The numerics are written in the package itself, in C++ compiled by R CMD INSTALL, with no run-time dependency.</p>",
   "upload_type": "software",
   "license": "GPL-3.0-only",
   "access_right": "open",
@@ -11,6 +11,14 @@
     }
   ],
   "keywords": [
+    "time dependence",
+    "longitudinal data",
+    "sensor data",
+    "structured antedependence",
+    "autoregressive residuals",
+    "ARMA residual",
+    "growth curves",
+    "residual diagnostics",
     "animal breeding",
     "quantitative genetics",
     "AI-REML",
@@ -19,12 +27,22 @@
     "single-step genomic prediction",
     "ssGBLUP",
     "reaction norm",
+    "indirect genetic effects",
+    "social genetic effects",
     "genotype by environment",
+    "threshold model",
+    "survival analysis",
     "multi-trait",
     "metafounders",
+    "dominance",
+    "epistasis",
     "APY",
     "Gibbs sampler",
+    "user-defined relationship matrix",
+    "custom covariance structure",
+    "kernel methods",
     "genomic relationship matrix",
+    "selection signatures",
     "heat stress",
     "R package"
   ],
@@ -37,5 +55,6 @@
     }
   ],
   "notes": "Developed during doctoral research at the Escola Superior de Agricultura Luiz de Queiroz (ESALQ), Universidade de Sao Paulo, and at Purdue University, with support from the Sao Paulo Research Foundation (FAPESP), grants 2024/15502-6 and 2025/02949-5 (BEPE); the Coordenacao de Aperfeicoamento de Pessoal de Nivel Superior (CAPES), Finance Code 001; and the Conselho Nacional de Desenvolvimento Cientifico e Tecnologico (CNPq). The opinions, hypotheses and conclusions expressed here are the author's own and do not necessarily reflect the views of the funding agencies.",
-  "language": "eng"
+  "language": "eng",
+  "version": "0.5.0"
 }

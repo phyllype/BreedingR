@@ -52,19 +52,19 @@ test_that("rhat, ESS, MCSE e k-hat sao os do posterior (identidade, 1e-10)", {
   for (nm in names(casos)) {
     x <- casos[[nm]]
     expect_equal(rhat(x), ps(posterior::rhat(x)), tolerance = 1e-10, info = nm)
-    expect_equal(BreedingR:::ess_bulk(x), ps(posterior::ess_bulk(x)), tolerance = 1e-10, info = nm)
-    expect_equal(BreedingR:::ess_tail(x), ps(posterior::ess_tail(x)), tolerance = 1e-10, info = nm)
-    expect_equal(BreedingR:::ess_media(x), ps(posterior::ess_mean(x)), tolerance = 1e-10, info = nm)
+    expect_equal(uaitrem:::ess_bulk(x), ps(posterior::ess_bulk(x)), tolerance = 1e-10, info = nm)
+    expect_equal(uaitrem:::ess_tail(x), ps(posterior::ess_tail(x)), tolerance = 1e-10, info = nm)
+    expect_equal(uaitrem:::ess_media(x), ps(posterior::ess_mean(x)), tolerance = 1e-10, info = nm)
     expect_equal(ess(x), ps(posterior::ess_basic(x, split = FALSE)), tolerance = 1e-10, info = nm)
-    expect_equal(BreedingR:::mcse_media(x), ps(posterior::mcse_mean(x)), tolerance = 1e-10,
+    expect_equal(uaitrem:::mcse_media(x), ps(posterior::mcse_mean(x)), tolerance = 1e-10,
                  info = nm)
-    expect_equal(BreedingR:::mcse_dp(x), ps(posterior::mcse_sd(x)), tolerance = 1e-10, info = nm)
-    expect_equal(BreedingR:::mcse_quantil(x, 0.05), unname(ps(posterior::mcse_quantile(x, 0.05))),
+    expect_equal(uaitrem:::mcse_dp(x), ps(posterior::mcse_sd(x)), tolerance = 1e-10, info = nm)
+    expect_equal(uaitrem:::mcse_quantil(x, 0.05), unname(ps(posterior::mcse_quantile(x, 0.05))),
                  tolerance = 1e-10, info = nm)
-    expect_equal(BreedingR:::mcse_quantil(x, 0.95), unname(ps(posterior::mcse_quantile(x, 0.95))),
+    expect_equal(uaitrem:::mcse_quantil(x, 0.95), unname(ps(posterior::mcse_quantile(x, 0.95))),
                  tolerance = 1e-10, info = nm)
     if (nrow(x) >= 21L)
-      expect_equal(BreedingR:::khat_pareto(x), ps(posterior::pareto_khat(x)), tolerance = 1e-8,
+      expect_equal(uaitrem:::khat_pareto(x), ps(posterior::pareto_khat(x)), tolerance = 1e-8,
                    info = nm)
     # a TABELA de mcmc_diagnostics(), de onde saem gibbs()$rhat, print() e summary(), por
     # outro caminho de codigo (linha_diag): o R-hat de bulk e o dobrado separados, com o
@@ -96,9 +96,9 @@ test_that("rhat, ESS, MCSE e k-hat sao os do posterior (identidade, 1e-10)", {
   antigo <- function(x) {
     h <- floor(nrow(x) / 2)
     metade <- cbind(x[seq_len(h), ], x[nrow(x) - h + seq_len(h), ])
-    BreedingR:::rhat_nucleo(BreedingR:::escores_normais(abs(metade - stats::median(metade))))
+    uaitrem:::rhat_nucleo(uaitrem:::escores_normais(abs(metade - stats::median(metade))))
   }
-  expect_gt(abs(antigo(x) - BreedingR:::rhat_tail(x)), 1e-3)
+  expect_gt(abs(antigo(x) - uaitrem:::rhat_tail(x)), 1e-3)
   # a tabela do diagnostico carrega os mesmos numeros, e as ESS dos quantis guardadas para
   # a MCSE e o k-hat sao as mesmas das funcoes isoladas
   d <- mcmc_diagnostics(casos$invgama)
@@ -120,9 +120,9 @@ test_that("k-hat NA onde o posterior da -Inf: 29 amostras ou menos, ou as duas c
   # 2.5% das amostras em cada extremo: as caudas (~600 de 40000) sao constantes, mas os
   # quantis 5% e 95% caem na parte continua e a tail-ESS existe
   cte <- matrix(sample(c(rep(-5, 1000), rep(5, 1000), stats::rnorm(38000))), 10000, 4)
-  for (x in c(pequenos, list(cte))) expect_true(is.na(BreedingR:::khat_pareto(x)))
-  for (x in grandes) expect_true(is.finite(BreedingR:::khat_pareto(x)))
-  expect_false(is.na(BreedingR:::ess_tail(cte)))
+  for (x in c(pequenos, list(cte))) expect_true(is.na(uaitrem:::khat_pareto(x)))
+  for (x in grandes) expect_true(is.finite(uaitrem:::khat_pareto(x)))
+  expect_false(is.na(uaitrem:::ess_tail(cte)))
   # sem k-hat a MCSE da media fica (NA nao passa do limiar 0.5), nos dois casos
   for (x in list(pequenos[[3]], cte)) {
     tb <- mcmc_diagnostics(x)$table
@@ -133,7 +133,7 @@ test_that("k-hat NA onde o posterior da -Inf: 29 amostras ou menos, ou as duas c
   for (x in c(pequenos, list(cte)))
     expect_identical(suppressWarnings(posterior::pareto_khat(x)), -Inf)
   for (x in grandes)
-    expect_equal(BreedingR:::khat_pareto(x), suppressWarnings(posterior::pareto_khat(x)),
+    expect_equal(uaitrem:::khat_pareto(x), suppressWarnings(posterior::pareto_khat(x)),
                  tolerance = 1e-8)
 })
 
@@ -144,10 +144,10 @@ test_that("2 ou 3 amostras por cadeia: rhat() NA, onde o posterior 1.7.0 transpo
   set.seed(32)
   for (n in 2:3) {
     x <- matrix(stats::rnorm(3 * n), n, 3)
-    expect_identical(dim(BreedingR:::divide_cadeias(x)), c(1L, 6L))
+    expect_identical(dim(uaitrem:::divide_cadeias(x)), c(1L, 6L))
     expect_true(is.na(rhat(x)))
-    expect_true(is.na(BreedingR:::ess_bulk(x)))
-    expect_true(is.na(BreedingR:::ess_tail(x)))
+    expect_true(is.na(uaitrem:::ess_bulk(x)))
+    expect_true(is.na(uaitrem:::ess_tail(x)))
   }
   # mcmc_diagnostics() nem chega la: pede ao menos 4 amostras por cadeia
   expect_error(mcmc_diagnostics(matrix(stats::rnorm(9), 3, 3)), "at least 4 draws per chain")
@@ -158,10 +158,10 @@ test_that("os mesmos numeros, congelados (medidos com o posterior 1.7.0 a 4e-15)
   x <- matrix(stats::rnorm(800), 200, 4) + rep(c(0, 0, 0, 0.3), each = 200)
   x[, 2] <- 1.4 * x[, 2]
   y <- 1 / matrix(stats::rgamma(800, 2), 200, 4)
-  calc <- function(z) c(rhat(z), BreedingR:::ess_bulk(z), BreedingR:::ess_tail(z),
-                        BreedingR:::ess_media(z), ess(z), BreedingR:::mcse_media(z),
-                        BreedingR:::mcse_dp(z), BreedingR:::mcse_quantil(z, 0.05),
-                        BreedingR:::mcse_quantil(z, 0.95), BreedingR:::khat_pareto(z))
+  calc <- function(z) c(rhat(z), uaitrem:::ess_bulk(z), uaitrem:::ess_tail(z),
+                        uaitrem:::ess_media(z), ess(z), uaitrem:::mcse_media(z),
+                        uaitrem:::mcse_dp(z), uaitrem:::mcse_quantil(z, 0.05),
+                        uaitrem:::mcse_quantil(z, 0.95), uaitrem:::khat_pareto(z))
   # o R-hat dobra |x - mediana| e os dois valores do meio empatam: o empate cai de um lado ou
   # do outro conforme o ultimo bit da conta (no macOS arm64 sai 1,0229023 contra 1,0228696),
   # entao ele tem tolerancia propria; o resto bate a 1e-9 em toda plataforma
@@ -177,8 +177,8 @@ test_that("os mesmos numeros, congelados (medidos com o posterior 1.7.0 a 4e-15)
                          0.214920834899, 0.626614544189), tolerance = 1e-9)
   # com 3 a 5 linhas por metade a sequencia de Geyer nao anda e tau = 2, qualquer que seja a
   # amostra: ESS = S / 2 (antes, tau = 0 e o piso davam S log10(S), mais que S amostras)
-  expect_identical(BreedingR:::ess_bulk(matrix(stats::rnorm(32), 8, 4)), 16)
-  expect_identical(BreedingR:::ess_bulk(matrix(stats::rnorm(44), 11, 4)), 20)
+  expect_identical(uaitrem:::ess_bulk(matrix(stats::rnorm(32), 8, 4)), 16)
+  expect_identical(uaitrem:::ess_bulk(matrix(stats::rnorm(44), 11, 4)), 20)
   expect_identical(ess(stats::rnorm(4)), 2)
   expect_identical(ess(stats::rnorm(5)), 2.5)
 })
@@ -196,14 +196,14 @@ test_that("ess() de uma cadeia e o ess_basic sem divisao do posterior", {
 test_that("bulk-ESS recupera a ESS analitica do AR(1); a soma por cadeia nao ve discordancia", {
   set.seed(3)
   for (phi in c(0, 0.5, 0.9, 0.95)) {
-    r <- replicate(200, BreedingR:::ess_bulk(ar1_cadeias(1000, phi, 4)))
+    r <- replicate(200, uaitrem:::ess_bulk(ar1_cadeias(1000, phi, 4)))
     # medido: 0.987, 1.002, 1.025, 1.017
     expect_true(abs(mean(r) / (4000 * (1 - phi) / (1 + phi)) - 1) < 0.05,
                 info = paste("phi", phi))
   }
   iid <- replicate(200, {
     x <- ar1_cadeias(1000, 0, 4)
-    c(rhat(x), BreedingR:::ess_bulk(x) / 4000)
+    c(rhat(x), uaitrem:::ess_bulk(x) / 4000)
   })
   expect_lt(stats::quantile(iid[1, ], 0.95), 1.01)
   expect_true(abs(mean(iid[2, ]) - 1) < 0.05)
@@ -215,7 +215,7 @@ test_that("cadeia deslocada: bulk-ESS desaba, a soma nao, e o veredito acha a ca
   r <- replicate(60, {
     x <- ar1_cadeias(1000, 0.5, 4, mu = c(0, 0, 0, 1))
     d <- mcmc_diagnostics(x)
-    soma <- sum(vapply(1:4, function(j) BreedingR:::ess_bulk(x[, j, drop = FALSE]), 1))
+    soma <- sum(vapply(1:4, function(j) uaitrem:::ess_bulk(x[, j, drop = FALSE]), 1))
     c(rhat = d$table$rhat, bulk = d$table$ess_bulk, soma = soma,
       D = d$table$disagreement, nm = d$verdict == "not mixed",
       iso4 = identical(d$multivariate$isolated, 4L),
@@ -254,19 +254,19 @@ test_that("cada regra do 'not mixed' tem o seu caso: posicao com 2 cadeias, esca
   # a cadeia isolada decide sozinha: uma linha com as duas discordancias abaixo do limiar e
   # a cadeia 3 com R-hat acima de 1.05 contra cada outra (na simulacao, ate 3% das corridas
   # de uma configuracao com uma cadeia de fato deslocada caem aqui; calibracao, D3b)
-  lim <- BreedingR:::limiares_padrao(list())
+  lim <- uaitrem:::limiares_padrao(list())
   linha <- data.frame(rhat = 1.03, disagreement = 1.2, disagreement_tail = 1.1,
                       ess_bulk_chain_min = 400, ess_bulk = 1700, ess_tail = 1500,
                       geweke_p = NA_real_, hw_p = NA_real_, geweke_z = NA_real_, khat = 0.1,
                       mcse_mean = 0.01, mcse_sd = 0.01, status = NA_character_)
   pares <- matrix(c(NA, 1.01, 1.08, 1.01, NA, 1.07, 1.08, 1.07, NA), 3)
-  cl <- BreedingR:::classifica_linhas(linha, list(list(curta = FALSE, presas = integer(0),
+  cl <- uaitrem:::classifica_linhas(linha, list(list(curta = FALSE, presas = integer(0),
                                                         pares = pares, hw = rep(NA_real_, 6))),
                                       3L, lim, 1000L, 1L)
   expect_identical(cl$tab$status, "not mixed")
   expect_match(cl$razao, "chain 3 apart from every other")
   pares[3, 1] <- pares[1, 3] <- 1.02
-  cl <- BreedingR:::classifica_linhas(linha, list(list(curta = FALSE, presas = integer(0),
+  cl <- uaitrem:::classifica_linhas(linha, list(list(curta = FALSE, presas = integer(0),
                                                         pares = pares, hw = rep(NA_real_, 6))),
                                       3L, lim, 1000L, 1L)
   expect_identical(cl$tab$status, "run longer")
@@ -299,7 +299,7 @@ test_that("cada regra do 'not mixed' tem o seu caso: posicao com 2 cadeias, esca
 })
 
 test_that("as regras do 'run longer': piso POR CADEIA, R-hat dividido com uma cadeia, n < 6", {
-  lim <- BreedingR:::limiares_padrao(list())
+  lim <- uaitrem:::limiares_padrao(list())
   um <- list(list(curta = FALSE, presas = integer(0), pares = NULL, hw = rep(NA_real_, 6)))
   linha <- function(rhat, ess_bulk, ess_tail)
     data.frame(rhat = rhat, disagreement = 1, disagreement_tail = 1, ess_bulk_chain_min = 1000,
@@ -307,15 +307,15 @@ test_that("as regras do 'run longer': piso POR CADEIA, R-hat dividido com uma ca
                geweke_z = NA_real_, khat = 0.1, mcse_mean = 0.01, mcse_sd = 0.01,
                status = NA_character_)
   # 4 cadeias precisam de 4 x 100: 250 no total passa de 100 e nao de 400
-  cl <- BreedingR:::classifica_linhas(linha(1.001, 250, 2000), um, 4L, lim, 1000L, 1L)
+  cl <- uaitrem:::classifica_linhas(linha(1.001, 250, 2000), um, 4L, lim, 1000L, 1L)
   expect_identical(cl$tab$status, "run longer")
   expect_match(cl$razao, "bulk-ESS 250, tail-ESS 2000, below 400 (100 per chain)", fixed = TRUE)
-  cl <- BreedingR:::classifica_linhas(linha(1.001, 450, 300), um, 4L, lim, 1000L, 1L)
+  cl <- uaitrem:::classifica_linhas(linha(1.001, 450, 300), um, 4L, lim, 1000L, 1L)
   expect_identical(cl$tab$status, "run longer")
-  expect_identical(BreedingR:::classifica_linhas(linha(1.001, 450, 2000), um, 4L, lim, 1000L,
+  expect_identical(uaitrem:::classifica_linhas(linha(1.001, 450, 2000), um, 4L, lim, 1000L,
                                                  1L)$tab$status, "ok")
   # uma cadeia (o padrao do gibbs()): as duas metades dela discordam
-  cl <- BreedingR:::classifica_linhas(linha(1.05, 1000, 1000), um, 1L, lim, 1000L, 1L)
+  cl <- uaitrem:::classifica_linhas(linha(1.05, 1000, 1000), um, 1L, lim, 1000L, 1L)
   expect_identical(cl$tab$status, "run longer")
   expect_match(cl$razao, "split R-hat 1.050 (one chain", fixed = TRUE)
   # com 4 ou 5 amostras por cadeia a ESS nao se estima (NA) e o veredito nao pode sair so do
@@ -338,13 +338,13 @@ test_that("a divisao importa (tendencia), e a tail-ESS ve a escala que a bulk na
   set.seed(5)
   r <- replicate(40, {
     x <- ar1_cadeias(1000, 0.5, 4) + seq(-0.5, 0.5, length.out = 1000)
-    c(rhat(x), BreedingR:::rhat_nucleo(x))
+    c(rhat(x), uaitrem:::rhat_nucleo(x))
   })
   expect_true(all(r[1, ] > 1.01))       # medido: media 1.035
   expect_lt(mean(r[2, ]), 1.01)         # o classico sem divisao: medido 1.0009
   s <- ar1_cadeias(2000, 0.995, 4)
   x <- matrix(stats::rnorm(8000), 2000, 4) * exp(s)
-  expect_lt(BreedingR:::ess_tail(x), 0.1 * BreedingR:::ess_bulk(x))
+  expect_lt(uaitrem:::ess_tail(x), 0.1 * uaitrem:::ess_bulk(x))
 })
 
 test_that("correlacao trocada: so a funcao derivada ve (por isso h2 e cor entram na tabela)", {
@@ -356,7 +356,7 @@ test_that("correlacao trocada: so a funcao derivada ve (por isso h2 e cor entram
   X <- list(par2(2000, 0.9), par2(2000, 0.9), par2(2000, 0.9), par2(2000, -0.9))
   uni <- vapply(1:2, function(j) rhat(vapply(X, function(m) m[, j], numeric(2000))), 1)
   expect_true(all(uni < 1.01))
-  expect_lt(BreedingR:::mpsrf_bg(X), 1.01)
+  expect_lt(uaitrem:::mpsrf_bg(X), 1.01)
   expect_gt(rhat(vapply(X, function(m) m[, 1] * m[, 2], numeric(2000))), 1.1)
 })
 
@@ -383,18 +383,18 @@ test_that("mESS recupera o VAR(1) analitico com lugsail; minESS e mPSRF batem as
   simples <- function(X) {
     b <- floor(sqrt(nrow(X[[1]])))
     4 * 1800 * exp((as.numeric(determinant(stats::cov(do.call(rbind, X)))$modulus) -
-                      as.numeric(determinant(BreedingR:::sigma_bm(X, b))$modulus)) / p)
+                      as.numeric(determinant(uaitrem:::sigma_bm(X, b))$modulus)) / p)
   }
   r <- replicate(300, {
     X <- lapply(1:4, function(k) var1(1800))
-    c(BreedingR:::mess_vats(X), simples(X)) / verdade
+    c(uaitrem:::mess_vats(X), simples(X)) / verdade
   })
   # medido (300 replicas, no desenho da revisao): lugsail 1.009, batch means simples 1.050;
   # a tolerancia de 3% separa os dois
   expect_lt(abs(mean(r[1, ]) - 1), 0.03)
   expect_gt(mean(r[2, ]) - 1, 0.03)
-  expect_equal(BreedingR:::min_ess(1), 6146, tolerance = 1e-3)
-  expect_equal(BreedingR:::min_ess(3), 8123, tolerance = 1e-3)
+  expect_equal(uaitrem:::min_ess(1), 6146, tolerance = 1e-3)
+  expect_equal(uaitrem:::min_ess(3), 8123, tolerance = 1e-3)
   # mPSRF: (1 + 1/M) de Brooks e Gelman, conferido com M = p = 3 e com M = 4 != p
   mpsrf_formula <- function(X) {
     M <- length(X)
@@ -405,15 +405,15 @@ test_that("mESS recupera o VAR(1) analitico com lugsail; minESS e mPSRF batem as
     sqrt((n - 1) / n + (1 + 1 / M) * lam / n)
   }
   X <- lapply(1:3, function(k) var1(500) + rep(c(0, 0, 0.2 * k), each = 500))
-  expect_equal(BreedingR:::mpsrf_bg(X), mpsrf_formula(X), tolerance = 1e-10)
+  expect_equal(uaitrem:::mpsrf_bg(X), mpsrf_formula(X), tolerance = 1e-10)
   X4 <- c(X, list(var1(500)))
-  expect_equal(BreedingR:::mpsrf_bg(X4), mpsrf_formula(X4), tolerance = 1e-10)
+  expect_equal(uaitrem:::mpsrf_bg(X4), mpsrf_formula(X4), tolerance = 1e-10)
   skip_if_not_installed("coda")
   ml <- coda::mcmc.list(lapply(X, coda::mcmc))
-  expect_equal(BreedingR:::mpsrf_bg(X),
+  expect_equal(uaitrem:::mpsrf_bg(X),
                coda::gelman.diag(ml, autoburnin = FALSE)$mpsrf, tolerance = 1e-10)
   ml4 <- coda::mcmc.list(lapply(X4, coda::mcmc))
-  expect_false(isTRUE(all.equal(BreedingR:::mpsrf_bg(X4),
+  expect_false(isTRUE(all.equal(uaitrem:::mpsrf_bg(X4),
                                 coda::gelman.diag(ml4, autoburnin = FALSE)$mpsrf)))
 })
 
@@ -421,7 +421,7 @@ test_that("R-hat^2 ~ (n-1)/n + 2M/ESS na versao dividida por postos (a regra 'ru
   set.seed(8)
   phi <- 0.9
   n <- 1000
-  r <- replicate(300, BreedingR:::rhat_bulk(ar1_cadeias(n, phi, 4))^2 - (n / 2 - 1) / (n / 2))
+  r <- replicate(300, uaitrem:::rhat_bulk(ar1_cadeias(n, phi, 4))^2 - (n / 2 - 1) / (n / 2))
   # 2M metades de n/2: E = 2M / ESS total = 2M tau / (M n)
   expect_true(abs(mean(r) / (2 * (1 + phi) / (1 - phi) / n) - 1) < 0.05)
 })
@@ -433,21 +433,21 @@ test_that("Pareto k-hat recupera 1/a da inversa-gama; o limiar da MCSE crua e 0.
   d <- mcmc_diagnostics(1 / matrix(stats::rgamma(8000, 1.2), 2000, 4))
   expect_true(is.na(d$table$mcse_mean))
   expect_match(d$notes, "heavy tail")
-  expect_match(BreedingR:::linha_convergencia(d), "\nnote: x: heavy tail: Pareto k-hat")
+  expect_match(uaitrem:::linha_convergencia(d), "\nnote: x: heavy tail: Pareto k-hat")
   skip_on_cran()
   for (a in c(3, 1.5, 1.1)) {
-    k <- replicate(30, BreedingR:::khat_pareto(1 / matrix(stats::rgamma(4000, a), 1000, 4)))
+    k <- replicate(30, uaitrem:::khat_pareto(1 / matrix(stats::rgamma(4000, a), 1000, 4)))
     expect_lt(abs(mean(k) - 1 / a), 0.1)   # medido no desenho: 0.334, 0.659, 0.930
   }
   k <- replicate(20, {
     z <- ar1_cadeias(5000, 0.95, 4)
-    BreedingR:::khat_pareto(1 / stats::qgamma(stats::pnorm(z), shape = 1.5))
+    uaitrem:::khat_pareto(1 / stats::qgamma(stats::pnorm(z), shape = 1.5))
   })
   expect_lt(abs(mean(k) - 1 / 1.5), 0.1)
   # a = 1.6 (k = 0.625, entre os limiares 0.5 e 0.7): com 0.5 a MCSE crua sai em branco quase
   # sempre, com o 0.7 do posterior (para estimativas suavizadas) quase nunca. Medido: 0.97
   # contra 0.13
-  expect_identical(BreedingR:::limiares_padrao(list())$khat, 0.5)
+  expect_identical(uaitrem:::limiares_padrao(list())$khat, 0.5)
   r <- replicate(30, {
     x <- 1 / matrix(stats::rgamma(8000, 1.6), 2000, 4)
     c(is.na(mcmc_diagnostics(x)$table$mcse_mean),
@@ -462,7 +462,7 @@ test_that("Geweke corrigido: tipo I nominal em cadeias estacionarias (o antigo n
   # o exportado com uma cadeia e o z dela, e com varias o combinado da tabela
   x <- ar1_cadeias(500, 0.5, 3)
   expect_equal(geweke_z(x), mcmc_diagnostics(x)$table$geweke_z)
-  expect_equal(geweke_z(x[, 2]), BreedingR:::geweke_combinado(x[, 2, drop = FALSE])[["z"]],
+  expect_equal(geweke_z(x[, 2]), uaitrem:::geweke_combinado(x[, 2, drop = FALSE])[["z"]],
                ignore_attr = TRUE)
   skip_on_cran()
   antigo <- function(x) {
@@ -474,8 +474,8 @@ test_that("Geweke corrigido: tipo I nominal em cadeias estacionarias (o antigo n
   for (phi in c(0, 0.5, 0.9)) {
     r <- replicate(600, {
       x <- ar1_cadeias(1800, phi, 4)
-      c(BreedingR:::geweke_combinado(x[, 1, drop = FALSE])[["p_z"]] < 0.05,
-        BreedingR:::geweke_combinado(x)[["p_z"]] < 0.05, abs(antigo(x[, 1])) > 1.96)
+      c(uaitrem:::geweke_combinado(x[, 1, drop = FALSE])[["p_z"]] < 0.05,
+        uaitrem:::geweke_combinado(x)[["p_z"]] < 0.05, abs(antigo(x[, 1])) > 1.96)
     })
     taxa <- rowMeans(r)
     expect_true(taxa[1] >= 0.03 && taxa[1] <= 0.08, info = paste("phi", phi))
@@ -485,7 +485,7 @@ test_that("Geweke corrigido: tipo I nominal em cadeias estacionarias (o antigo n
   }
   # janela inicial com ~4 amostras efetivas: a normal passa de 5%, a referencia t nao
   r <- replicate(600, {
-    g <- BreedingR:::geweke_combinado(ar1_cadeias(1000, 0.95, 1))
+    g <- uaitrem:::geweke_combinado(ar1_cadeias(1000, 0.95, 1))
     c(g[["p_z"]] < 0.05, abs(g[["z"]]) > 1.96)
   })
   expect_lte(mean(r[1, ]), 0.08)              # medido 0.048 (800 replicas)
@@ -501,10 +501,10 @@ test_that("Geweke e HW combinados entre as cadeias: o poder vem de todas, nao so
   # olhada do HW, que soma as pontes das cadeias, 0.79 contra 0.12
   r <- replicate(100, {
     x <- ar1_cadeias(10000, 0.95, 4, x0 = 30)
-    c(BreedingR:::geweke_combinado(x)[["p_z"]] < 0.01,
-      BreedingR:::geweke_combinado(x[, 1, drop = FALSE])[["p_z"]] < 0.01,
-      BreedingR:::hw_combinado(x)[1] < 0.01,
-      BreedingR:::hw_combinado(x[, 1, drop = FALSE])[1] < 0.01)
+    c(uaitrem:::geweke_combinado(x)[["p_z"]] < 0.01,
+      uaitrem:::geweke_combinado(x[, 1, drop = FALSE])[["p_z"]] < 0.01,
+      uaitrem:::hw_combinado(x)[1] < 0.01,
+      uaitrem:::hw_combinado(x[, 1, drop = FALSE])[1] < 0.01)
   })
   expect_gte(mean(r[1, ]), 0.9)
   expect_lte(mean(r[2, ]), 0.8)
@@ -518,7 +518,7 @@ test_that("o p do Geweke na tabela: z e qui-quadrado, Bonferroni nos dois", {
   # cancela e so o qui-quadrado (soma dos z^2) ve. A ponte somada do HW tambem se cancela
   r <- replicate(20, {
     x <- cbind(ar1_cadeias(2000, 0.9, 2, x0 = 40), ar1_cadeias(2000, 0.9, 2, x0 = -40))
-    g <- BreedingR:::geweke_combinado(x)
+    g <- uaitrem:::geweke_combinado(x)
     d <- mcmc_diagnostics(x)
     c(burn = d$verdict == "burn-in too short", pz = g[["p_z"]] < 0.005,
       formula = isTRUE(all.equal(d$table$geweke_p, min(1, 2 * min(g[["p_z"]], g[["p_qui2"]])))))
@@ -529,17 +529,17 @@ test_that("o p do Geweke na tabela: z e qui-quadrado, Bonferroni nos dois", {
   # uma cadeia: o p e o do z
   x <- ar1_cadeias(1000, 0.5, 1)
   expect_equal(mcmc_diagnostics(x)$table$geweke_p,
-               BreedingR:::geweke_combinado(x)[["p_z"]], ignore_attr = TRUE)
+               uaitrem:::geweke_combinado(x)[["p_z"]], ignore_attr = TRUE)
 })
 
 test_that("o Heidelberger-Welch combinado: a ponte e o pcramer do coda, e o tipo I", {
   skip_if_not_installed("coda")
   q <- c(0.01, 0.05, 0.1, 0.3, 0.46, 0.8, 2)
-  expect_equal(BreedingR:::pcramer_br(q), coda:::pcramer(q), tolerance = 1e-12)
+  expect_equal(uaitrem:::pcramer_br(q), coda:::pcramer(q), tolerance = 1e-12)
   skip_on_cran()
   set.seed(11)
-  r <- replicate(800, c(BreedingR:::hw_combinado(ar1_cadeias(1800, 0.5, 4))[1] < 0.05,
-                        BreedingR:::hw_combinado(ar1_cadeias(1000, 0.95, 1))[1] < 0.05))
+  r <- replicate(800, c(uaitrem:::hw_combinado(ar1_cadeias(1800, 0.5, 4))[1] < 0.05,
+                        uaitrem:::hw_combinado(ar1_cadeias(1000, 0.95, 1))[1] < 0.05))
   # medido (1000 replicas): 0.042 e 0.034; a primeira olhada plana dava 0.054 e 0.122
   expect_true(mean(r[1, ]) >= 0.025 && mean(r[1, ]) <= 0.08)
   expect_lte(mean(r[2, ]), 0.08)
@@ -655,7 +655,7 @@ test_that("cadeias de comprimentos diferentes: guarda, e nao reciclagem", {
   }
   rs <- list(faz(50, 0), faz(12, 5), faz(50, 1))
   rs[[2]]$message <- "theta INADMISSIBLE inside the chain"
-  j <- BreedingR:::junta_cadeias(rs, 50L)
+  j <- uaitrem:::junta_cadeias(rs, 50L)
   expect_identical(j$chains_used, c(1L, 3L))
   expect_equal(nrow(j$samples), 100L)
   todas <- rbind(rs[[1]]$samples, rs[[3]]$samples)
@@ -669,22 +669,22 @@ test_that("cadeias de comprimentos diferentes: guarda, e nao reciclagem", {
 test_that("localizacoes: identidade algebrica, limite que depende de q e a ESS tipica", {
   set.seed(15)
   x <- matrix(stats::rnorm(400 * 4), 400, 4) + rep(stats::rnorm(4, 0, 0.05), each = 400)
-  r <- BreedingR:::diag_localizacoes(matrix(colMeans(x), 1), matrix(apply(x, 2, stats::sd), 1),
-                                     400, BreedingR:::limiares_padrao(list()))
-  expect_equal(r$resumo$rhat_max, BreedingR:::rhat_nucleo(x), tolerance = 1e-12)
-  lim <- BreedingR:::limiares_padrao(list())
+  r <- uaitrem:::diag_localizacoes(matrix(colMeans(x), 1), matrix(apply(x, 2, stats::sd), 1),
+                                     400, uaitrem:::limiares_padrao(list()))
+  expect_equal(r$resumo$rhat_max, uaitrem:::rhat_nucleo(x), tolerance = 1e-12)
+  lim <- uaitrem:::limiares_padrao(list())
   # o limite nunca fica abaixo de thresholds$rhat: com tau ~1, 10 niveis e n = 10 000 a raiz
   # do quantil e ~1.0003, e um nivel com R-hat 1.005 nao e marcado
   m <- matrix(stats::rnorm(40, 0, sqrt(1 / 10000)), 10, 4)
   m[1, ] <- c(-1, 1, -1, 1) * sqrt(3 * (1.005^2 - 0.9999) / 4)
-  r <- BreedingR:::diag_localizacoes(m, matrix(1, 10, 4), 10000, lim)$resumo
+  r <- uaitrem:::diag_localizacoes(m, matrix(1, 10, 4), 10000, lim)$resumo
   expect_identical(r$limit, 1.01)
   expect_equal(r$rhat_max, 1.005, tolerance = 1e-9)
   expect_identical(r$flagged, 0L)
   expect_true(r$active)
   # com um teto de tau alto (um componente que mistura devagar) o limite passa de um nivel
   # com uma cadeia a 1 dp posterior, sqrt((n-1)/n + 1/M): a checagem e inativa, e o print diz
-  r <- BreedingR:::diag_localizacoes(m, matrix(1, 10, 4), 1000, lim, 2000)$resumo
+  r <- uaitrem:::diag_localizacoes(m, matrix(1, 10, 4), 1000, lim, 2000)$resumo
   expect_false(r$active)
   expect_gt(r$limit, sqrt(999 / 1000 + 1 / 4))
   # q = 50 000 niveis, tau = 5, 4 x 1800: o maximo passa de 1.01 em ~95% das corridas
@@ -695,7 +695,7 @@ test_that("localizacoes: identidade algebrica, limite que depende de q e a ESS t
   sim <- function(desloc = 0) {
     m <- matrix(stats::rnorm(q * 4, 0, sqrt(5 / n)), q, 4)
     m[seq_len(desloc), 4] <- m[seq_len(desloc), 4] + 1
-    BreedingR:::diag_localizacoes(m, matrix(1, q, 4), n, lim)$resumo
+    uaitrem:::diag_localizacoes(m, matrix(1, q, 4), n, lim)$resumo
   }
   nulo <- replicate(20, unlist(sim()[c("rhat_max", "flagged")]))
   expect_gte(mean(nulo["rhat_max", ] >= 1.01), 0.8)
@@ -710,8 +710,8 @@ test_that("localizacoes: identidade algebrica, limite que depende de q e a ESS t
   het <- replicate(10, {
     tt <- stats::runif(q, 1, 10)
     m <- matrix(stats::rnorm(q * 4, 0, sqrt(tt / n)), q, 4)
-    c(BreedingR:::diag_localizacoes(m, matrix(1, q, 4), n, lim)$resumo$flagged,
-      BreedingR:::diag_localizacoes(m, matrix(1, q, 4), n, lim, 12)$resumo$flagged)
+    c(uaitrem:::diag_localizacoes(m, matrix(1, q, 4), n, lim)$resumo$flagged,
+      uaitrem:::diag_localizacoes(m, matrix(1, q, 4), n, lim, 12)$resumo$flagged)
   })
   expect_gte(mean(het[1, ] > 0), 0.8)
   expect_lte(mean(het[2, ] > 0), 0.1)
@@ -720,12 +720,12 @@ test_that("localizacoes: identidade algebrica, limite que depende de q e a ESS t
   # teste unilateral nao. Com 860 niveis de ESS 30 por cadeia, acusa sempre
   tipo1 <- replicate(2000, {
     m <- matrix(stats::rnorm(2, 0, sqrt(1 / 300)), 1, 2)
-    r <- BreedingR:::diag_localizacoes(m, matrix(1, 1, 2), 300, lim)$resumo
+    r <- uaitrem:::diag_localizacoes(m, matrix(1, 1, 2), 300, lim)$resumo
     c(r$ess_low, r$ess_typical < 200)
   })
   expect_equal(mean(tipo1[1, ]), 0)
   expect_gt(mean(tipo1[2, ]), 0.15)
-  poder <- replicate(20, BreedingR:::diag_localizacoes(
+  poder <- replicate(20, uaitrem:::diag_localizacoes(
     matrix(stats::rnorm(860 * 4, 0, sqrt(10 / 300)), 860, 4), matrix(1, 860, 4), 300,
     lim)$resumo$ess_low)
   expect_true(all(poder))
@@ -885,8 +885,8 @@ test_that("no gibbs(): colunas, diagnosticos guardados, conversores e o modo de 
   # a MCSE dos quantis do summary e a dos quantis que ele imprime (2.5%, 50%, 97.5%)
   xa <- vapply(g$chain_samples, function(m) m[, "var(animal)"], numeric(500))
   expect_equal(sm$components[["mcse_q97.5"]][1],
-               signif(BreedingR:::mcse_quantil(xa, 0.975), 2))
-  expect_equal(sm$components[["mcse_q2.5"]][1], signif(BreedingR:::mcse_quantil(xa, 0.025), 2))
+               signif(uaitrem:::mcse_quantil(xa, 0.975), 2))
+  expect_equal(sm$components[["mcse_q2.5"]][1], signif(uaitrem:::mcse_quantil(xa, 0.025), 2))
   # a linha do h2 e o h2 de cada amostra de cada cadeia (a definicao do summary()), e nao uma
   # conta sobre as medias: media, R-hat e ESS dela batem com os da razao amostra a amostra
   hk <- vapply(g$chain_samples, function(m)
@@ -895,7 +895,7 @@ test_that("no gibbs(): colunas, diagnosticos guardados, conversores e o modo de 
   expect_identical(lh$type, "derived")
   expect_equal(lh$mean, mean(hk), tolerance = 1e-12)
   expect_equal(lh$rhat, rhat(hk), tolerance = 1e-12)
-  expect_equal(lh$ess_bulk, BreedingR:::ess_bulk(hk), tolerance = 1e-12)
+  expect_equal(lh$ess_bulk, uaitrem:::ess_bulk(hk), tolerance = 1e-12)
   expect_equal(sm$h2$mean, lh$mean, tolerance = 1e-12)
   expect_equal(sm$h2$rhat, round(lh$rhat, 3))
   if (requireNamespace("posterior", quietly = TRUE)) {
@@ -989,7 +989,7 @@ test_that("fronteira de um grupo de covariancia: menor autovalor da correlacao, 
   ajuste <- list(names = nm, samples = rbind(cad1, cad2), chain_samples = list(cad1, cad2),
                  chains_used = 1:2, n_expected = n,
                  fixed_components = stats::setNames(rep(FALSE, 10), nm))
-  fr <- BreedingR:::fronteira_gibbs(ajuste)
+  fr <- uaitrem:::fronteira_gibbs(ajuste)
   expect_identical(fr$group, c("rn[0], rn[1], rn[2]", "a, b"))
   expect_identical(fr$chain, c(1L, 2L))
   expect_equal(fr$share, c(0.5, 0.5))
@@ -997,7 +997,7 @@ test_that("fronteira de um grupo de covariancia: menor autovalor da correlacao, 
   expect_lt(fr$min_eigen[1], 1e-12)
   expect_equal(fr$min_eigen[2], 1e-7, tolerance = 1e-6)
   # o texto: a causa depende da priori, e o remedio da familia
-  tj <- BreedingR:::texto_fronteira(fr, "jeffreys")
+  tj <- uaitrem:::texto_fronteira(fr, "jeffreys")
   expect_length(tj, 2L)
   expect_match(tj[1], "^covariance group \\(rn\\[0\\], rn\\[1\\], rn\\[2\\]\\): 50% of the kept")
   expect_match(tj[2], "(|cor(b,a)| above 0.999999)", fixed = TRUE)
@@ -1005,34 +1005,34 @@ test_that("fronteira de um grupo de covariancia: menor autovalor da correlacao, 
   expect_match(tj, paste0("refit with prior left unset (the default, \"flat\" on a covariance ",
                           "group), prior = \"half_t\" or a proper c(df = , scale = )"), fixed = TRUE)
   for (p in list("flat", c(df = 4, scale = 1))) {
-    tp <- BreedingR:::texto_fronteira(fr, p)
+    tp <- uaitrem:::texto_fronteira(fr, p)
     expect_match(tp, "puts no infinite mass on that boundary", fixed = TRUE)
     expect_match(tp, "read the SINGULAR verdict of model()", fixed = TRUE)
     expect_false(any(grepl("posterior is proper", tp, fixed = TRUE)))
   }
   # no probit a plana nao e remedio: a verossimilhanca binaria pode ficar positiva quando as
   # variancias crescem (fica com um registro por animal), e so a priori propria fica
-  tpj <- BreedingR:::texto_fronteira(fr, "jeffreys", "probit")
+  tpj <- uaitrem:::texto_fronteira(fr, "jeffreys", "probit")
   expect_match(tpj, "refit with a proper prior = c(df = , scale = )", fixed = TRUE)
   expect_false(any(grepl("\"flat\" on a covariance group", tpj, fixed = TRUE)))
-  expect_match(BreedingR:::texto_fronteira(fr, "flat", "probit"),
+  expect_match(uaitrem:::texto_fronteira(fr, "flat", "probit"),
                "it can leave the posterior improper as the variances grow", fixed = TRUE)
-  expect_false(any(grepl("prior = \"flat\"", BreedingR:::texto_fronteira(fr, c(df = 4, scale = 1),
+  expect_false(any(grepl("prior = \"flat\"", uaitrem:::texto_fronteira(fr, c(df = 4, scale = 1),
                                                                          "probit"), fixed = TRUE)))
   # a fracao abaixo de 10% sai com uma casa: a regra e "mais de 1%", e 1.125% nao e "1%"
   fr1 <- fr[2, ]
   fr1$share <- 0.01125
-  expect_match(BreedingR:::texto_fronteira(fr1, "jeffreys"), ": 1.1% of the kept draws of chain 2 ",
+  expect_match(uaitrem:::texto_fronteira(fr1, "jeffreys"), ": 1.1% of the kept draws of chain 2 ",
                fixed = TRUE)
   # o grupo que o modelo prende (theta_fixed) nao e diagnosticado
   ajuste$fixed_components[] <- TRUE
-  expect_identical(nrow(BreedingR:::fronteira_gibbs(ajuste)), 0L)
+  expect_identical(nrow(uaitrem:::fronteira_gibbs(ajuste)), 0L)
 })
 
 test_that("uma falha nos diagnosticos nao derruba o gibbs(): o ajuste volta sem eles", {
   s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 80,
                          h2 = 0.3, seed = 2)
-  local_mocked_bindings(mcmc_diagnostics = function(...) stop("boom"), .package = "BreedingR")
+  local_mocked_bindings(mcmc_diagnostics = function(...) stop("boom"), .package = "uaitrem")
   set.seed(6)
   g <- gibbs(y ~ cg + animal(id), s$data, s$pedigree, n_iter = 300L, burnin = 50L, thin = 1L,
              chains = 2L, verbose = FALSE, prior = "jeffreys")
@@ -1128,7 +1128,7 @@ test_that("corrida real: veredito ok, numeros do posterior, e o R-hat de localiz
   gb$chain_ebv_sd$animal[] <- 1
   db <- mcmc_diagnostics(gb)
   expect_false(db$locations$ess_low[db$locations$term == "animal"])
-  expect_true(BreedingR:::diag_localizacoes(gb$chain_ebv$animal, gb$chain_ebv_sd$animal, n,
+  expect_true(uaitrem:::diag_localizacoes(gb$chain_ebv$animal, gb$chain_ebv_sd$animal, n,
                                             d$thresholds)$resumo$ess_low)
   # guarda contra regressao grosseira de custo (nao e medida de tempo: corrida unica)
   expect_lt(system.time(mcmc_diagnostics(g))[["elapsed"]], 20)

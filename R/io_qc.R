@@ -235,7 +235,7 @@ read_blupf90_snp <- function(file, ids = NULL) {
 #' animals, and the parentage test; anything they remove changes the rates, and the passes
 #' repeat until nothing changes. So the result always passes the call-rate check of the
 #' single-step fitters (see [model()]), whose line is the same
-#' `options(BreedingR.min_call_rate_animal)` that gives the default here.
+#' `options(uaitrem.min_call_rate_animal)` that gives the default here.
 #'
 #' Heterogeneous missingness takes many passes (hundreds when the failing animals and
 #' markers interleave), but the matrix is read once: the counts are kept and updated as
@@ -269,7 +269,7 @@ read_blupf90_snp <- function(file, ids = NULL) {
 #' @param hwe_p if not NULL, drop markers whose HWE chi-square p-value falls below it
 #' @param min_call_rate_animal keep animals with at least this fraction of calls over the
 #'   kept markers that vary; the default is the line of the single-step fitters,
-#'   `getOption("BreedingR.min_call_rate_animal", 0.90)`. NULL keeps every animal, and then
+#'   `getOption("uaitrem.min_call_rate_animal", 0.90)`. NULL keeps every animal, and then
 #'   only the markers are filtered
 #' @param pedigree NULL, or a pedigree (animal, sire, dam): then the offspring in conflict
 #'   with a genotyped parent are dropped. Needs `m` as a `list(ids, m)`
@@ -313,7 +313,7 @@ read_blupf90_snp <- function(file, ids = NULL) {
 #' q$removed
 #' @export
 qc_genotypes <- function(m, min_call_rate = 0.90, min_maf = 0.01, hwe_p = NULL,
-                         min_call_rate_animal = getOption("BreedingR.min_call_rate_animal",
+                         min_call_rate_animal = getOption("uaitrem.min_call_rate_animal",
                                                           0.90),
                          pedigree = NULL, exclusion_threshold = 0.01,
                          sex_markers = if (is.list(m)) m[["sex_markers", exact = TRUE]]) {
@@ -653,7 +653,7 @@ ultimos_pares <- function(avaliados) {
 #' it then fits the data as given. The two remedies:
 #' set the wrong parent unknown in the pedigree (below), or drop the offspring's genotype,
 #' which is what preGSf90 does by default and what `qc_genotypes(genotypes, pedigree = )`
-#' does. `options(BreedingR.verify_parentage = FALSE)` (or 0, the `verify_parentage 0` of
+#' does. `options(uaitrem.verify_parentage = FALSE)` (or 0, the `verify_parentage 0` of
 #' preGSf90) turns the fitters' check off, for genotypes simulated without the pedigree,
 #' where every pair conflicts by construction; this function and `qc_genotypes()` still run
 #' it.
@@ -709,14 +709,14 @@ parentage_check <- function(pedigree, genotypes, exclusion_threshold = 0.01,
   p
 }
 
-# options(BreedingR.verify_parentage): TRUE ou FALSE, ou o codigo 1 ou 0 do verify_parentage
+# options(uaitrem.verify_parentage): TRUE ou FALSE, ou o codigo 1 ou 0 do verify_parentage
 # do preGSf90 (que o roxygen cita); qualquer outro valor e recusado, em vez de ligar ou
 # desligar em silencio
 verifica_parentesco <- function() {
-  v <- getOption("BreedingR.verify_parentage", TRUE)
+  v <- getOption("uaitrem.verify_parentage", TRUE)
   if (isTRUE(v) || isFALSE(v)) return(v)
   if (is.numeric(v) && length(v) == 1L && !is.na(v) && v %in% c(0, 1)) return(v == 1)
-  stop("options(BreedingR.verify_parentage) must be TRUE or FALSE (or 1 or 0, the ",
+  stop("options(uaitrem.verify_parentage) must be TRUE or FALSE (or 1 or 0, the ",
        "verify_parentage codes of preGSf90), not ", deparse1(v), call. = FALSE)
 }
 
@@ -748,7 +748,7 @@ avisa_parentesco <- function(cp, g, limiar = 0.01) {
                   "does it), and refit. Sex-chromosome markers make a sire and son conflict ",
                   "without any error: leave them out of genotypes, or name them in ",
                   "genotypes$sex_markers (qc_genotypes(sex_markers = ) sets it). ",
-                  "options(BreedingR.verify_parentage = FALSE) turns this check off")
+                  "options(uaitrem.verify_parentage = FALSE) turns this check off")
   warning(structure(class = c("br_parentage", "warning", "condition"),
                     list(message = texto, call = NULL)))
 }

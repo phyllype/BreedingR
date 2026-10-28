@@ -83,9 +83,9 @@
 args <- commandArgs(TRUE)
 modo <- if (length(args) >= 1) args[1] else "replicas"
 arg <- function(k, padrao) if (length(args) >= k) args[k] else padrao
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 options(width = 160)
-build <- utils::packageDescription("BreedingR")[["Built"]]
+build <- utils::packageDescription("uaitrem")[["Built"]]
 va <- 0.25
 
 simula_od <- function(seed) {
@@ -125,13 +125,13 @@ mede <- function(g, reml) {
   M <- sapply(g$chain_samples[g$chains_used], function(s) s[, "var(animal)"])
   h <- nrow(M) %/% 2L
   q <- stats::quantile(M, c(0.025, 0.5, 0.975), names = FALSE)
-  data.frame(ess_bulk = BreedingR:::ess_bulk(M), ess_tail = BreedingR:::ess_tail(M),
-             rhat = max(BreedingR:::rhat_bulk(M), BreedingR:::rhat_tail(M)),
+  data.frame(ess_bulk = uaitrem:::ess_bulk(M), ess_tail = uaitrem:::ess_tail(M),
+             rhat = max(uaitrem:::rhat_bulk(M), uaitrem:::rhat_tail(M)),
              deriva = mean(M[(h + 1):(2 * h), ]) - mean(M[1:h, ]),
              ep_deriva = sqrt(stats::var(c(M[1:h, ])) /
-                                BreedingR:::ess_media(M[1:h, , drop = FALSE]) +
+                                uaitrem:::ess_media(M[1:h, , drop = FALSE]) +
                               stats::var(c(M[(h + 1):(2 * h), ])) /
-                                BreedingR:::ess_media(M[(h + 1):(2 * h), , drop = FALSE])),
+                                uaitrem:::ess_media(M[(h + 1):(2 * h), , drop = FALSE])),
              mediana = q[2], lo = q[1], hi = q[3], dp = stats::sd(c(M)), maximo = max(M),
              reml = reml, n = length(M), cadeias = ncol(M))
 }

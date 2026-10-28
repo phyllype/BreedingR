@@ -1,17 +1,17 @@
 ---
-name: breedingr
-description: Genetic evaluation with the BreedingR R package, variance components by AI-REML, breeding values and accuracy, single-step genomics (G, A22, H inverse, APY, ssSNPBLUP), reaction norms, direct-maternal and sire and maternal-grandsire models, multi-trait, metafounders, a Gibbs sampler for Gaussian and binary traits, and quality control. Use when fitting animal models, estimating heritability or genetic correlations, predicting breeding values, running single-step genomic evaluation, or debugging a model that will not converge.
+name: uaitrem
+description: Genetic evaluation with the UAI-TREM R package, variance components by AI-REML, breeding values and accuracy, single-step genomics (G, A22, H inverse, APY, ssSNPBLUP), reaction norms, direct-maternal and sire and maternal-grandsire models, multi-trait, metafounders, a Gibbs sampler for Gaussian and binary traits, and quality control. Use when fitting animal models, estimating heritability or genetic correlations, predicting breeding values, running single-step genomic evaluation, or debugging a model that will not converge.
 ---
 
-# BreedingR
+# UAI-TREM
 
 A self-contained R package for genetic evaluation. The numerics are C++ inside the
 package, compiled by `R CMD INSTALL`; there is no external engine and no run-time
 dependency.
 
 ```r
-remotes::install_github("phyllype/BreedingR")   # needs Rtools on Windows
-library(BreedingR)
+remotes::install_github("phyllype/UAI-TREM")   # needs Rtools on Windows
+library(uaitrem)
 ```
 
 ## The one idea that explains the interface

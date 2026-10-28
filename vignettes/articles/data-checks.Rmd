@@ -47,4 +47,4 @@ an unknown animal, as in a BLUPF90 pedigree, and the record stays in the analysi
 that effect absent. `pe(dam)` with no `maternal(dam)` reads 0 as one ordinary level.
 
 The works cited here by author and year are listed in full in the
-[references](https://phyllype.github.io/BreedingR/REFERENCES.html).
+[references](https://phyllype.github.io/UAI-TREM/REFERENCES.html).

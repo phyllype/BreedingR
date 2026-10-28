@@ -17,7 +17,7 @@
 # pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
 # fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
 # test-estrutura-e2.R confere o aviso.
-op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+op_parentesco <- options(uaitrem.verify_parentage = FALSE)
 
 rd_a_tabular <- function(ped) {
   n <- nrow(ped)
@@ -382,7 +382,7 @@ test_that("several chains: the residuals pool the same chains, with the same wei
          message = "", names = c("var(animal)", "var(residual)"))
   }
   rs <- list(faz(50, 0), faz(12, 5), faz(50, 1))
-  j <- BreedingR:::junta_cadeias(rs, 50L)
+  j <- uaitrem:::junta_cadeias(rs, 50L)
   expect_identical(j$chains_used, c(1L, 3L))
   for (campo in c("residual", "fitted", "fitted_fixed"))
     expect_equal(j[[campo]], (rs[[1]][[campo]] + rs[[3]][[campo]]) / 2, tolerance = 1e-14)
@@ -392,7 +392,7 @@ test_that("several chains: the residuals pool the same chains, with the same wei
                tolerance = 1e-14)
   # sem cadeia completa, a mais longa sozinha
   rs2 <- list(faz(20, 0), faz(30, 2))
-  j2 <- BreedingR:::junta_cadeias(rs2, 50L)
+  j2 <- uaitrem:::junta_cadeias(rs2, 50L)
   expect_identical(j2$chains_used, 2L)
   expect_equal(j2$residual, rs2[[2]]$residual, tolerance = 1e-15)
   expect_identical(j2$pdm_residuals, rs2[[2]]$pdm_residuals)

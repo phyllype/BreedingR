@@ -59,7 +59,7 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
   e <- ebv(fit, group = group, trait = trait)
   g <- group
   # O ESTADO DO AJUSTE, dito uma vez: os avisos de estado de accuracy() abaixo saem calados
-  # (a classe breedingr_estado), com o NA que eles explicam
+  # (a classe uaitrem_estado), com o NA que eles explicam
   avisa_estado_solucoes(fit, g, com_acc = !is.null(pedigree) ||
                           (length(fit$pev[[g]]) && (!eh_multicaracter(fit) || !is.null(trait)) &&
                              acuracia_sem_pedigree(fit, g)), trait = trait)
@@ -102,7 +102,7 @@ solutions <- function(fit, pedigree = NULL, group = NULL, trait = NULL) {
       (length(pv) && (!eh_multicaracter(fit) || !is.null(trait)) &&
        acuracia_sem_pedigree(fit, g)))
     out$acc <- casa(withCallingHandlers(accuracy(fit, pedigree, group = group, trait = trait),
-                                        breedingr_estado = function(w)
+                                        uaitrem_estado = function(w)
                                           invokeRestart("muffleWarning")))
   # O BLOCO de cada animal quando os registros formam blocos sem parentesco entre si e os
   # efeitos fixos absorvem a diferenca entre eles (o aviso do ajuste): os EBV so se comparam
@@ -394,7 +394,7 @@ h2 <- function(fit, group = NULL, trait = NULL, n = NULL, r = 0, weight = NULL,
     if (estado_para_extrator(fit, "h2()", comps, alvo, convergencia = FALSE))
       return(rep(NA_real_, length(ns)))
     razao(t, alvo)
-  }), breedingr_estado = function(w) {
+  }), uaitrem_estado = function(w) {
     vistos <<- c(vistos, conditionMessage(w))
     invokeRestart("muffleWarning")
   })

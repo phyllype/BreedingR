@@ -12,7 +12,7 @@
 # Uso: Rscript validation/sire_mgs_recovery.R [replicas] [threads]. Nenhum dado real.
 args <- commandArgs(TRUE)
 nrep <- if (length(args) >= 1) as.integer(args[1]) else 20L
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 br_threads(if (length(args) >= 2) as.integer(args[2]) else 1L)
 va <- 0.3
 ve <- 0.7

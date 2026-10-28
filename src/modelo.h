@@ -17,8 +17,8 @@
 // com o NIVEL variando mais rapido. Trocar a ordem nao quebra nada visivelmente: o modelo
 // monta, converge, e estima outra coisa.
 
-#ifndef BREEDINGR_MODELO_H
-#define BREEDINGR_MODELO_H
+#ifndef UAITREM_MODELO_H
+#define UAITREM_MODELO_H
 
 #include "estruturas.h"
 

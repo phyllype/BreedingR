@@ -3646,7 +3646,7 @@ SEXP R_pegs_estrutura(SEXP v, SEXP tipo, SEXP nfat) {
   )
 }
 
-SEXP R_versao(void) { return Rf_mkString("0.4.0.9000"); }
+SEXP R_versao(void) { return Rf_mkString("0.5.0"); }
 
 // Os rotulos que o motor da a numeros (br::rotulo_numero, o de Coluna::rotulo), para o R
 // escrever um id numerico do pedigree, dos genotipos ou de uma chave EXATAMENTE como a
@@ -3925,7 +3925,7 @@ static const R_CallMethodDef metodos[] = {
   {NULL, NULL, 0}
 };
 
-void R_init_BreedingR(DllInfo* dll) {
+void R_init_uaitrem(DllInfo* dll) {
   R_registerRoutines(dll, NULL, metodos, NULL, NULL);
   R_useDynamicSymbols(dll, FALSE);
 }

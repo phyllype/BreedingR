@@ -315,7 +315,7 @@ test_that("E4-3: a nested covariate whose class is aliased is only scaled, as do
   expect_equal(r$valor$b[paste0("age=", letters[1:6])], rg$b[paste0("age=", letters[1:6])],
                tolerance = 1e-8)
   # a documentacao de model() diz isso (ela prometia o aviso tambem com a classe confundida)
-  rd <- tryCatch(tools::Rd_db("BreedingR")[["model.Rd"]], error = function(e) NULL)
+  rd <- tryCatch(tools::Rd_db("uaitrem")[["model.Rd"]], error = function(e) NULL)
   skip_if(is.null(rd), "no installed help of model()")
   expect_true(grepl("the nested covariate is also only scaled, with no warning",
                     gsub("\\s+", " ", paste(as.character(rd), collapse = "")), fixed = TRUE))

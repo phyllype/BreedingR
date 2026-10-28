@@ -20,7 +20,7 @@
 #   o ep de cada braco o desvio entre as medias das 16 cadeias sobre 4; o maior |z| dos
 #   componentes, dos efeitos fixos e dos niveis de cada grupo; a aceitacao. Com o terceiro
 #   argumento 2 ou 3, o braco com ASIS e o ERRADO (2: sem o jacobiano; 3: aceita toda
-#   proposta, sem Metropolis-Hastings), pela opcao interna BreedingR.asis_variante: o portao
+#   proposta, sem Metropolis-Hastings), pela opcao interna uaitrem.asis_variante: o portao
 #   tem de reprova-lo.
 # probit [sementes] [variante]: family = "probit", 30 touros com 20 filhas (600 registros),
 #   regressao aleatoria do touro numa covariavel x em (-1, 1) (rn(sire, base = c("phi0",
@@ -30,7 +30,7 @@
 # jeffreys [sementes]: o controle negativo, o passo sob "jeffreys" no grupo, que o gibbs()
 #   recusa (o alvo do passo, L | U~, vai como prod_i L_ii^-i perto de L_dd = 0, onde a
 #   verossimilhanca fica positiva, e nao integra; src/gibbs.cpp, passo_asis). A opcao interna
-#   BreedingR.asis_jeffreys o roda assim mesmo. Dado de simulate_breeding() com 60 fundadores
+#   uaitrem.asis_jeffreys o roda assim mesmo. Dado de simulate_breeding() com 60 fundadores
 #   e 3 geracoes de 300 (960 registros, nenhum efeito materno simulado), y ~ cg +
 #   animal(id, group = "g") + maternal(dam, group = "g") + random(dam), com prior = "jeffreys"
 #   e prior_residual = "uniform_sd" pelo nome (Jeffreys no grupo e no random(dam), a uniforme no
@@ -84,7 +84,7 @@
 #      probit 1:20 [variante] | jeffreys 1:5 | threads 3
 # Simulado; nenhum dado real.
 
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 args <- commandArgs(TRUE)
 modo <- if (length(args)) args[1] else "exato"
 sementes <- eval(parse(text = if (length(args) >= 2) args[2] else "1:20"))
@@ -141,7 +141,7 @@ compara <- function(f0, f1) {
 
 roda <- function(f, z, seed, asis, ...) {
   set.seed(seed)
-  old <- options(BreedingR.asis_variante = variante)
+  old <- options(uaitrem.asis_variante = variante)
   on.exit(options(old))
   suppressWarnings(suppressMessages(
     gibbs(f, z$d, z$ped, n_iter = n_iter, burnin = burnin, thin = 1L, chains = 16L,
@@ -193,8 +193,8 @@ if (modo == "probit") {
 
 if (modo == "jeffreys") {
   # o controle negativo: o passo sob Jeffreys no grupo, que o gibbs() recusa; a opcao interna
-  # BreedingR.asis_jeffreys o roda assim mesmo, so aqui
-  options(BreedingR.asis_jeffreys = TRUE)
+  # uaitrem.asis_jeffreys o roda assim mesmo, so aqui
+  options(uaitrem.asis_jeffreys = TRUE)
   fmf <- y ~ cg + animal(id, group = "g") + maternal(dam, group = "g") + random(dam)
   for (seed in sementes) {
     s <- simulate_breeding(n_founders = 60, n_generations = 3, offspring_per_generation = 300,

@@ -37,8 +37,8 @@ multithreaded BLAS (OpenBLAS, MKL) \code{br_threads(lapack = TRUE)} hands them t
 BLAS and LAPACK, which is faster there; the results then depend on that BLAS.
 
 The default is 1 thread. Set it for the session with \code{br_threads(8)}, or before the
-package loads with \code{options(BreedingR.threads = 8)} or the environment variable
-\code{BREEDINGR_THREADS}. The request is capped by the \code{OMP_THREAD_LIMIT} of the
+package loads with \code{options(uaitrem.threads = 8)} or the environment variable
+\code{UAITREM_THREADS}. The request is capped by the \code{OMP_THREAD_LIMIT} of the
 environment. A build without OpenMP accepts the call and runs on 1 thread.
 }
 \references{

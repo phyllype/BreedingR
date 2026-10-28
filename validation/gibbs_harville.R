@@ -9,7 +9,7 @@
 #
 # Uso: Rscript validation/gibbs_harville.R [n_iter] [threads]. Simulado; nenhum dado real.
 args <- commandArgs(TRUE)
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 br_threads(if (length(args) >= 2) as.integer(args[2]) else 1L)
 
 set.seed(12)

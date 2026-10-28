@@ -213,14 +213,14 @@ test_that("gibbs(): an iid two-term group gives the same chain in any row order"
 # 0.275 (em c8e7f00 a linha m01 nem existia: o bloco materno saia com rotulos de touro).
 confere_solucoes <- function(s, f, termos, group, a = NULL, trait = NULL) {
   pv <- f$pev[[group]]
-  if (!is.null(trait)) pv <- BreedingR:::pega_traco(pv, trait)
+  if (!is.null(trait)) pv <- uaitrem:::pega_traco(pv, trait)
   n <- length(pv) / length(termos)
   chave <- paste(rep(termos, each = n), names(pv))
   expect_identical(names(s)[1:3], c("id", "term", "ebv"))
   expect_setequal(paste(s$term, s$id), chave)
   k <- match(paste(s$term, s$id), chave)
   expect_equal(s$se, sqrt(unname(pv[k])), tolerance = 1e-14)
-  expect_equal(s$ebv, unname(BreedingR::ebv(f, group, trait)[k]), tolerance = 1e-14)
+  expect_equal(s$ebv, unname(uaitrem::ebv(f, group, trait)[k]), tolerance = 1e-14)
   if (!is.null(a)) expect_equal(s$acc, unname(a[k]), tolerance = 1e-14)
   # nenhuma linha de um id leva o se do outro bloco: o portao nao e vazio
   expect_gt(max(abs(s$se - sqrt(unname(pv[match(s$id, names(pv))])))), 0.01)
@@ -297,7 +297,7 @@ test_that("solutions() of a multi-trait fit: acc only with trait=, and the layou
   expect_equal(s$se, sqrt(unname(f1$pev$random[s$id])), tolerance = 1e-14)
   s2 <- solutions(f1, trait = "y2")
   expect_identical(names(s2), c("id", "ebv", "se", "acc"))
-  expect_equal(s2$acc, sqrt(pmax(0, 1 - unname(BreedingR:::pega_traco(f1$pev$random, "y2")[s2$id]) /
+  expect_equal(s2$acc, sqrt(pmax(0, 1 - unname(uaitrem:::pega_traco(f1$pev$random, "y2")[s2$id]) /
                                    f1$theta[["var(random@y2)"]])), tolerance = 1e-14)
   # o pedigree dado pede a acuracia, e sem trait= o erro de accuracy() sobe, como em c8e7f00
   expect_error(solutions(f1, pedigree = data.frame(id = "u01", sire = "0", dam = "0")),

@@ -19,7 +19,7 @@
 # pai-filho genotipado sai em conflito por construcao: o aviso de parentesco dos ajustadores
 # fica desligado neste arquivo (o verify_parentage 0 do preGSf90) e volta ao fim dele.
 # test-estrutura-e2.R confere o aviso.
-op_parentesco <- options(BreedingR.verify_parentage = FALSE)
+op_parentesco <- options(uaitrem.verify_parentage = FALSE)
 
 geno_mosaico <- function(n, n_hap = 6, n_bloco = 4, tam = 100, semente = 3) {
   set.seed(semente)
@@ -182,14 +182,14 @@ test_that("lanczos: o erro da quadratura, pareado com as mesmas sondas nos autov
     dim <- nrow(op)
     set.seed(1)
     V <- matrix(sample(c(-1, 1), dim * 30, TRUE), dim)
-    r <- .Call(BreedingR:::R_lanczos_g, m, V, as.integer(cfg[3]))
+    r <- .Call(uaitrem:::R_lanczos_g, m, V, as.integer(cfg[3]))
     expect_equal(r$dim, dim)
     Y <- crossprod(ev$vectors, sweep(V, 2, sqrt(colSums(V^2)), "/"))
-    k_so <- vapply(vs, BreedingR:::medida_nos(data.frame(
+    k_so <- vapply(vs, uaitrem:::medida_nos(data.frame(
       theta = rep(lam, 30), w = dim / 30 * as.vector(Y^2), sonda = rep(1:30, each = dim)))$conta, 0)
     k_ex <- vapply(vs, function(v) which(cumsum(lam) / sum(diag(op)) >= v - 1e-12)[1L], 1L)
-    D <- function(K) mean((vapply(vs, BreedingR:::medida_nos(
-      BreedingR:::nos_lanczos(r, K))$conta, 0) - k_so) / k_ex)
+    D <- function(K) mean((vapply(vs, uaitrem:::medida_nos(
+      uaitrem:::nos_lanczos(r, K))$conta, 0) - k_so) / k_ex)
     expect_lt(abs(D(NULL)), 0.001)
     # o portao enxerga o defeito que conserta: a regra de Gauss simples fica acima de 0,2%
     expect_gt(D(1), 0.002)
@@ -215,9 +215,9 @@ test_that("lanczos: o erro padrao da contagem bate com a dispersao entre 20 conj
                             h2 = 0.3, n_markers = 1500, seed = 11)$genotypes
   set.seed(1)
   V <- matrix(sample(c(-1, 1), 1000 * 600, TRUE), 1000)
-  r <- .Call(BreedingR:::R_lanczos_g, geno$m, V, 40L)
+  r <- .Call(uaitrem:::R_lanczos_g, geno$m, V, 40L)
   medidas <- lapply(split(1:600, rep(1:20, each = 30)), function(g)
-    BreedingR:::medida_nos(BreedingR:::nos_lanczos(list(
+    uaitrem:::medida_nos(uaitrem:::nos_lanczos(list(
       alpha = r$alpha[, g], beta = r$beta[, g], steps = r$steps[g], dim = r$dim))))
   for (v in c(0.90, 0.98)) {
     razao <- stats::sd(vapply(medidas, function(x) x$conta(v), 0)) /
@@ -250,22 +250,22 @@ test_that("lanczos: a sonda que para no subespaco invariante fica com a regra ex
   m <- matrix(rbinom(300 * 6, 2, 0.4), 300, 6) + 0
   V <- matrix(sample(c(-1, 1), 6 * 8, TRUE), 6)
   ev <- eigen(operador_exato(m), symmetric = TRUE)
-  r <- .Call(BreedingR:::R_lanczos_g, m, V, 30L)
+  r <- .Call(uaitrem:::R_lanczos_g, m, V, 30L)
   expect_equal(r$dim, 6)
   b <- which(r$steps < 30)
   expect_gte(length(b), 4)
   expect_true(all(r$steps[b] == 6))
   vs <- seq(0.30, 0.995, by = 0.005)
-  k_so <- vapply(vs, BreedingR:::medida_nos(data.frame(
+  k_so <- vapply(vs, uaitrem:::medida_nos(data.frame(
     theta = rep(pmax(ev$values, 0), length(b)),
     w = 6 / length(b) * as.vector(crossprod(ev$vectors, V[, b, drop = FALSE] / sqrt(6))^2),
     sonda = rep(seq_along(b), each = 6)))$conta, 0)
   sub <- list(alpha = r$alpha[, b, drop = FALSE], beta = r$beta[, b, drop = FALSE],
               steps = r$steps[b], dim = r$dim)
-  expect_equal(vapply(vs, BreedingR:::medida_nos(BreedingR:::nos_lanczos(sub))$conta, 0), k_so,
+  expect_equal(vapply(vs, uaitrem:::medida_nos(uaitrem:::nos_lanczos(sub))$conta, 0), k_so,
                tolerance = 1e-10)
   # o ramo desligado: com 6 linhas, s = 6 nao e menor que os passos e K = ceiling(6 / 4) = 2
-  k_sem <- vapply(vs, BreedingR:::medida_nos(BreedingR:::nos_lanczos(list(
+  k_sem <- vapply(vs, uaitrem:::medida_nos(uaitrem:::nos_lanczos(list(
     alpha = sub$alpha[1:6, , drop = FALSE], beta = sub$beta[1:6, , drop = FALSE],
     steps = sub$steps, dim = sub$dim)))$conta, 0)
   expect_gt(max(abs(k_sem - k_so)), 1e-4)
@@ -283,12 +283,12 @@ test_that("lanczos: parar ou seguir alem do espaco de Krylov esgotado, a contage
   m <- matrix(rbinom(4 * 200, 2, 0.4), 4, 200)[rep(1:4, each = 5), ] + 0
   ev <- eigen(operador_exato(m), symmetric = TRUE)
   V <- matrix(sample(c(-1, 1), 20 * 8, TRUE), 20)
-  r <- .Call(BreedingR:::R_lanczos_g, m, V, 30L)
-  so <- BreedingR:::medida_nos(data.frame(
+  r <- .Call(uaitrem:::R_lanczos_g, m, V, 30L)
+  so <- uaitrem:::medida_nos(data.frame(
     theta = rep(pmax(ev$values, 0), 8),
     w = 20 / 8 * as.vector(crossprod(ev$vectors, V / sqrt(20))^2), sonda = rep(1:8, each = 20)))
   vs <- c(0.5, 0.8, 0.9, 0.95, 0.98)
-  expect_equal(vapply(vs, BreedingR:::medida_nos(BreedingR:::nos_lanczos(r))$conta, 0),
+  expect_equal(vapply(vs, uaitrem:::medida_nos(uaitrem:::nos_lanczos(r))$conta, 0),
                vapply(vs, so$conta, 0), tolerance = 1e-10)
 })
 
@@ -296,7 +296,7 @@ test_that("a tridiagonal de Lanczos: primeiro passo e o quociente de Rayleigh da
   geno <- geno_familias(230, 300, 9)
   set.seed(4)
   v <- matrix(sample(c(-1, 1), 230 * 3, TRUE), 230)
-  r <- .Call(BreedingR:::R_lanczos_g, geno$m + 0, v, 5L)
+  r <- .Call(uaitrem:::R_lanczos_g, geno$m + 0, v, 5L)
   G <- g_matrix(geno)
   q <- sweep(v, 2, sqrt(colSums(v^2)), "/")
   expect_equal(r$alpha[1, ], colSums(q * (G %*% q)), tolerance = 1e-10)

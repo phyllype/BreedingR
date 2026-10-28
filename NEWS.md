@@ -1,6 +1,11 @@
-# BreedingR 0.4.0.9000 (development)
+# uaitrem 0.5.0
 
 ## New
+
+* The new name of the package is `uaitrem`, for UAI-TREM: Unravelling Additive and Indirect
+  genetic effects with Time-dependent Random Effect Models (before, BreedingR). In R:
+  `library(uaitrem)`; the options are `uaitrem.*`, the environment variables `UAITREM_*` and
+  the condition classes `uaitrem_*` (before, `BreedingR.*`, `BREEDINGR_*` and `breedingr_*`).
 
 * `model_mt()` takes the route of `model()` when a covariance group of several terms
   (`group =`) ends near a correlation of +-1: it fits the same terms without the group and then
@@ -155,7 +160,7 @@
   it `snp_blup()`, `estimate_gamma()`) runs the same parentage test on the genotypes it
   is given, without the columns named in `genotypes$sex_markers`, and warns once, naming
   the first pairs, when one exceeds 1%; the fit goes on with the data as given. The
-  warning has class `br_parentage`. `options(BreedingR.verify_parentage = FALSE)` (or 0,
+  warning has class `br_parentage`. `options(uaitrem.verify_parentage = FALSE)` (or 0,
   preGSf90's `verify_parentage 0`) turns it off, for genotypes simulated without the
   pedigree.
 * `genotypes$sex_markers`, an optional element (column indices, names or one logical per
@@ -190,7 +195,7 @@
   `a2`) so the sex-chromosome markers can be found. A line with the wrong number of
   fields, and a .raw dosage that is not a number, are refused with the file, line and
   column.
-* `options(BreedingR.min_call_rate_animal)` sets the call-rate line of every function that
+* `options(uaitrem.min_call_rate_animal)` sets the call-rate line of every function that
   imputes a missing genotype by the mean (default 0.90; 0 turns the check off), and the
   default of `qc_genotypes(min_call_rate_animal =)` follows it.
 * Missing-value codes and absurd values. Before the fit, every fitter that reads a
@@ -675,8 +680,8 @@
   run in parallel too. Every number has one owner thread and a fixed summation
   order, so any thread count gives the same bits: a test fits a genomic model
   with 1 and 3 threads and requires identical -2logL and solutions, and the
-  suite passes with 1 and 4. The default is 1 thread; `options(BreedingR.threads
-  = )` or `BREEDINGR_THREADS` set it at load, and `OMP_THREAD_LIMIT` caps it.
+  suite passes with 1 and 4. The default is 1 thread; `options(uaitrem.threads
+  = )` or `UAITREM_THREADS` set it at load, and `OMP_THREAD_LIMIT` caps it.
   `br_threads(lapack = TRUE)` hands the dense inverses and products to R's
   BLAS and LAPACK, for an optimized multithreaded BLAS.
 
@@ -817,10 +822,10 @@
     `parentage_check()` imputes nothing and does not refuse it,
     `estimate_gamma()` refuses any missing genotype with its own message, and
     `qc_genotypes()` drops those animals instead.
-    `options(BreedingR.min_call_rate_animal = 0)` restores the old behaviour.
+    `options(uaitrem.min_call_rate_animal = 0)` restores the old behaviour.
 * The single-step fitters warn on genotyped parent-offspring pairs with more than 1%
   opposite homozygotes (see New). A test or a script that simulates genotypes
-  independently of the pedigree needs `options(BreedingR.verify_parentage = FALSE)`; any
+  independently of the pedigree needs `options(uaitrem.verify_parentage = FALSE)`; any
   value of that option other than TRUE, FALSE, 1 or 0 is an error. Sex-chromosome markers
   make a sire and son conflict without any error: name them in `genotypes$sex_markers` or
   leave them out.
@@ -1516,7 +1521,7 @@
 * The version carries a development suffix. `v0.4.0` is a tag, and what comes
   after it is not `0.4.0`.
 
-# BreedingR 0.4.0
+# uaitrem 0.4.0
 
 ## New
 
@@ -1578,7 +1583,7 @@
 * `CONTRIBUTING.md`, plus `URL` and `BugReports` in DESCRIPTION, so the package
   says from the inside where it lives and where a problem should go.
 
-# BreedingR 0.3.0
+# uaitrem 0.3.0
 
 ## License
 
@@ -1594,7 +1599,7 @@
   Suite: 860 expectations, 0 failures; R CMD check on the
   tarball: Status OK.
 
-# BreedingR 0.2.0
+# uaitrem 0.2.0
 
 The package was reviewed chapter by chapter against Mrode & Pocrnic (2023), every
 published example in scope became a test, and what the book covers that the package
@@ -1642,7 +1647,7 @@ the tarball reports Status OK with 0 errors, 0 warnings, 0 notes.
   permanent environment, the dam's. The old recipe with a second `pe()` on the
   animal is non-identifiable on single records and is documented as such.
 
-# BreedingR 0.1.0
+# uaitrem 0.1.0
 
 Initial version: AI-REML with covariance groups, single-step genomics (H, APY,
 ssSNPBLUP), reaction norms, direct-maternal effects, multi-trait, a Gibbs sampler,

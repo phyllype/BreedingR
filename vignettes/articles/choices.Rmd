@@ -149,4 +149,4 @@ of `var(animal)` of 15 to 62 after 4 chains of 25 000, against 0.25 planted (wit
 the same posterior, 3 of 10 at 11 to 49).
 
 The works cited here by author and year are listed in full in the
-[references](https://phyllype.github.io/BreedingR/REFERENCES.html).
+[references](https://phyllype.github.io/UAI-TREM/REFERENCES.html).

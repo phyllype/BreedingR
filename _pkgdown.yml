@@ -1,7 +1,7 @@
 # Site do pacote, publicado pelo workflow .github/workflows/pkgdown.yaml no GitHub Pages.
 # Todo topico exportado precisa de uma linha em `reference`: o pkgdown para o build quando
 # falta algum. A saida fica fora de docs/, que guarda arquivos do repositorio.
-url: https://phyllype.github.io/BreedingR/
+url: https://phyllype.github.io/UAI-TREM/
 destination: _site
 
 template:
@@ -12,7 +12,7 @@ template:
     link-color: "#0f6b64"
 
 home:
-  title: "BreedingR: genetic parameters, breeding values and genomic prediction"
+  title: "UAI-TREM: Unravelling Additive and Indirect genetic effects with Time-dependent Random Effect Models"
   description: >
     Variance components by AI-REML, breeding values and accuracy, single-step genomics,
     reaction norms, several traits and a Gibbs sampler, on a C++ engine with no run-time
@@ -31,7 +31,7 @@ articles:
   - title: Start here
     navbar: ~
     contents:
-      - BreedingR
+      - uaitrem
       - getting-started
   - title: In depth
     navbar: In depth

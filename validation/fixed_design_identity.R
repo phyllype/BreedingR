@@ -32,7 +32,7 @@ raiz <- normalizePath(file.path(dirname(sub("^--file=", "", grep("^--file=", com
 if (length(args) >= 1 && args[1] == "--captura") {
   .libPaths(c(args[2], .libPaths()))
   Sys.setenv(NOT_CRAN = "true")
-  suppressMessages({library(testthat); library(BreedingR)})
+  suppressMessages({library(testthat); library(uaitrem)})
   setwd(raiz)
   dir.create(args[3], showWarnings = FALSE, recursive = TRUE)
   .captura <- new.env()
@@ -58,19 +58,19 @@ if (length(args) >= 1 && args[1] == "--captura") {
   # os ajustadores, os avaliadores internos e os acessores que leem o ajuste
   for (fn in c("model", "model_mt", "gibbs", "eval_internal", "eval_internal_mt", "snp_blup",
                "solutions", "accuracy", "ebv", "profile_theta", "se_function")) {
-    suppressMessages(trace(fn, exit = gancho(fn), where = asNamespace("BreedingR"), print = FALSE))
-    suppressMessages(trace(fn, exit = gancho(fn), where = as.environment("package:BreedingR"),
+    suppressMessages(trace(fn, exit = gancho(fn), where = asNamespace("uaitrem"), print = FALSE))
+    suppressMessages(trace(fn, exit = gancho(fn), where = as.environment("package:uaitrem"),
                            print = FALSE))
   }
   for (fn in c("residuals.breeding_fit", "residuals.breeding_fit_ar1", "residuals.breeding_fit_mt",
                "residuals.breeding_gibbs", "fitted.breeding_fit", "fitted.breeding_fit_ar1",
                "fitted.breeding_fit_mt", "fitted.breeding_gibbs"))
-    suppressMessages(trace(fn, exit = gancho(fn), where = asNamespace("BreedingR"), print = FALSE))
+    suppressMessages(trace(fn, exit = gancho(fn), where = asNamespace("uaitrem"), print = FALSE))
   for (a in strsplit(args[4], ",")[[1]]) {
     .captura$arquivo <- sub("[.]R$", "", a)
     .captura$k <- 0L
     r <- tryCatch(as.data.frame(testthat::test_file(file.path("tests/testthat", a),
-                                                    package = "BreedingR",
+                                                    package = "uaitrem",
                                                     load_package = "installed",
                                                     reporter = "silent")),
                   error = function(e) NULL)

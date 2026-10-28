@@ -47,4 +47,4 @@ built on: it generates the pedigree, the phenotypes and the genotypes together, 
 check has the truth beside it.
 
 The works cited here by author and year are listed in full in the
-[references](https://phyllype.github.io/BreedingR/REFERENCES.html).
+[references](https://phyllype.github.io/UAI-TREM/REFERENCES.html).

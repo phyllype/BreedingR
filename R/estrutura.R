@@ -396,7 +396,7 @@ emite_estrutura <- function(pe) {
 calado_estrutura <- function(expr)
   withCallingHandlers(expr,
                       br_estrutura = function(w) invokeRestart("muffleWarning"),
-                      breedingr_estrutura = function(w) invokeRestart("muffleWarning"),
+                      uaitrem_estrutura = function(w) invokeRestart("muffleWarning"),
                       br_estrutura_msg = function(m) invokeRestart("muffleMessage"))
 
 primeiros_lista <- function(v, k = 3L)

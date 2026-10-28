@@ -20,7 +20,7 @@
 # abaixo separam os dois casos.
 
 posto <- function(X, ativa = rep(TRUE, nrow(X)), tol = 1e-9)
-  .Call(BreedingR:::R_posto_fixo, X, ativa, tol, TRUE)
+  .Call(uaitrem:::R_posto_fixo, X, ativa, tol, TRUE)
 indicadora <- function(f) {
   lv <- unique(as.character(f))
   m <- vapply(lv, function(l) as.numeric(as.character(f) == l), numeric(length(f)))
@@ -396,13 +396,13 @@ test_that("the rank stops with a message before a factor or a dense check above 
   # 32 mil registros, cada um o seu nivel: o fator R pediria 4,1 GB. A guarda vem antes do
   # trabalho O(p^3)
   n <- 32000L
-  expect_error(.Call(BreedingR:::R_posto_blocos, list(seq_len(n)), list(rep(1, n)), n, n,
+  expect_error(.Call(uaitrem:::R_posto_blocos, list(seq_len(n)), list(rep(1, n)), n, n,
                      1e-9, FALSE), "factor for up to 32000 kept columns .*4.1 GB")
   # a guarda conta as candidatas, nao o posto: 40 mil registros, uma classe de 20 mil niveis e
   # a copia dela. O posto e 20 mil (um fator de 1,6 GB), mas as 40 mil candidatas param
   n <- 40000L
   a <- rep(seq_len(n %/% 2L), each = 2L)
-  expect_error(.Call(BreedingR:::R_posto_blocos, list(a, a + n %/% 2L), list(rep(1, n), rep(1, n)),
+  expect_error(.Call(uaitrem:::R_posto_blocos, list(a, a + n %/% 2L), list(rep(1, n), rep(1, n)),
                      n, n, 1e-9, FALSE),
                "40000 candidate columns .* up to 40000 kept columns .*6.4 GB")
   # a coluna que a rota esparsa nao certifica (x3 acima, e = 1e-8, k = 1e8) em 200 mil
@@ -412,7 +412,7 @@ test_that("the rank stops with a message before a factor or a dense check above 
   x1 <- rnorm(n)
   x2 <- x1 + 1e-8 * rnorm(n)
   um <- rep(1L, n)
-  expect_error(.Call(BreedingR:::R_posto_blocos,
+  expect_error(.Call(uaitrem:::R_posto_blocos,
                      list(um, um + 1L, um + 2L, um + 3L, 4L + sample.int(2500L, n, TRUE)),
                      list(rep(1, n), x1, x2, 1e8 * (x2 - x1) + x1, rep(1, n)), n, 2504L,
                      1e-9, FALSE),

@@ -694,10 +694,10 @@ GibbsSaida gibbs(const Desenho& d_in, std::size_t n_iter, std::size_t burnin,
   std::vector<double> loc_ant;
   std::size_t n_resgates = 0, n_rejeitadas = 0;
   std::string estado_resgate;
-  // o gancho do portao (tests/testthat/test-gibbs-piso.R): BREEDINGR_TESTE_RESGATE = delta
+  // o gancho do portao (tests/testthat/test-gibbs-piso.R): UAITREM_TESTE_RESGATE = delta
   // forca o resgate em toda iteracao com esse delta, para conferir que o passo de MH da a
   // condicional exata
-  const char* teste_resgate = std::getenv("BREEDINGR_TESTE_RESGATE");
+  const char* teste_resgate = std::getenv("UAITREM_TESTE_RESGATE");
   const double forca_resgate = teste_resgate ? std::atof(teste_resgate) : 0.0;
 
   GetRNGstate();

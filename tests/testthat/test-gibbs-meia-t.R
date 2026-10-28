@@ -45,7 +45,7 @@
 #     recusas declaradas.
 
 priori_meia_t <- function(d, nu, n, thin, burnin, variante)
-  .Call(BreedingR:::R_gibbs_priori_ht, as.integer(d), as.double(nu), c(1, 2.5, 0.4)[seq_len(d)],
+  .Call(uaitrem:::R_gibbs_priori_ht, as.integer(d), as.double(nu), c(1, 2.5, 0.4)[seq_len(d)],
         as.integer(n), as.integer(thin), as.integer(burnin), as.integer(variante))
 
 # sqrt(n) D de cada desvio-padrao e de cada correlacao das amostras do vech de C

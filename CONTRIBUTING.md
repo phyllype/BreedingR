@@ -9,7 +9,7 @@ suggestions.
 If something looks like a defect, an issue is the better place, because the answer stays
 visible to whoever runs into the same thing next:
 
-https://github.com/phyllype/BreedingR/issues
+https://github.com/phyllype/UAI-TREM/issues
 
 ## Reporting a problem
 

@@ -27,5 +27,5 @@ a \code{draws_array} or an \code{mcmc.list}.
 object per chain, with the iteration numbers of the kept draws. Only the chains that ran
 to the end enter (see \code{\link[=mcmc_diagnostics]{mcmc_diagnostics()}}). They open the rest of both packages, such as
 \code{posterior::rstar()}, \code{posterior::rhat_nested()} or \code{coda::raftery.diag()}, which
-BreedingR does not implement. Both packages are suggested, not required.
+UAI-TREM does not implement. Both packages are suggested, not required.
 }

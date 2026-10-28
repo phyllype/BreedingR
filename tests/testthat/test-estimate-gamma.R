@@ -228,7 +228,7 @@ test_that("ML: resumos e gamma da versao em R anterior, com A22^-1 densa, espars
     dens[[nm]] <- mean(a22_inverse(classico, match(fx$g$ids, pedigree(classico)$id)) != 0)
     leg <- legado$estimate_gamma(fx$ped, fx$g, "MF", method = "ml")
     s <- ncol(fx$g$m) / 2
-    r <- .Call(BreedingR:::R_gamma_ml_resumos, classico$id, classico$sire, classico$dam,
+    r <- .Call(uaitrem:::R_gamma_ml_resumos, classico$id, classico$sire, classico$dam,
                fx$g$ids, fx$g$m)
     expect_lt(abs(r$ss - leg$resumos[["ss"]]) / abs(leg$resumos[["ss"]]), 1e-12)
     expect_lt(abs(r$tt / s - leg$resumos[["tt"]]) / abs(leg$resumos[["tt"]]), 1e-12)
@@ -361,7 +361,7 @@ test_that("A22^-1 X com mais de 32 colunas: a A22 densa, e 1 e 4 threads bit a b
     ref <- solve(k$A[gid, gid], X)
     roda <- function(nt) {
       br_threads(nt)
-      BreedingR:::a22inv_vezes(z$ped$id, k$sire, k$dam, k$mf, k$gamma, gid, X)
+      uaitrem:::a22inv_vezes(z$ped$id, k$sire, k$dam, k$mf, k$gamma, gid, X)
     }
     um <- roda(1L)
     expect_lt(max(abs(um - ref)) / max(abs(ref)), 1e-10)

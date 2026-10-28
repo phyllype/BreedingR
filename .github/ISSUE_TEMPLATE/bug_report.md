@@ -13,7 +13,7 @@ so most reports can be written on simulated data. Please do not paste data you a
 not free to share.
 
 ```r
-library(BreedingR)
+library(uaitrem)
 
 ```
 

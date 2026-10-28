@@ -4,7 +4,7 @@ description: >
   From the pedigree to the breeding values: the sparse equations, AI-REML, the single step, the model families and the covariance group.
 ---
 
-BreedingR puts specific models into practice: reaction norms on an environmental gradient,
+UAI-TREM puts specific models into practice: reaction norms on an environmental gradient,
 direct-maternal models, several traits at once and the single step. The numerics are written in the
 package itself, in `src/`, and `R CMD INSTALL` compiles them. No separate binary, no
 service, no run-time dependency.
@@ -90,4 +90,4 @@ single step without `apy_core=` it is at least the number of genotyped animals, 
 fill of the pedigree can add to it.
 
 The works cited here by author and year are listed in full in the
-[references](https://phyllype.github.io/BreedingR/REFERENCES.html).
+[references](https://phyllype.github.io/UAI-TREM/REFERENCES.html).

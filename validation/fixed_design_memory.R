@@ -40,7 +40,7 @@
 #   medido e conferido, 1 com algum dropped_x DIFERENTE, 2 quando a guarda pulou todas as
 #   replicas de um caso pedido (nada medido nem conferido nele).
 args <- commandArgs(TRUE)
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 
 # conjunto de trabalho, o pico dele, commit privado e o pico dele (bytes)
 memoria <- function() {

@@ -17,8 +17,8 @@
 #' BLAS and LAPACK, which is faster there; the results then depend on that BLAS.
 #'
 #' The default is 1 thread. Set it for the session with `br_threads(8)`, or before the
-#' package loads with `options(BreedingR.threads = 8)` or the environment variable
-#' `BREEDINGR_THREADS`. The request is capped by the `OMP_THREAD_LIMIT` of the
+#' package loads with `options(uaitrem.threads = 8)` or the environment variable
+#' `UAITREM_THREADS`. The request is capped by the `OMP_THREAD_LIMIT` of the
 #' environment. A build without OpenMP accepts the call and runs on 1 thread.
 #'
 #' @param n number of threads; `NULL` leaves it as it is.
@@ -49,7 +49,7 @@ br_threads <- function(n = NULL, lapack = NULL) {
 }
 
 .onLoad <- function(libname, pkgname) {
-  n <- getOption("BreedingR.threads", Sys.getenv("BREEDINGR_THREADS", ""))
+  n <- getOption("uaitrem.threads", Sys.getenv("UAITREM_THREADS", ""))
   n <- suppressWarnings(as.integer(n))
   if (length(n) == 1L && !is.na(n) && n >= 1L) .Call(R_threads, n, NA)
   invisible()

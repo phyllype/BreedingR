@@ -1,10 +1,13 @@
-Package: BreedingR
+Package: uaitrem
 Type: Package
-Title: Genetic Parameters, Breeding Values and Genomic Prediction
-Version: 0.4.0.9000
+Title: Unravelling Additive and Indirect Genetic Effects Along Time
+Version: 0.5.0
 Authors@R: person("Felipe Andre Oliveira", "Freitas", role = c("aut", "cre", "cph"),
                   email = "phyllype.freitas@gmail.com")
-Description: Variance component estimation by AI-REML, breeding values, accuracy and
+Description: UAI-TREM separates the additive and indirect genetic effects of
+    longitudinal records from the time dependence of the permanent environment and of
+    the residual. This version holds the established models of the engine: variance
+    component estimation by AI-REML, breeding values, accuracy and
     single-step genomics (ssGBLUP), with reaction norms, direct-maternal and sire and
     maternal-grandsire models, several traits at once, metafounders, and a Gibbs sampler
     for Gaussian and binary traits. Single step also by the APY inverse or by markers as
@@ -17,8 +20,8 @@ Description: Variance component estimation by AI-REML, breeding values, accuracy
     Aperfeicoamento de Pessoal de Nivel Superior (CAPES), Finance Code 001; and the
     Conselho Nacional de Desenvolvimento Cientifico e Tecnologico (CNPq).
 License: GPL-3
-URL: https://github.com/phyllype/BreedingR, https://phyllype.github.io/BreedingR/
-BugReports: https://github.com/phyllype/BreedingR/issues
+URL: https://github.com/phyllype/UAI-TREM, https://phyllype.github.io/UAI-TREM/
+BugReports: https://github.com/phyllype/UAI-TREM/issues
 Encoding: UTF-8
 Depends: R (>= 4.1)
 Suggests: testthat (>= 3.1.7), knitr, rmarkdown, parallel, posterior, coda

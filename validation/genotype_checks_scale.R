@@ -12,8 +12,8 @@
 # read_plink() num .raw. Simulado; nenhum dado real.
 #
 # Uso: Rscript validation/genotype_checks_scale.R
-suppressMessages(library(BreedingR))
-cat("BreedingR", as.character(utils::packageVersion("BreedingR")), "| threads disponiveis:",
+suppressMessages(library(uaitrem))
+cat("uaitrem", as.character(utils::packageVersion("uaitrem")), "| threads disponiveis:",
     br_threads()$available, "\n")
 set.seed(1)
 nf <- 2000L
@@ -60,26 +60,26 @@ tempo <- function(rotulo, expr) {
               paste(sprintf("%.2f", vapply(1:3, function(i) system.time(eval(e, pf))[["elapsed"]],
                                            numeric(1))), collapse = " ")))
 }
-cp <- BreedingR:::colunas_pedigree(ped)
+cp <- uaitrem:::colunas_pedigree(ped)
 for (nt in c(1L, 4L)) {
   br_threads(nt)
   cat("--", nt, "thread(s)\n")
   tempo("conferencia dos valores 0/1/2 (ja existia)",
-        .Call(BreedingR:::R_confere_genotipos, gen$m))
-  tempo("taxa de chamada por animal (nova)", BreedingR:::taxa_chamada_animal(gen$m))
+        .Call(uaitrem:::R_confere_genotipos, gen$m))
+  tempo("taxa de chamada por animal (nova)", uaitrem:::taxa_chamada_animal(gen$m))
   tempo("valida_genotipos inteira (valores, ids, rownames, taxa)",
-        BreedingR:::valida_genotipos(gen))
+        uaitrem:::valida_genotipos(gen))
   tempo("pares pai-filho, genotipos coerentes com o pedigree",
-        BreedingR:::pares_parentesco(cp, gen$ids, gen$m))
+        uaitrem:::pares_parentesco(cp, gen$ids, gen$m))
   tempo("pares pai-filho, ids embaralhados (todo par em conflito)",
-        BreedingR:::pares_parentesco(cp, sample(gen$ids), gen$m))
+        uaitrem:::pares_parentesco(cp, sample(gen$ids), gen$m))
 }
 br_threads(1L)
 ck1 <- parentage_check(ped, gen)
-t1 <- BreedingR:::taxa_chamada_animal(gen$m)
+t1 <- uaitrem:::taxa_chamada_animal(gen$m)
 br_threads(4L)
 cat("\n1 contra 4 threads, identicos: taxa de chamada",
-    identical(BreedingR:::taxa_chamada_animal(gen$m), t1), "| parentage_check",
+    identical(uaitrem:::taxa_chamada_animal(gen$m), t1), "| parentage_check",
     identical(parentage_check(ped, gen), ck1), "\n")
 br_threads(1L)
 cat("pares genotipados:", nrow(ck1), "| em conflito nos coerentes:", sum(ck1$conflict),
@@ -92,9 +92,9 @@ cat("ids embaralhados: pares em conflito", sum(embaralhado$conflict), "de", nrow
 ped2 <- ped
 k <- sample(which(ped2$id %in% gen$ids & ped2$sire %in% gen$ids), 200)
 ped2$sire[k] <- sample(gen$ids, 200)
-op <- options(BreedingR.verify_parentage = TRUE)
-cat(substr(tryCatch(BreedingR:::avisa_parentesco(BreedingR:::colunas_pedigree(ped2),
-                                                 BreedingR:::valida_genotipos(gen)),
+op <- options(uaitrem.verify_parentage = TRUE)
+cat(substr(tryCatch(uaitrem:::avisa_parentesco(uaitrem:::colunas_pedigree(ped2),
+                                                 uaitrem:::valida_genotipos(gen)),
                     warning = conditionMessage), 1, 220), "...\n\n")
 options(op)
 
@@ -126,7 +126,7 @@ invisible(gc())
 br_threads(1L)
 q <- suppressMessages(qc_genotypes(gen, pedigree = ped))
 cat("\nausencia heterogenea:",
-    sprintf("%.3f", .Call(BreedingR:::R_conta_ausentes, gen$m) / length(gen$m)), "ausente;",
+    sprintf("%.3f", .Call(uaitrem:::R_conta_ausentes, gen$m) / length(gen$m)), "ausente;",
     q$passes, "passadas; saem", q$n_animal, "animais pela taxa de chamada,", q$n_parentage,
     "pelo parentesco,", q$n_call, "marcadores pela taxa e", q$n_maf, "pelo MAF\n")
 tempo("qc_genotypes(genotypes), ausencia heterogenea, 1 thread",

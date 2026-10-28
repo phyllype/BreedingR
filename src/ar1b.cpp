@@ -28,7 +28,7 @@ namespace br {
 // com um unico intervalo de 0.5, ela sumia, e o ajuste ficava pior com converged = TRUE (medido
 // em 12aca18 no dado de test-estrutura-e3.R, 120 sujeitos x 6 dias, rho -0.4: em POSIXct
 // -2logL 866.61 contra 784.00 em dias; 103 a 271 unidades nos casos do levantamento). Dividir
-// o tempo pelo passo e uma reparametrizacao do BreedingR, e nao a do nlme: la a unidade da
+// o tempo pelo passo e uma reparametrizacao do UAI-TREM, e nao a do nlme: la a unidade da
 // covariavel e o passo.
 //
 // A regra le so as RAZOES entre intervalos, entao e a mesma em qualquer unidade: o passo h e o
@@ -618,7 +618,7 @@ std::vector<double> partida_univariados_ar1(const DesenhoAR& d,
 
 // A CAMINHADA do AR(1), de uma partida ate um veredito; ajusta_ar1 (no fim do arquivo) a
 // chama e, com um bloco na parede, explora de dentro do cone (explora_fronteira, aireml.cpp).
-// O gancho BREEDINGR_TESTE_SEM_PASSO e o do multicaracter (o racional esta em
+// O gancho UAITREM_TESTE_SEM_PASSO e o do multicaracter (o racional esta em
 // multitrait2.cpp): recusa todo passo AI e todo EM, so para o portao do D2.
 // `it0`: as iteracoes ja gastas por uma caminhada anterior do mesmo ajuste (caminha_mt)
 static AjusteMT caminha_ar1(DesenhoAR& d, const std::vector<double>* theta0,
@@ -626,7 +626,7 @@ static AjusteMT caminha_ar1(DesenhoAR& d, const std::vector<double>* theta0,
   AjusteMT R;
   R.iters = it0;
   const std::size_t t = d.t;
-  const bool sem_passo = std::getenv("BREEDINGR_TESTE_SEM_PASSO") != nullptr;
+  const bool sem_passo = std::getenv("UAITREM_TESTE_SEM_PASSO") != nullptr;
   // PADRONIZACAO INTERNA POR CARACTERISTICA, a mesma do multicaracter (o racional e as
   // medidas estao em ajusta_mt, src/multitrait2.cpp). Aqui ela pesa ate com t = 1: o rho nao
   // tem unidade e as variancias tem, entao o relDelta, que soma os dois, e o corte da AI

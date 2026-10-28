@@ -10,7 +10,7 @@ por_ger <- if (length(args) >= 1) as.integer(args[1]) else 6000L
 ngen_gen <- if (length(args) >= 2) as.integer(args[2]) else 3L
 nm <- if (length(args) >= 3) as.integer(args[3]) else 3000L
 nc <- if (length(args) >= 4) as.integer(args[4]) else 2000L
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 br_threads(if (length(args) >= 5) as.integer(args[5]) else 1L)
 nger <- 10L
 set.seed(21)
@@ -25,7 +25,7 @@ gid <- id[(nger - ngen_gen) * por_ger + seq_len(ngen_gen * por_ger)]
 geno <- list(ids = gid, m = matrix(as.double(sample(0:2, length(gid) * nm, TRUE)), length(gid), nm))
 # genotipos sorteados sem o pedigree: todo par pai-filho conflita por construcao, e a
 # conferencia de parentesco (o verify_parentage 0 do preGSf90) fica fora do tempo medido
-options(BreedingR.verify_parentage = FALSE)
+options(uaitrem.verify_parentage = FALSE)
 t0 <- proc.time()[[3]]
 h <- h_inverse(ped, geno, apy_core = gid[round(seq(1, length(gid), length.out = nc))])
 cat(sprintf("pedigree %d, genotipados %d, marcadores %d, nucleo %d: h_inverse %.1f s, nnz(H^-1) %.0f\n",

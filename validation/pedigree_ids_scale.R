@@ -26,7 +26,7 @@
 # Status de saida: 0 com tudo conferido, 1 com alguma diferenca acima da tolerancia ou um
 # aviso que faltou.
 args <- commandArgs(TRUE)
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 extra <- if (length(args) >= 2L) as.integer(args[2]) else 100000L
 replicas <- if (length(args) >= 3L) as.integer(args[3]) else 3L
 invisible(br_threads(if (length(args) >= 4L) as.integer(args[4]) else 1L))
@@ -43,9 +43,9 @@ mediana_tempo <- function(f) {
 # a regra sozinha (prepara_estrutura()) sobre os dados e um pedigree, mediana de `replicas`
 tempo_regra <- function(p) {
   t <- vapply(seq_len(replicas), function(k) system.time(calado(
-    BreedingR:::prepara_estrutura(BreedingR:::decompoe_formula(quote(cg + animal(id)),
+    uaitrem:::prepara_estrutura(uaitrem:::decompoe_formula(quote(cg + animal(id)),
                                                                globalenv()),
-                                  d, BreedingR:::colunas_para_motor(d, c("y", "cg", "id"),
+                                  d, uaitrem:::colunas_para_motor(d, c("y", "cg", "id"),
                                                                     c("cg", "id")),
                                   p, "y")))[["elapsed"]], numeric(1))
   sprintf("%.2f s (mediana) [%s]", stats::median(t), paste(sprintf("%.2f", t), collapse = " "))

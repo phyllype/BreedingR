@@ -117,7 +117,7 @@ test_that("uma cadeia real que guarda menos amostras fica fora de tudo, residuos
   g <- with_mocked_bindings(
     gibbs(y ~ cg + animal(id), z$d, z$ped, n_iter = 400L, burnin = 100L, thin = 5L,
           chains = 3L, residual_draws = 5L, verbose = FALSE, prior = "jeffreys"),
-    roda_cadeias = curta, .package = "BreedingR")
+    roda_cadeias = curta, .package = "uaitrem")
   expect_identical(g$n_iter, 400L)
   expect_identical(g$chain_n, c(60L, 40L, 60L))
   expect_identical(g$chains_used, c(1L, 3L))

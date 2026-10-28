@@ -10,7 +10,7 @@ vignette: >
 ```{r, include = FALSE}
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 set.seed(2026)
-library(BreedingR)
+library(uaitrem)
 ```
 
 This document follows a genetic evaluation in the order it actually happens, and at each

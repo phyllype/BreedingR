@@ -9,7 +9,7 @@ qc_genotypes(
   min_call_rate = 0.9,
   min_maf = 0.01,
   hwe_p = NULL,
-  min_call_rate_animal = getOption("BreedingR.min_call_rate_animal", 0.9),
+  min_call_rate_animal = getOption("uaitrem.min_call_rate_animal", 0.9),
   pedigree = NULL,
   exclusion_threshold = 0.01,
   sex_markers = if (is.list(m)) m[["sex_markers", exact = TRUE]]
@@ -30,7 +30,7 @@ animals}
 
 \item{min_call_rate_animal}{keep animals with at least this fraction of calls over the
 kept markers that vary; the default is the line of the single-step fitters,
-\code{getOption("BreedingR.min_call_rate_animal", 0.90)}. NULL keeps every animal, and then
+\code{getOption("uaitrem.min_call_rate_animal", 0.90)}. NULL keeps every animal, and then
 only the markers are filtered}
 
 \item{pedigree}{NULL, or a pedigree (animal, sire, dam): then the offspring in conflict
@@ -79,7 +79,7 @@ markers that most animals lack (the shared ones stay). Then MAF and HWE on the k
 animals, and the parentage test; anything they remove changes the rates, and the passes
 repeat until nothing changes. So the result always passes the call-rate check of the
 single-step fitters (see \code{\link[=model]{model()}}), whose line is the same
-\code{options(BreedingR.min_call_rate_animal)} that gives the default here.
+\code{options(uaitrem.min_call_rate_animal)} that gives the default here.
 
 Heterogeneous missingness takes many passes (hundreds when the failing animals and
 markers interleave), but the matrix is read once: the counts are kept and updated as

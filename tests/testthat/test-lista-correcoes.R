@@ -282,12 +282,12 @@ test_that("a concentrated variable and a 0/1 trait of low incidence are not flag
   # the reserve flagged legitimate values; a typing error far away is still flagged
   set.seed(26)
   idade <- c(rep(60, 170), sample(55:70, 30, TRUE))
-  expect_length(BreedingR:::valores_suspeitos(idade, seq_along(idade)), 0L)
-  expect_length(BreedingR:::valores_suspeitos(c(idade, 600), seq_len(201)), 1L)
+  expect_length(uaitrem:::valores_suspeitos(idade, seq_along(idade)), 0L)
+  expect_length(uaitrem:::valores_suspeitos(c(idade, 600), seq_len(201)), 1L)
   b <- c(rep(0, 190), rep(1, 10))
-  expect_length(BreedingR:::valores_suspeitos(b, seq_along(b)), 0L)
+  expect_length(uaitrem:::valores_suspeitos(b, seq_along(b)), 0L)
   # a missing-value code in a 0/1 trait is still a code
-  expect_length(BreedingR:::valores_suspeitos(c(b, -999, -999), seq_len(202)), 1L)
+  expect_length(uaitrem:::valores_suspeitos(c(b, -999, -999), seq_len(202)), 1L)
 })
 
 test_that("h2_curve() reads the base of a scalar term at the point, or warns (item 30)", {
@@ -327,7 +327,7 @@ test_that("when every chain stops early, the message says the chain used stopped
          message = "", names = c("var(animal)", "var(residual)"))
   }
   set.seed(39)
-  j <- BreedingR:::junta_cadeias(list(faz(20), faz(35), faz(12)), 50L)
+  j <- uaitrem:::junta_cadeias(list(faz(20), faz(35), faz(12)), 50L)
   expect_identical(j$chains_used, 2L)
   expect_match(j$message, "every chain stopped early: the results come from chain 2, the longest, which stopped too [(]35 of 50")
 })
@@ -337,11 +337,11 @@ test_that("two disjoint groups near a correlation of +-1 are both found (item 10
   # so o ultimo grupo era visto
   th <- c("var(a)" = 1, "cov(b,a)" = -0.99999999, "var(b)" = 1,
           "var(c)" = 1, "cov(d,c)" = 0.99999999, "var(d)" = 1)
-  perto <- BreedingR:::grupos_perto_de_um(th)
+  perto <- uaitrem:::grupos_perto_de_um(th)
   expect_length(perto, 2L)
   expect_true(any(vapply(perto, function(s) setequal(s, c("a", "b")), logical(1))))
   expect_true(any(vapply(perto, function(s) setequal(s, c("c", "d")), logical(1))))
   # longe de +-1, nenhum
   th[c("cov(b,a)", "cov(d,c)")] <- c(-0.5, 0.5)
-  expect_length(BreedingR:::grupos_perto_de_um(th), 0L)
+  expect_length(uaitrem:::grupos_perto_de_um(th), 0L)
 })

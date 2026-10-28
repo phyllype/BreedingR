@@ -41,7 +41,7 @@
 #   geracoes sem genotipo (2 por padrao; o pedigree tem n/20 + (g + 4) n/4 linhas).
 # Cada caso so roda se a memoria disponivel cobre a estimativa do pico dele mais 0,5 GB.
 args <- commandArgs(TRUE)
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 
 # conjunto de trabalho, o pico dele, commit privado e o pico dele (bytes)
 memoria <- function() {
@@ -113,7 +113,7 @@ if (length(args) >= 1 && args[1] == "--prepara") {
   u <- stats::setNames(stats::rnorm(length(gen), 0, 0.5), id[gen])
   nucleo <- id[gen][seq(1L, length(gen), by = 20L)]
   saveRDS(list(ped = ped, gid = id[gen], m = M, u = u, nucleo = nucleo,
-               h_prior = stats::setNames(.Call(BreedingR:::R_efeitos_snp, ped$id, ped$sire,
+               h_prior = stats::setNames(.Call(uaitrem:::R_efeitos_snp, ped$id, ped$sire,
                                                ped$dam, character(0), numeric(0), id[gen], M,
                                                unname(u), 0.05, nucleo, 0L,
                                                numeric(0))$diag_gstar, id[gen])),
@@ -142,7 +142,7 @@ if (length(args) >= 1 && args[1] == "--filho") {
                    genomic = list(blend = 0.05),
                    apy = if (caso == "snp_apy") list(ids = fx$nucleo)),
               class = "breeding_fit")
-  f <- if (versao == "legado") legado else asNamespace("BreedingR")
+  f <- if (versao == "legado") legado else asNamespace("uaitrem")
   invisible(gc())
   m0 <- memoria()
   # o tempo da chamada (system.time faz o gc antes) e depois o pico, fora do tempo

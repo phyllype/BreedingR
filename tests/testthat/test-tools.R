@@ -59,7 +59,7 @@ test_that("the print carries the share column and it sums to one over the varian
                          offspring_per_generation = 25, h2 = 0.4, seed = 72)
   f <- model(y ~ cg + animal(id) , s$data, s$pedigree)
   expect_output(print(f), "share")
-  tb <- BreedingR:::tabela_componentes(f$theta, f$se)
+  tb <- uaitrem:::tabela_componentes(f$theta, f$se)
   expect_equal(sum(tb$share[startsWith(tb$component, "var(")]), 1, tolerance = 1e-3)
 })
 

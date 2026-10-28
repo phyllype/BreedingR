@@ -34,7 +34,7 @@
 # quantas replicas usa (multiplos ou fracoes de R).
 args <- commandArgs(TRUE)
 R <- if (length(args) >= 1) as.integer(args[1]) else 400L
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 br_threads(1L)
 
 ar1 <- function(n, phi, x0 = NULL)
@@ -55,10 +55,10 @@ cat("(A) tipo I a 5%: Geweke combinado e primeira olhada do HW, cadeias AR(1) ga
 for (M in c(1L, 4L)) for (n in c(1000L, 1800L, 5000L)) for (phi in c(0, 0.5, 0.8, 0.9, 0.95)) {
   r <- replicate(R, {
     x <- matriz(M, n, phi)
-    g <- BreedingR:::geweke_combinado(x)
+    g <- uaitrem:::geweke_combinado(x)
     c(g[["p_z"]] < 0.05, abs(g[["z"]]) > stats::qnorm(0.975), g[["p_qui2"]] < 0.05,
-      BreedingR:::hw_combinado(x)[1] < 0.05, g[["ess_a"]],
-      BreedingR:::hw_combinado(x, ruido = FALSE)[1] < 0.05,
+      uaitrem:::hw_combinado(x)[1] < 0.05, g[["ess_a"]],
+      uaitrem:::hw_combinado(x, ruido = FALSE)[1] < 0.05,
       2 * min(g[["p_z"]], g[["p_qui2"]]) < 0.05, min(g[["p_z"]], g[["p_qui2"]]) < 0.05)
   })
   cat(sprintf("  M=%d n=%4d phi=%.2f ESS/chain %5.0f window ESS %6.1f | Geweke z: t %.3f (normal %.3f) chi2 %.3f%s | HW %.3f (plain %.3f)\n",
@@ -136,14 +136,14 @@ for (M in c(3L, 4L, 8L)) for (phi in c(0.5, 0.9))
 cat("\n(E1) localizacoes, M = 4, n = 1800: P(algum nivel marcado) em estacionariedade, 40\n",
     "    replicas. tau_i homogeneo ou de 1 ate o teto (uniforme, ou 1 + c z^2 como o EBV: cresce\n",
     "    com |EBV|/dp); o teto ORACULO e o tau maximo verdadeiro + 2, contra a regra so da mediana\n")
-lim <- BreedingR:::limiares_padrao(list())
+lim <- uaitrem:::limiares_padrao(list())
 for (q in c(860L, 50000L)) for (tau in list(1, 5, 20, c(1, 10), c(1, 40), "z2")) {
   r <- replicate(40, {
     tt <- if (identical(tau, "z2")) pmin(1 + 0.55 * stats::rnorm(q)^2, 20)
           else if (length(tau) == 2L) stats::runif(q, tau[1], tau[2]) else rep(tau, q)
     m <- matrix(stats::rnorm(q * 4, 0, sqrt(tt / 1800)), q, 4)
-    c(BreedingR:::diag_localizacoes(m, matrix(1, q, 4), 1800L, lim)$resumo$flagged > 0,
-      BreedingR:::diag_localizacoes(m, matrix(1, q, 4), 1800L, lim, max(tt) + 2)$resumo$flagged > 0,
+    c(uaitrem:::diag_localizacoes(m, matrix(1, q, 4), 1800L, lim)$resumo$flagged > 0,
+      uaitrem:::diag_localizacoes(m, matrix(1, q, 4), 1800L, lim, max(tt) + 2)$resumo$flagged > 0,
       max(sqrt(1799 / 1800 + apply(m, 1, stats::var))) >= 1.01)
   })
   cat(sprintf("  q %5d tau %-6s | max >= 1.01 %.3f | median-only limit %.3f | with the oracle ceiling %.3f\n",
@@ -154,9 +154,9 @@ cat("(E2) localizacoes com cadeias AR(1) de verdade (W com ruido): q = 2000, M =
 r <- replicate(40, {
   x <- array(vapply(seq_len(2000 * 4), function(i) ar1(500, stats::runif(1, 0, 0.6)),
                     numeric(500)), c(500, 2000, 4))
-  c(BreedingR:::diag_localizacoes(apply(x, c(2, 3), mean), apply(x, c(2, 3), stats::sd), 500L,
+  c(uaitrem:::diag_localizacoes(apply(x, c(2, 3), mean), apply(x, c(2, 3), stats::sd), 500L,
                                   lim)$resumo$flagged,
-    BreedingR:::diag_localizacoes(apply(x, c(2, 3), mean), apply(x, c(2, 3), stats::sd), 500L,
+    uaitrem:::diag_localizacoes(apply(x, c(2, 3), mean), apply(x, c(2, 3), stats::sd), 500L,
                                   lim, 6)$resumo$flagged)
 })
 cat(sprintf("  P(any flagged): median-only %.3f, with the oracle ceiling %.3f\n", mean(r[1, ] > 0),
@@ -167,7 +167,7 @@ for (delta in c(0.25, 0.5, 1))
   cat(sprintf("  delta %.2f | detected %.3f\n", delta, mean(replicate(40, {
     m <- matrix(stats::rnorm(50000 * 4, 0, sqrt(5 / 1800)), 50000, 4)
     m[1, 4] <- m[1, 4] + delta
-    BreedingR:::diag_localizacoes(m, matrix(1, 50000, 4), 1800L, lim, 7)$resumo$flagged > 0
+    uaitrem:::diag_localizacoes(m, matrix(1, 50000, 4), 1800L, lim, 7)$resumo$flagged > 0
   }))))
 cat("(E4) a ESS tipica abaixo do piso (100 por cadeia), niveis iid a tau: o teste unilateral\n",
     "    (ess_low) contra a estimativa pontual (M n / tau tipico < 100 M);", 5L * R,
@@ -178,7 +178,7 @@ for (cfg in list(c(2, 300, 1), c(2, 500, 1), c(3, 300, 1), c(4, 300, 1), c(2, 30
   n <- cfg[2]
   q <- cfg[3]
   taxa <- function(tau, reps) rowMeans(replicate(reps, {
-    r <- BreedingR:::diag_localizacoes(matrix(stats::rnorm(q * M, 0, sqrt(tau / n)), q, M),
+    r <- uaitrem:::diag_localizacoes(matrix(stats::rnorm(q * M, 0, sqrt(tau / n)), q, M),
                                        matrix(1, q, M), n, lim)$resumo
     c(r$ess_low, r$ess_typical < 100 * M)
   }))
@@ -192,7 +192,7 @@ cat("(E5) o limite das localizacoes para q = 860 niveis com tau_reference dado (
     "    diag_localizacoes): depende de M, n e tau, e acima de sqrt((n-1)/n + 1/M) a checagem e\n",
     "    inativa (nao acusa nem um nivel com uma cadeia a 1 dp posterior)\n")
 for (M in c(2L, 4L)) for (n in c(1800L, 5000L)) for (tau in c(12, 40)) {
-  r <- BreedingR:::diag_localizacoes(matrix(stats::rnorm(860 * M, 0, sqrt(1 / n)), 860, M),
+  r <- uaitrem:::diag_localizacoes(matrix(stats::rnorm(860 * M, 0, sqrt(1 / n)), 860, M),
                                      matrix(1, 860, M), n, lim, tau)$resumo
   cat(sprintf("  M=%d n=%4d tau_reference %2.0f | limit %.4f, active %s\n", M, n,
               r$tau_reference, r$limit, r$active))
@@ -222,7 +222,7 @@ print(g$diagnostics$locations[, c("term", "levels", "rhat_max", "tau_reference",
       row.names = FALSE)
 cat("  the median-only rule on the same chains (first 4 and all 16): max R-hat against its limit\n")
 for (M in c(4L, 16L)) {
-  r <- BreedingR:::diag_localizacoes(g$chain_ebv$animal[, seq_len(M)],
+  r <- uaitrem:::diag_localizacoes(g$chain_ebv$animal[, seq_len(M)],
                                      g$chain_ebv_sd$animal[, seq_len(M)], 2000L, lim)$resumo
   cat(sprintf("    M=%2d: max %.4f, limit %.4f, flagged %d\n", M, r$rhat_max, r$limit, r$flagged))
 }
@@ -254,7 +254,7 @@ for (cs in list(list(f = y ~ cg + animal(id, group = "g") + maternal(dam, group 
                 list(f = y ~ cg + rn(id, base = c("phi0", "phi1")), d = dr))) {
   g <- gibbs(cs$f, cs$d, s$pedigree, n_iter = 4000L, burnin = 1000L, thin = 1L, chains = 16L,
              verbose = FALSE, prior = "jeffreys")
-  ef <- BreedingR:::efeito_por_linha(g, names(g$chain_ebv)[1], nrow(g$chain_ebv[[1]]), NULL)
+  ef <- uaitrem:::efeito_por_linha(g, names(g$chain_ebv)[1], nrow(g$chain_ebv[[1]]), NULL)
   tau_s <- 3000 * apply(g$chain_ebv[[1]], 1, stats::var) / rowMeans(g$chain_ebv_sd[[1]]^2)
   lento <- 16 * 3000 / g$diagnostics$table$ess_bulk
   cat(sprintf("  %s\n  posterior means %s\n  tau of the slowest row %.1f (%s)\n", deparse(cs$f),
@@ -297,7 +297,7 @@ cat("  Geweke antigo (variancia iid) a 5%, uma cadeia AR(1) estacionaria, n = 18
 for (phi in c(0.5, 0.9, 0.98))
   cat(sprintf("    phi %.2f: old %.3f, new %.3f\n", phi,
               mean(replicate(5L * R %/% 2L, abs(geweke_antigo(ar1(1800, phi))) > 1.96)),
-              mean(replicate(R, BreedingR:::geweke_combinado(as.matrix(ar1(1800, phi)))[["p_z"]] < 0.05))))
+              mean(replicate(R, uaitrem:::geweke_combinado(as.matrix(ar1(1800, phi)))[["p_z"]] < 0.05))))
 cat("  ess() antigo (acf + pares positivos, sem o passo monotono) / ess() novo (= posterior::\n",
     "  ess_basic(split = FALSE)), uma cadeia de 2000,", R %/% 2L, "cadeias por phi:\n")
 for (phi in c(0, 0.5, 0.9, 0.99)) {
@@ -326,7 +326,7 @@ cat(sprintf("  rhat() antigo / novo, n = 21 (impar), 4 cadeias, %d replicas: dif
             5L * R, mean(abs(d) > 1e-12), max(abs(d))))
 r <- replicate(R %/% 4L, {
   x <- matriz(4L, 1000L, 0.5, mu = c(0, 0, 0, 2))
-  c(sum(apply(x, 2, ess_antigo)), BreedingR:::ess_bulk(x))
+  c(sum(apply(x, 2, ess_antigo)), uaitrem:::ess_bulk(x))
 })
 cat(sprintf("  1 de 4 cadeias deslocada 2 dp (AR 0.5, n = 1000), %d replicas: soma das ess() antigas %.0f, bulk-ESS %.1f\n",
             R %/% 4L, mean(r[1, ]), mean(r[2, ])))
@@ -335,7 +335,7 @@ cat("  R-hat >= 1.01 em cadeias convergidas com bulk-ESS ~100 por cadeia (AR 0.8
 for (M in c(2L, 4L, 8L)) {
   r <- replicate(R, {
     x <- matriz(M, 1000L, 0.818)
-    c(rhat(x) >= 1.01, BreedingR:::ess_bulk(x) / M)
+    c(rhat(x) >= 1.01, uaitrem:::ess_bulk(x) / M)
   })
   cat(sprintf("    M=%d: %.3f (bulk-ESS per chain %.0f)\n", M, mean(r[1, ]), mean(r[2, ])))
 }
@@ -365,9 +365,9 @@ r <- replicate(R, {
     cbind(x1 = as.vector(stats::filter(c(x0[1], e[-1, 1] + 0.2 * x2[-1800] + 0.1 * x3[-1800]),
                                        0.7, "recursive")), x2, x3)
   })
-  c(BreedingR:::mess_vats(X),
+  c(uaitrem:::mess_vats(X),
     4 * 1800 * exp((as.numeric(determinant(stats::cov(do.call(rbind, X)))$modulus) -
-                      as.numeric(determinant(BreedingR:::sigma_bm(X, floor(sqrt(1800))))$modulus)) / p)) /
+                      as.numeric(determinant(uaitrem:::sigma_bm(X, floor(sqrt(1800))))$modulus)) / p)) /
     (4 * 1800 * (det(L) / det(solve(diag(p) - Phi) %*% L + L %*% t(solve(diag(p) - Phi)) - L))^(1 / p))
 })
 cat(sprintf("  mESS / truth: lugsail %.3f (sd %.3f), plain batch means %.3f (sd %.3f)\n",
@@ -380,9 +380,9 @@ cat("\n(J) cauda pesada: os testes de inicio de cadeia na escala de start_scale 
 set.seed(20261009)
 # a decisao de burn-in de uma linha numa escala dada, como em classifica_linhas()
 burn <- function(x) {
-  g <- BreedingR:::geweke_combinado(x)
+  g <- uaitrem:::geweke_combinado(x)
   2 * min(if (ncol(x) > 1L) min(1, 2 * min(g[["p_z"]], g[["p_qui2"]])) else g[["p_z"]],
-          BreedingR:::hw_combinado(x)[1]) < 0.01
+          uaitrem:::hw_combinado(x)[1]) < 0.01
 }
 cat("(J1) amostras ESTACIONARIAS,", R, "replicas: inversa-gama(a) iid (k = 1/a), n = 1000;\n",
     "    copula AR(0.9) com marginal IG(1.5), n = 2000; t com 1.5 gl (k ~ 0.67, sem log), n = 1000\n")
@@ -419,7 +419,7 @@ for (cs in list(list(nome = "light 1 + 0.1 z", f = function(z) 1 + 0.1 * z, z0 =
       x <- cs$f(matriz(M, 10000L, 0.95, x0 = z0))
       d <- mcmc_diagnostics(x)
       c(d$verdict == "burn-in too short", burn(x), burn(log(x)),
-        burn(BreedingR:::escores_normais(x)), d$table$start_scale == "raw")
+        burn(uaitrem:::escores_normais(x)), d$table$start_scale == "raw")
     })
     cat(sprintf("  %-16s M=%d z0=%+3.0f | burn-in %.3f (raw scale used %.3f) | raw %.3f log %.3f ranks %.3f\n",
                 cs$nome, M, z0, mean(r[1, ]), mean(r[5, ]), mean(r[2, ]), mean(r[3, ]),

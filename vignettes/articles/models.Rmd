@@ -1,5 +1,5 @@
 ---
-title: "What BreedingR fits"
+title: "What UAI-TREM fits"
 description: >
   The map of models and terms, and a commented call for each one.
 ---
@@ -171,4 +171,4 @@ behind `apy_core=` (why APY works and what the Mendelian residual means) is in
 [APY.md](APY.md).
 
 The works cited here by author and year are listed in full in the
-[references](https://phyllype.github.io/BreedingR/REFERENCES.html).
+[references](https://phyllype.github.io/UAI-TREM/REFERENCES.html).

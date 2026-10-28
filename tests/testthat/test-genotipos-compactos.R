@@ -88,7 +88,7 @@ test_that("read_blupf90_snp: a matriz raw que o escritor pos, e o subconjunto de
   md <- m + 0
   md[md == 5] <- NA
   local({
-    op <- options(BreedingR.min_call_rate_animal = 0)
+    op <- options(uaitrem.min_call_rate_animal = 0)
     on.exit(options(op))
     expect_identical(g_matrix(list(ids = ids, m = g$m)), g_matrix(list(ids = ids, m = md)))
   })

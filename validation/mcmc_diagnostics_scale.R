@@ -18,7 +18,7 @@
 # antes.
 # Uso: Rscript validation/mcmc_diagnostics_scale.R [replicas] [n_iter] [burnin] [thin]
 args <- as.integer(commandArgs(TRUE))
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 br_threads(1L)
 q <- 20000L
 set.seed(11)

@@ -56,11 +56,11 @@ recusa_termos_curva <- function(terms) {
 # teste linear, um movimento so) mudam o amostrador: quando alguma esta ativa, a nota diz qual
 opcoes_internas_curva <- function() {
   ativas <- c(
-    BreedingR.curva_variante = !identical(as.integer(getOption("BreedingR.curva_variante", 1L)), 1L),
-    BreedingR.curva_segura = !identical(as.integer(getOption("BreedingR.curva_segura", 0L)), 0L),
-    BreedingR.curva_phi = !is.null(getOption("BreedingR.curva_phi")),
-    BreedingR.curva_linear = isTRUE(getOption("BreedingR.curva_linear")),
-    BreedingR.curva_movimentos = !identical(getOption("BreedingR.curva_movimentos", "both"), "both"))
+    uaitrem.curva_variante = !identical(as.integer(getOption("uaitrem.curva_variante", 1L)), 1L),
+    uaitrem.curva_segura = !identical(as.integer(getOption("uaitrem.curva_segura", 0L)), 0L),
+    uaitrem.curva_phi = !is.null(getOption("uaitrem.curva_phi")),
+    uaitrem.curva_linear = isTRUE(getOption("uaitrem.curva_linear")),
+    uaitrem.curva_movimentos = !identical(getOption("uaitrem.curva_movimentos", "both"), "both"))
   if (!any(ativas)) return(character(0))
   paste0("internal gate option(s) active (", paste(names(ativas)[ativas], collapse = ", "),
          "): this chain is not the sampler of the documented model")

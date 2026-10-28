@@ -12,7 +12,7 @@
 # Simulado; nenhum dado real.
 #
 #   Rscript validation/apy_core_lanczos_se.R [threads]
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 br_threads(if (length(commandArgs(TRUE))) as.integer(commandArgs(TRUE)[1]) else 4L)
 
 cat("(1) the count gate over probe seeds 1-20 (30 probes, 80 steps)\n")
@@ -44,10 +44,10 @@ geno <- simulate_breeding(n_founders = 40, n_generations = 4, offspring_per_gene
                           h2 = 0.3, n_markers = 1500, seed = 11)$genotypes
 razao <- t(vapply(1:8, function(s) {
   set.seed(s)
-  r <- .Call(BreedingR:::R_lanczos_g, geno$m,
+  r <- .Call(uaitrem:::R_lanczos_g, geno$m,
              matrix(sample(c(-1, 1), 1000 * 600, TRUE), 1000), 40L)
   medidas <- lapply(split(1:600, rep(1:20, each = 30)), function(g)
-    BreedingR:::medida_nos(BreedingR:::nos_lanczos(list(
+    uaitrem:::medida_nos(uaitrem:::nos_lanczos(list(
       alpha = r$alpha[, g], beta = r$beta[, g], steps = r$steps[g], dim = r$dim))))
   vapply(c(0.90, 0.95, 0.98, 0.99), function(v)
     stats::sd(vapply(medidas, function(x) x$conta(v), 0)) /
@@ -65,5 +65,5 @@ for (passos in c(100L, 200L, 300L)) {
             beta = matrix(stats::runif(passos * 30, 0.5, 3), passos),
             steps = rep(passos, 30), dim = 10000)
   cat(sprintf("  %d steps: %s s\n", passos, paste(sprintf("%.2f", vapply(1:3, function(i)
-    system.time(BreedingR:::nos_lanczos(r))[["elapsed"]], 0)), collapse = ", ")))
+    system.time(uaitrem:::nos_lanczos(r))[["elapsed"]], 0)), collapse = ", ")))
 }

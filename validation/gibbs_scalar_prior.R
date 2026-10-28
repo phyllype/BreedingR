@@ -188,7 +188,7 @@
 # guardar a tabela das replicas (opcional; no asis, "-" para nenhum); n_iter nos modos asis e
 # misto, n_tempo no asis. Simulado; nenhum dado real.
 args <- commandArgs(TRUE)
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 options(width = 200)
 modo <- if (length(args) >= 1) args[1] else "escalar"
 # as replicas: 1 a R, ou (modo residuo) a lista dada
@@ -380,10 +380,10 @@ mede_asis <- function(g) {
   do.call(rbind, lapply(1:2, function(j) {
     M <- vapply(g$chain_samples[g$chains_used], function(s) s[seq_len(n), j], numeric(n))
     q <- stats::quantile(M, c(0.025, 0.975), names = FALSE)
-    data.frame(comp = c("termo", "residuo")[j], ess_bulk = BreedingR:::ess_bulk(M),
-               ess_tail = BreedingR:::ess_tail(M),
-               rhat = max(BreedingR:::rhat_bulk(M), BreedingR:::rhat_tail(M)), media = mean(M),
-               mcse = BreedingR:::mcse_media(M), dp = stats::sd(c(M)), lo = q[1], hi = q[2],
+    data.frame(comp = c("termo", "residuo")[j], ess_bulk = uaitrem:::ess_bulk(M),
+               ess_tail = uaitrem:::ess_tail(M),
+               rhat = max(uaitrem:::rhat_bulk(M), uaitrem:::rhat_tail(M)), media = mean(M),
+               mcse = uaitrem:::mcse_media(M), dp = stats::sd(c(M)), lo = q[1], hi = q[2],
                n = length(M), stringsAsFactors = FALSE)
   }))
 }
@@ -510,7 +510,7 @@ if (cores > 1L) {
   cl <- parallel::makeCluster(cores)
   parallel::clusterExport(cl, setdiff(ls(), "cl"))
   invisible(parallel::clusterCall(cl, function(th) {
-    suppressMessages(library(BreedingR))
+    suppressMessages(library(uaitrem))
     br_threads(th)
     NULL
   }, br_threads()$threads))

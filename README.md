@@ -1,13 +1,19 @@
-# BreedingR <a href="https://phyllype.github.io/BreedingR/"><img src="man/figures/logo.svg" align="right" height="139" alt="BreedingR website" /></a>
+# UAI-TREM <a href="https://phyllype.github.io/UAI-TREM/"><img src="man/figures/logo.svg" align="right" height="139" alt="UAI-TREM website" /></a>
 
 <!-- badges: start -->
-[![R-CMD-check](https://github.com/phyllype/BreedingR/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/phyllype/BreedingR/actions/workflows/R-CMD-check.yaml)
-[![Website](https://img.shields.io/badge/docs-pkgdown%20site-0f5a55)](https://phyllype.github.io/BreedingR/)
+[![R-CMD-check](https://github.com/phyllype/UAI-TREM/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/phyllype/UAI-TREM/actions/workflows/R-CMD-check.yaml)
+[![Website](https://img.shields.io/badge/docs-pkgdown%20site-0f5a55)](https://phyllype.github.io/UAI-TREM/)
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
-[![R package version](https://img.shields.io/github/r-package/v/phyllype/BreedingR)](https://github.com/phyllype/BreedingR/blob/main/DESCRIPTION)
-[![License: GPL-3](https://img.shields.io/badge/license-GPL--3-blue.svg)](https://github.com/phyllype/BreedingR/blob/main/LICENSE.md)
-[![Last commit](https://img.shields.io/github/last-commit/phyllype/BreedingR)](https://github.com/phyllype/BreedingR/commits/main)
+[![R package version](https://img.shields.io/github/r-package/v/phyllype/UAI-TREM)](https://github.com/phyllype/UAI-TREM/blob/main/DESCRIPTION)
+[![License: GPL-3](https://img.shields.io/badge/license-GPL--3-blue.svg)](https://github.com/phyllype/UAI-TREM/blob/main/LICENSE.md)
+[![Last commit](https://img.shields.io/github/last-commit/phyllype/UAI-TREM)](https://github.com/phyllype/UAI-TREM/commits/main)
 <!-- badges: end -->
+
+Unravelling Additive and Indirect genetic effects with Time-dependent Random Effect Models.
+UAI-TREM separates the genetic effects of longitudinal records from the time dependence of
+the permanent environment and of the residual. This repository holds the established models
+of the engine; the time-dependent models come here as they are published. "Uai" is also how
+Minas Gerais says "well, then". The package is `uaitrem` in R.
 
 Genetic parameters, breeding values and genomic prediction in R. One engine fits the
 animal model and its close relatives: direct-maternal, sire and maternal-grandsire,
@@ -60,22 +66,22 @@ service, no run-time dependency.
 # straight from GitHub with base R only; it compiles, so Windows needs Rtools and macOS
 # the Xcode command-line tools. Downloading first keeps RStudio from trying to read the
 # URL as a local file (harmless "tar.exe: Error opening archive" warnings otherwise).
-f <- file.path(tempdir(), "BreedingR.tar.gz")
-download.file("https://github.com/phyllype/BreedingR/archive/refs/heads/main.tar.gz", f,
+f <- file.path(tempdir(), "uaitrem.tar.gz")
+download.file("https://github.com/phyllype/UAI-TREM/archive/refs/heads/main.tar.gz", f,
               mode = "wb")
 install.packages(f, repos = NULL, type = "source")
 # or with remotes, installed first with install.packages("remotes")
-remotes::install_github("phyllype/BreedingR")
+remotes::install_github("phyllype/UAI-TREM")
 # or from a local clone, giving the folder that holds DESCRIPTION
-install.packages("C:/path/to/BreedingR", repos = NULL, type = "source")
+install.packages("C:/path/to/UAI-TREM", repos = NULL, type = "source")
 
-library(BreedingR)
-packageVersion("BreedingR")   # the examples here need 0.4.0.9000
+library(uaitrem)
+packageVersion("uaitrem")   # the examples here need 0.5.0
 ```
 
 The CI installs the package both ways from GitHub on every push and runs the quick start
 with the installed copy. To update on Windows, first close every R session that loaded
-BreedingR, RStudio included. Windows locks the DLL of a loaded package, and the install
+UAI-TREM, RStudio included. Windows locks the DLL of a loaded package, and the install
 stops with "cannot remove earlier installation".
 
 ## Quick start
@@ -83,7 +89,7 @@ stops with "cannot remove earlier installation".
 A complete run on data the package simulates itself, paste and go:
 
 ```r
-library(BreedingR)
+library(uaitrem)
 s <- simulate_breeding(n_founders = 60, n_generations = 3,
                        offspring_per_generation = 600, h2 = 0.4,
                        seed = 1)                        # pedigree + phenotypes, 1,860 animals
@@ -111,7 +117,7 @@ from simulated data.*
 
 One engine, and the formula terms choose the model. Each group below says what kind of
 data it is for, names the fitter, shows a minimal call and one result on simulated data.
-[The map of models and terms](https://phyllype.github.io/BreedingR/articles/models.html#the-map)
+[The map of models and terms](https://phyllype.github.io/UAI-TREM/articles/models.html#the-map)
 lists every term with its options.
 
 ### Animal model, repeatability and direct-maternal
@@ -131,7 +137,7 @@ model(weight ~ cg + animal(id, group = "g") + maternal(dam, group = "g") + pe(da
 
 *Left: the accuracy of each animal's breeding value against its offspring with a record.
 Right: a direct-maternal fit, each component with its 95% interval beside the value
-simulated.* [More details](https://phyllype.github.io/BreedingR/articles/models.html#animal-model-repeatability-direct-maternal-and-sire-models)
+simulated.* [More details](https://phyllype.github.io/UAI-TREM/articles/models.html#animal-model-repeatability-direct-maternal-and-sire-models)
 
 ### Random regression and reaction norms
 
@@ -154,7 +160,7 @@ h2_curve(fit, limits = c(60, 84))
 
 *Left: the genetic reaction norms of 50 animals; the best animal at the cool end is not
 the best at the hot end. Right: `h2_curve()` against the simulated heritability.*
-[More details](https://phyllype.github.io/BreedingR/articles/models.html#random-regression-and-reaction-norms)
+[More details](https://phyllype.github.io/UAI-TREM/articles/models.html#random-regression-and-reaction-norms)
 
 ### Several traits
 
@@ -183,7 +189,7 @@ simulated.*
 
 *`pegs()` on one trait in four environments, with one record for each of 7,560 genotyped
 animals: estimated against simulated genetic correlations.*
-[More details](https://phyllype.github.io/BreedingR/articles/models.html#several-traits)
+[More details](https://phyllype.github.io/UAI-TREM/articles/models.html#several-traits)
 
 ### Bayesian: `gibbs()`
 
@@ -203,8 +209,8 @@ mcmc_diagnostics(gb)
 
 *Three chains of `gibbs()` and the posterior of the heritability, beside the REML estimate
 of `model()` and the value simulated.*
-[More details](https://phyllype.github.io/BreedingR/articles/models.html#the-bayesian-half),
-[the priors](https://phyllype.github.io/BreedingR/articles/choices.html#the-priors-of-gibbs)
+[More details](https://phyllype.github.io/UAI-TREM/articles/models.html#the-bayesian-half),
+[the priors](https://phyllype.github.io/UAI-TREM/articles/choices.html#the-priors-of-gibbs)
 
 ### Genomics: single step, APY, ssSNPBLUP
 
@@ -236,7 +242,7 @@ simulated.*
 *`estimate_gamma()` on 1,000 genotyped descendants of two simulated base populations. The
 relationship within and between the metafounders, against the value from the base allele
 frequencies.*
-[More details](https://phyllype.github.io/BreedingR/articles/models.html#single-step-metafounders-and-markers),
+[More details](https://phyllype.github.io/UAI-TREM/articles/models.html#single-step-metafounders-and-markers),
 [APY](APY.md)
 
 ### Selection decisions
@@ -291,7 +297,7 @@ console shows it.*
 
 *Left: `parentage_check()` with 40 sires swapped by hand; the 40 are the only pairs above
 the threshold. Right: what each filter of `qc_genotypes()` removed from 2,000 markers.*
-[More details](https://phyllype.github.io/BreedingR/articles/data-checks.html)
+[More details](https://phyllype.github.io/UAI-TREM/articles/data-checks.html)
 
 ## In progress
 
@@ -318,8 +324,8 @@ minimum degree ordering; the variance components come from AI-REML, and `converg
 takes both a small relative step and a Newton decrement under tolerance. The layout unit
 is the covariance group, not the term, which is why direct-maternal and the reaction norm
 have no fitter of their own.
-[How the engine works](https://phyllype.github.io/BreedingR/articles/engine.html) and
-[choices worth knowing about](https://phyllype.github.io/BreedingR/articles/choices.html).
+[How the engine works](https://phyllype.github.io/UAI-TREM/articles/engine.html) and
+[choices worth knowing about](https://phyllype.github.io/UAI-TREM/articles/choices.html).
 
 ## How this was validated
 
@@ -327,15 +333,15 @@ Nothing here is checked against itself: each piece answers to an independent pat
 as the dense V form, central finite differences, recovery of simulated components or the
 published examples of Mrode and Pocrnic (2023), and the tests in `tests/testthat` run
 these comparisons on every build.
-[The table, piece by piece](https://phyllype.github.io/BreedingR/articles/validation.html).
+[The table, piece by piece](https://phyllype.github.io/UAI-TREM/articles/validation.html).
 
 ## Documentation
 
-- [*Your first evaluation*](https://phyllype.github.io/BreedingR/articles/getting-started.html):
+- [*Your first evaluation*](https://phyllype.github.io/UAI-TREM/articles/getting-started.html):
   from two files on disk to breeding values you can act on. Start here.
-- [*Theory and practice*](https://phyllype.github.io/BreedingR/articles/theory.html): a
+- [*Theory and practice*](https://phyllype.github.io/UAI-TREM/articles/theory.html): a
   full evaluation in order, each matrix and algorithm beside the code that runs it.
-- [*Hands-on*](https://phyllype.github.io/BreedingR/articles/hands-on.html): 39 of the 49
+- [*Hands-on*](https://phyllype.github.io/UAI-TREM/articles/hands-on.html): 39 of the 49
   exported functions, step by step.
 - [FUNCTIONS.md](FUNCTIONS.md) maps the whole surface, and [REFERENCES.md](REFERENCES.md)
   lists the works the package implements. If a work that should be cited is missing,
@@ -347,7 +353,7 @@ Questions and suggestions are welcome at felipeoliveirafreitas@usp.br. If someth
 looks like a defect, opening an issue keeps the answer where the next person who hits
 it will find it:
 
-https://github.com/phyllype/BreedingR/issues
+https://github.com/phyllype/UAI-TREM/issues
 
 `CONTRIBUTING.md` says what makes a report easy to act on, and what a pull request is
 checked against.
@@ -371,7 +377,7 @@ and the citation below is the only thing asked there.
 
 If this package contributed to published work, please cite it:
 
-> Freitas, F. A. O. (2026). BreedingR: genetic parameters, breeding values and
+> Freitas, F. A. O. (2026). UAI-TREM: genetic parameters, breeding values and
 > genomic prediction in R. R package version 0.4.0.
 
 Developed during doctoral research at the Escola Superior de Agricultura Luiz de

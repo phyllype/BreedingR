@@ -281,7 +281,7 @@ test_that("ASIS: o padrao, a aceitacao por grupo e por cadeia, o grupo preso e a
   # a variante do portao e lida antes das cadeias e chega aos trabalhadores PSOCK: com cores =
   # 2 a cadeia e a de cores = 1 (antes o trabalhador nao via a opcao e rodava o passo certo)
   skip_on_cran()
-  antes <- options(BreedingR.asis_variante = 3L)
+  antes <- options(uaitrem.asis_variante = 3L)
   on.exit(options(antes), add = TRUE)
   cv <- lapply(1:2, function(co) {
     set.seed(5)

@@ -18,7 +18,7 @@
 # aditivo, ninhada e residuo correlacionados. Nenhum dado real.
 # Uso: Rscript validation/unit_shift_start_scale.R [n_maes_mt] [replicas]
 args <- commandArgs(TRUE)
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 
 rmvn <- function(n, S) matrix(stats::rnorm(n * nrow(S)), n) %*% chol(S + diag(1e-12, nrow(S)))
 simula <- function(seed, n_maes, reps, rho, L = matrix(c(0.5, 0.3, 0.3, 0.5), 2), esc2 = 1) {

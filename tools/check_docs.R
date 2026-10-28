@@ -1,6 +1,6 @@
 # Confere o codigo da documentacao contra o pacote instalado: (1) roda o quick start do README
 # numa sessao limpa; (2) em todo bloco ```r do README, SKILL, vinhetas e artigos do site, cada
-# funcao chamada existe (exportada pelo BreedingR, ou do R base/recomendados, ou definida no
+# funcao chamada existe (exportada pelo UAI-TREM, ou do R base/recomendados, ou definida no
 # proprio bloco) e
 # cada argumento nomeado existe na assinatura (quando ela nao tem ...); os marcadores da formula
 # sao conferidos contra ARGS_MARCADOR.
@@ -10,11 +10,11 @@
 args <- commandArgs(TRUE)
 repo <- if (length(args) >= 1L) args[1] else "."
 if (length(args) >= 2L) .libPaths(c(args[2], .libPaths()))
-suppressMessages(library(BreedingR))
-cat("BreedingR", as.character(packageVersion("BreedingR")), "de", find.package("BreedingR"), "\n")
-exportadas <- getNamespaceExports("BreedingR")
+suppressMessages(library(uaitrem))
+cat("uaitrem", as.character(packageVersion("uaitrem")), "de", find.package("uaitrem"), "\n")
+exportadas <- getNamespaceExports("uaitrem")
 cat(length(exportadas), "funcoes exportadas\n")
-marcadores <- BreedingR:::ARGS_MARCADOR
+marcadores <- uaitrem:::ARGS_MARCADOR
 
 blocos <- function(arquivo, rmd = FALSE) {
   l <- readLines(arquivo, warn = FALSE, encoding = "UTF-8")
@@ -34,7 +34,7 @@ existe <- function(f) {
       exists(f, envir = asNamespace(p), inherits = FALSE), TRUE))
 }
 argumentos <- function(f) {
-  fn <- if (f %in% exportadas) get(f, envir = asNamespace("BreedingR")) else
+  fn <- if (f %in% exportadas) get(f, envir = asNamespace("uaitrem")) else
     tryCatch(match.fun(f), error = function(e) NULL)
   if (is.null(fn) || is.primitive(fn)) return(NULL)
   fo <- names(formals(fn))
@@ -64,8 +64,8 @@ confere_expr <- function(e, onde, definidas) {
     }
   } else if (is.call(cab) && identical(cab[[1]], as.name("::"))) {
     f <- as.character(cab[[3]])
-    if (as.character(cab[[2]]) == "BreedingR" && !f %in% exportadas)
-      anota(onde, sprintf("BreedingR::%s nao e exportada", f))
+    if (as.character(cab[[2]]) == "uaitrem" && !f %in% exportadas)
+      anota(onde, sprintf("uaitrem::%s nao e exportada", f))
   }
   for (x in as.list(e)[-1]) if (!missing(x) && is.call(x)) confere_expr(x, onde, definidas)
 }
@@ -83,7 +83,7 @@ percorre_formula <- function(e, onde) {
 }
 
 arquivos <- list(list(file.path(repo, "README.md"), FALSE),
-                 list(file.path(repo, "skills/breedingr/SKILL.md"), FALSE),
+                 list(file.path(repo, "skills/uaitrem/SKILL.md"), FALSE),
                  list(file.path(repo, "FUNCTIONS.md"), FALSE))
 for (v in list.files(file.path(repo, "vignettes"), "[.]Rmd$", full.names = TRUE))
   arquivos[[length(arquivos) + 1]] <- list(v, TRUE)

@@ -60,10 +60,10 @@ curva <- local({
          '<path d="M110 ', base, ' H410" stroke="', traco, '" stroke-width="7" stroke-linecap="round"/>')
 })
 
-nome <- contorno("BreedingR", 260, 330, 78)
+nome <- contorno("UAI-TREM", 260, 330, 74)
 logo <- paste0(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 600" role="img" aria-label="BreedingR">',
-  '<title>BreedingR</title>',
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 600" role="img" aria-label="UAI-TREM">',
+  '<title>UAI-TREM</title>',
   '<polygon points="260,14 507.7,157 507.7,443 260,586 12.3,443 12.3,157" fill="', fundo,
   '" stroke="', borda, '" stroke-width="16" stroke-linejoin="round"/>',
   pedigree,
@@ -82,7 +82,7 @@ if (!is.na(social)) {
     '<rect width="1280" height="640" fill="#f6f3ea"/>',
     '<svg x="70" y="90" width="400" height="460" viewBox="0 0 520 600">',
     sub('^<svg[^>]*>', "", sub('</svg>$', "", logo)), '</svg>',
-    '<path d="', linha("BreedingR", 250, 110), '" fill="', fundo, '" stroke="', fundo, '" stroke-width="2"/>',
+    '<path d="', linha("UAI-TREM", 250, 110), '" fill="', fundo, '" stroke="', fundo, '" stroke-width="2"/>',
     '<path d="', linha("Genetic parameters, breeding values", 350, 40), '" fill="#2b4a4b"/>',
     '<path d="', linha("and genomic prediction in R", 405, 40), '" fill="#2b4a4b"/>',
     '<rect x="560" y="455" width="520" height="8" rx="4" fill="', borda, '"/>',

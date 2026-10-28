@@ -1544,7 +1544,7 @@ array_de_cadeias <- function(x) {
 #' object per chain, with the iteration numbers of the kept draws. Only the chains that ran
 #' to the end enter (see [mcmc_diagnostics()]). They open the rest of both packages, such as
 #' `posterior::rstar()`, `posterior::rhat_nested()` or `coda::raftery.diag()`, which
-#' BreedingR does not implement. Both packages are suggested, not required.
+#' UAI-TREM does not implement. Both packages are suggested, not required.
 #' @param x a [gibbs()] fit
 #' @param ... unused
 #' @return a `draws_array` or an `mcmc.list`.

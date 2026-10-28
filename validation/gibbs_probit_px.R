@@ -39,7 +39,7 @@
 # Uso: Rscript validation/gibbs_probit_px.R exato 1:20 | px 1:20 | px2 1:20 | threads 3
 # Simulado; nenhum dado real.
 
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 args <- commandArgs(TRUE)
 modo <- if (length(args)) args[1] else "exato"
 sementes <- eval(parse(text = if (length(args) >= 2) args[2] else "1:20"))

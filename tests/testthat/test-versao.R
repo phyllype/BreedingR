@@ -10,5 +10,5 @@
 # atrasada faz o relato apontar para a versao errada.
 
 test_that("br_version() e a versao do DESCRIPTION sao a mesma", {
-  expect_identical(br_version(), as.character(utils::packageVersion("BreedingR")))
+  expect_identical(br_version(), as.character(utils::packageVersion("uaitrem")))
 })

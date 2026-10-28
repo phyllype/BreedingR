@@ -63,7 +63,7 @@ test_that("base= e fixed= dados como variaveis dentro de uma funcao", {
   expect_identical(f_rn$theta, l_rn$theta)
   # a formula guardada leva as colunas, entao a releitura (accuracy() pergunta se o termo
   # tem base) nao depende mais do b, que ja nao existe
-  expect_identical(BreedingR:::termos_do_ajuste(f_rn)[[2]]$base, "phi0,phi1")
+  expect_identical(uaitrem:::termos_do_ajuste(f_rn)[[2]]$base, "phi0,phi1")
 
 })
 

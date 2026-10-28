@@ -198,7 +198,7 @@ a row is mostly marker means and looks like an average, accurately known animal.
 0.90 is the \code{callrateAnim} default of preGSf90, but the rate is counted over the
 markers that vary (the ones that enter G), where preGSf90 counts every SNP: on a
 monomorphic marker the mean imputes the genotype every animal carries. The output of
-\code{\link[=qc_genotypes]{qc_genotypes()}} always passes this check; \code{options(BreedingR.min_call_rate_animal =)}
+\code{\link[=qc_genotypes]{qc_genotypes()}} always passes this check; \code{options(uaitrem.min_call_rate_animal =)}
 moves the line, and 0 turns it off. With a pedigree, a genotyped parent and offspring
 with opposite homozygotes on more than 1\% of the markers called in both (the
 exclusion test of preGSf90, \verb{exclusion_threshold 1}) are a warning naming the pairs,

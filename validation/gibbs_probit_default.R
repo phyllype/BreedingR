@@ -59,7 +59,7 @@
 # br_threads(), padrao 1; cores: processos R entre os quais as tarefas se dividem, padrao 1
 # (cada tarefa depende so das suas sementes). Simulado; nenhum dado real.
 args <- commandArgs(TRUE)
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 options(width = 200)
 modo <- if (length(args) >= 1) args[1] else "margem"
 R <- if (length(args) >= 2) as.integer(args[2]) else 30L
@@ -160,7 +160,7 @@ if (cores > 1L) {
   cl <- parallel::makeCluster(cores)
   parallel::clusterExport(cl, setdiff(ls(), "cl"))
   invisible(parallel::clusterCall(cl, function(th) {
-    suppressMessages(library(BreedingR))
+    suppressMessages(library(uaitrem))
     br_threads(th)
     NULL
   }, br_threads()$threads))

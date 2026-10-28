@@ -76,7 +76,7 @@ e6_repetidos <- function() {
 
 # as conferencias de estrutura de um desenho, sem ajuste (o texto das notas)
 e6_notas <- function(formula, d, resp = "y", estima = TRUE)
-  BreedingR:::confere_estrutura(BreedingR:::decompoe_formula(formula[[3]], environment(formula)),
+  uaitrem:::confere_estrutura(uaitrem:::decompoe_formula(formula[[3]], environment(formula)),
                                 d, resp, NULL, "model()", estima)
 
 test_that("h2() de um sire() e 4 var(sire) / Vp; com mgs = o Vp ganha f var(sire) / 4", {
@@ -429,7 +429,7 @@ test_that("G2: maxiter = 0 com n_em > 0 num desenho SINGULAR da NA com o veredit
   fe <- sem_blocos(model(y ~ cg + animal(id), s$data[1:30, ], s$pedigree, start = c(0.4, 0.6),
                          maxiter = 0L, n_em = 30L, verbose = FALSE))
   expect_false(fe$components_given)
-  expect_false(BreedingR:::componentes_dados(fe))
+  expect_false(uaitrem:::componentes_dados(fe))
   expect_match(fe$message, "moved by 30 EM round")
   h <- e6_avisos(h2(fe))
   expect_true(is.na(h$valor))
@@ -437,7 +437,7 @@ test_that("G2: maxiter = 0 com n_em > 0 num desenho SINGULAR da NA com o veredit
   # um ajuste sem o campo (de versao anterior) e lido pela mensagem: "moved by" nao e dado
   fv <- fe
   fv$components_given <- NULL
-  expect_false(BreedingR:::componentes_dados(fv))
+  expect_false(uaitrem:::componentes_dados(fv))
 })
 
 test_that("nos componentes dados todo ajustador avisa o desenho que nao identifica", {
@@ -457,7 +457,7 @@ test_that("o grupo padrao e o efeito direto em qualquer ordem da formula", {
   d <- d[d$dam != "0", ]
   fm <- model(y ~ cg + maternal(dam) + animal(id), d, pd, start = c(0.1, 0.3, 0.6),
               maxiter = 0L, n_em = 0L, verbose = FALSE)
-  expect_identical(BreedingR:::grupo_padrao(fm), "animal")
+  expect_identical(uaitrem:::grupo_padrao(fm), "animal")
   expect_equal(h2(fm), 0.3, tolerance = 1e-12)
   expect_identical(ebv(fm), ebv(fm, group = "animal"))
   fg <- model(y ~ cg + maternal(dam, group = "g") + animal(id, group = "g"), d, pd,
@@ -580,7 +580,7 @@ test_that("o estado do ajuste: pe e residuo sem repeticao nao tornam os EBV arbi
   s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 50,
                          h2 = 0.4, seed = 3)
   f <- model(y ~ cg + animal(id) + pe(id), s$data, s$pedigree, verbose = FALSE)
-  skip_if_not(length(BreedingR:::componentes_singulares(f)) > 0L,
+  skip_if_not(length(uaitrem:::componentes_singulares(f)) > 0L,
               "o ajuste nao deu o veredito SINGULAR nesta plataforma")
   so <- e6_avisos(solutions(f, s$pedigree))
   expect_false(any(grepl("arbitrary point", so$avisos)))
@@ -601,7 +601,7 @@ test_that("maxiter = 0 sem start = nao sao componentes dados; com start = sao", 
   d$y2 <- d$y + stats::rnorm(nrow(d))
   f0 <- model(y ~ cg + animal(id), d, s$pedigree, maxiter = 0L, n_em = 0L, verbose = FALSE)
   expect_false(f0$components_given)
-  expect_warning(h2(f0), "did not converge", class = "breedingr_estado")
+  expect_warning(h2(f0), "did not converge", class = "uaitrem_estado")
   f1 <- model(y ~ cg + animal(id), d, s$pedigree, start = c(0.4, 0.6), maxiter = 0L,
               n_em = 0L, verbose = FALSE)
   expect_true(f1$components_given)
@@ -618,14 +618,14 @@ test_that("maxiter = 0 sem start = nao sao componentes dados; com start = sao", 
 test_that("o veredito SINGULAR: conjuntos repetidos saem uma vez, e o h2 multicaracter avisa uma vez", {
   fit <- list(message = paste0("SINGULAR: the data do not separate var(a), var(b); and ",
                                "var(c), var(d); and var(b), var(a). Along that direction"))
-  expect_length(BreedingR:::componentes_singulares(fit), 2L)
+  expect_length(uaitrem:::componentes_singulares(fit), 2L)
   s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 50,
                          seed = 3)
   d <- s$data[1:30, ]
   d$y2 <- d$y + stats::rnorm(30)
   fm <- suppressWarnings(model_mt(cbind(y, y2) ~ cg + animal(id), d, s$pedigree,
                                   verbose = FALSE))
-  skip_if_not(length(BreedingR:::componentes_singulares(fm)) > 0L,
+  skip_if_not(length(uaitrem:::componentes_singulares(fm)) > 0L,
               "o ajuste nao deu o veredito SINGULAR nesta plataforma")
   # um aviso do veredito para os dois caracteres, e nao um por caracter
   h <- e6_avisos(h2(fm))
@@ -687,7 +687,7 @@ test_that("o estado do ajuste: rg() fora do termo, snp_blup(), theta NA parcial"
   fs <- snp_blup(y ~ cg + animal(id), d, s$pedigree, s$genotypes, theta = c(0.3, 0.7),
                  maxiter = 2L, verbose = FALSE)
   skip_if(isTRUE(fs$converged), "o gradiente conjugado convergiu em 2 iteracoes")
-  expect_warning(solutions(fs), "conjugate-gradient solve stopped", class = "breedingr_estado")
+  expect_warning(solutions(fs), "conjugate-gradient solve stopped", class = "uaitrem_estado")
   # um theta com um componente NA (de um ajuste parado) da NA com o aviso
   f <- model(y ~ cg + animal(id), d, s$pedigree, start = c(0.4, 0.6), maxiter = 0L,
              n_em = 0L, verbose = FALSE)
@@ -705,7 +705,7 @@ test_that("solutions(trait =) no multicaracter: um veredito no outro caracter de
   d$y2 <- ifelse(d$id %in% fund, d$y + stats::rnorm(nrow(d)), NA)
   fm <- suppressWarnings(model_mt(cbind(y, y2) ~ cg + animal(id), d, s$pedigree,
                                   verbose = FALSE))
-  ss <- BreedingR:::componentes_singulares(fm)
+  ss <- uaitrem:::componentes_singulares(fm)
   skip_if_not(length(ss) > 0L && !any(grepl("@y)", unlist(ss), fixed = TRUE)),
               "o veredito SINGULAR nao saiu so no caracter y2 nesta plataforma")
   so <- e6_avisos(solutions(fm, s$pedigree, trait = "y"))

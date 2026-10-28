@@ -42,7 +42,7 @@ e2_dado <- function() {
 # a suite desliga o aviso de parentesco dos ajustadores so nos arquivos com genotipos
 # sorteados sem o pedigree; aqui ele e o assunto e fica ligado
 e2_verifica <- function(expr) {
-  op <- options(BreedingR.verify_parentage = TRUE)
+  op <- options(uaitrem.verify_parentage = TRUE)
   on.exit(options(op))
   force(expr)
 }
@@ -62,7 +62,7 @@ e2_avisos <- function(expr) {
 }
 
 test_that("the written rate is truncated, never rounded up to the line", {
-  expect_identical(BreedingR:::escreve_taxa(c(3599 / 4000, 897 / 1000, 0.9, 0, 1)),
+  expect_identical(uaitrem:::escreve_taxa(c(3599 / 4000, 897 / 1000, 0.9, 0, 1)),
                    c("0.899", "0.897", "0.900", "0.000", "1.000"))
   # 3599 de 4000 = 0.89975: sprintf("%.3f") daria 0.900, que leria como acima do limiar
   set.seed(4)
@@ -91,11 +91,11 @@ test_that("the call rate of each animal is exact against R and the same with 1 a
   dim(r) <- dim(m)
   velho <- br_threads()$threads
   br_threads(1L)
-  t1 <- BreedingR:::taxa_chamada_animal(m)
+  t1 <- uaitrem:::taxa_chamada_animal(m)
   br_threads(4L)
-  t4 <- BreedingR:::taxa_chamada_animal(m)
-  ti <- BreedingR:::taxa_chamada_animal(i)
-  tr <- BreedingR:::taxa_chamada_animal(r)
+  t4 <- uaitrem:::taxa_chamada_animal(m)
+  ti <- uaitrem:::taxa_chamada_animal(i)
+  tr <- uaitrem:::taxa_chamada_animal(r)
   br_threads(velho)
   expect_identical(t1$rate, ref)
   expect_identical(t1$markers, 118L)
@@ -104,24 +104,24 @@ test_that("the call rate of each animal is exact against R and the same with 1 a
   expect_identical(tr, t1)
 })
 
-test_that("options(BreedingR.min_call_rate_animal) moves the line, turns it off, and is checked", {
+test_that("options(uaitrem.min_call_rate_animal) moves the line, turns it off, and is checked", {
   e <- e2_dado()
   sem <- e$gen
   sem$m[sem$ids == "G3_010", ] <- NA
-  op <- options(BreedingR.min_call_rate_animal = 0)
+  op <- options(uaitrem.min_call_rate_animal = 0)
   # desligada, o qc segue a mesma linha
   q <- qc_genotypes(sem)
-  options(BreedingR.min_call_rate_animal = 0.999)
+  options(uaitrem.min_call_rate_animal = 0.999)
   um_ausente <- e$gen
   um_ausente$m[1, 1] <- NA
   erro <- tryCatch(g_matrix(um_ausente), error = conditionMessage)
-  options(BreedingR.min_call_rate_animal = "alto")
+  options(uaitrem.min_call_rate_animal = "alto")
   erro_opcao <- tryCatch(g_matrix(e$gen), error = conditionMessage)
   options(op)
   expect_identical(q$n_animal, 0L)
   expect_match(erro, "1 of 60 animal(s) with a call rate below 0.999 ('G2_001': 0.997)",
                fixed = TRUE)
-  expect_match(erro_opcao, "options(BreedingR.min_call_rate_animal) must be a single number",
+  expect_match(erro_opcao, "options(uaitrem.min_call_rate_animal) must be a single number",
                fixed = TRUE)
 })
 
@@ -226,7 +226,7 @@ test_that("whatever qc_genotypes keeps passes every fitter, and a second qc chan
     q <- suppressMessages(qc_genotypes(casos[[nome]]))
     g <- list(ids = q$ids, m = q$m)
     expect_identical(dim(g_matrix(g)), rep(length(q$ids), 2L), info = nome)
-    tx <- BreedingR:::taxa_chamada_animal(q$m)
+    tx <- uaitrem:::taxa_chamada_animal(q$m)
     expect_true(all(tx$rate >= 0.90), info = nome)
     q2 <- qc_genotypes(g)
     expect_identical(q2$m, q$m, info = nome)
@@ -284,7 +284,7 @@ e2_qc_referencia <- function(m, cr_min = 0.90, ta_min = 0.90, maf = 0.01, hwe = 
       coluna[k] <- FALSE
       next
     }
-    pv <- BreedingR:::hwe_valor_p(n0, n1, n2)
+    pv <- uaitrem:::hwe_valor_p(n0, n1, n2)
     k <- coluna & !is.na(pv) & pv < hwe
     if (any(k)) {
       coluna[k] <- FALSE
@@ -301,9 +301,9 @@ test_that("qc_genotypes reads the matrix about once however many passes it takes
   # os genotipos lidos por cada leitura do motor: a matriz inteira, so as linhas que sairam
   # ou so as colunas que sairam
   lidos <- 0
-  cont <- BreedingR:::contagens_marcadores
-  nas_linhas <- BreedingR:::contagens_nas_linhas
-  cham <- BreedingR:::chamadas_animal
+  cont <- uaitrem:::contagens_marcadores
+  nas_linhas <- uaitrem:::contagens_nas_linhas
+  cham <- uaitrem:::chamadas_animal
   local_mocked_bindings(
     contagens_marcadores = function(gm, linhas = NULL) {
       lidos <<- lidos + length(gm)
@@ -317,7 +317,7 @@ test_that("qc_genotypes reads the matrix about once however many passes it takes
       lidos <<- lidos + nrow(gm) * (if (is.null(usa)) ncol(gm) else sum(usa))
       cham(gm, usa)
     },
-    .package = "BreedingR")
+    .package = "uaitrem")
   q <- suppressMessages(qc_genotypes(g, hwe_p = 1e-6))
   # contar tudo de novo a cada passada lia 2 x passadas x 400 x 500 genotipos
   expect_gt(q$passes, 100L)
@@ -421,7 +421,7 @@ test_that("every single-step fitter warns once about the conflicting pairs, nami
   certo <- e2_dado()
   expect_identical(e2_avisos(h_inverse(certo$ped, certo$gen))$n, 0L)
   # um valor que nao e TRUE/FALSE nem 0/1 nao liga nem desliga em silencio
-  op <- options(BreedingR.verify_parentage = "no")
+  op <- options(uaitrem.verify_parentage = "no")
   options(op)
 })
 
@@ -429,8 +429,8 @@ test_that("the genotype checks run once per fit, not once per inner univariate f
   e <- e2_dado()
   n_taxa <- 0L
   n_pares <- 0L
-  taxa <- BreedingR:::taxa_chamada_animal
-  pares <- BreedingR:::pares_parentesco
+  taxa <- uaitrem:::taxa_chamada_animal
+  pares <- uaitrem:::pares_parentesco
   local_mocked_bindings(
     taxa_chamada_animal = function(gm) {
       n_taxa <<- n_taxa + 1L
@@ -440,7 +440,7 @@ test_that("the genotype checks run once per fit, not once per inner univariate f
       n_pares <<- n_pares + 1L
       pares(...)
     },
-    .package = "BreedingR")
+    .package = "uaitrem")
   e2_verifica(model_mt(cbind(y, y2) ~ cg + animal(id), e$d, e$ped, genotypes = e$gen,
                        verbose = FALSE))
   expect_identical(c(n_taxa, n_pares), c(1L, 1L))
@@ -651,7 +651,7 @@ test_that("the call rate counts the markers that enter G: a monomorphic column i
   g$m[g$ids == "G3_010", sample(poli, 45)] <- NA
   expect_gt(mean(!is.na(g$m[g$ids == "G3_010", ])), 0.90)
   # o mesmo numero da conta a mao: chamadas nos marcadores com 0 < p < 1, sobre eles
-  tx <- BreedingR:::taxa_chamada_animal(g$m)
+  tx <- uaitrem:::taxa_chamada_animal(g$m)
   pm <- colMeans(g$m, na.rm = TRUE) / 2
   varia <- pm > 0 & pm < 1
   expect_identical(tx$markers, sum(varia))

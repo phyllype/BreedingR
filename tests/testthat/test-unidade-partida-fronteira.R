@@ -160,7 +160,7 @@ test_that("D2: a start beyond the step floors is raised to them, and the walk do
 
 test_that("D2: the exit where no step improves names the cause and the iteration, and never certifies", {
   # Nenhum dado conhecido chega sozinho a esta saida desde que a partida alem dos pisos vai
-  # a eles, entao o gancho de teste BREEDINGR_TESTE_SEM_PASSO (src/multitrait2.cpp) recusa
+  # a eles, entao o gancho de teste UAITREM_TESTE_SEM_PASSO (src/multitrait2.cpp) recusa
   # todo passo AI e todo EM de proposito. No base a saida deixava a string interna em
   # portugues e "stopped at 300 iteration(s)" num ajuste parado na 13a; o r2 certificava ali
   # quando o decremento era pequeno.
@@ -168,10 +168,10 @@ test_that("D2: the exit where no step improves names the cause and the iteration
                     P = matrix(c(0.4, 0.1, 0.1, 0.4), 2), rho = 0.5)
   d <- s$dados
   d1 <- d[d$dia == 1, ]
-  antes <- Sys.getenv("BREEDINGR_TESTE_SEM_PASSO", unset = NA)
-  Sys.setenv(BREEDINGR_TESTE_SEM_PASSO = "1")
-  on.exit(if (is.na(antes)) Sys.unsetenv("BREEDINGR_TESTE_SEM_PASSO") else
-            Sys.setenv(BREEDINGR_TESTE_SEM_PASSO = antes), add = TRUE)
+  antes <- Sys.getenv("UAITREM_TESTE_SEM_PASSO", unset = NA)
+  Sys.setenv(UAITREM_TESTE_SEM_PASSO = "1")
+  on.exit(if (is.na(antes)) Sys.unsetenv("UAITREM_TESTE_SEM_PASSO") else
+            Sys.setenv(UAITREM_TESTE_SEM_PASSO = antes), add = TRUE)
   # a partida padrao do multicaracter: a dos univariados para na iteracao 1, antes do teto,
   # e a reserva de var(y) roda e e dita na mensagem
   r <- model_mt(f_mt, d1, s$ped, verbose = FALSE)
@@ -217,22 +217,22 @@ test_that("D3: when the univariate start stalls, the var(y) start is fitted too"
     expect_identical(uni, list())
     r
   }
-  out <- BreedingR:::partida_de_reserva(r1, ajusta(r2), 300L)
+  out <- uaitrem:::partida_de_reserva(r1, ajusta(r2), 300L)
   expect_identical(out$start_from, "var(y)")
   expect_match(out$message, paste0("the univariate start was also tried: it ended without ",
                                    "a certified optimum at -2logL 100[.]000000$"))
-  out <- BreedingR:::partida_de_reserva(r1, ajusta(modifyList(r2, list(neg2logl = 100.01))),
+  out <- uaitrem:::partida_de_reserva(r1, ajusta(modifyList(r2, list(neg2logl = 100.01))),
                                         300L)
   expect_identical(out$start_from, "univariate fits")
   expect_match(out$message, "the var\\(y\\) start was also tried: it ended converged at -2logL 100[.]010000$")
-  out <- BreedingR:::partida_de_reserva(r1, ajusta(modifyList(r2, list(converged = FALSE,
+  out <- uaitrem:::partida_de_reserva(r1, ajusta(modifyList(r2, list(converged = FALSE,
                                                                        neg2logl = 99))), 300L)
   expect_identical(out$neg2logl, 99)
   expect_identical(chamadas, 3L)
   # sem segundo ajuste: no teto pedido pelo usuario, depois de um certificado, e com start=
   for (r in list(modifyList(r1, list(iters = 300L)), modifyList(r1, list(converged = TRUE)),
                  modifyList(r1, list(start_from = "start="))))
-    expect_identical(BreedingR:::partida_de_reserva(r, ajusta(r2), 300L), r)
+    expect_identical(uaitrem:::partida_de_reserva(r, ajusta(r2), 300L), r)
   expect_identical(chamadas, 3L)
   # e no ajuste de verdade: o desenho sem sinal genetico de test-fixed-solutions.R (h2 = 0
   # nos dois univariados) com a semente 33 do dado. Ate a segunda caminhada de dentro do

@@ -12,9 +12,9 @@
 # gibbs() de agora, cujo padrao mudou, dar a mesma cadeia.
 args <- commandArgs(TRUE)
 if (length(args)) .libPaths(c(args[1], .libPaths()))
-suppressPackageStartupMessages(library(BreedingR))
-Sys.setenv(BREEDINGR_THREADS = "1")
-cat("BreedingR", as.character(packageVersion("BreedingR")), "at", find.package("BreedingR"), "\n")
+suppressPackageStartupMessages(library(uaitrem))
+Sys.setenv(UAITREM_THREADS = "1")
+cat("uaitrem", as.character(packageVersion("uaitrem")), "at", find.package("uaitrem"), "\n")
 
 # roda, conta o tempo e guarda os avisos e o erro
 roda <- function(expr) {

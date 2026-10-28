@@ -62,7 +62,7 @@ that \code{genotypes$sex_markers} names, and warns, naming the pairs, when one e
 it then fits the data as given. The two remedies:
 set the wrong parent unknown in the pedigree (below), or drop the offspring's genotype,
 which is what preGSf90 does by default and what \code{qc_genotypes(genotypes, pedigree = )}
-does. \code{options(BreedingR.verify_parentage = FALSE)} (or 0, the \verb{verify_parentage 0} of
+does. \code{options(uaitrem.verify_parentage = FALSE)} (or 0, the \verb{verify_parentage 0} of
 preGSf90) turns the fitters' check off, for genotypes simulated without the pedigree,
 where every pair conflicts by construction; this function and \code{qc_genotypes()} still run
 it.

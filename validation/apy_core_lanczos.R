@@ -15,7 +15,7 @@
 #
 #   Rscript validation/apy_core_lanczos.R [threads]
 args <- commandArgs(TRUE)
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 br_threads(if (length(args)) as.integer(args[1]) else 8L)
 g <- simulate_breeding(n_founders = 100, n_generations = 5, offspring_per_generation = 1980,
                        h2 = 0.3, n_markers = 10000, seed = 1)$genotypes
@@ -43,15 +43,15 @@ la <- lapply(1:10, function(s) {
   set.seed(s)
   V <- matrix(sample(c(-1, 1), n * 30, TRUE), n)
   list(t = system.time({
-         r <- .Call(BreedingR:::R_lanczos_g, g$m, V, 100L)
-         med <- BreedingR:::medida_nos(BreedingR:::nos_lanczos(r))
+         r <- .Call(uaitrem:::R_lanczos_g, g$m, V, 100L)
+         med <- uaitrem:::medida_nos(uaitrem:::nos_lanczos(r))
        })[["elapsed"]],
        k = vapply(vs, med$conta, 0), se = med$se(0.98),
-       so = vapply(vs, BreedingR:::medida_nos(data.frame(
+       so = vapply(vs, uaitrem:::medida_nos(data.frame(
          theta = rep(lam, 30), w = n / 30 * as.vector(crossprod(ev$vectors, V / sqrt(n))^2),
          sonda = rep(1:30, each = n)))$conta, 0),
-       gauss = vapply(vs, BreedingR:::medida_nos(BreedingR:::nos_lanczos(r, K = 1))$conta, 0),
-       se_gauss = with(BreedingR:::nos_lanczos(r, K = 1), stats::sd(tapply(
+       gauss = vapply(vs, uaitrem:::medida_nos(uaitrem:::nos_lanczos(r, K = 1))$conta, 0),
+       se_gauss = with(uaitrem:::nos_lanczos(r, K = 1), stats::sd(tapply(
          30 * w * (theta >= sort(theta, decreasing = TRUE)[which(cumsum(
            (w * theta)[order(theta, decreasing = TRUE)]) / sum(w * theta) >= 0.98 - 1e-12)[1L]]),
          sonda, sum)) / sqrt(30)))

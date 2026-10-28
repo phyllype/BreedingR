@@ -1,3 +1,3 @@
 library(testthat)
-library(BreedingR)
-test_check("BreedingR")
+library(uaitrem)
+test_check("uaitrem")

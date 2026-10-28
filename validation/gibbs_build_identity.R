@@ -25,7 +25,7 @@
 # Simulado; nenhum dado real.
 args <- commandArgs(TRUE)
 modo <- if (length(args)) args[1] else "ajusta"
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 
 fdm <- y ~ cg + animal(id, group = "g") + maternal(dam, group = "g")
 fdmr <- y ~ cg + animal(id, group = "g") + maternal(dam, group = "g") + random(litter)
@@ -82,7 +82,7 @@ cfg <- list(
 
 if (modo == "ajusta") {
   br_threads(if (length(args) >= 3) as.integer(args[3]) else 1L)
-  options(BreedingR.verify_parentage = FALSE)
+  options(uaitrem.verify_parentage = FALSE)
   # o dado gaussiano e binario: litter, pen, x e a diagonal de V sorteados nesta ordem
   s <- simulate_breeding(n_founders = 30, n_generations = 3, offspring_per_generation = 80,
                          h2 = 0.3, seed = 3)
@@ -127,7 +127,7 @@ if (modo == "ajusta") {
   })
   saveRDS(saida, args[2])
   cat(length(saida), "ajustes;", sum(vapply(saida, function(x) !is.null(x$erro), logical(1))),
-      "com erro; construcao", utils::packageDescription("BreedingR")[["Built"]], "\n")
+      "com erro; construcao", utils::packageDescription("uaitrem")[["Built"]], "\n")
   for (nm in names(saida)) if (!is.null(saida[[nm]]$erro)) cat(nm, ":", saida[[nm]]$erro, "\n")
 }
 

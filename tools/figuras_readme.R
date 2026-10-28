@@ -1,12 +1,12 @@
 # Gera as figuras do README em man/figures, cada uma em duas versoes (tema claro e escuro do
 # GitHub, trocadas por <picture> no README), so com dado simulado aqui mesmo:
-#   Rscript tools/figuras_readme.R [repo] [biblioteca com o BreedingR instalado] [figuras]
+#   Rscript tools/figuras_readme.R [repo] [biblioteca com o UAI-TREM instalado] [figuras]
 # O terceiro argumento, opcional, escolhe as figuras pelo nome, separadas por virgula
 # (por exemplo "rn,mt"); sem ele saem todas.
 #
 # O desenho e o grafico base do R no dispositivo postscript(), traduzido para SVG por ps_svg()
 # abaixo: o R base nao tem outro dispositivo vetorial que escreva o texto como texto, e assim
-# o script nao depende de pacote nenhum alem do BreedingR. Texto, circulos e retangulos viram
+# o script nao depende de pacote nenhum alem do UAI-TREM. Texto, circulos e retangulos viram
 # elementos SVG; retangulos e tracos seguidos com o mesmo estilo viram um caminho so.
 #
 # README-ebv:        o ajuste do quick start, valor genetico estimado contra o verdadeiro do
@@ -31,7 +31,7 @@ repo <- if (length(args) >= 1L) args[1] else "."
 if (length(args) >= 2L && nzchar(args[2])) .libPaths(c(args[2], .libPaths()))
 so <- if (length(args) >= 3L) strsplit(args[3], ",")[[1]] else NULL
 quer <- function(nome) is.null(so) || nome %in% so
-suppressMessages(library(BreedingR))
+suppressMessages(library(uaitrem))
 saida <- file.path(repo, "man", "figures")
 dir.create(saida, showWarnings = FALSE, recursive = TRUE)
 
@@ -339,8 +339,12 @@ if (quer("ebv")) {
     plot(e[ordem], tbv[ordem], type = "n", bty = "n",
          xlab = "estimated breeding value", ylab = "true breeding value (simulated)")
     abline(h = axTicks(2), v = axTicks(1), col = t$grade, lwd = 0.6)
-    abline(0, 1, col = t$suave, lty = 2, lwd = 1.2)
-    abline(lm(tbv ~ e), col = t$fill, lwd = 2)
+    # as retas so no intervalo dos valores estimados: abline() ia ate a borda da area do grafico,
+    # 4% alem do ultimo rotulo, e parecia passar do eixo
+    re <- range(e)
+    segments(re[1], re[1], re[2], re[2], col = t$suave, lty = 2, lwd = 1.2)
+    cf <- coef(lm(tbv ~ e))
+    segments(re[1], cf[1] + cf[2] * re[1], re[2], cf[1] + cf[2] * re[2], col = t$fill, lwd = 2)
     points(e[ordem], tbv[ordem], pch = 21, cex = 0.95, bg = cores[k[ordem]], col = t$texto, lwd = 0.25)
     title(main = sprintf("%s animals, r = %.2f, slope of true on estimated = %.2f",
                          format(length(e), big.mark = ","), r, b), font.main = 1, cex.main = 1.0,
@@ -739,10 +743,15 @@ if (quer("genomics")) {
          col = t$texto)
     yy <- rev(seq_along(acur))
     estilo(t, mar = c(4, 5.6, 2.6, 0.8))
-    plot(0, type = "n", xlim = c(min(acur) - 0.05, max(acur) + 0.05), ylim = c(0.5, length(yy) + 0.5),
-         yaxt = "n", bty = "n", xlab = "cor(EBV, true value)",
+    lx <- c(min(acur) - 0.05, max(acur) + 0.05)
+    plot(0, type = "n", xlim = lx, ylim = c(0.5, length(yy) + 0.5),
+         xaxt = "n", yaxt = "n", bty = "n", xlab = "cor(EBV, true value)",
          ylab = "")
-    abline(v = axTicks(1), col = t$grade, lwd = 0.6)
+    # os rotulos todos, menores: com a fonte de sempre o R pulava 0.6 e 0.8 por falta de espaco,
+    # e os pontos em 0.83 pareciam fora do eixo
+    marcas <- seq(ceiling(10 * lx[1]) / 10, floor(10 * lx[2]) / 10, by = 0.1)
+    axis(1, at = marcas, labels = sprintf("%.1f", marcas), cex.axis = 0.75)
+    abline(v = marcas, col = t$grade, lwd = 0.6)
     axis(2, at = yy, labels = names(acur), tick = FALSE, cex.axis = 0.85, col.axis = t$texto)
     # o titulo comeca na borda da figura, e nao na do grafico, que a margem dos nomes empurra
     mtext(sprintf("Accuracy of %d candidates", length(jovens)), side = 3, line = 1, adj = 0, col = t$texto,
@@ -899,7 +908,8 @@ if (quer("selection")) {
     corte <- min((z1 + z2)[eh])
     xs <- seq(min(m[, 1]), max(m[, 1]), length.out = 50)
     ys <- mean(m[, 2]) + sd(m[, 2]) * (corte - (xs - mean(m[, 1])) / sd(m[, 1]))
-    lines(xs, ys, col = t$fill, lwd = 1.6)
+    ok <- ys >= min(m[, 2]) & ys <= max(m[, 2])
+    lines(xs[ok], ys[ok], col = t$fill, lwd = 1.6)
     legenda(t, "bottomleft", c("selected by the index", "the cut of the index"), pch = c(21, NA),
             pt.bg = c(t$ponto, NA), col = c(t$texto, t$fill), lty = c(NA, 1), lwd = c(NA, 1.6),
             caixa = TRUE)
