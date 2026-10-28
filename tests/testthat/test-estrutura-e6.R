@@ -358,6 +358,12 @@ test_that("registros repetidos sem pe() avisam em todo ajustador que estima, e d
   d2 <- z$d
   d2$id2 <- paste0("x", d2$id)
   expect_silent(model(y ~ cg + animal(id) + pe(id2), d2, z$ped, maxiter = 1L, verbose = FALSE))
+  # pe(id, base =), o ambiente permanente da regressao aleatoria, tambem conta como pe()
+  d2$um <- 1
+  d2$tc <- d2$t - 2
+  wb <- e6_avisos(model(y ~ cg + animal(id) + pe(id, base = c("um", "tc")), d2, z$ped, maxiter = 1L,
+                        verbose = FALSE))
+  expect_false(any(grepl("has no pe(", wb$avisos, fixed = TRUE)))
   wm <- e6_avisos(model_mt(cbind(y, y2) ~ cg + animal(id), z$d, z$ped, verbose = FALSE))
   expect_length(wm$avisos, 1L)
   expect_match(wm$avisos, msg)

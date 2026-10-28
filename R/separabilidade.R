@@ -636,8 +636,9 @@ confere_repeticao <- function(terms, cod, obs_t, sujeito, avisa, kern = NULL) {
   # igual) faz o papel do pe(): kernel(id, K = I) e o pe(id). Um K de parentesco (A, G, a
   # dominancia D) deixa a covariancia de ambiente permanente nos termos geneticos, e um
   # kernel(fixed =) nao estima nada: esses nao calam o aviso
-  cand <- which(vapply(terms, function(t) !nzchar(t$base) && (t$estrutura == 1L ||
-                                (t$estrutura == 3L && !variancia_dada(t))), logical(1)))
+  # um pe(id, base =) e o ambiente permanente da regressao aleatoria: tambem cala o aviso
+  cand <- which(vapply(terms, function(t) t$estrutura == 1L ||
+                         (!nzchar(t$base) && t$estrutura == 3L && !variancia_dada(t)), logical(1)))
   # a diagonal da K so e conferida no kernel() que agrupa os registros como o animal, e uma
   # vez (custa uma passada pela K)
   faz_pe <- function(i) terms[[i]]$estrutura == 1L ||

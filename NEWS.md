@@ -930,6 +930,10 @@
 
 ## Fixed
 
+* The advice on repeated records ("the model has no pe(id)") did not see a `pe(id, base =)`,
+  the permanent effect of a random regression. So a model with `animal()` and `pe(base =)`
+  got the advice. A `pe()` with a base now counts as the permanent effect.
+
 * `model()` and `model_mt()`: when a covariance group stops at a wall (a correlation at
   +/-1), the standard errors are conditional on that wall. The fit holds the group there and
   optimizes the other components conditional on it. So `vcov` is now

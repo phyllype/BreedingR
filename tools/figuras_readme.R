@@ -954,7 +954,7 @@ if (quer("qc")) {
   for (j in ruins) g$m[runif(nrow(g$m)) < 0.3, j] <- NA
   for (i in sample(nrow(g$m), 3)) g$m[i, runif(ncol(g$m)) < 0.2] <- NA
   pa <- s$pedigree
-  # 15 pais trocados por um macho genotipado de outra familia
+  # 40 pais trocados por um macho genotipado de outra familia
   filhos <- which(pa$sire != "0" & pa$id %in% g$ids & pa$sire %in% g$ids)
   troca <- sample(filhos, 40)
   machos <- unique(pa$sire[pa$sire != "0" & pa$sire %in% g$ids])
