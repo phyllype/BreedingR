@@ -1,39 +1,77 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="374.4pt" height="266.4pt" viewBox="0 0 374.4 266.4" font-family='Roboto, "Helvetica Neue", Arial, sans-serif'>
+<svg xmlns="http://www.w3.org/2000/svg" width="648pt" height="230.4pt" viewBox="0 0 648 230.4" font-family='Roboto, "Helvetica Neue", Arial, sans-serif'>
 <style>text { white-space: pre; }</style>
 <defs>
-<clipPath id="c1"><rect x="109.44" y="37.44" width="250.56" height="171.36"/></clipPath>
+<clipPath id="c1"><rect x="0" y="0" width="366.26" height="230.4"/></clipPath>
+<clipPath id="c2"><rect x="109.44" y="37.44" width="242.42" height="135.36"/></clipPath>
+<clipPath id="c3"><rect x="387.86" y="37.44" width="245.74" height="135.36"/></clipPath>
+<clipPath id="c4"><rect x="366.26" y="0" width="281.74" height="230.4"/></clipPath>
 </defs>
-<path fill="none" stroke="#9198a1" stroke-width="0.75" d="M118.72 208.8l212.02 0M118.72 208.8l0 4.32M189.39 208.8l0 4.32M260.07 208.8l0 4.32M330.74 208.8l0 4.32"/>
+<path fill="none" stroke="#9198a1" stroke-width="0.75" d="M146.48 172.8l140.29 0M146.48 172.8l0 4.32M216.62 172.8l0 4.32M286.77 172.8l0 4.32"/>
 <g fill="#9198a1" font-size="12">
-<text x="118.72" y="228.96" text-anchor="middle">0</text>
-<text x="189.39" y="228.96" text-anchor="middle">500</text>
-<text x="260.07" y="228.96" text-anchor="middle">1000</text>
-<text x="330.74" y="228.96" text-anchor="middle">1500</text>
+<text x="146.48" y="192.96" text-anchor="middle">1.000</text>
+<text x="216.62" y="192.96" text-anchor="middle">1.005</text>
+<text x="286.77" y="192.96" text-anchor="middle">1.010</text>
 </g>
-<text fill="#e6edf3" font-size="12" x="234.72" y="256.32" text-anchor="middle">bulk effective sample size</text>
 <g clip-path="url(#c1)">
-<path fill="none" stroke="#3d444d" stroke-width="0.45" d="M118.72 208.8l0 -171.36M189.39 208.8l0 -171.36M260.07 208.8l0 -171.36M330.74 208.8l0 -171.36"/>
-<path fill="none" stroke="#f2a93b" stroke-width="1.05" stroke-dasharray="3.15 5.25" d="M175.26 208.8l0 -171.36"/>
+<text fill="#e6edf3" font-size="12" x="230.65" y="220.32" text-anchor="middle">R-hat (chains agree when it is near 1)</text>
+</g>
+<g clip-path="url(#c2)">
+<path fill="none" stroke="#3d444d" stroke-width="0.45" d="M146.48 172.8l0 -135.36M216.62 172.8l0 -135.36M286.77 172.8l0 -135.36"/>
+<path fill="#383835" d="M286.77 42.46h56.12v125.33h-56.12Z"/>
+<path fill="none" stroke="#f2a93b" stroke-width="1.05" stroke-dasharray="3.15 5.25" d="M286.77 172.8l0 -135.36"/>
 </g>
 <g fill="#e6edf3" font-size="10">
-<text x="100.8" y="176.29" text-anchor="end">heritability</text>
-<text x="100.8" y="126.71" text-anchor="end">var(residual)</text>
-<text x="100.8" y="77.13" text-anchor="end">var(animal)</text>
+<text x="100.8" y="147.88" text-anchor="end">heritability</text>
+<text x="100.8" y="108.71" text-anchor="end">var(residual)</text>
+<text x="100.8" y="69.54" text-anchor="end">var(animal)</text>
 </g>
-<text fill="#e6edf3" font-size="12" x="109.44" y="23.04">mcmc_diagnostics(): verdict "ok"</text>
 <g clip-path="url(#c1)">
-<path fill="none" stroke="#454d56" stroke-width="0.75" d="M118.72 73.54l184.88 0M118.72 123.12l185.6 0M118.72 172.7l165.34 0"/>
+<text fill="#e6edf3" font-size="12" x="109.44" y="23.04">R-hat: below 1.01</text>
+</g>
+<g clip-path="url(#c2)">
 <g fill="#5cc8b8" stroke="#5cc8b8" stroke-width="0.75">
-<circle cx="303.6" cy="73.5" r="3.8"/>
-<circle cx="304.3" cy="123.1" r="3.8"/>
-<circle cx="284.1" cy="172.7" r="3.8"/>
+<circle cx="154.2" cy="66" r="3.8"/>
+<circle cx="164.9" cy="105.1" r="3.8"/>
+<circle cx="154.9" cy="144.3" r="3.8"/>
 </g>
 <g fill="#e6edf3" font-size="9">
-<text x="303.6" y="64.9" text-anchor="middle">R-hat 1.001</text>
-<text x="304.32" y="114.48" text-anchor="middle">R-hat 1.001</text>
-<text x="284.06" y="164.06" text-anchor="middle">R-hat 1.001</text>
+<text x="154.24" y="57.31" text-anchor="middle">1.001</text>
+<text x="164.94" y="96.48" text-anchor="middle">1.001</text>
+<text x="154.94" y="135.65" text-anchor="middle">1.001</text>
 </g>
-<text fill="#f2a93b" font-size="9" x="182.46" y="53.38">400</text>
+<text fill="#f2a93b" font-size="9" x="293.97" y="50.48">1.01</text>
+</g>
+<path fill="none" stroke="#9198a1" stroke-width="0.75" d="M396.96 172.8l216.61 0M396.96 172.8l0 4.32M469.16 172.8l0 4.32M541.37 172.8l0 4.32M613.57 172.8l0 4.32"/>
+<g fill="#9198a1" font-size="12">
+<text x="396.96" y="192.96" text-anchor="middle">0</text>
+<text x="469.16" y="192.96" text-anchor="middle">500</text>
+<text x="541.37" y="192.96" text-anchor="middle">1000</text>
+<text x="613.57" y="192.96" text-anchor="middle">1500</text>
+</g>
+<g clip-path="url(#c4)">
+<text fill="#e6edf3" font-size="12" x="510.73" y="220.32" text-anchor="middle">bulk effective sample size (draws)</text>
+</g>
+<g clip-path="url(#c3)">
+<path fill="none" stroke="#3d444d" stroke-width="0.45" d="M396.96 172.8l0 -135.36M469.16 172.8l0 -135.36M541.37 172.8l0 -135.36M613.57 172.8l0 -135.36"/>
+<path fill="#383835" d="M396.96 42.46h57.76v125.33h-57.76Z"/>
+<path fill="none" stroke="#f2a93b" stroke-width="1.05" stroke-dasharray="3.15 5.25" d="M454.72 172.8l0 -135.36"/>
+</g>
+<g clip-path="url(#c4)">
+<text fill="#e6edf3" font-size="12" x="387.86" y="23.04">Effective sample size: above 400; verdict "ok"</text>
+</g>
+<g clip-path="url(#c3)">
+<path fill="none" stroke="#454d56" stroke-width="0.75" d="M396.96 65.95l188.88 0M396.96 105.12l189.62 0M396.96 144.29l168.92 0"/>
+<g fill="#5cc8b8" stroke="#5cc8b8" stroke-width="0.75">
+<circle cx="585.8" cy="66" r="3.8"/>
+<circle cx="586.6" cy="105.1" r="3.8"/>
+<circle cx="565.9" cy="144.3" r="3.8"/>
+</g>
+<g fill="#e6edf3" font-size="9">
+<text x="585.84" y="57.31" text-anchor="middle">1308</text>
+<text x="586.58" y="96.48" text-anchor="middle">1313</text>
+<text x="565.88" y="135.65" text-anchor="middle">1170</text>
+</g>
+<text fill="#f2a93b" font-size="9" x="461.92" y="50.48">400</text>
 </g>
 </svg>

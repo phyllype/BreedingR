@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="648pt" height="107pt" viewBox="0 0 648 107" font-family='Consolas, Menlo, "DejaVu Sans Mono", "Courier New", monospace'>
+<svg xmlns="http://www.w3.org/2000/svg" width="648pt" height="120.5pt" viewBox="0 0 648 120.5" font-family='Consolas, Menlo, "DejaVu Sans Mono", "Courier New", monospace'>
 <style>text { white-space: pre; }</style>
-<path fill="#161b22" stroke="#3d444d" stroke-width="0.6" d="M1 1h646v105h-646Z"/>
-<text fill="#9198a1" font-size="9" x="16" y="22.28">&gt; fit &lt;- model(y ~ cg + animal(id), d2, ped)   # two records per animal</text>
-<g fill="#e6edf3" font-size="9">
-<text x="16" y="35.78">Warning: animal(id): 200 of the 200 animals with records of y have more than one record</text>
-<text x="16" y="49.28">(400 records between them) and the model has no pe(id): the permanent-environment</text>
-<text x="16" y="62.78">covariance between records of the same animal goes into var(animal), which inflates h2 by</text>
-<text x="16" y="76.28">more the larger the share of repeated records; add pe(id), the repeatability model</text>
+<path fill="#161b22" stroke="#3d444d" stroke-width="0.6" d="M1 1h646v118.5h-646Z"/>
+<g fill="#9198a1" font-size="9">
+<text x="16" y="22.28">&gt; # expected: two records per animal and no pe(id), so the fit runs and warns</text>
+<text x="16" y="35.78">&gt; fit &lt;- model(y ~ cg + animal(id), d2, ped)</text>
 </g>
-<path fill="#9085e9" d="M6 27.5h3v52h-3Z"/>
+<g fill="#e6edf3" font-size="9">
+<text x="16" y="49.28">Warning: animal(id): 200 of the 200 animals with records of y have more than one record</text>
+<text x="16" y="62.78">(400 records between them) and the model has no pe(id): the permanent-environment</text>
+<text x="16" y="76.28">covariance between records of the same animal goes into var(animal), which inflates h2 by</text>
+<text x="16" y="89.78">more the larger the share of repeated records; add pe(id), the repeatability model</text>
+</g>
+<path fill="#9085e9" d="M6 41h3v52h-3Z"/>
 </svg>

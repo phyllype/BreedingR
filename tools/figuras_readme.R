@@ -20,7 +20,7 @@
 # README-gibbs:      tracos das cadeias e posteriori da herdabilidade.
 # README-genomics:   espectro de G e o nucleo do APY; acuracia dos caminhos do passo unico;
 #                    efeitos de marcador com QTL plantados.
-# README-diagnostics: ESS e R-hat da cadeia.
+# README-diagnostics: R-hat e ESS da cadeia, cada um no seu painel e com o seu limite.
 # README-message:    um aviso de verificacao de estrutura, como o console o mostra.
 # README-selection:  rank_drift() do topo antes e depois da progenie; o indice de dois caracteres.
 # README-qc:         parentage_check() com pais trocados a mao; o que cada filtro do qc_genotypes() tira.
@@ -611,6 +611,41 @@ if (quer("mt")) {
   for (tema in names(temas)) figura_mt(tema)
 }
 
+# mcmc_diagnostics() em dois paineis, cada criterio no seu eixo e com o seu limite: o R-hat (as
+# cadeias concordam, abaixo de 1.01) e o tamanho efetivo da amostra (abaixo de 400 a cadeia e
+# curta). Num painel so, o eixo era o ESS e o rotulo o R-hat, e tres R-hat iguais em pontos
+# diferentes nao diziam nada.
+paineis_mcmc <- function(t, tab, md, mar_esq = 7.6) {
+  rotulo <- sub("var(animal) / phenotypic", "heritability", tab$parameter, fixed = TRUE)
+  yy <- rev(seq_along(rotulo))
+  lim_r <- 1.01
+  estilo(t, mar = c(4, mar_esq, 2.6, 1))
+  xr <- c(min(0.998, min(tab$rhat) - 0.001), max(lim_r + 0.004, max(tab$rhat) + 0.002))
+  plot(0, type = "n", xlim = xr, ylim = c(0.4, length(yy) + 0.6), yaxt = "n", bty = "n",
+       xlab = "R-hat (chains agree when it is near 1)", ylab = "")
+  abline(v = axTicks(1), col = t$grade, lwd = 0.6)
+  rect(lim_r, 0.4, xr[2], length(yy) + 0.6, col = t$neutro, border = NA)
+  abline(v = lim_r, col = t$fill, lty = 2, lwd = 1.4)
+  axis(2, at = yy, labels = rotulo, tick = FALSE, cex.axis = 0.85, col.axis = t$texto)
+  title(main = "R-hat: below 1.01", font.main = 1, cex.main = 1, adj = 0, line = 1)
+  points(tab$rhat, yy, pch = 21, bg = t$ponto, col = t$ponto, cex = 1.4)
+  text(tab$rhat, yy, sprintf("%.3f", tab$rhat), pos = 3, cex = 0.72, col = t$texto, offset = 0.6)
+  text(lim_r, length(yy) + 0.45, "1.01", pos = 4, cex = 0.72, col = t$fill)
+  estilo(t, mar = c(4, 1.5, 2.6, 1))
+  plot(0, type = "n", xlim = c(0, max(tab$ess_bulk, 400) * 1.2), ylim = c(0.4, length(yy) + 0.6),
+       yaxt = "n", bty = "n", xlab = "bulk effective sample size (draws)", ylab = "")
+  abline(v = axTicks(1), col = t$grade, lwd = 0.6)
+  rect(0, 0.4, 400, length(yy) + 0.6, col = t$neutro, border = NA)
+  abline(v = 400, col = t$fill, lty = 2, lwd = 1.4)
+  title(main = sprintf('Effective sample size: above 400; verdict "%s"', md$verdict), font.main = 1,
+        cex.main = 1, adj = 0, line = 1)
+  segments(0, yy, tab$ess_bulk, yy, col = t$leve, lwd = 1)
+  points(tab$ess_bulk, yy, pch = 21, bg = t$ponto, col = t$ponto, cex = 1.4)
+  text(tab$ess_bulk, yy, sprintf("%.0f", tab$ess_bulk), pos = 3, cex = 0.72, col = t$texto,
+       offset = 0.6)
+  text(400, length(yy) + 0.45, "400", pos = 4, cex = 0.72, col = t$fill)
+}
+
 # ---- 10. gibbs(): cadeias e posteriori ---------------------------------------------------------
 if (quer("gibbs") || quer("diagnostics")) {
   s <- simulate_breeding(n_founders = 60, n_generations = 3, offspring_per_generation = 800,
@@ -778,7 +813,6 @@ if (quer("genomics")) {
 # ---- 16. diagnosticos: a cadeia ---------------------------------------------------------------
 if (quer("diagnostics")) {
   tab <- md$table
-  rotulo <- sub("var(animal) / phenotypic", "heritability", tab$parameter, fixed = TRUE)
   cat(sprintf("README-diagnostics: ESS %s; R-hat %s\n",
               paste(sprintf("%.0f", tab$ess_bulk), collapse = " "),
               paste(sprintf("%.3f", tab$rhat), collapse = " ")))
@@ -786,21 +820,9 @@ if (quer("diagnostics")) {
   figura_diagnostics <- function(tema) {
     t <- temas[[tema]]
     f <- arquivo("diagnostics", tema)
-    abre(f, 5.2, 3.7)
-    yy <- rev(seq_along(rotulo))
-    estilo(t, mar = c(4, 7.6, 2.6, 1))
-    plot(0, type = "n", xlim = c(0, max(tab$ess_bulk) * 1.25), ylim = c(0.4, length(yy) + 0.6),
-         yaxt = "n", bty = "n", xlab = "bulk effective sample size", ylab = "")
-    abline(v = axTicks(1), col = t$grade, lwd = 0.6)
-    abline(v = 400, col = t$fill, lty = 2, lwd = 1.4)
-    axis(2, at = yy, labels = rotulo, tick = FALSE, cex.axis = 0.85, col.axis = t$texto)
-    title(main = sprintf('mcmc_diagnostics(): verdict "%s"', md$verdict), font.main = 1,
-          cex.main = 1, adj = 0, line = 1)
-    segments(0, yy, tab$ess_bulk, yy, col = t$leve, lwd = 1)
-    points(tab$ess_bulk, yy, pch = 21, bg = t$ponto, col = t$ponto, cex = 1.4)
-    text(tab$ess_bulk, yy, sprintf("R-hat %.3f", tab$rhat), pos = 3, cex = 0.72, col = t$texto,
-         offset = 0.6)
-    text(400, length(yy) + 0.45, "400", pos = 4, cex = 0.72, col = t$fill)
+    abre(f, 9, 3.2)
+    layout(matrix(1:2, 1), widths = c(1.3, 1))
+    paineis_mcmc(t, tab, md)
     fecha(f)
   }
   for (tema in names(temas)) figura_diagnostics(tema)
@@ -819,7 +841,8 @@ if (quer("message")) {
   aviso <- grep("pe\\(id\\)", avisos, value = TRUE)[1]
   stopifnot(!is.na(aviso))
   blocos <- list(
-    list(cmd = "> fit <- model(y ~ cg + animal(id), d2, ped)   # two records per animal",
+    list(cmd = c("> # expected: two records per animal and no pe(id), so the fit runs and warns",
+                 "> fit <- model(y ~ cg + animal(id), d2, ped)"),
          texto = strwrap(paste("Warning:", aviso), width = 92), marca = "s3"))
   n_linhas <- sum(vapply(blocos, function(b) length(b$cmd) + length(b$texto), 0L)) + 1L
   cat(sprintf("README-message: %d linhas\n", n_linhas))

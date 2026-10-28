@@ -279,7 +279,7 @@ mcmc_diagnostics(gb)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="man/figures/README-diagnostics-dark.svg">
-  <img src="man/figures/README-diagnostics.svg" width="58%" alt="The effective sample size and R-hat of each component of a Gibbs chain">
+  <img src="man/figures/README-diagnostics.svg" width="100%" alt="R-hat of each component of a Gibbs chain against the limit 1.01, and its bulk effective sample size against the limit 400">
 </picture>
 
 <picture>
@@ -287,8 +287,10 @@ mcmc_diagnostics(gb)
   <img src="man/figures/README-message.svg" width="100%" alt="Console output of a structure check: a warning for repeated records without pe()">
 </picture>
 
-*Above: `mcmc_diagnostics()` on the chains of `gibbs()`. Below: a structure check, as the
-console shows it.*
+*Above: `mcmc_diagnostics()` on three chains of `gibbs()`; the verdict is "ok" when every
+R-hat is below 1.01 and every effective sample size is above 400. Below: what a structure
+check prints. The warning is expected: the data have two records per animal and the model
+has no `pe(id)`, so the fit runs and says what to add.*
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="man/figures/README-qc-dark.svg">
